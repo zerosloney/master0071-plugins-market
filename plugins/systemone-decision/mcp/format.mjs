@@ -1,6 +1,21 @@
 // format.mjs — 决策结果的归一化、派生、模板渲染与 Markdown 摘要。纯函数，零依赖。
 
 /**
+ * 取出可用的 score 数值，无效时返回 null。
+ * 绝不能用 `?? 0` 或直接 `Number()` 兜底：`null ?? 0` 得 0，而 `Number(null) === 0`，
+ * 两者都会把「模型没给分值」悄悄变成 0 分，再经 legend[0] 捏造出一个最低等级标签，
+ * 产出一条看起来完全正常、confidence 还很高的假判定。所有 score 读取都必须走这里。
+ * @param {object} answer - SystemOne 原始答案
+ * @returns {number | null}
+ */
+function finiteScore(answer) {
+  const raw = answer ? answer.score : undefined;
+  if (raw === null || raw === undefined) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * 归一化单个答案为逐题明细（answers[qid]）。
  * @param {object} question - 问题定义（含 type / criteria）
  * @param {object} answer - SystemOne 原始答案
@@ -22,8 +37,9 @@ export function normalizeAnswer(question, answer) {
     out.probability = p;
     out.confidence = p === null ? null : Math.max(p, 1 - p);
   } else if (out.type === 'score') {
-    out.value = typeof answer.score === 'number' ? Math.round(answer.score * 1000) / 1000 : null;
-    out.level = (answer.legend || {})[String(Math.round(answer.score ?? 0))] ?? null;
+    const score = finiteScore(answer);
+    out.value = score === null ? null : Math.round(score * 1000) / 1000;
+    out.level = score === null ? null : (answer.legend || {})[String(Math.round(score))] ?? null;
     out.probabilities = answer.probabilities || {};
     out.confidence = typeof answer.confidence === 'number' ? answer.confidence : null;
   }
@@ -54,8 +70,8 @@ export function normalizeDecision(rawAnswers, questions = {}) {
       continue;
     }
     if (type === 'score') {
-      const score = Number(raw.score);
-      const idx = Number.isFinite(score) ? Math.round(score) : null;
+      const score = finiteScore(raw);
+      const idx = score === null ? null : Math.round(score);
       decision[qid] = idx;
       const legend = raw.legend || {};
       const scale = Array.isArray(question?.criteria) ? question.criteria : [];
@@ -85,6 +101,9 @@ export function deriveFields(deriveSpec, decision) {
     if (!spec || typeof spec !== 'object' || typeof spec.question !== 'string') continue;
     const value = decision?.[spec.question];
     if (Array.isArray(spec.values)) {
+      // 判空必须显式做：Number(null) === 0，缺分值会被钳到 values[0] 派生出
+      // 一个凭空而来的最低档（如 severity 未知 → priority P4）
+      if (value === null || value === undefined) continue;
       const idx = Number(value);
       if (!Number.isFinite(idx)) continue;
       const clamped = Math.min(Math.max(Math.round(idx), 0), spec.values.length - 1);
@@ -174,13 +193,14 @@ function choiceLine(label, answer, question) {
 }
 
 function scoreLine(label, answer, question) {
-  const { score, confidence, legend, probabilities } = answer;
-  const idx = Number.isFinite(Number(score)) ? Math.round(Number(score)) : null;
+  const { confidence, legend, probabilities } = answer;
+  const score = finiteScore(answer);
+  const idx = score === null ? null : Math.round(score);
   const text =
     idx != null
       ? (legend?.[String(idx)] ?? (Array.isArray(question?.criteria) ? question.criteria[idx] : undefined) ?? String(idx))
       : '无法判断';
-  const raw = Number.isFinite(Number(score)) ? ` ${Number(score).toFixed(2)}` : '';
+  const raw = score === null ? '' : ` ${score.toFixed(2)}`;
   return `- **${label}**：${text}${raw}（置信度 ${fmtPct(confidence)}｜分布 ${topProbs(probabilities, 3)}）`;
 }
 

@@ -59,6 +59,29 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ base_resp: { status_code: 100105, status_msg: 'model error: no model u2-decision permission' } }));
       return;
     }
+    // 缺陷回归夹具：score 答案为畸形（缺 score 字段 / score=null）时，模型仍会返回
+    // legend + 高 confidence。归一化必须把它标成「无法判断」，绝不能回退到 0 分再取
+    // legend[0] 捏造出一个等级标签，否则会产出一条看起来完全正常的高置信假判定。
+    if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        if (q.type !== 'score') {
+          answers[qid] = answerFor(qid, q);
+          continue;
+        }
+        const malformed = {
+          type: 'score',
+          legend: { '0': '轻微问题，不影响功能', '1': '部分功能受影响，但存在替代方案', '2': '核心功能不可用，没有替代方案', '3': '造成严重业务或安全影响' },
+          probabilities: { '0': 0.1, '1': 0.1, '2': 0.1, '3': 0.1 },
+          confidence: 0.91,
+        };
+        if (parsed.state === 'mock:score-null') malformed.score = null;
+        answers[qid] = malformed;
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }));
+      return;
+    }
     const answers = {};
     for (const [qid, q] of Object.entries(parsed.questions || {})) answers[qid] = answerFor(qid, q);
     res.setHeader('content-type', 'application/json');
@@ -210,6 +233,28 @@ const main = async () => {
       assert.ok(!('criteria' in received[0].body.questions.escalate), 'noul 问题不应携带 criteria');
       assert.equal(received[0].body.questions.severity.criteria.length, 4);
     });
+
+    // 回归：畸形 score（缺 score 字段 / score=null）不得被当成 0 分而捏造出等级标签，
+    // 也不得顺着 severity 派生出凭空的 P4 优先级——那等于凭一个坏响应把工单降级。
+    // 放在端点断言之后：那条断言硬编码了 received.length === 1。
+    for (const [variant, sentinel] of [
+      ['缺 score 字段', 'mock:score-missing'],
+      ['score = null', 'mock:score-null'],
+    ]) {
+      const bad = toolResult(
+        await runScenario(client, { action: 'run', scenario: 'customer_service', state: sentinel })
+      );
+      check(`畸形 score（${variant}）判为无法判断，不捏造等级标签与优先级`, () => {
+        assert.equal(bad.answers.severity.value, null, 'value 不应被兜底成 0');
+        assert.equal(bad.answers.severity.level, null, 'level 不得回退到 legend[0]');
+        assert.equal(bad.decision.severity, null, 'decision 不得因 Number(null) 变成 0');
+        assert.equal(bad.labels.severity, '无法判断');
+        assert.equal(bad.derived.priority, undefined, '不得派生凭空的优先级');
+        assert.ok(bad.summary.includes('无法判断'), '逐题明细必须显示无法判断');
+        assert.ok(!bad.summary.includes('轻微问题，不影响功能'), '摘要里不得出现捏造的等级标签');
+        assert.ok(!bad.recommendation.includes('P4'), '建议里不得出现凭空的优先级');
+      });
+    }
 
     const aliasRun = toolResult(await runScenario(client, { action: 'run', scenario: '工单分流', state: '简单咨询类工单' }));
     check('场景支持中文别名查找', () => {
