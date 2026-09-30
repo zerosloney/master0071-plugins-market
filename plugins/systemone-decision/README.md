@@ -1,14 +1,100 @@
 # systemone-decision
 
-ZCode 插件：接入 SystemOne 决策协议（默认 unisound u2-decision），提供 4 个预设决策工具和 1 个通用决策工具，供 Agent 在流程中做结构化判定：
+ZCode 插件：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
-- **工单分流** `ticket_triage` — 归属团队 + 严重程度 + 是否升级值班
-- **内容审核** `content_moderate` — 处置动作 + 违规类型 + 风险等级
-- **Agent 路由** `agent_route` — 执行 Agent + 复杂度 + 是否转人工
-- **结果校验** `verify_result` — 是否满足要求 + 主要问题 + 质量等级
-- **自定义决策** `systemone_decide` — 任意 choice / noul / score 问题组合
+- **场景决策** `systemone_scenario` — `action=list / describe / run`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
+- **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
 
-零依赖 MCP 服务器（stdio），要求 Node ≥ 18。
+零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
+
+## 内置场景（11 个）
+
+每个场景 = 3 个结构化问题，判据可通过 `params` 覆盖为实际业务选项。
+
+| 场景 id | 业务域 | 判定内容 |
+| --- | --- | --- |
+| `customer_service` | 客服运营 | 归属团队（choice）+ 严重程度（score）+ 是否升级值班（noul），派生 P1~P4 优先级 |
+| `content_moderation` | 内容审核 | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） |
+| `agent_routing` | 智能体路由 | 执行 Agent（choice）+ 复杂度（score）+ 是否转人工（noul），派生 S/M/L/XL |
+| `result_verification` | 结果校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） |
+| `software_dev` | 软件开发 | 任务类型 bugfix/feature/refactor/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul），派生 S/M/L/XL |
+| `sales_lead` | 销售线索 | 线索质量（score）+ 线索归属（choice）+ 是否跟进（noul） |
+| `risk_control` | 金融风控 | 交易异常（score）+ 风险等级（choice）+ 是否人工复核（noul） |
+| `recruiting` | 招聘 HR | 简历匹配度（score）+ 岗位归属（choice）+ 是否进入下一轮（noul） |
+| `data_governance` | 数据治理 | 文档打标（choice）+ 问题归因（choice）+ 是否敏感数据（noul） |
+| `education` | 教育内容 | 知识点归类（choice）+ 难度分级（score）+ 合规预检（noul） |
+| `requirements` | 需求与变更 | 优先级（score）+ 变更风险（choice）+ 是否拆分派发（noul） |
+
+场景支持中文别名（如 `工单分流`、`审核`），`action=list` 可用 `keyword` 过滤。
+
+## 用法示例
+
+```
+systemone_scenario(action: "run",
+                   scenario: "customer_service",
+                   state: "订单支付后超过 24 小时仍未到账，用户无法继续使用核心服务，要求立即处理。")
+```
+
+返回（节选）：
+
+```json
+{
+  "ok": true,
+  "scenario": "customer_service",
+  "answers":  { "department": { "value": "billing", "confidence": 0.893 }, "…": "逐题明细，含概率分布" },
+  "decision": { "department": "billing", "severity": 2, "escalate": true },
+  "labels":   { "department": "支付、退款、账单和计费问题", "severity": "核心功能不可用，没有替代方案", "escalate": "是" },
+  "derived":  { "priority": "P2" },
+  "needs_human_review": false,
+  "recommendation": "转 支付、退款、账单和计费问题 处理（优先级 P2）。需立即通知值班人员",
+  "summary": "## 客服运营 · 工单派单与分流 …（Markdown 摘要）"
+}
+```
+
+**判据覆盖**（`params`，按问题 id）：
+
+```jsonc
+{
+  "action": "run", "scenario": "customer_service", "state": "…",
+  "params": {
+    // criteria 整体替换选项（choice 传对象，score 传 ≥2 级标签数组）
+    "department": { "criteria": { "vip": "VIP 专属通道", "general": "普通通道" } },
+    // addCriteria 在默认选项上追加，不丢默认项（仅 choice）
+    // 也可覆盖 instructions / label
+  }
+}
+```
+
+接入真实业务时**传入实际可选项比默认值更准**，能用就传。
+
+## 自定义场景（设置页 / 环境变量）
+
+内置场景不够用时，在设置页 **Custom Scenarios (JSON)** 粘贴场景 JSON 数组（可多行），重启 ZCode 生效；**同 id 覆盖内置场景，否则追加**，无需改代码。也可用环境变量 `SYSTEMONE_SCENARIOS`（建议压缩成单行）。示例：
+
+```json
+[
+  {
+    "id": "intent",
+    "title": "通用意图识别",
+    "description": "把任意输入归类到业务意图。",
+    "aliases": ["意图"],
+    "questions": {
+      "intent": { "type": "choice", "label": "意图", "instructions": "用户这句话最想做什么？",
+        "criteria": { "query": "查询/检索信息", "action": "执行一个操作", "create": "新建内容或文件",
+                      "modify": "修改已有内容", "analyze": "分析、对比、总结", "explain": "解释原理或概念",
+                      "debug": "排查报错或异常", "chat": "闲聊、寒暄", "other": "以上都不是" } },
+      "urgency": { "type": "score", "label": "紧急度", "instructions": "这件事有多紧急？",
+        "criteria": ["不急", "可以等", "尽快", "马上"] }
+    },
+    "derive": { "level": { "question": "urgency", "values": ["P4", "P3", "P2", "P1"] } },
+    "recommendation": "意图「{intent}」，紧急度 {level}"
+  }
+]
+```
+
+- 字段说明、建议模板语法与校验规则见 `skills/systemone-decision/references/scenarios.md`。
+- 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
+- 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
 ## ZCode 设置页配置
 
@@ -19,6 +105,7 @@ ZCode 插件：接入 SystemOne 决策协议（默认 unisound u2-decision），
 | Base URL | SystemOne 兼容端点根地址 | 用内置默认，或环境变量 `SYSTEMONE_BASE_URL` |
 | Model | 决策模型编码 | 用内置默认 `u2-decision`，或环境变量 `SYSTEMONE_MODEL` |
 | Timeout (ms) | 请求超时毫秒数 | 用内置默认 30000，或环境变量 `SYSTEMONE_TIMEOUT_MS` |
+| Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 11 个场景 |
 
 优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
 
@@ -57,6 +144,11 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量，未配置 Key 时自动跳过。hook 内部请求超时上限 12 秒（hook 进程上限 15 秒），失败绝不阻塞用户输入。
 
+## 结果解读
+
+- `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、choice 无法给出选项、或 noul 概率落在 0.45~0.55 模糊区间时，`needs_human_review = true` 并列出 `low_confidence_questions`。
+- **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
+
 ## 开发与测试
 
 ```
@@ -64,4 +156,15 @@ node test/smoke.mjs
 node test/hook.smoke.mjs
 ```
 
-冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / tools/call / 参数校验 / 缺 Key 报错），不需要真实 API Key。
+冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错），不需要真实 API Key。
+
+## 架构
+
+```
+mcp/
+├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用、信任边界校验、2 个工具定义
+├── scenarios.mjs  场景库（11 个内置 + 设置页/环境变量自定义场景合并，纯数据）+ 校验与查找
+└── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
+hooks/             需求明确度预检（UserPromptSubmit）
+skills/            使用指引与场景文档
+```

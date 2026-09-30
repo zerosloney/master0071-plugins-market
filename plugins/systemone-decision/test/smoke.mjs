@@ -113,6 +113,11 @@ const check = (name, fn) => {
   }
 };
 
+const runScenario = (client, arguments_) =>
+  client.call('tools/call', { name: 'systemone_scenario', arguments: arguments_ });
+const decide = (client, arguments_) => client.call('tools/call', { name: 'systemone_decide', arguments: arguments_ });
+const toolResult = (r) => JSON.parse(r.result.content[0].text);
+
 const main = async () => {
   await new Promise((r) => mock.listen(0, '127.0.0.1', r));
   const port = mock.address().port;
@@ -126,71 +131,215 @@ const main = async () => {
     });
 
     const list = await client.call('tools/list', {});
-    check('tools/list 提供 5 个工具', () => {
+    check('tools/list 只提供 2 个工具（控制 schema 开销）', () => {
       assert.deepEqual(
         list.result.tools.map((t) => t.name).sort(),
-        ['agent_route', 'content_moderate', 'systemone_decide', 'ticket_triage', 'verify_result']
+        ['systemone_decide', 'systemone_scenario']
       );
     });
 
-    const toolResult = (r) => JSON.parse(r.result.content[0].text);
+    const scenarioList = toolResult(await runScenario(client, { action: 'list' }));
+    check('action=list 列出 11 个内置场景', () => {
+      assert.equal(scenarioList.ok, true);
+      assert.equal(scenarioList.count, 11);
+      assert.deepEqual(
+        scenarioList.scenarios.map((s) => s.id),
+        [
+          'customer_service', 'content_moderation', 'agent_routing', 'result_verification', 'sales_lead',
+          'risk_control', 'recruiting', 'data_governance', 'education', 'requirements', 'software_dev',
+        ]
+      );
+      assert.ok(scenarioList.summary.includes('software_dev'));
+    });
+    const byTitle = toolResult(await runScenario(client, { action: 'list', keyword: '工单' }));
+    const byAlias = toolResult(await runScenario(client, { action: 'list', keyword: '审核' }));
+    check('action=list 支持 keyword 过滤（标题/别名匹配）', () => {
+      assert.deepEqual(byTitle.scenarios.map((s) => s.id), ['customer_service']);
+      assert.deepEqual(byAlias.scenarios.map((s) => s.id), ['content_moderation']);
+    });
 
-    const triage = await client.call('tools/call', {
-      name: 'ticket_triage',
-      arguments: { ticket: '订单支付后超过 24 小时仍未到账，用户无法继续使用核心服务，要求立即处理。' },
+    const described = toolResult(await runScenario(client, { action: 'describe', scenario: 'customer_service' }));
+    check('action=describe 返回问题定义与判据', () => {
+      assert.equal(described.scenario, 'customer_service');
+      assert.equal(described.questions.length, 3);
+      const department = described.questions.find((q) => q.id === 'department');
+      assert.deepEqual(Object.keys(department.criteria).sort(), ['account', 'billing', 'other', 'product', 'technical']);
+      assert.ok(described.summary.includes('建议模板'));
     });
-    const t = toolResult(triage);
-    check('ticket_triage 归一化判定正确', () => {
-      assert.equal(t.answers.department.value, 'billing');
-      approx(t.answers.department.confidence, 0.8933094143867493);
-      assert.equal(t.answers.severity.value, 2.001);
-      assert.equal(t.answers.severity.level, '核心功能不可用，没有替代方案');
-      approx(t.answers.escalate.probability, 0.9603611826896667);
-      approx(t.answers.escalate.confidence, 0.9603611826896667);
-      assert.equal(t.needs_human_review, false);
-      assert.equal(t.meta.request_id, FIXTURE.request_id);
-      assert.equal(t.raw.answers.severity.score, 2.000796);
+
+    const triage = toolResult(
+      await runScenario(client, {
+        action: 'run',
+        scenario: 'customer_service',
+        state: '订单支付后超过 24 小时仍未到账，用户无法继续使用核心服务，要求立即处理。',
+      })
+    );
+    check('run 归一化判定正确（逐题明细）', () => {
+      assert.equal(triage.answers.department.value, 'billing');
+      approx(triage.answers.department.confidence, 0.8933094143867493);
+      assert.equal(triage.answers.severity.value, 2.001);
+      assert.equal(triage.answers.severity.level, '核心功能不可用，没有替代方案');
+      approx(triage.answers.escalate.probability, 0.9603611826896667);
+      approx(triage.answers.escalate.confidence, 0.9603611826896667);
+      assert.equal(triage.needs_human_review, false);
+      assert.deepEqual(triage.low_confidence_questions, []);
+      assert.equal(triage.meta.request_id, FIXTURE.request_id);
+      assert.equal(triage.raw.answers.severity.score, 2.000796);
     });
-    check('请求打到了正确端点并携带认证与请求体', () => {
+    check('run 输出速览结构：decision / labels / derived / recommendation / summary', () => {
+      assert.equal(triage.scenario, 'customer_service');
+      assert.deepEqual(triage.decision, { department: 'billing', severity: 2, escalate: true });
+      assert.equal(triage.labels.department, '支付、退款、账单和计费问题');
+      assert.equal(triage.labels.severity, '核心功能不可用，没有替代方案');
+      assert.equal(triage.labels.escalate, '是');
+      assert.equal(triage.derived.priority, 'P2');
+      assert.ok(triage.recommendation.includes('P2'));
+      assert.ok(triage.recommendation.includes('需立即通知值班人员'));
+      assert.ok(triage.summary.startsWith('## 客服运营 · 工单派单与分流'));
+      assert.ok(triage.summary.includes('无需人工复核'));
+    });
+    check('请求打到了正确端点：认证、协议字段齐全且不泄漏本地展示字段', () => {
       assert.equal(received.length, 1);
       assert.equal(received[0].url, `/v1/systemone`);
       assert.equal(received[0].headers.authorization, 'Bearer test-key');
       assert.equal(received[0].body.model, 'u2-decision');
       assert.equal(received[0].body.state, '订单支付后超过 24 小时仍未到账，用户无法继续使用核心服务，要求立即处理。');
       assert.equal(received[0].body.questions.department.type, 'choice');
-      assert.equal(received[0].body.questions.escalate.type, 'noul');
-      assert.equal(received[0].body.questions.severity.type, 'score');
+      assert.equal(received[0].body.questions.department.criteria.technical, '产品故障、集成和技术缺陷类问题');
+      assert.ok(!('label' in received[0].body.questions.department), 'label 是本地展示字段，不应发给 API');
+      assert.ok(!('criteria' in received[0].body.questions.escalate), 'noul 问题不应携带 criteria');
+      assert.equal(received[0].body.questions.severity.criteria.length, 4);
     });
 
-    const decide = await client.call('tools/call', {
-      name: 'systemone_decide',
-      arguments: {
+    const aliasRun = toolResult(await runScenario(client, { action: 'run', scenario: '工单分流', state: '简单咨询类工单' }));
+    check('场景支持中文别名查找', () => {
+      assert.equal(aliasRun.ok, true);
+      assert.equal(aliasRun.scenario, 'customer_service');
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: 'VIP 用户投诉扣费异常',
+      params: { department: { criteria: { vip: 'VIP 专属通道', general: '普通通道' } } },
+    });
+    check('params.criteria 整体替换选项', () => {
+      const last = received[received.length - 1];
+      assert.deepEqual(last.body.questions.department.criteria, { vip: 'VIP 专属通道', general: '普通通道' });
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { department: { addCriteria: { vip: 'VIP 专属通道' } } },
+    });
+    check('params.addCriteria 在默认选项上追加、不丢默认项', () => {
+      const last = received[received.length - 1];
+      assert.deepEqual(
+        Object.keys(last.body.questions.department.criteria).sort(),
+        ['account', 'billing', 'other', 'product', 'technical', 'vip']
+      );
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { severity: { instructions: '这个问题对业务的严重程度有多高？' } },
+    });
+    check('params.instructions 覆盖问题描述', () => {
+      const last = received[received.length - 1];
+      assert.equal(last.body.questions.severity.instructions, '这个问题对业务的严重程度有多高？');
+      assert.equal(last.body.questions.severity.criteria.length, 4);
+    });
+
+    const badScore = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { severity: { criteria: ['只有一级'] } },
+    });
+    check('score 判据覆盖少于 2 级被拒绝', () => {
+      assert.equal(badScore.result.isError, true);
+      assert.match(badScore.result.content[0].text, /至少需要 2 个等级/);
+    });
+
+    const badQid = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { nope: { instructions: '?' } },
+    });
+    check('params 指向未知问题 id 时给出可覆盖清单', () => {
+      assert.equal(badQid.result.isError, true);
+      assert.match(badQid.result.content[0].text, /未知问题 id "nope"/);
+      assert.match(badQid.result.content[0].text, /department、severity、escalate/);
+    });
+
+    const devRun = toolResult(
+      await runScenario(client, {
+        action: 'run',
+        scenario: 'software_dev',
+        state: '修复登录页在 Safari 下无法提交表单的问题',
+      })
+    );
+    check('software_dev 场景端到端（动态答案归一化 + 派生 effort）', () => {
+      assert.equal(devRun.ok, true);
+      assert.equal(devRun.decision.task_type, 'bugfix');
+      assert.equal(devRun.labels.task_type, '修复缺陷或报错');
+      assert.equal(devRun.decision.complexity, 0);
+      assert.equal(devRun.derived.effort, 'S');
+      assert.equal(devRun.decision.needs_context, true);
+      assert.match(devRun.recommendation, /先检索代码库/);
+      assert.equal(devRun.needs_human_review, false);
+    });
+
+    const unknown = await runScenario(client, { action: 'run', scenario: 'nope', state: 'x' });
+    check('未知场景报错并附可用场景列表', () => {
+      assert.equal(unknown.result.isError, true);
+      assert.match(unknown.result.content[0].text, /未知场景 "nope"/);
+      assert.match(unknown.result.content[0].text, /software_dev/);
+    });
+
+    const noState = await runScenario(client, { action: 'run', scenario: 'customer_service' });
+    check('run 缺少 state 被拒绝', () => {
+      assert.equal(noState.result.isError, true);
+      assert.match(noState.result.content[0].text, /state/);
+    });
+
+    const noScenario = await runScenario(client, { action: 'describe' });
+    check('describe 缺少 scenario 被拒绝并列出可用场景', () => {
+      assert.equal(noScenario.result.isError, true);
+      assert.match(noScenario.result.content[0].text, /scenario/);
+      assert.match(noScenario.result.content[0].text, /customer_service/);
+    });
+
+    const d = toolResult(
+      await decide(client, {
         state: '把这份 50 页 PDF 的中文合同翻译成英文',
         questions: {
           model: { type: 'choice', instructions: '应使用哪个模型？', criteria: { flash: '快且便宜', pro: '质量优先' } },
         },
-      },
-    });
-    const d = toolResult(decide);
-    check('systemone_decide 通用工具走通（answers 按请求 qid 对齐）', () => {
+      })
+    );
+    check('systemone_decide 通用工具走通（answers 按请求 qid 对齐 + summary）', () => {
+      assert.equal(d.ok, true);
+      assert.equal(d.scenario, null);
       assert.equal(d.answers.model.value, 'flash');
       assert.equal(d.answers.model.present, true);
       approx(d.answers.model.confidence, 0.9);
+      assert.equal(d.decision.model, 'flash');
+      assert.ok(d.summary.includes('SystemOne 通用决策'));
     });
 
-    const bad = await client.call('tools/call', {
-      name: 'systemone_decide',
-      arguments: { state: 'x', questions: { q1: { type: 'essay', instructions: '?' } } },
-    });
+    const bad = await decide(client, { state: 'x', questions: { q1: { type: 'essay', instructions: '?' } } });
     check('非法题型返回 isError 与明确原因', () => {
       assert.equal(bad.result.isError, true);
       assert.match(bad.result.content[0].text, /type 必须/);
     });
 
-    const perm = await client.call('tools/call', {
-      name: 'systemone_decide',
-      arguments: { state: 'mock:permission-error', questions: { q1: { type: 'noul', instructions: '是吗？' } } },
-    });
+    const perm = await decide(client, { state: 'mock:permission-error', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
     check('模型无权限错误附带排查提示', () => {
       assert.equal(perm.result.isError, true);
       assert.match(perm.result.content[0].text, /HTTP 404/);
@@ -199,6 +348,79 @@ const main = async () => {
     });
   } finally {
     client.close();
+  }
+
+  // 自定义场景：设置页注入 SYSTEMONE_PLUGIN_SCENARIOS（新增 legal_review + 覆盖 customer_service + 一条非法条目）
+  const customScenarios = JSON.stringify([
+    {
+      id: 'legal_review',
+      title: '法务 · 合同风险预审',
+      description: '判断合同风险等级与是否需要法务介入。',
+      aliases: ['法务', '合同'],
+      questions: {
+        risk: { type: 'score', label: '风险等级', instructions: '这份合同的风险有多高？', criteria: ['无风险', '低风险', '中风险', '高风险'] },
+        clause: { type: 'choice', label: '问题条款', instructions: '主要问题出在哪类条款？', criteria: { none: '无问题条款', liability: '责任与赔偿条款', payment: '付款与结算条款', other: '其他' } },
+        lawyer: { type: 'noul', label: '法务介入', instructions: '是否需要法务介入？' },
+      },
+      recommendation: '风险等级 {risk}。{lawyer?需法务介入|可业务自审}',
+    },
+    {
+      id: 'customer_service',
+      title: '客服运营 · 覆盖版',
+      questions: {
+        department: { type: 'choice', label: '受理组', instructions: '该工单应分派给哪个组？', criteria: { vip: 'VIP 专属通道', general: '普通通道' } },
+        severity: { type: 'score', label: '严重程度', instructions: '严重程度是？', criteria: ['低', '高'] },
+        escalate: { type: 'noul', label: '升级', instructions: '是否升级？' },
+      },
+    },
+    { id: 'bad_one', title: '坏场景', questions: { q1: { type: 'essay', instructions: '?' } } },
+  ]);
+  const customClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_PLUGIN_SCENARIOS: customScenarios,
+  });
+  try {
+    const customList = toolResult(await runScenario(customClient, { action: 'list' }));
+    check('自定义场景：新增生效、同 id 覆盖内置、非法条目被跳过', () => {
+      assert.equal(customList.count, 12); // 11 内置 + legal_review；customer_service 原位覆盖；bad_one 跳过
+      const byId = new Map(customList.scenarios.map((s) => [s.id, s]));
+      assert.equal(byId.get('legal_review').source, 'custom');
+      assert.equal(byId.get('customer_service').source, 'custom');
+      assert.equal(byId.get('software_dev').source, 'builtin');
+      assert.ok(!byId.has('bad_one'));
+      assert.ok(customList.summary.includes('（自定义）'));
+    });
+
+    const legalRun = toolResult(await runScenario(customClient, { action: 'run', scenario: '法务', state: '甲方免责条款过于宽泛的采购合同' }));
+    check('自定义场景可运行（含别名查找与建议模板渲染）', () => {
+      assert.equal(legalRun.ok, true);
+      assert.equal(legalRun.scenario, 'legal_review');
+      assert.deepEqual(legalRun.decision, { risk: 0, clause: 'none', lawyer: true });
+      assert.equal(legalRun.labels.clause, '无问题条款');
+      assert.equal(legalRun.recommendation, '风险等级 无风险。需法务介入');
+    });
+
+    await runScenario(customClient, { action: 'run', scenario: 'customer_service', state: 'VIP 用户投诉' });
+    check('同 id 覆盖后 run 使用覆盖判据', () => {
+      const last = received[received.length - 1];
+      assert.deepEqual(last.body.questions.department.criteria, { vip: 'VIP 专属通道', general: '普通通道' });
+      assert.equal(last.body.questions.severity.criteria.length, 2);
+    });
+  } finally {
+    customClient.close();
+  }
+
+  // 坏 JSON：解析失败时回退纯内置场景库，不致命
+  const brokenClient = new McpClient({ SYSTEMONE_PLUGIN_SCENARIOS: '{"oops' });
+  try {
+    const brokenList = toolResult(await runScenario(brokenClient, { action: 'list' }));
+    check('自定义场景 JSON 解析失败时回退内置场景库', () => {
+      assert.equal(brokenList.count, 11);
+      assert.equal(brokenList.scenarios.find((s) => s.id === 'customer_service').source, 'builtin');
+    });
+  } finally {
+    brokenClient.close();
   }
 
   // 缺 Key 场景：清空两个 Key 环境变量
@@ -226,13 +448,13 @@ const main = async () => {
   });
   try {
     const ui = await uiClient.call('tools/call', {
-      name: 'systemone_decide',
-      arguments: { state: 'ui-config', questions: { q1: { type: 'noul', instructions: '是吗？' } } },
+      name: 'systemone_scenario',
+      arguments: { action: 'run', scenario: 'customer_service', state: 'ui-config' },
     });
     const u = JSON.parse(ui.result.content[0].text);
     const last = received[received.length - 1];
     check('设置页变量优先于环境变量，留空项回退', () => {
-      assert.equal(u.answers.q1.present, true);
+      assert.equal(u.ok, true);
       assert.equal(last.url, '/v1/systemone');
       assert.equal(last.body.model, 'alt-decision');
     });

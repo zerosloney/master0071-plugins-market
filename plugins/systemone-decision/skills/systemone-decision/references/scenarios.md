@@ -1,134 +1,170 @@
-# 业务场景 → questions 组题参考
+# 场景目录与组题参考
 
-典型决策场景的组题方法：前 3 个场景用预设工具，其余 6 个用 `systemone_decide` 组题。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
+`systemone_scenario` 的 11 个内置场景目录、`params` 判据覆盖指南，以及场景库外用 `systemone_decide` 组题的配方。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
 
-## 快速索引
+## 场景快速索引
 
-| 场景 | 判定内容（题型） | 用法 |
-|------|------------------|------|
-| 客服运营 | 归属团队（choice）+ 升级 P0（noul）+ 严重度（score） | `ticket_triage` |
-| 内容审核 | 违规与否（noul）+ 类型归类（choice）+ 放行/复审/拦截（choice） | `content_moderate` |
-| 智能体路由 | 意图分流（choice）+ 是否调用工具（noul）+ 是否转人工（noul） | `agent_route` 或 `systemone_decide` |
-| 销售线索 | 质量评分（score）+ 线索分配（choice）+ 是否值得跟进（noul） | `systemone_decide` |
-| 金融风控 | 交易异常评分（score）+ 风险等级（choice）+ 是否人工复核（noul） | `systemone_decide` |
-| 招聘 HR | 简历匹配打分（score）+ 是否进入下一轮（noul）+ 岗位归属（choice） | `systemone_decide` |
-| 数据治理 | 文档打标（choice）+ 问题归因（choice）+ 是否敏感数据（noul） | `systemone_decide` |
-| 教育内容 | 知识点归类（choice）+ 难度评分（score）+ 合规预检（noul） | `systemone_decide` |
-| 需求与变更 | 优先级评分（score）+ 变更风险评级（score）+ 子任务派发（choice） | `systemone_decide` |
+| 场景 id | 别名 | 判定内容（题型） | 派生/建议 |
+|---------|------|------------------|-----------|
+| `customer_service` | 工单分流、客服、派单 | 归属团队（choice）+ 严重程度（score）+ 升级值班（noul） | severity→P4~P1 |
+| `content_moderation` | 内容审核、审核 | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） | 一句话处置建议 |
+| `agent_routing` | 任务路由、路由 | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul） | complexity→S/M/L/XL |
+| `result_verification` | 结果校验、校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | 一句话质检建议 |
+| `software_dev` | 开发、编程、编码、研发 | 任务类型（choice：bugfix/feature/refactor/review/test/docs/build/perf）+ 改动复杂度（score）+ 是否先探查代码库（noul） | complexity→S/M/L/XL |
+| `sales_lead` | 线索评分、销售 | 线索质量（score）+ 线索归属（choice）+ 是否跟进（noul） | — |
+| `risk_control` | 风控、反欺诈 | 交易异常（score）+ 风险等级（choice）+ 人工复核（noul） | — |
+| `recruiting` | 招聘、hr、resume | 简历匹配度（score）+ 岗位归属（choice）+ 进入下一轮（noul） | — |
+| `data_governance` | 数据治理、数据标注 | 文档标签（choice）+ 问题归因（choice）+ 敏感数据（noul） | — |
+| `education` | 教育、教学内容 | 知识点（choice）+ 难度（score）+ 合规预检（noul） | — |
+| `requirements` | 需求、变更管理 | 优先级（score）+ 变更风险（choice）+ 拆分派发（noul） | — |
 
-## 预设工具覆盖的场景
+用 `action=describe` 查看任意场景的问题定义与默认判据，用 `action=list` + `keyword` 按关键词找场景。
 
-- **客服运营** → `ticket_triage`：department / severity / escalate 三问原生对应；传实际 `departments` 团队表更准。
-- **内容审核** → `content_moderate`：`action` 即放行(approve)/复审(review)/拦截(reject)；"违规与否"由 `category` 是否为 none 与 `risk` 分值体现；传实际 `categories` 违规类型表更准。
-- **智能体路由** → `agent_route`：已含"是否转人工"（needs_human）。若还需要"是否调用工具"且想一次调用齐发，用 `systemone_decide`：
+## 自定义场景（设置页 JSON）
+
+场景库可在 ZCode 设置页（**Custom Scenarios (JSON)**）或环境变量 `SYSTEMONE_SCENARIOS` 里用 JSON 数组扩展：**同 id（大小写不敏感）覆盖内置场景，否则追加**，改动重启 ZCode 生效。适合把业务的固定判定沉淀为一等场景，避免每次用 `systemone_decide` 手拼 questions——下面"组题配方"里的例子都可以直接改造成自定义场景。
+
+### 场景字段
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | ✅ | 唯一标识；与内置场景同 id 即覆盖该场景 |
+| `title` | ✅ | 展示名 |
+| `description` | | 场景说明（`list` 时展示） |
+| `aliases` | | 别名数组，便于中文名查找 |
+| `questions` | ✅ | 问题映射，1~16 个；问题对象 `{type, instructions, label?, criteria?}`（label 缺省用问题 id） |
+| `derive` | | 派生字段：`{名: {question, values: [...]}}`（分值取整按下标映射，如 severity→P1~P4）或 `{名: {question, map: {...}}}` |
+| `recommendation` | | 建议模板，渲染为结果里的 `recommendation` 一句话建议 |
+
+### 校验规则
+
+- 问题 1~16 个（延迟随问题数线性增长）；choice 选项 2~26 个；score 分级 ≥2 级。
+- **非法条目整条跳过并在启动日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
+- 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
+
+### 建议模板语法
+
+| 语法 | 含义 |
+|------|------|
+| `{qid}` | 可读标签（choice=选项说明，score=分级说明，noul=是/否） |
+| `{qid.key}` | 原始值（choice=选项 key，score=取整分值，noul=true/false） |
+| `{qid.confidence}` | 置信度百分比 |
+| `{派生名}` | derive 派生字段 |
+| `{qid?文案A\|文案B}` | 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套） |
+
+### 示例
+
+```json
+[
+  {
+    "id": "legal_review",
+    "title": "法务 · 合同风险预审",
+    "description": "判断合同风险等级与是否需要法务介入。",
+    "aliases": ["法务", "合同"],
+    "questions": {
+      "risk":   { "type": "score",  "label": "风险等级", "instructions": "这份合同的风险有多高？",
+                  "criteria": ["无风险", "低风险", "中风险", "高风险"] },
+      "clause": { "type": "choice", "label": "问题条款", "instructions": "主要问题出在哪类条款？",
+                  "criteria": { "none": "无问题条款", "liability": "责任与赔偿条款",
+                                "payment": "付款与结算条款", "ip": "知识产权条款", "other": "其他" } },
+      "lawyer": { "type": "noul",   "label": "法务介入", "instructions": "是否需要法务介入？" }
+    },
+    "derive": { "level": { "question": "risk", "values": ["L1", "L2", "L3", "L4"] } },
+    "recommendation": "风险等级 {risk}（{level}），问题条款「{clause}」。{lawyer?需法务介入|可业务自审}"
+  }
+]
+```
+
+## params 判据覆盖
+
+四种覆盖方式，按问题 id 指定，只覆盖要改的题：
+
+```jsonc
+{
+  "action": "run", "scenario": "customer_service", "state": "…",
+  "params": {
+    // 1. criteria 整体替换选项（choice 传对象；score 传 ≥2 级标签数组，索引即分值）
+    "department": { "criteria": { "billing": "账单与支付", "technical": "技术故障" } },
+    // 2. addCriteria 在默认选项上追加/覆盖单个选项，不丢默认项（仅 choice）
+    // 3. instructions 覆盖问题描述：{ "severity": { "instructions": "…" } }
+    // 4. label 覆盖本地显示名：{ "escalate": { "label": "升级 PO" } }
+  }
+}
+```
+
+典型用法：
+
+- **`agent_routing` 传真实 Agent 名册**（默认名册是示例）：
 
 ```
-systemone_decide(
+systemone_scenario(action: "run", scenario: "agent_routing",
   state: <任务描述>,
-  questions: {
-    intent:   {type: "choice", instructions: "该请求属于哪类意图？", criteria: {…实际意图表…}},
-    use_tool: {type: "noul",   instructions: "完成该任务是否需要调用外部工具？"},
-    human:    {type: "noul",   instructions: "是否需要转交人工处理？"}
-  }
-)
+  params: { agent: { criteria: {
+    "coder-zh": "中文编码助手", "researcher": "检索调研助手", "ops": "运维操作助手"
+  } } })
 ```
 
-## `systemone_decide` 组题示例
+- **`content_moderation` 传实际违规类型表**；**`customer_service` 传实际团队表**。
 
-### 销售线索
+- **`result_verification` 的 state** 传结构化对象 `{ "task": <原始要求>, "result": <待检结果> }`。
 
-```
-systemone_decide(
-  state: <线索来源、需求描述、预算与时间线、联系方式完整度>,
-  questions: {
-    quality:   {type: "score", instructions: "该线索的质量评分是？",
-                criteria: ["低：需求不明确或无预算", "中：有需求但时机未到", "高：需求明确、预算待定", "优质：需求与预算明确，近期可成交"]},
-    owner:     {type: "choice", instructions: "该线索应分配给哪个团队？",
-                criteria: {enterprise: "大客户组：定制化需求", smb: "中小企业组：标准化产品", channel: "渠道组：合作伙伴来源"}},
-    follow_up: {type: "noul", instructions: "该线索是否值得销售跟进？"}
-  }
-)
-```
+- **`software_dev` 一般无需覆盖**，直接跑：判断编码请求是缺陷/功能/重构/评审/测试/文档/构建/性能，改动多大，要不要先检索代码库——适合驱动"先探查再动手"的工作流。
 
-### 金融风控
+## `systemone_decide` 组题配方（场景库外）
+
+### 通用意图识别
+
+SystemOne 是"结构化问题 → 概率分布"的决策模型，**不是开放式意图分类器**：标签空间就是声明的 `criteria`。要通用意图识别就自定义标签集：
 
 ```
 systemone_decide(
-  state: <交易金额、渠道、时间、设备与历史行为特征>,
+  state: <用户输入>,
   questions: {
-    anomaly: {type: "score", instructions: "该交易的异常程度是？",
-              criteria: ["正常", "轻微异常：个别特征偏离", "明显异常：多项特征可疑", "高度异常：典型欺诈特征"]},
-    risk:    {type: "choice", instructions: "该交易的风险等级是？",
-              criteria: {low: "低风险，正常放行", medium: "中风险，加强监控", high: "高风险，限制交易", critical: "严重风险，冻结并调查"}},
-    review:  {type: "noul", instructions: "该交易是否需要人工复核？"}
+    intent:   {type: "choice", instructions: "用户这句话最想做什么？",
+               criteria: {query: "查询/检索信息", action: "执行一个操作", create: "新建内容或文件",
+                          modify: "修改已有内容", analyze: "分析、对比、总结", explain: "解释原理或概念",
+                          debug: "排查报错或异常", chat: "闲聊、寒暄", other: "以上都不是"}},
+    urgency:  {type: "score", instructions: "这件事有多紧急？",
+               criteria: ["不急", "可以等", "尽快", "马上"]}
   }
 )
 ```
 
-### 招聘 HR
+意图标签实践上限约 26 类（choice 选项建议 ≤26），超了只能合并或落到 `other`。
+
+### 法务合同风险预审
 
 ```
 systemone_decide(
-  state: <简历要点 + 岗位要求（技能、经验、学历）>,
+  state: <合同文本要点>,
   questions: {
-    match:      {type: "score", instructions: "简历与岗位的匹配度是？",
-                 criteria: ["不匹配：硬性条件不符", "偏低：多项要求未满足", "匹配：核心要求满足", "优秀：超出岗位要求"]},
-    next_round: {type: "noul", instructions: "该候选人是否应进入下一轮？"},
-    position:   {type: "choice", instructions: "该候选人更适合哪个岗位？",
-                 criteria: {frontend: "前端开发", backend: "后端开发", algorithm: "算法工程师", pm: "产品经理"}}
+    risk:   {type: "score", instructions: "这份合同的风险有多高？",
+             criteria: ["无风险", "低风险", "中风险", "高风险"]},
+    clause: {type: "choice", instructions: "主要问题出在哪类条款？",
+             criteria: {none: "无问题条款", liability: "责任与赔偿条款", payment: "付款与结算条款",
+                        ip: "知识产权条款", other: "其他"}},
+    lawyer: {type: "noul", instructions: "是否需要法务介入？"}
   }
 )
 ```
 
-### 数据治理
+### 为任务挑选模型
 
 ```
 systemone_decide(
-  state: <文档标题、正文摘要、来源系统>,
+  state: "把这份 50 页 PDF 的中文合同翻译成英文",
   questions: {
-    tag:       {type: "choice", instructions: "该文档应归入哪个类别？",
-                criteria: {contract: "合同协议", report: "报告分析", invoice: "票据凭证", manual: "操作手册", other: "其他"}},
-    cause:     {type: "choice", instructions: "该数据问题的主要归因是？",
-                criteria: {entry: "人工录入错误", sync: "同步延迟或失败", schema: "Schema 变更未对齐", source: "上游数据源有误"}},
-    sensitive: {type: "noul", instructions: "该文档是否包含敏感数据（个人信息、密钥、财务）？"}
+    model:    {type: "choice", instructions: "应使用哪个模型？",
+               criteria: {flash: "快且便宜，简单任务够用", pro: "质量优先，复杂任务"}},
+    needs_rag: {type: "noul", instructions: "是否需要先检索参考资料？"}
   }
 )
 ```
 
-### 教育内容
+## 组题原则
 
-```
-systemone_decide(
-  state: <题目全文与所属课程/年级>,
-  questions: {
-    knowledge:  {type: "choice", instructions: "该题考察的知识点是？",
-                 criteria: {algebra: "代数", geometry: "几何", probability: "概率统计", calculus: "微积分"}},
-    difficulty: {type: "score", instructions: "该题的难度是？",
-                 criteria: ["容易：直接套用公式", "较易：一两步推导", "中等：多步综合", "困难：需巧妙构造或跨知识点"]},
-    compliance: {type: "noul", instructions: "该内容是否存在合规风险（超纲、表述错误、不当内容）？"}
-  }
-)
-```
-
-### 需求与变更
-
-```
-systemone_decide(
-  state: <需求/变更描述、影响范围、提出方与背景>,
-  questions: {
-    priority: {type: "score", instructions: "该需求的优先级是？",
-               criteria: ["低：可延后", "中：正常排期", "高：尽快安排", "紧急：阻塞其他工作"]},
-    risk:     {type: "score", instructions: "该变更的风险评级是？",
-               criteria: ["无风险：仅文档或注释", "低：局部改动，影响单一模块", "中：跨模块改动，需回归", "高：影响核心链路或数据"]},
-    dispatch: {type: "choice", instructions: "应派发到哪个子任务队列？",
-               criteria: {dev: "开发实现", test: "测试验证", doc: "文档整理", review: "方案评审"}}
-  }
-)
-```
-
-## 组题通则
-
-- 一条 `state` 携带判定所需的全部上下文，同一组问题共享上下文，一次调用全部返回。
-- 问题数建议 ≤16；choice/score 选项建议 ≤26（上限 255）。
-- 判据描述写"判断依据"而不是只写名字：`"大客户组：定制化需求"` 优于 `"大客户组"`。
-- 低置信度（`needs_human_review = true`）时不要硬套结果，转人工或换判据重试。
+- 一次决策 2~4 个问题最常见（内置场景均为 3 问）；问题数 ≤16，延迟随问题数近似线性增长。
+- choice 选项 2~26 个，选项描述写"职责/特征"而非光秃秃的名词（"支付、退款、账单和计费问题" 优于 "billing"）。
+- score 的 criteria 是分级描述数组，索引即分值，等级间要有清晰的递进关系。
+- 需要"是/否"判断用 noul，返回 0~1 概率；概率落在 0.45~0.55 会被标记需人工复核。
+- 同一业务上下文的多个问题放一次调用（同一 state 共享推理），不要拆成多次。

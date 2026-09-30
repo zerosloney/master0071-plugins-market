@@ -1,6 +1,6 @@
 ---
 name: systemone-decision
-description: SystemOne 决策模型工具集（默认 unisound u2-decision）：工单分流、内容审核、Agent 路由、结果校验，以及销售线索评分、金融风控、招聘筛选、数据打标归因、教育题目归类、需求优先级等场景的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification and other structured decision scenarios with probability-backed judgments.
+description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 11 个内置场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
 ---
 
 # SystemOne 决策
@@ -9,17 +9,33 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 
 ## 工具选择
 
-| 场景 | 工具 | 判定内容 |
-|------|------|----------|
-| 工单分流 | `ticket_triage` | 归属团队（choice）+ 严重程度（score）+ 是否升级值班（noul） |
-| 内容审核 | `content_moderate` | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） |
-| Agent 路由 | `agent_route` | 执行 Agent（choice）+ 复杂度（score）+ 是否转人工（noul） |
-| 结果校验 | `verify_result` | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） |
-| 其他自定义 | `systemone_decide` | 自定义 questions（choice / noul / score） |
+| 工具 | 用途 |
+|------|------|
+| `systemone_scenario` | 大多数情况。`action=run` 跑内置场景；`action=list` 列场景；`action=describe` 看问题定义 |
+| `systemone_decide` | 场景库没有的临时判断，自定义 questions（choice / noul / score） |
 
-四个预设工具的判据（团队列表、Agent 名册、等级描述等）都有合理默认值，且都可通过参数整体覆盖——传入实际业务的可选项比默认值更准，能用就传。例如 `agent_route` 应传入当前真实可用的 `agents` 名册。
+## 内置场景（`systemone_scenario` action=run）
 
-更多业务场景（销售线索、金融风控、招聘 HR、数据治理、教育内容、需求与变更）的组题方法与判据示例见 [references/scenarios.md](references/scenarios.md)。
+| 场景 id | 判定内容（题型） | 建议传入的 params |
+|---------|------------------|-------------------|
+| `customer_service` | 归属团队（choice）+ 严重程度（score）+ 升级值班（noul）→ 派生 P1~P4 | `department.criteria`（实际团队表） |
+| `content_moderation` | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） | `category.criteria`（实际违规类型表） |
+| `agent_routing` | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul）→ 派生 S/M/L/XL | `agent.criteria`（实际可用 Agent 名册） |
+| `result_verification` | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | `state` 传 `{task, result}` |
+| `software_dev` | 任务类型 bugfix/feature/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul） | — |
+| `sales_lead` / `risk_control` / `recruiting` / `data_governance` / `education` / `requirements` | 见 [references/scenarios.md](references/scenarios.md) | 按业务覆盖判据 |
+
+场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能在 ZCode 设置页配置了自定义场景——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
+
+**判据都有合理默认值，且可通过 `params` 按问题 id 覆盖——传入实际业务的可选项比默认值更准，能用就传**：
+
+```
+systemone_scenario(action: "run", scenario: "agent_routing",
+  state: "把这份 50 页 PDF 的中文合同翻译成英文",
+  params: { agent: { criteria: { flash: "快且便宜，简单任务够用", pro: "质量优先，复杂任务" } } })
+```
+
+`params` 覆盖语义：`criteria` 整体替换选项（choice 传对象 / score 传 ≥2 级标签数组）、`addCriteria` 在默认选项上追加（仅 choice）、`instructions` / `label` 局部替换。更多场景与组题方法见 [references/scenarios.md](references/scenarios.md)。
 
 ## 题型语义
 
@@ -31,8 +47,15 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 
 ## 结果解读
 
-- 每个工具返回 `answers`（按问题 ID 归一化）、`meta`（model / request_id / latency_ms / usage）和 `raw`（原始响应）。
-- `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值时 `needs_human_review = true`，并列出 `low_confidence_questions`。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
+每个工具返回四层结果，按需取用：
+
+- `answers` — 逐题明细（value / level / probabilities / confidence / present）
+- `decision` / `labels` / `derived` / `confidences` — 归一化速览：choice=选项 key、score=取整分值、noul=boolean；labels 是可读标签，derived 是场景派生字段（如 severity→P2、complexity→M）
+- `recommendation` — 场景建议模板渲染出的一句话处置建议（如"转 支付、退款和账单问题 处理（优先级 P2）。需立即通知值班人员"）
+- `summary` — Markdown 摘要；`meta`（model / request_id / latency_ms / usage）与 `raw`（原始响应）供追溯
+
+`confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、choice 无法给出选项、或 noul 概率落在 0.45~0.55 模糊区间时 `needs_human_review = true`，并列出 `low_confidence_questions`。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
+
 - **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
 
 ## 示例
@@ -40,13 +63,21 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 工单分流：
 
 ```
-ticket_triage(ticket: "订单支付后超过24小时仍未到账，用户无法继续使用核心服务，要求立即处理。")
-→ answers.department.value = "billing" (confidence 0.89)
-→ answers.severity.value = 2, level = "核心功能不可用，没有替代方案" (confidence 0.99)
-→ answers.escalate.probability = 0.96
+systemone_scenario(action: "run", scenario: "customer_service",
+  state: "订单支付后超过24小时仍未到账，用户无法继续使用核心服务，要求立即处理。")
+→ decision = { department: "billing", severity: 2, escalate: true }
+→ labels.severity = "核心功能不可用，没有替代方案"，derived.priority = "P2"
 ```
 
-自定义决策（例如为任务挑选模型）：
+编码任务判定（判断是 bug 还是功能、多大改动、要不要先翻代码）：
+
+```
+systemone_scenario(action: "run", scenario: "software_dev",
+  state: "修复登录页在 Safari 下无法提交表单的问题")
+→ decision = { task_type: "bugfix", complexity: 1, needs_context: true }，derived.effort = "M"
+```
+
+自定义决策（场景库外的临时判断）：
 
 ```
 systemone_decide(
@@ -77,4 +108,4 @@ systemone_decide(
 - 决策模型只做判定，不做生成。需要解释性输出时：先决策拿结构化结论，再交给对话模型展开。
 - 问题数建议 ≤16（延迟随问题数近似线性增长）；choice/score 选项建议 ≤26，上限 255。
 - `state` 上下文上限 131072 tokens，超长会被截断。
-- 非法或超限的问题在响应 `answers` 中可能缺失，归一化结果中标记 `present: false`。
+- 非法或超限的问题在响应 `answers` 中可能缺失，归一化结果中标记 `present: false` 并计入 `low_confidence_questions`。

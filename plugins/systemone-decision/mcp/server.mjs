@@ -1,10 +1,33 @@
 #!/usr/bin/env node
 // systemone-decision MCP server — stdio JSON-RPC, zero dependencies, requires Node >= 18.
+// 只注册 2 个工具，控制工具 schema 的上下文开销，场景全部来自 scenarios.mjs 场景库：
+//   1. systemone_scenario — action: list / describe / run，覆盖全部内置场景
+//   2. systemone_decide   — 直接提交自定义 questions 的低层入口
 // 供应商配置见插件 README.md：SYSTEMONE_API_KEY / SYSTEMONE_BASE_URL / SYSTEMONE_MODEL / SYSTEMONE_TIMEOUT_MS。
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.1.1' };
+import { findScenario, resolveScenarios } from './scenarios.mjs';
+import {
+  buildSummary,
+  deriveFields,
+  formatAnswerLines,
+  normalizeAnswer,
+  normalizeDecision,
+  renderTemplate,
+} from './format.mjs';
+
+const SERVER_INFO = { name: 'systemone-decision', version: '0.2.0' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
+
+// 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
+// 环境变量在进程启动时注入，改动设置后需重启 ZCode 生效；非法自定义条目跳过并告警到 stderr。
+const { scenarios: SCENARIOS, problems: scenarioProblems } = resolveScenarios(
+  process.env.SYSTEMONE_PLUGIN_SCENARIOS || process.env.SYSTEMONE_SCENARIOS || ''
+);
+const SCENARIO_IDS = SCENARIOS.map((s) => s.id);
+for (const problem of scenarioProblems) {
+  process.stderr.write(`[systemone-decision] ${problem}\n`);
+}
 
 class ToolError extends Error {}
 class RpcError extends Error {
@@ -146,59 +169,12 @@ async function callSystemone(state, questions) {
   return data;
 }
 
-// ---------- 响应归一化 ----------
-
-function normalizeAnswer(question, answer) {
-  if (!answer || typeof answer !== 'object') {
-    return { present: false };
-  }
-  const out = { present: true, type: answer.type || question.type };
-  if (out.type === 'choice') {
-    out.value = answer.choice ?? null;
-    out.probabilities = answer.probabilities || {};
-    out.confidence =
-      typeof answer.confidence === 'number' ? answer.confidence : (answer.probabilities || {})[answer.choice] ?? null;
-  } else if (out.type === 'noul') {
-    // noul 无独立 confidence 字段，用概率的决断度 max(p, 1-p) 代替
-    const p = typeof answer.noul === 'number' ? answer.noul : null;
-    out.probability = p;
-    out.confidence = p === null ? null : Math.max(p, 1 - p);
-  } else if (out.type === 'score') {
-    out.value = typeof answer.score === 'number' ? Math.round(answer.score * 1000) / 1000 : null;
-    out.level = (answer.legend || {})[String(Math.round(answer.score ?? 0))] ?? null;
-    out.probabilities = answer.probabilities || {};
-    out.confidence = typeof answer.confidence === 'number' ? answer.confidence : null;
-  }
-  return out;
-}
-
 function metaOf(data) {
   return {
     model: data.model,
     request_id: data.request_id,
     latency_ms: data.latency_ms,
     usage: data.usage,
-  };
-}
-
-async function runDecision(state, questions, threshold) {
-  validateState(state);
-  validateQuestions(questions);
-  const data = await callSystemone(state, questions);
-  const answers = {};
-  const low = [];
-  for (const [qid, q] of Object.entries(questions)) {
-    const a = normalizeAnswer(q, data.answers[qid]);
-    answers[qid] = a;
-    if (a.present && a.confidence !== null && a.confidence < threshold) low.push(qid);
-  }
-  return {
-    answers,
-    needs_human_review: low.length > 0,
-    low_confidence_questions: low,
-    confidence_threshold: threshold,
-    meta: metaOf(data),
-    raw: data,
   };
 }
 
@@ -211,90 +187,285 @@ function thresholdOf(args) {
   return t;
 }
 
-function requireText(args, key, what) {
-  const v = args[key];
-  if (!isNonEmptyString(v)) {
-    throw new ToolError(`${key} 必须是非空字符串（${what}）`);
+// ---------- 决策执行（场景 run 与 systemone_decide 共用） ----------
+
+/**
+ * @param {unknown} state - 业务上下文
+ * @param {object} questions - 问题定义（含本地展示字段 label，发送前剥离）
+ * @param {number} threshold - 低置信度阈值
+ * @param {object} [meta] - 场景元数据 { id, title, derive, recommendation }，自定义决策留空
+ */
+async function executeDecision(state, questions, threshold, meta = {}) {
+  validateState(state);
+  validateQuestions(questions);
+  const request = {};
+  for (const [qid, q] of Object.entries(questions)) {
+    request[qid] = q.type === 'noul' ? { type: q.type, instructions: q.instructions } : { type: q.type, instructions: q.instructions, criteria: q.criteria };
   }
-  return v;
+  const data = await callSystemone(state, request);
+
+  const answers = {};
+  const low = [];
+  for (const [qid, q] of Object.entries(questions)) {
+    const a = normalizeAnswer(q, data.answers[qid]);
+    answers[qid] = a;
+    if (!a.present) {
+      low.push(qid); // 响应缺失该答案，视作无法判断
+    } else if (a.confidence !== null && a.confidence < threshold) {
+      low.push(qid);
+    } else if (isBorderline(a)) {
+      low.push(qid);
+    }
+  }
+
+  const { decision, labels, confidences } = normalizeDecision(data.answers, questions);
+  const derived = deriveFields(meta.derive, decision);
+  const recommendation = meta.recommendation
+    ? renderTemplate(meta.recommendation, { labels, decision, confidences, derived })
+    : '';
+  const summary = buildSummary({
+    title: meta.title || 'SystemOne 通用决策',
+    model: data.model,
+    requestId: data.request_id,
+    latencyMs: data.latency_ms,
+    lines: formatAnswerLines(questions, data.answers),
+    recommendation,
+    needsReview: low.length > 0,
+    lowQuestions: low,
+  });
+
+  return {
+    ok: true,
+    scenario: meta.id ?? null,
+    meta: metaOf(data),
+    answers,
+    decision,
+    labels,
+    derived,
+    confidences,
+    needs_human_review: low.length > 0,
+    low_confidence_questions: low,
+    confidence_threshold: threshold,
+    recommendation,
+    summary,
+    raw: data,
+  };
 }
 
-// ---------- 预设默认判据（调用方可整体覆盖） ----------
+/** 概率落在模糊区间（0.45~0.55）或 choice 无法给出选项时，即使置信度达标也建议人工复核。 */
+function isBorderline(a) {
+  if (a.type === 'choice' && (a.value === null || a.value === 'uncertain' || a.value === 'unknown')) return true;
+  if (a.type === 'noul' && typeof a.probability === 'number' && a.probability > 0.45 && a.probability < 0.55) return true;
+  return false;
+}
 
-const SEVERITY_LEVELS = [
-  '轻微问题，不影响功能',
-  '部分功能受影响，但存在替代方案',
-  '核心功能不可用，没有替代方案',
-  '造成严重业务或安全影响',
-];
+// ---------- 场景调度：list / describe / run ----------
 
-const TICKET_DEPARTMENTS = {
-  technical: '产品故障、集成和技术缺陷类问题',
-  billing: '支付、退款、账单和计费问题',
-  account: '账号、登录、权限和安全问题',
-  product: '产品功能咨询、使用帮助和需求建议',
-  other: '无法归入以上类别的其他问题',
-};
+function listScenarios(keyword) {
+  const needle = typeof keyword === 'string' ? keyword.trim().toLowerCase() : '';
+  const items = SCENARIOS.filter((s) => {
+    if (!needle) return true;
+    return [s.id, s.title, s.description, ...s.aliases].join(' ').toLowerCase().includes(needle);
+  }).map((s) => ({
+    id: s.id,
+    title: s.title,
+    description: s.description,
+    aliases: s.aliases,
+    source: s.source,
+    question_count: Object.keys(s.questions).length,
+    questions: Object.entries(s.questions).map(([qid, q]) => `${qid}:${q.type}`),
+  }));
+  const summary = [
+    `## SystemOne 场景库（${items.length} 个）`,
+    ...items.map(
+      (s) => `- **${s.id}**${s.source === 'custom' ? '（自定义）' : ''}：${s.title} — ${s.description}（${s.questions.join('，')}）`
+    ),
+    '',
+    '用 action=describe 查看场景问题定义，用 action=run 执行决策。',
+  ].join('\n');
+  return { ok: true, action: 'list', count: items.length, scenarios: items, summary };
+}
 
-const MODERATION_ACTIONS = {
-  approve: '内容合规，直接通过',
-  review: '存在可疑内容，转人工复审',
-  reject: '内容明显违规，拒绝发布或屏蔽',
-};
+function describeScenario(ref) {
+  if (!isNonEmptyString(ref)) {
+    throw new ToolError(`action=describe 需要 scenario（场景 id 或别名），可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  const scenario = findScenario(SCENARIOS, ref);
+  if (!scenario) {
+    throw new ToolError(`未知场景 "${ref}"，可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  const questions = Object.entries(scenario.questions).map(([qid, q]) => ({
+    id: qid,
+    type: q.type,
+    label: q.label,
+    instructions: q.instructions,
+    criteria: q.criteria ?? null,
+  }));
+  const summary = [
+    `## ${scenario.title}`,
+    `- **场景 id**：${scenario.id}${scenario.aliases.length ? `（别名：${scenario.aliases.join('、')}）` : ''}`,
+    `- **说明**：${scenario.description}`,
+    ...questions.map((q) => {
+      const criteria =
+        q.type === 'choice'
+          ? Object.entries(q.criteria || {}).map(([k, v]) => `${k}=${v}`).join('；')
+          : q.type === 'score'
+            ? (q.criteria || []).map((v, i) => `${i}=${v}`).join('；')
+            : '（0~1 概率）';
+      return `- **${q.label}** \`${q.id}\`（${q.type}）：${q.instructions}\n  - 选项：${criteria}`;
+    }),
+    scenario.recommendation ? `- **建议模板**：${scenario.recommendation}` : null,
+    '',
+    '用 action=run 执行，可用 params 按问题 id 覆盖 criteria / instructions。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return {
+    ok: true,
+    action: 'describe',
+    scenario: scenario.id,
+    title: scenario.title,
+    description: scenario.description,
+    aliases: scenario.aliases,
+    source: scenario.source,
+    questions,
+    recommendation: scenario.recommendation,
+    summary,
+  };
+}
 
-const MODERATION_CATEGORIES = {
-  none: '无违规内容',
-  spam_ads: '垃圾广告或灌水',
-  fraud: '欺诈、诈骗',
-  pornography: '色情低俗',
-  violence: '暴力血腥',
-  insult: '辱骂或人身攻击',
-  politics: '政治敏感内容',
-  privacy: '泄露隐私或机密信息',
-  other: '其他违规',
-};
+/** 按 params 覆盖场景问题定义：instructions / label 局部替换，criteria 整体替换，addCriteria 在 choice 上追加选项。 */
+function applyParams(scenario, params) {
+  if (params === undefined || params === null) return scenario.questions;
+  if (typeof params !== 'object' || Array.isArray(params)) {
+    throw new ToolError('params 必须是 {问题ID: 覆盖项} 对象');
+  }
+  const knownIds = Object.keys(scenario.questions);
+  for (const qid of Object.keys(params)) {
+    if (!knownIds.includes(qid)) {
+      throw new ToolError(`params 包含未知问题 id "${qid}"，场景 ${scenario.id} 可覆盖：${knownIds.join('、')}`);
+    }
+  }
+  const merged = {};
+  for (const [qid, question] of Object.entries(scenario.questions)) {
+    const override = params[qid];
+    if (override === undefined) {
+      merged[qid] = question;
+      continue;
+    }
+    if (!override || typeof override !== 'object' || Array.isArray(override)) {
+      throw new ToolError(`params.${qid} 必须是对象`);
+    }
+    const next = { ...question };
+    if (typeof override.instructions === 'string' && override.instructions.trim() !== '') {
+      next.instructions = override.instructions;
+    }
+    if (typeof override.label === 'string' && override.label.trim() !== '') {
+      next.label = override.label;
+    }
+    if (override.criteria !== undefined) {
+      if (question.type === 'choice') {
+        if (typeof override.criteria !== 'object' || Array.isArray(override.criteria) || Object.keys(override.criteria).length === 0) {
+          throw new ToolError(`params.${qid}.criteria（choice）必须是非空对象 {选项ID: 选项描述}`);
+        }
+        next.criteria = Object.fromEntries(Object.entries(override.criteria).map(([k, v]) => [String(k), String(v)]));
+      } else if (question.type === 'score') {
+        if (!Array.isArray(override.criteria) || override.criteria.length < 2) {
+          throw new ToolError(`params.${qid}.criteria（score）至少需要 2 个等级描述`);
+        }
+        next.criteria = override.criteria.map((v) => String(v));
+      } else {
+        throw new ToolError(`params.${qid}.criteria：noul 问题没有 criteria`);
+      }
+    }
+    if (override.addCriteria !== undefined) {
+      if (question.type !== 'choice') {
+        throw new ToolError(`params.${qid}.addCriteria 仅支持 choice 问题`);
+      }
+      if (typeof override.addCriteria !== 'object' || Array.isArray(override.addCriteria)) {
+        throw new ToolError(`params.${qid}.addCriteria 必须是 {选项ID: 选项描述} 对象`);
+      }
+      next.criteria = { ...(next.criteria || {}), ...override.addCriteria };
+    }
+    merged[qid] = next;
+  }
+  return merged;
+}
 
-const RISK_LEVELS = ['无风险', '轻微风险，不影响使用者', '中等风险，需要处理', '严重风险，须立即处置'];
-
-const AGENT_ROSTER = {
-  generalist: '通用助手：日常问答、简单事务处理',
-  coder: '编码助手：代码编写、调试、重构、技术问题',
-  researcher: '研究助手：信息检索、资料汇总、深度调研',
-  data_analyst: '数据分析助手：数据处理、统计分析、图表制作',
-  writer: '写作助手：文案、文档、创意写作',
-};
-
-const COMPLEXITY_LEVELS = [
-  '简单任务，一步即可完成',
-  '中等任务，需要少量推理或工具调用',
-  '复杂任务，需要多步推理和多次工具调用',
-  '极复杂任务，需要长期规划或多智能体协作',
-];
-
-const VERIFY_ISSUES = {
-  none: '未发现问题',
-  factual_error: '存在事实性错误',
-  incomplete: '遗漏了任务要求',
-  hallucination: '编造了不存在的内容、数据或引用',
-  unsafe: '存在安全或合规风险',
-  format: '格式或形式不符合要求',
-};
-
-const QUALITY_LEVELS = [
-  '质量差，需要重做',
-  '质量一般，存在明显缺陷',
-  '质量良好，仅有可接受的小问题',
-  '质量优秀，可直接采用',
-];
+function runScenario(args) {
+  if (!isNonEmptyString(args.scenario)) {
+    throw new ToolError(`action=run 需要 scenario（场景 id 或别名），可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  const scenario = findScenario(SCENARIOS, args.scenario);
+  if (!scenario) {
+    throw new ToolError(`未知场景 "${args.scenario}"，可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  const questions = applyParams(scenario, args.params);
+  return executeDecision(args.state, questions, thresholdOf(args), {
+    id: scenario.id,
+    title: scenario.title,
+    derive: scenario.derive,
+    recommendation: scenario.recommendation,
+  });
+}
 
 // ---------- 工具定义 ----------
 
 const TOOLS = [
   {
+    name: 'systemone_scenario',
+    description:
+      'SystemOne 场景决策：把业务状态与预置的结构化问题一次性提交给决策模型，返回带概率分布的判定、' +
+      '归一化决策（decision/labels/derived）与处置建议（recommendation）。action=list 列出场景，' +
+      'action=describe 查看场景问题定义，action=run 执行决策。内置场景：customer_service 工单分流、' +
+      'content_moderation 内容审核、agent_routing 智能体路由、result_verification 结果校验、' +
+      'software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、sales_lead 销售线索、' +
+      'risk_control 金融风控、recruiting 招聘筛选、data_governance 数据打标归因、education 教育题目归类、' +
+      'requirements 需求优先级。场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项）。' +
+      '还可在插件设置页配置自定义场景（action=list 可见全部）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'describe', 'run'],
+          description: 'list=列出场景；describe=查看场景问题定义；run=执行决策',
+        },
+        scenario: {
+          type: 'string',
+          description: '场景 id 或别名（describe/run 必填），如 customer_service / 工单分流 / software_dev',
+        },
+        state: {
+          type: ['string', 'object', 'array'],
+          description:
+            '业务上下文（run 必填）：工单文本、任务描述、对话数组或结构化对象，非字符串会被序列化后送入模型',
+        },
+        params: {
+          type: 'object',
+          additionalProperties: { type: 'object' },
+          description:
+            '可选：按问题 id 覆盖场景问题定义。' +
+            '{instructions, label, criteria(整体替换选项，choice 传对象/score 传≥2级标签数组), addCriteria(仅 choice，追加选项)}，' +
+            '如 {"department":{"criteria":{"vip":"VIP 专属通道","general":"普通通道"}}}',
+        },
+        keyword: { type: 'string', description: '可选：action=list 时按关键词过滤场景（匹配 id/标题/说明/别名）' },
+        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
+      },
+      required: ['action'],
+    },
+    handler: async (args) => {
+      const action = args.action;
+      if (action === 'list') return listScenarios(args.keyword);
+      if (action === 'describe') return describeScenario(args.scenario);
+      if (action === 'run') return runScenario(args);
+      throw new ToolError('action 必须是 list / describe / run');
+    },
+  },
+  {
     name: 'systemone_decide',
     description:
       '通用决策（SystemOne 协议）：一次请求对同一业务上下文提出多个结构化问题（choice 单选 / noul 概率 / score 评分），' +
-      '返回带概率分布和置信度的判定。工单分流、内容审核、Agent 路由、结果校验以外的自定义决策场景用它。',
+      '返回带概率分布和置信度的判定。场景库没有的临时判断用它；已有内置场景时优先用 systemone_scenario。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -312,128 +483,7 @@ const TOOLS = [
       },
       required: ['state', 'questions'],
     },
-    handler: async (args) => runDecision(args.state, args.questions, thresholdOf(args)),
-  },
-  {
-    name: 'ticket_triage',
-    description: '工单分流：判断工单归属团队（单选）、严重程度（评分）、是否需要立即升级/通知值班（概率），一次调用全部返回。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ticket: { type: 'string', description: '工单内容（用户描述、对话记录等）' },
-        departments: {
-          type: 'object',
-          description: '可选，覆盖默认团队判据，格式 {团队ID: 团队职责描述}；提供即整体替换默认值',
-          additionalProperties: { type: 'string' },
-        },
-        severity_levels: { type: 'array', items: { type: 'string' }, description: '可选，覆盖默认严重程度等级描述（索引即分值）' },
-        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
-      },
-      required: ['ticket'],
-    },
-    handler: async (args) =>
-      runDecision(
-        requireText(args, 'ticket', '工单内容'),
-        {
-          department: { type: 'choice', instructions: '该工单应分派给哪个团队处理？', criteria: args.departments || TICKET_DEPARTMENTS },
-          severity: { type: 'score', instructions: '该工单的严重程度是？', criteria: args.severity_levels || SEVERITY_LEVELS },
-          escalate: { type: 'noul', instructions: '该工单是否需要立即升级或通知值班人员处理？' },
-        },
-        thresholdOf(args)
-      ),
-  },
-  {
-    name: 'content_moderate',
-    description: '内容审核：判断处置动作（通过/复审/拒绝）、违规类型（单选）、风险等级（评分），一次调用全部返回。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        content: { type: 'string', description: '待审核内容（文章、评论、消息等）' },
-        actions: {
-          type: 'object',
-          description: '可选，覆盖默认处置动作，格式 {动作ID: 动作描述}；提供即整体替换默认值',
-          additionalProperties: { type: 'string' },
-        },
-        categories: {
-          type: 'object',
-          description: '可选，覆盖默认违规类型，格式 {类型ID: 类型描述}；提供即整体替换默认值',
-          additionalProperties: { type: 'string' },
-        },
-        risk_levels: { type: 'array', items: { type: 'string' }, description: '可选，覆盖默认风险等级描述（索引即分值）' },
-        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
-      },
-      required: ['content'],
-    },
-    handler: async (args) =>
-      runDecision(
-        requireText(args, 'content', '待审核内容'),
-        {
-          action: { type: 'choice', instructions: '应如何处置该内容？', criteria: args.actions || MODERATION_ACTIONS },
-          category: { type: 'choice', instructions: '该内容的主要违规类型是？', criteria: args.categories || MODERATION_CATEGORIES },
-          risk: { type: 'score', instructions: '该内容的风险等级是？', criteria: args.risk_levels || RISK_LEVELS },
-        },
-        thresholdOf(args)
-      ),
-  },
-  {
-    name: 'agent_route',
-    description: 'Agent 路由：为任务选择执行 Agent（单选）、评估复杂度（评分）、判断是否需要转交人工（概率），一次调用全部返回。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: { type: 'string', description: '任务描述（可含上下文、对话历史、约束条件）' },
-        agents: {
-          type: 'object',
-          description: '可选，覆盖默认 Agent 名册，格式 {AgentID: 能力描述}；提供即整体替换默认值。建议传入实际可用的 Agent 列表',
-          additionalProperties: { type: 'string' },
-        },
-        complexity_levels: { type: 'array', items: { type: 'string' }, description: '可选，覆盖默认复杂度等级描述（索引即分值）' },
-        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
-      },
-      required: ['task'],
-    },
-    handler: async (args) =>
-      runDecision(
-        requireText(args, 'task', '任务描述'),
-        {
-          agent: { type: 'choice', instructions: '该任务应交给哪个 Agent 执行？', criteria: args.agents || AGENT_ROSTER },
-          complexity: { type: 'score', instructions: '该任务的复杂度是？', criteria: args.complexity_levels || COMPLEXITY_LEVELS },
-          needs_human: { type: 'noul', instructions: '该任务是否高风险或超出 Agent 能力，需要转交人工处理？' },
-        },
-        thresholdOf(args)
-      ),
-  },
-  {
-    name: 'verify_result',
-    description: '结果校验：给定原始任务和待检结果，判断是否满足要求（概率）、主要问题（单选）、质量等级（评分），一次调用全部返回。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: { type: 'string', description: '原始任务/要求（判定基准）' },
-        result: { type: 'string', description: '待校验的结果（Agent 输出、模型回答等）' },
-        issues: {
-          type: 'object',
-          description: '可选，覆盖默认问题类型，格式 {问题ID: 问题描述}；提供即整体替换默认值',
-          additionalProperties: { type: 'string' },
-        },
-        quality_levels: { type: 'array', items: { type: 'string' }, description: '可选，覆盖默认质量等级描述（索引即分值）' },
-        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
-      },
-      required: ['task', 'result'],
-    },
-    handler: async (args) => {
-      const task = requireText(args, 'task', '原始任务');
-      const result = requireText(args, 'result', '待校验结果');
-      return runDecision(
-        { task, result },
-        {
-          passed: { type: 'noul', instructions: '该结果是否正确满足了任务的全部要求？' },
-          main_issue: { type: 'choice', instructions: '该结果的主要问题是？', criteria: args.issues || VERIFY_ISSUES },
-          quality: { type: 'score', instructions: '该结果的质量等级是？', criteria: args.quality_levels || QUALITY_LEVELS },
-        },
-        thresholdOf(args)
-      );
-    },
+    handler: async (args) => executeDecision(args.state, args.questions || {}, thresholdOf(args)),
   },
 ];
 
