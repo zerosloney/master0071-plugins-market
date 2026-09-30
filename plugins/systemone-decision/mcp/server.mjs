@@ -24,11 +24,12 @@ function snippet(s) {
 }
 
 function config() {
-  const timeoutRaw = Number(process.env.SYSTEMONE_TIMEOUT_MS);
+  // 配置优先级：ZCode 插件设置页（注入 SYSTEMONE_PLUGIN_*，空串视为未配置）> 环境变量 > 内置默认
+  const timeoutRaw = Number(process.env.SYSTEMONE_PLUGIN_TIMEOUT_MS || process.env.SYSTEMONE_TIMEOUT_MS);
   return {
     apiKey: process.env.SYSTEMONE_API_KEY || process.env.UNISOUND_API_KEY || '',
-    baseUrl: (process.env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
-    model: process.env.SYSTEMONE_MODEL || 'u2-decision',
+    baseUrl: (process.env.SYSTEMONE_PLUGIN_BASE_URL || process.env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
+    model: process.env.SYSTEMONE_PLUGIN_MODEL || process.env.SYSTEMONE_MODEL || 'u2-decision',
     timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 30000,
   };
 }
@@ -100,7 +101,7 @@ async function callSystemone(state, questions) {
   if (!cfg.apiKey) {
     throw new ToolError(
       '缺少 API Key：请设置环境变量 SYSTEMONE_API_KEY（或 UNISOUND_API_KEY）后重启 ZCode。' +
-        'unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
+        'Key 只能走环境变量（插件设置页不支持保存密钥），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
     );
   }
   const url = `${cfg.baseUrl}/systemone`;

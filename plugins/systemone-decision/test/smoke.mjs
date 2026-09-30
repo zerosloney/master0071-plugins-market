@@ -214,6 +214,30 @@ const main = async () => {
     });
   } finally {
     noKeyClient.close();
+  }
+
+  // 插件设置页注入变量（SYSTEMONE_PLUGIN_*）优先于同名环境变量；留空回退环境变量
+  const uiClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: 'http://127.0.0.1:1/unreachable', // 若被使用，请求会失败
+    SYSTEMONE_PLUGIN_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_PLUGIN_MODEL: 'alt-decision',
+    SYSTEMONE_PLUGIN_TIMEOUT_MS: '',
+  });
+  try {
+    const ui = await uiClient.call('tools/call', {
+      name: 'systemone_decide',
+      arguments: { state: 'ui-config', questions: { q1: { type: 'noul', instructions: '是吗？' } } },
+    });
+    const u = JSON.parse(ui.result.content[0].text);
+    const last = received[received.length - 1];
+    check('设置页变量优先于环境变量，留空项回退', () => {
+      assert.equal(u.answers.q1.present, true);
+      assert.equal(last.url, '/v1/systemone');
+      assert.equal(last.body.model, 'alt-decision');
+    });
+  } finally {
+    uiClient.close();
     mock.close();
   }
 

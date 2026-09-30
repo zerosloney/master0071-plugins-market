@@ -10,6 +10,22 @@ ZCode 插件：接入 SystemOne 决策协议（默认 unisound u2-decision），
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。
 
+## ZCode 设置页配置
+
+在 **设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced** 可直接配置，无需环境变量：
+
+| 配置项 | 说明 | 留空时 |
+|--------|------|--------|
+| Base URL | SystemOne 兼容端点根地址 | 用内置默认，或环境变量 `SYSTEMONE_BASE_URL` |
+| Model | 决策模型编码 | 用内置默认 `u2-decision`，或环境变量 `SYSTEMONE_MODEL` |
+| Timeout (ms) | 请求超时毫秒数 | 用内置默认 30000，或环境变量 `SYSTEMONE_TIMEOUT_MS` |
+
+优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
+
+**API Key 例外**：ZCode 目前没有安全凭据存储，插件设置页不支持保存敏感值，Key 仍只能走环境变量 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）。
+
+**hook 例外**：需求预检 hook 不支持读取插件设置页配置，只读环境变量。若通过设置页切换了供应商，需同时设置 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` 环境变量，预检才会继续生效（否则 hook 请求失败后静默跳过）。
+
 ## 配置（环境变量）
 
 | 变量 | 必填 | 默认值 | 说明 |
@@ -27,7 +43,7 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 ## 切换供应商
 
-插件与厂商解耦：所有请求收敛于 `mcp/server.mjs` 的 `callSystemone()`，协议字段（`model` / `state` / `questions` → `answers`）遵循 SystemOne 规范。换厂商 = 换环境变量，插件代码零改动：
+插件与厂商解耦：所有请求收敛于 `mcp/server.mjs` 的 `callSystemone()`，协议字段（`model` / `state` / `questions` → `answers`）遵循 SystemOne 规范。换厂商 = 改配置，插件代码零改动——Base URL / 模型在设置页改即可，Key 用环境变量：
 
 ```
 setx SYSTEMONE_BASE_URL "https://你的供应商/v1"

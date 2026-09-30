@@ -61,14 +61,16 @@ systemone_decide(
 
 ## 切换供应商
 
-插件不绑定 unisound。端点 / 模型 / Key 全部走环境变量，任何 SystemOne（Jev 兼容）协议端点直接替换：
+插件不绑定 unisound。端点 / 模型 / 超时两种配置方式（优先级：设置页 > 环境变量 > 内置默认），任何 SystemOne（Jev 兼容）协议端点直接替换：
 
-- `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）— 必填
-- `SYSTEMONE_BASE_URL` — 默认 `https://maas-api.unisound.com/v1`
-- `SYSTEMONE_MODEL` — 默认 `u2-decision`
-- `SYSTEMONE_TIMEOUT_MS` — 默认 30000
+- ZCode 插件设置页（设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced）：Base URL / Model / Timeout (ms)
+- 环境变量：
+  - `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）— 必填，Key 只能走环境变量（设置页不支持保存密钥）
+  - `SYSTEMONE_BASE_URL` — 默认 `https://maas-api.unisound.com/v1`
+  - `SYSTEMONE_MODEL` — 默认 `u2-decision`
+  - `SYSTEMONE_TIMEOUT_MS` — 默认 30000
 
-改环境变量后需重启 ZCode 生效。
+改配置后需重启 ZCode 生效；设置页配置只作用于 MCP 工具，需求预检 hook 只读环境变量。
 
 ## 边界与限额
 

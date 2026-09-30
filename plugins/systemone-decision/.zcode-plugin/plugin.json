@@ -1,14 +1,39 @@
 {
   "name": "systemone-decision",
   "version": "0.1.1",
-  "description": "SystemOne 决策模型工具集：工单分流、内容审核、Agent 路由、结果校验及任意自定义场景的结构化判定（choice / score / 概率），附带需求明确度预检 hook。默认接入 unisound u2-decision，可通过环境变量切换任意 SystemOne 兼容供应商。",
+  "description": "SystemOne 决策模型工具集：工单分流、内容审核、Agent 路由、结果校验及任意自定义场景的结构化判定（choice / score / 概率），附带需求明确度预检 hook。默认接入 unisound u2-decision，端点/模型/超时可在 ZCode 插件设置页或环境变量配置，切换任意 SystemOne 兼容供应商。",
   "author": { "name": "dc" },
   "mcpServers": {
     "systemone": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": {
+        "SYSTEMONE_PLUGIN_BASE_URL": "${user_config.base_url}",
+        "SYSTEMONE_PLUGIN_MODEL": "${user_config.model}",
+        "SYSTEMONE_PLUGIN_TIMEOUT_MS": "${user_config.timeout_ms}"
+      }
     }
   },
   "skills": "./skills",
-  "hooks": "hooks"
+  "hooks": "hooks",
+  "userConfig": {
+    "base_url": {
+      "type": "string",
+      "title": "Base URL",
+      "default": "",
+      "description": "SystemOne 兼容端点根地址，如 https://maas-api.unisound.com/v1。留空用内置默认，或环境变量 SYSTEMONE_BASE_URL"
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "default": "",
+      "description": "决策模型编码，留空用内置默认 u2-decision，或环境变量 SYSTEMONE_MODEL"
+    },
+    "timeout_ms": {
+      "type": "string",
+      "title": "Timeout (ms)",
+      "default": "",
+      "description": "请求超时毫秒数，留空用内置默认 30000，或环境变量 SYSTEMONE_TIMEOUT_MS"
+    }
+  }
 }
