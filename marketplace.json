@@ -1,0 +1,18 @@
+{
+  "name": "master0071-pluigns",
+  "plugins": [
+    {
+      "name": "systemone-decision",
+      "source": "./plugins/systemone-decision",
+      "version": "0.1.1",
+      "description": "SystemOne 决策模型工具集：工单分流、内容审核、Agent 路由、结果校验及任意自定义场景的结构化判定（choice / score / 概率），附带需求明确度预检 hook。默认接入 unisound u2-decision，可通过环境变量切换任意 SystemOne 兼容供应商。",
+      "displayName": "SystemOne Decision",
+      "displayName_i18n": {
+        "zh-CN": "SystemOne 决策"
+      },
+      "description_i18n": {
+        "zh-CN": "SystemOne 决策模型工具集：工单分流、内容审核、Agent 路由、结果校验及任意自定义场景结构化判定，附带需求明确度预检 hook（默认 unisound u2-decision，环境变量可切换供应商）"
+      }
+    }
+  ]
+}

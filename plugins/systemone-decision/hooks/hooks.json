@@ -1,0 +1,16 @@
+{
+  "description": "SystemOne 需求明确度预检：用户提交输入时用决策模型判定需求是否明确（clarity/missing/proceed 三问），仅在需求不明确时把结论注入上下文提醒 Agent 先澄清；明确、寒暄或预检失败时静默放行。",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/requirement-clarity.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
