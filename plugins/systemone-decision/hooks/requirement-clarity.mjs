@@ -3,8 +3,8 @@
 // 契约：stdin = hook JSON（取 prompt 字段）；stdout 仅在判定"需求不明确"时输出一条
 // hookSpecificOutput.additionalContext 注入上下文，其余一律静默 exit 0（fail-open）——
 // 无 Key、寒暄捷径、网络失败都不阻塞用户输入，诊断走 stderr。
-// 门限与 AGENTS.md「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.6。
-// 低置信度不改门限，只在命中的结论里附注——硬信号归 hook，软怀疑归 Agent（AGENTS.md 规则）。
+// 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.6。
+// 低置信度不改门限，只在命中的结论里附注——硬信号归 hook，软怀疑归 Agent。
 
 const GATE = { clarityMax: 1, proceedMin: 0.6 };
 const CASUAL = /^(好的?|好吧|可以|是的?|对滴?|行|嗯+|哦+|不了|不用了?|再见|收到|继续|谢谢|多谢|麻烦了|辛苦了|ok|okay|yes|thanks?|thank you)[!。.，,～~！?\s]*$/i;
@@ -43,8 +43,11 @@ function env() {
     apiKey: process.env.SYSTEMONE_API_KEY || process.env.UNISOUND_API_KEY || '',
     baseUrl: (process.env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
     model: process.env.SYSTEMONE_MODEL || 'u2-decision',
-    // hook 挂在每次用户输入上，超时须远短于 MCP 侧，且不超过 hooks.json 的 15s 进程上限
-    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(timeoutRaw, 12000) : 8000,
+    // 时间预算按最严的一侧（MiniMax：handler timeout 上限 10s）统一收紧：
+    // 请求 6s < 自毁 7s < MiniMax handler 8s < ZCode handler 15s。
+    // MiniMax 的 hook handler 不支持 env 字段，无法给两端配不同预算，只能取小值。
+    // 实测真实接口延迟约 0.1s，6s 仍有 60 倍余量；hook 失败绝不阻塞用户输入。
+    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(timeoutRaw, 6000) : 5000,
   };
 }
 
@@ -108,7 +111,7 @@ function verdictLine(clarity, missing, proceed) {
 
 async function main() {
   // stdin 异常挂起时的兜底自毁，避免每次输入都吃满 hook 进程超时
-  const killer = setTimeout(() => process.exit(0), 14000);
+  const killer = setTimeout(() => process.exit(0), 7000);
   const raw = await readStdin();
   let input = {};
   try {

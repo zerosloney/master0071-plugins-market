@@ -4,7 +4,7 @@
     {
       "name": "systemone-decision",
       "source": "./plugins/systemone-decision",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "description": "SystemOne 决策模型工具集：只注册 2 个 MCP 工具（场景调度 + 自定义问题）控制 schema 开销，内置 11 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议，支持在设置页用 JSON 追加/覆盖场景，附带需求明确度预检 hook。默认接入 unisound u2-decision，端点/模型/超时可在 ZCode 插件设置页或环境变量配置，切换任意 SystemOne 兼容供应商。",
       "displayName": "SystemOne Decision",
       "displayName_i18n": {

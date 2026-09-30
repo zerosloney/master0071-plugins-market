@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "mcpServers": {
+    "systemone": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./mcp/server.mjs"
+      ],
+      "description": "SystemOne 决策模型 MCP 服务器：11 个内置业务场景（list/describe/run）+ 通用自定义决策。端点、模型、超时、场景均由 SYSTEMONE_* 环境变量配置。",
+      "timeout": 30000
+    }
+  }
+}

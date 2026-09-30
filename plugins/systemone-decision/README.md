@@ -96,6 +96,24 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
+## 同时支持 ZCode 与 MiniMax Code
+
+同一个插件包内并存两份清单，各产品只认自己那份，互不遮蔽：
+
+| 文件 | 归属 | 作用 |
+|------|------|------|
+| `.zcode-plugin/plugin.json` | ZCode | 内联 `mcpServers`、字符串式 `skills`/`hooks`、带 `userConfig` 设置页 |
+| `.minimax-plugin/plugin.json` | MiniMax Code | 引用式 `mcpServers`/`skills`/`hooks`，含 `icon`/`category`/`exampleQueries` |
+| `systemone.mcp.json` | MiniMax Code | stdio MCP 声明（ZCode 直接忽略） |
+| `hooks/hooks.json` | ZCode | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
+| `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
+
+业务载荷（`mcp/*.mjs`、`skills/`、`hooks/requirement-clarity.mjs`）完全共享，两端运行的是同一份代码。hook 必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。
+
+**配置差异**：MiniMax Code 没有插件设置页，上表四项配置请改用 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置页）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
+
+**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表。同一仓库、两条注册路径。
+
 ## ZCode 设置页配置
 
 在 **设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced** 可直接配置，无需环境变量：
@@ -140,9 +158,13 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 需求明确度预检 hook（随插件自动安装）
 
-插件通过 `hooks/hooks.json` 声明了一个 UserPromptSubmit hook：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行，不产生任何输出。
+插件通过 hook 清单声明了一个 UserPromptSubmit hook（ZCode 读 `hooks/hooks.json`，MiniMax Code 读 `hooks/hooks.minimax.json`，两者指向同一个脚本）：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行，不产生任何输出。
 
-安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量，未配置 Key 时自动跳过。hook 内部请求超时上限 12 秒（hook 进程上限 15 秒），失败绝不阻塞用户输入。
+安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量，未配置 Key 时自动跳过。
+
+内部时间预算按两端最严的一侧统一收紧：请求 6 秒 < 进程自毁 7 秒 < MiniMax handler 8 秒 < ZCode handler 15 秒。实测真实接口延迟约 0.1 秒，仍有 60 倍余量；任何失败都 fail-open，绝不阻塞用户输入。
+
+**隐私提示**：该 hook 会把你每次提交的输入发送到决策服务接口。它会跳过少于 10 字的输入与寒暄短语，判定为"明确"时静默返回，但请求本身已经发出。不需要预检时，删除（或改名）对应的 hook 清单文件即可，插件其余能力不受影响。
 
 ## 结果解读
 
@@ -165,6 +187,13 @@ mcp/
 ├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用、信任边界校验、2 个工具定义
 ├── scenarios.mjs  场景库（11 个内置 + 设置页/环境变量自定义场景合并，纯数据）+ 校验与查找
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
-hooks/             需求明确度预检（UserPromptSubmit）
+hooks/
+├── requirement-clarity.mjs  需求明确度预检脚本（两端共享）
+├── hooks.json               ZCode 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
+└── hooks.minimax.json       MiniMax 清单（${PLUGIN_ROOT}，timeout 8）
 skills/            使用指引与场景文档
+.zcode-plugin/     ZCode 清单
+.minimax-plugin/   MiniMax Code 清单
+systemone.mcp.json MiniMax 的 MCP 声明
+icon*.png          MiniMax 插件图标（明亮/暗色）
 ```
