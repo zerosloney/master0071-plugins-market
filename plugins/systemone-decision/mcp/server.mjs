@@ -16,7 +16,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.2.1' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.2.2' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
@@ -252,10 +252,17 @@ async function executeDecision(state, questions, threshold, meta = {}) {
   };
 }
 
-/** 概率落在模糊区间（0.45~0.55）或 choice 无法给出选项时，即使置信度达标也建议人工复核。 */
+/**
+ * 即使置信度达标也必须转人工复核的情形：
+ *   1. 判定值不可用——任一题型缺失或非法（choice 无选项、noul 无概率、score 无分值）。
+ *      模型对结构性坏响应同样会给高 confidence，照单全收等于凭坏数据做决策。
+ *   2. choice 返回 uncertain / unknown 哨兵值。
+ *   3. noul 概率落在 0.45~0.55 模糊区间（正反两向都说不准）。
+ */
 function isBorderline(a) {
   if (a.type === 'choice' && (a.value === null || a.value === 'uncertain' || a.value === 'unknown')) return true;
-  if (a.type === 'noul' && typeof a.probability === 'number' && a.probability > 0.45 && a.probability < 0.55) return true;
+  if (a.type === 'noul' && (a.probability === null || (a.probability > 0.45 && a.probability < 0.55))) return true;
+  if (a.type === 'score' && a.value === null) return true;
   return false;
 }
 

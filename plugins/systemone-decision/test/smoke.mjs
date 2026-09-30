@@ -59,24 +59,28 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ base_resp: { status_code: 100105, status_msg: 'model error: no model u2-decision permission' } }));
       return;
     }
-    // 缺陷回归夹具：score 答案为畸形（缺 score 字段 / score=null）时，模型仍会返回
-    // legend + 高 confidence。归一化必须把它标成「无法判断」，绝不能回退到 0 分再取
-    // legend[0] 捏造出一个等级标签，否则会产出一条看起来完全正常的高置信假判定。
-    if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null') {
+    // 缺陷回归夹具：判定值缺失的畸形响应——score 缺 score 字段 / score=null，或 noul 完全没有
+    // 概率字段。模型此时仍会返回 legend 或高 confidence。归一化必须把它标成「无法判断」，
+    // 绝不能回退到 0 分再取 legend[0] 捏造出等级标签，否则会产出一条看起来完全正常的假判定。
+    if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null' || parsed.state === 'mock:noul-missing') {
+      // 每个 sentinel 只破坏它自己那道题，其余题保持正常——否则 low_confidence_questions
+      // 会混进未预期的题目，断言就测不出「只标记坏题」这件事了
       const answers = {};
       for (const [qid, q] of Object.entries(parsed.questions || {})) {
-        if (q.type !== 'score') {
+        if (parsed.state === 'mock:noul-missing' && q.type === 'noul') {
+          answers[qid] = { type: 'noul' };
+        } else if (parsed.state !== 'mock:noul-missing' && q.type === 'score') {
+          const malformed = {
+            type: 'score',
+            legend: { '0': '轻微问题，不影响功能', '1': '部分功能受影响，但存在替代方案', '2': '核心功能不可用，没有替代方案', '3': '造成严重业务或安全影响' },
+            probabilities: { '0': 0.1, '1': 0.1, '2': 0.1, '3': 0.1 },
+            confidence: 0.91,
+          };
+          if (parsed.state === 'mock:score-null') malformed.score = null;
+          answers[qid] = malformed;
+        } else {
           answers[qid] = answerFor(qid, q);
-          continue;
         }
-        const malformed = {
-          type: 'score',
-          legend: { '0': '轻微问题，不影响功能', '1': '部分功能受影响，但存在替代方案', '2': '核心功能不可用，没有替代方案', '3': '造成严重业务或安全影响' },
-          probabilities: { '0': 0.1, '1': 0.1, '2': 0.1, '3': 0.1 },
-          confidence: 0.91,
-        };
-        if (parsed.state === 'mock:score-null') malformed.score = null;
-        answers[qid] = malformed;
       }
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ ...FIXTURE, answers }));
@@ -234,8 +238,9 @@ const main = async () => {
       assert.equal(received[0].body.questions.severity.criteria.length, 4);
     });
 
-    // 回归：畸形 score（缺 score 字段 / score=null）不得被当成 0 分而捏造出等级标签，
+    // 回归：畸形响应（score 缺字段 / score=null）不得被当成 0 分而捏造出等级标签，
     // 也不得顺着 severity 派生出凭空的 P4 优先级——那等于凭一个坏响应把工单降级。
+    // 两者都必须触发 needs_human_review：高 confidence 不代表响应结构有效。
     // 放在端点断言之后：那条断言硬编码了 received.length === 1。
     for (const [variant, sentinel] of [
       ['缺 score 字段', 'mock:score-missing'],
@@ -244,7 +249,7 @@ const main = async () => {
       const bad = toolResult(
         await runScenario(client, { action: 'run', scenario: 'customer_service', state: sentinel })
       );
-      check(`畸形 score（${variant}）判为无法判断，不捏造等级标签与优先级`, () => {
+      check(`畸形 score（${variant}）判为无法判断，不捏造等级标签与优先级，且触发人工复核`, () => {
         assert.equal(bad.answers.severity.value, null, 'value 不应被兜底成 0');
         assert.equal(bad.answers.severity.level, null, 'level 不得回退到 legend[0]');
         assert.equal(bad.decision.severity, null, 'decision 不得因 Number(null) 变成 0');
@@ -253,8 +258,24 @@ const main = async () => {
         assert.ok(bad.summary.includes('无法判断'), '逐题明细必须显示无法判断');
         assert.ok(!bad.summary.includes('轻微问题，不影响功能'), '摘要里不得出现捏造的等级标签');
         assert.ok(!bad.recommendation.includes('P4'), '建议里不得出现凭空的优先级');
+        assert.equal(bad.needs_human_review, true, '判定值缺失必须转人工');
+        assert.deepEqual(bad.low_confidence_questions, ['severity']);
+        assert.ok(bad.summary.includes('需要人工复核'), '摘要必须提示需复核');
       });
     }
+
+    // 同类缺口：noul 完全没有概率字段时，confidence 恒为 null，原先会静默按「无需复核」放行
+    const badNoul = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:noul-missing' })
+    );
+    check('畸形 noul（无概率字段）判为无法判断并触发人工复核', () => {
+      assert.equal(badNoul.answers.escalate.probability, null);
+      assert.equal(badNoul.answers.escalate.confidence, null);
+      assert.equal(badNoul.decision.escalate, null);
+      assert.equal(badNoul.labels.escalate, '无法判断');
+      assert.equal(badNoul.needs_human_review, true);
+      assert.deepEqual(badNoul.low_confidence_questions, ['escalate']);
+    });
 
     const aliasRun = toolResult(await runScenario(client, { action: 'run', scenario: '工单分流', state: '简单咨询类工单' }));
     check('场景支持中文别名查找', () => {
