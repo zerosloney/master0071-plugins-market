@@ -36,6 +36,19 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 端点 / 模型 / 超时可在 **设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced** 配置，无需环境变量。
 
+### oh-my-pi（omp）
+
+omp 兼容 Claude 插件清单格式，但市场清单固定读 `.omp-plugin/marketplace.json`（本仓库已内置），并读 `.omp-plugin/plugin.json` 获取 MCP 声明：
+
+```
+/marketplace add zerosloney/master0071-plugins-market
+/marketplace install systemone-decision@master0071-plugins
+```
+
+或 CLI：`omp plugin marketplace add zerosloney/master0071-plugins-market && omp plugin install systemone-decision@master0071-plugins`。
+
+omp 没有插件设置页，配置全部走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`，自定义场景用 `SYSTEMONE_SCENARIOS`。注意：需求明确度预检 hook（Claude 式 `hooks/hooks.json`）在 omp 下不生效——omp 的 hook 是 `hooks/pre|post/` 下的 JS 工厂模块，格式不同。
+
 ### MiniMax Code
 
 将本仓库 git 地址（`https://github.com/zerosloney/master0071-plugins-market`）加入 MiniMax Code 的插件市场（`known_marketplaces.json`）后安装。MiniMax Code 没有插件设置页，所有配置改用环境变量：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`。
@@ -60,7 +73,7 @@ plugins/
 ## 维护
 
 - **新增插件**：在 `plugins/` 下建目录，并在 `marketplace.json` 的 `plugins` 数组登记 `name` / `source` / `version` / 描述（含 `displayName_i18n` / `description_i18n`）。
-- **发布新版本**：同步升级 4 处版本号 —— `marketplace.json` 插件条目、`.zcode-plugin/plugin.json`、`.minimax-plugin/plugin.json`、`mcp/server.mjs` 的 `SERVER_INFO` —— 提交推送后，客户端更新插件即拉到新版。
+- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 6 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、三份 plugin.json、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```
