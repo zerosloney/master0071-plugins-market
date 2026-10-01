@@ -96,9 +96,9 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
-## 同时支持 ZCode 与 MiniMax Code
+## 多端支持（ZCode / MiniMax Code / opencode / omp）
 
-同一个插件包内并存两份清单，各产品只认自己那份，互不遮蔽：
+同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
 
 | 文件 | 归属 | 作用 |
 |------|------|------|
@@ -107,12 +107,19 @@ systemone_scenario(action: "run",
 | `systemone.mcp.json` | MiniMax Code | stdio MCP 声明（ZCode 直接忽略） |
 | `hooks/hooks.json` | ZCode | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
 | `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
+| `package.json` + `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，按包安装） |
 
-业务载荷（`mcp/*.mjs`、`skills/`、`hooks/requirement-clarity.mjs`）完全共享，两端运行的是同一份代码。hook 必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。
+业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`，opencode 的注册在 `index.mjs`——三端改同一处门限不会漂移。
 
-**配置差异**：MiniMax Code 没有插件设置页，上表四项配置请改用 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置页）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
+**配置差异**：MiniMax Code 与 opencode 都没有插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
-**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表。同一仓库、两条注册路径。
+**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`。**opencode 没有市场概念**，只有 `plugins` 数组，直接装本目录这个包：
+
+```sh
+opencode plugin add 'github:zerosloney/master0071-plugins-market#main::path:plugins/systemone-decision'
+```
+
+`index.mjs` 的 `setup` 注册三样东西：stdio MCP server（`ctx.mcp.transform`，工具名不变，opencode 暴露为 `tools.systemone.systemone_scenario` 等）、skill（`ctx.skill.transform`）、需求明确度预检（`ctx.session.hook("prompt")` —— opencode 没有 Claude 式 `hooks/hooks.json`，prompt hook 就是 `UserPromptSubmit` 的等价物，结论追加到 `event.prompt.text`）。安装细节见[仓库 README](../../README.md#opencode)。
 
 ## ZCode 设置页配置
 
@@ -176,9 +183,10 @@ setx SYSTEMONE_API_KEY "对应的Key"
 ```
 node test/smoke.mjs
 node test/hook.smoke.mjs
+node test/opencode.smoke.mjs
 ```
 
-冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错），不需要真实 API Key。
+冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错），不需要真实 API Key。`hook.smoke.mjs` 覆盖 UserPromptSubmit 的六类行为，`opencode.smoke.mjs` 用假 ctx 验证 opencode 侧的 MCP / skill / prompt hook 接线。
 
 ## 架构
 
@@ -188,12 +196,15 @@ mcp/
 ├── scenarios.mjs  场景库（11 个内置 + 设置页/环境变量自定义场景合并，纯数据）+ 校验与查找
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 hooks/
-├── requirement-clarity.mjs  需求明确度预检脚本（两端共享）
+├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
+├── requirement-clarity.mjs  UserPromptSubmit 脚本（ZCode / MiniMax 共享的 stdin/stdout 协议）
 ├── hooks.json               ZCode 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
 └── hooks.minimax.json       MiniMax 清单（${PLUGIN_ROOT}，timeout 8）
 skills/            使用指引与场景文档
 .zcode-plugin/     ZCode 清单
 .minimax-plugin/   MiniMax Code 清单
+package.json       opencode 包入口
+index.mjs          opencode 适配接线（MCP + skill + prompt hook）
 systemone.mcp.json MiniMax 的 MCP 声明
 icon*.png          MiniMax 插件图标（明亮/暗色）
 ```
