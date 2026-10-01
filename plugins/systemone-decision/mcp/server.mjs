@@ -179,9 +179,13 @@ function metaOf(data) {
 }
 
 function thresholdOf(args) {
-  if (args.confidenceThreshold === undefined) return 0.7;
-  const t = Number(args.confidenceThreshold);
-  if (!Number.isFinite(t) || t < 0 || t > 1) {
+  const raw = args.confidenceThreshold;
+  // 空值一律回退默认，与 config() 把空串视为「未配置」同一套约定：
+  // Number(null) 与 Number('') 都得 0，而 0 落在合法区间内，会把复核阈值静默关掉
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return 0.7;
+  // 非数字非字符串（true / [] / {}）不参与强转——Number([]) 与 Number(false) 同样得 0
+  const t = typeof raw === 'string' ? Number(raw.trim()) : raw;
+  if (typeof t !== 'number' || !Number.isFinite(t) || t < 0 || t > 1) {
     throw new ToolError('confidenceThreshold 必须是 0~1 之间的数字');
   }
   return t;

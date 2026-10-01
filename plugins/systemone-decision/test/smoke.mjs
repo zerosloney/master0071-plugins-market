@@ -478,6 +478,35 @@ const main = async () => {
       assert.ok(d.summary.includes('SystemOne 通用决策'));
     });
 
+    // confidenceThreshold 的空值陷阱：Number(null) / Number('') 都得 0，
+    // 而 0 落在合法区间内，会把复核阈值静默关掉——空值必须回退默认 0.7。
+    // 显式传 0 仍是合法意图（调用方主动关闭阈值判定），两者必须区分开。
+    // [] / false 不是「未配置」而是畸形值：Number([]) 与 Number(false) 同样得 0，
+    // 一律报错而不是兜底。
+    const thresholdOf_ = async (confidenceThreshold) => {
+      const r = await decide(client, {
+        state: '阈值探测',
+        questions: { q1: { type: 'noul', instructions: '是吗？' } },
+        confidenceThreshold,
+      });
+      return r.result.isError ? { error: r.result.content[0].text } : toolResult(r).confidence_threshold;
+    };
+    const emptyThresholds = await Promise.all([undefined, null, '', '   '].map(thresholdOf_));
+    check('confidenceThreshold 空值（undefined/null/空串/纯空白）回退默认 0.7', () => {
+      assert.deepEqual(emptyThresholds, [0.7, 0.7, 0.7, 0.7]);
+    });
+    const explicitThresholds = await Promise.all([0, 0.5, 1, '0.8'].map(thresholdOf_));
+    check('confidenceThreshold 显式值（含 0 与数字字符串）照原样生效', () => {
+      assert.deepEqual(explicitThresholds, [0, 0.5, 1, 0.8]);
+    });
+    const badThresholds = await Promise.all([1.5, -0.1, 'abc', true, [], false, {}].map(thresholdOf_));
+    check('confidenceThreshold 非法值（含 [] / false）返回 isError 而非静默兜底', () => {
+      assert.equal(badThresholds.length, 7);
+      for (const r of badThresholds) {
+        assert.match(r.error, /confidenceThreshold 必须是/, `应报错，实际: ${JSON.stringify(r)}`);
+      }
+    });
+
     const bad = await decide(client, { state: 'x', questions: { q1: { type: 'essay', instructions: '?' } } });
     check('非法题型返回 isError 与明确原因', () => {
       assert.equal(bad.result.isError, true);
