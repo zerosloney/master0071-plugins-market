@@ -13,6 +13,12 @@
 // 零依赖，Node ≥ 18。
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// 路径基于本文件解析（而不是 cwd），否则从子目录执行会读到不存在的文件直接 ENOENT
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const at = (rel) => path.join(ROOT, rel);
 
 const ZCODE = 'plugins/systemone-decision/.zcode-plugin/plugin.json';
 const MINIMAX = 'plugins/systemone-decision/.minimax-plugin/plugin.json';
@@ -30,16 +36,16 @@ if (!checkOnly && !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(arg ?? '')) {
 }
 
 // 当前版本：以 ZCode 清单为准
-const zcode = JSON.parse(readFileSync(ZCODE, 'utf8'));
+const zcode = JSON.parse(readFileSync(at(ZCODE), 'utf8'));
 const current = zcode.version;
 const next = checkOnly ? current : arg;
 
 // 各处当前版本
-const market = JSON.parse(readFileSync(MARKET, 'utf8'));
-const ompMarket = JSON.parse(readFileSync(OMP_MARKET, 'utf8'));
-const minimax = JSON.parse(readFileSync(MINIMAX, 'utf8'));
-const ompManifest = JSON.parse(readFileSync(OMP_MANIFEST, 'utf8'));
-const serverSrc = readFileSync(SERVER, 'utf8');
+const market = JSON.parse(readFileSync(at(MARKET), 'utf8'));
+const ompMarket = JSON.parse(readFileSync(at(OMP_MARKET), 'utf8'));
+const minimax = JSON.parse(readFileSync(at(MINIMAX), 'utf8'));
+const ompManifest = JSON.parse(readFileSync(at(OMP_MANIFEST), 'utf8'));
+const serverSrc = readFileSync(at(SERVER), 'utf8');
 const serverVer = serverSrc.match(/const SERVER_INFO = \{ name: 'systemone-decision', version: '([^']+)' \}/)?.[1];
 
 const spots = [
@@ -75,18 +81,18 @@ if (next === current) {
 
 // 1/2/4/5：JSON 文件只替换 version 行，保留原有格式（避免 JSON.stringify 重排引起无关 diff）
 for (const file of [MARKET, OMP_MARKET, ZCODE, MINIMAX, OMP_MANIFEST]) {
-  const src = readFileSync(file, 'utf8');
+  const src = readFileSync(at(file), 'utf8');
   const re = new RegExp(`("version"\\s*:\\s*")${current.replace(/\./g, '\\.')}(")`);
   if (!re.test(src)) {
     console.error(`✗ ${file} 中未找到版本 ${current}，请人工检查`);
     process.exit(1);
   }
-  writeFileSync(file, src.replace(re, `$1${next}$2`));
+  writeFileSync(at(file), src.replace(re, `$1${next}$2`));
   console.log(`✓ ${file}: ${current} → ${next}`);
 }
 
 // 6：server.mjs 只替换 SERVER_INFO 行内版本，避免误伤其他 version 字样
-writeFileSync(SERVER, serverSrc.replace(
+writeFileSync(at(SERVER), serverSrc.replace(
   /(const SERVER_INFO = \{ name: 'systemone-decision', version: ')[^']+(' \})/,
   `$1${next}$2`,
 ));

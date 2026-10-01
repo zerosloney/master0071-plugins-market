@@ -60,7 +60,7 @@ function config() {
 // ---------- 信任边界校验：发给外部 API 的请求体在此统一校验 ----------
 
 function validateState(state) {
-  if (typeof state !== 'string' && (state === null || typeof state !== 'object')) {
+  if (state === null || (typeof state !== 'string' && typeof state !== 'object')) {
     throw new ToolError('state 必须是字符串、对象或数组');
   }
   if (typeof state === 'string' && state.trim() === '') {
