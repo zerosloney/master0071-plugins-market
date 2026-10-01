@@ -62,6 +62,47 @@ const mock = http.createServer((req, res) => {
     // 缺陷回归夹具：判定值缺失的畸形响应——score 缺 score 字段 / score=null，或 noul 完全没有
     // 概率字段。模型此时仍会返回 legend 或高 confidence。归一化必须把它标成「无法判断」，
     // 绝不能回退到 0 分再取 legend[0] 捏造出等级标签，否则会产出一条看起来完全正常的假判定。
+    // 响应缺 type 字段：归一化三处（answers / labels / summary）都必须回退到问题定义。
+    // score 同时验证 answers.level 的兜底补齐——响应不带 legend 时它必须有值。
+    if (parsed.state === 'mock:type-missing') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        if (q.type === 'score') {
+          answers[qid] = { score: 2.000796, probabilities: { '2': 0.98 }, confidence: 0.98 };
+        } else if (q.type === 'choice') {
+          answers[qid] = { choice: 'billing', probabilities: { billing: 0.89 }, confidence: 0.89 };
+        } else {
+          answers[qid] = { noul: 0.96 };
+        }
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }));
+      return;
+    }
+    // 幻觉选项 / 越界分值：模型给出判据表里不存在的 choice，或超出量表范围的 score。
+    // 两者 confidence 都很高，但前者会渲染成一个不存在的选项、后者会被 deriveFields
+    // 钳成最高档（如 severity 7 → P1），都必须转人工，而不是当作合法判定放行。
+    if (parsed.state === 'mock:choice-hallucinated' || parsed.state === 'mock:score-out-of-range') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        if (parsed.state === 'mock:choice-hallucinated' && q.type === 'choice') {
+          answers[qid] = { type: 'choice', choice: 'vip', probabilities: { vip: 0.97 }, confidence: 0.97 };
+        } else if (parsed.state === 'mock:score-out-of-range' && q.type === 'score') {
+          answers[qid] = {
+            type: 'score',
+            legend: {},
+            probabilities: { '0': 0.1, '1': 0.1, '2': 0.1, '3': 0.1 },
+            score: 7,
+            confidence: 0.95,
+          };
+        } else {
+          answers[qid] = answerFor(qid, q);
+        }
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }));
+      return;
+    }
     if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null' || parsed.state === 'mock:noul-missing') {
       // 每个 sentinel 只破坏它自己那道题，其余题保持正常——否则 low_confidence_questions
       // 会混进未预期的题目，断言就测不出「只标记坏题」这件事了
@@ -275,6 +316,44 @@ const main = async () => {
       assert.equal(badNoul.labels.escalate, '无法判断');
       assert.equal(badNoul.needs_human_review, true);
       assert.deepEqual(badNoul.low_confidence_questions, ['escalate']);
+    });
+
+    // 同一类缺口的另两种形态：choice 幻觉出判据表里没有的选项（高 confidence 也必须转人工）、
+    // score 越界（4 级量表返回 7，会被 deriveFields 钳成最高档 P1）。
+    const hallucinated = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:choice-hallucinated' })
+    );
+    check('choice 幻觉出判据表外的选项时转人工，不把不存在的选项当判定', () => {
+      assert.equal(hallucinated.answers.department.value, 'vip');
+      assert.equal(hallucinated.needs_human_review, true, '幻觉选项必须转人工');
+      assert.deepEqual(hallucinated.low_confidence_questions, ['department']);
+    });
+
+    const outOfRange = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:score-out-of-range' })
+    );
+    check('score 越界时转人工，并暴露原始分值而不静默钳到最高档', () => {
+      assert.equal(outOfRange.answers.severity.value, 7);
+      assert.equal(outOfRange.needs_human_review, true, '越界分值必须转人工');
+      assert.deepEqual(outOfRange.low_confidence_questions, ['severity']);
+      assert.ok(outOfRange.summary.includes('需要人工复核'), '摘要必须提示需复核');
+    });
+
+    // 响应缺 type 时，三个视图（answers / labels / summary）必须一致，不能 summary 打印原始 JSON
+    const typeLess = toolResult(
+      await runScenario(client, {
+        action: 'run',
+        scenario: 'customer_service',
+        state: 'mock:type-missing',
+      })
+    );
+    check('响应缺 type 时 summary 仍按问题定义渲染，与 answers/labels 一致', () => {
+      assert.equal(typeLess.answers.severity.type, 'score');
+      assert.equal(typeLess.answers.severity.value, 2.001);
+      // 响应不带 legend 时 answers.level 仍须有值，与 labels 一致
+      assert.equal(typeLess.answers.severity.level, '核心功能不可用，没有替代方案');
+      assert.ok(typeLess.summary.includes('核心功能不可用，没有替代方案'), 'summary 应走 score 分支');
+      assert.ok(!typeLess.summary.includes('"score"'), 'summary 不得退化成原始 JSON');
     });
 
     const aliasRun = toolResult(await runScenario(client, { action: 'run', scenario: '工单分流', state: '简单咨询类工单' }));

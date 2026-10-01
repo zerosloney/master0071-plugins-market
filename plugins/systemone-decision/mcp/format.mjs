@@ -39,7 +39,14 @@ export function normalizeAnswer(question, answer) {
   } else if (out.type === 'score') {
     const score = finiteScore(answer);
     out.value = score === null ? null : Math.round(score * 1000) / 1000;
-    out.level = score === null ? null : (answer.legend || {})[String(Math.round(score))] ?? null;
+    // 兜底顺序与 normalizeDecision 的 labels 一致（legend → 量表标签），否则响应没带 legend 时
+    // answers.x.level 为 null 而 labels.x 有值，同一份结果两个视图互相矛盾
+    out.level =
+      score === null
+        ? null
+        : (answer.legend || {})[String(Math.round(score))] ??
+          (Array.isArray(question?.criteria) ? question.criteria[Math.round(score)] : undefined) ??
+          null;
     out.probabilities = answer.probabilities || {};
     out.confidence = typeof answer.confidence === 'number' ? answer.confidence : null;
   }
@@ -178,9 +185,12 @@ export function formatAnswerLines(questions, rawAnswers) {
       continue;
     }
     const label = question?.label || qid;
-    if (raw.type === 'choice') lines.push(choiceLine(label, raw, question));
-    else if (raw.type === 'score') lines.push(scoreLine(label, raw, question));
-    else if (raw.type === 'noul') lines.push(noulLine(label, raw));
+    // type 回退到问题定义：与 normalizeAnswer / normalizeDecision 保持一致，
+    // 否则响应缺 type 时这里会掉进兜底分支打印原始 JSON，与 answers/labels 打架
+    const type = raw.type || question?.type;
+    if (type === 'choice') lines.push(choiceLine(label, raw, question));
+    else if (type === 'score') lines.push(scoreLine(label, raw, question));
+    else if (type === 'noul') lines.push(noulLine(label, raw));
     else lines.push(`- **${label}**：${JSON.stringify(raw)}`);
   }
   return lines;

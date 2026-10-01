@@ -54,7 +54,7 @@ systemone_scenario(action: "run", scenario: "agent_routing",
 - `recommendation` — 场景建议模板渲染出的一句话处置建议（如"转 支付、退款和账单问题 处理（优先级 P2）。需立即通知值班人员"）
 - `summary` — Markdown 摘要；`meta`（model / request_id / latency_ms / usage）与 `raw`（原始响应）供追溯
 
-`confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、或 noul 概率落在 0.45~0.55 模糊区间时 `needs_human_review = true`，并列出 `low_confidence_questions`。判定值缺失时即便 confidence 很高也会转人工。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
+`confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时 `needs_human_review = true`，并列出 `low_confidence_questions`。判定值缺失或越界时即便 confidence 很高也会转人工。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
 
 - **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
 

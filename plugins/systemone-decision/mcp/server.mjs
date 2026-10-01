@@ -16,7 +16,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.3.1' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.3.2' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
@@ -213,7 +213,7 @@ async function executeDecision(state, questions, threshold, meta = {}) {
       low.push(qid); // 响应缺失该答案，视作无法判断
     } else if (a.confidence !== null && a.confidence < threshold) {
       low.push(qid);
-    } else if (isBorderline(a)) {
+    } else if (isBorderline(a, q, data.answers[qid])) {
       low.push(qid);
     }
   }
@@ -253,16 +253,31 @@ async function executeDecision(state, questions, threshold, meta = {}) {
 }
 
 /**
- * 即使置信度达标也必须转人工复核的情形：
+ * 即使置信度达标也必须转人工复核的情形（question 为该题定义，判据以其为准；raw 为原始答案）：
  *   1. 判定值不可用——任一题型缺失或非法（choice 无选项、noul 无概率、score 无分值）。
  *      模型对结构性坏响应同样会给高 confidence，照单全收等于凭坏数据做决策。
  *   2. choice 返回 uncertain / unknown 哨兵值。
  *   3. noul 概率落在 0.45~0.55 模糊区间（正反两向都说不准）。
+ *   4. choice 选中的选项不在判据表内——模型幻觉出的选项，confidence 可能很高，
+ *      甚至根本没给（null），不能当作合法判定。
+ *   5. score 分值取整后落在分级量表范围外——越界高分会被 deriveFields 钳成最高档，
+ *      等于凭一个坏响应把工单升到最高优先级。
  */
-function isBorderline(a) {
-  if (a.type === 'choice' && (a.value === null || a.value === 'uncertain' || a.value === 'unknown')) return true;
+function isBorderline(a, question, raw) {
+  if (a.type === 'choice') {
+    if (a.value === null || a.value === 'uncertain' || a.value === 'unknown') return true;
+    const allowed = question?.criteria;
+    if (allowed && !(a.value in allowed)) return true;
+  }
   if (a.type === 'noul' && (a.probability === null || (a.probability > 0.45 && a.probability < 0.55))) return true;
-  if (a.type === 'score' && a.value === null) return true;
+  if (a.type === 'score') {
+    if (a.value === null) return true;
+    const levels = question?.criteria;
+    // 用原始 score 取整，与 normalizeDecision / deriveFields 走同一个下标，
+    // 避免 answers.value（保留 3 位小数）与 decision 取整结果在 .5 边界上不一致
+    const idx = Math.round(Number(raw?.score));
+    if (Array.isArray(levels) && (idx < 0 || idx >= levels.length)) return true;
+  }
   return false;
 }
 

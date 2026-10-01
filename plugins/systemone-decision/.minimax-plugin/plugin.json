@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "systemone-decision",
   "displayName": "SystemOne Decision",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "SystemOne 决策模型工具集（默认 unisound u2-decision）：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议；支持用 SYSTEMONE_SCENARIOS 环境变量追加或覆盖场景。附带需求明确度预检 hook。端点/模型/超时通过 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
   "author": "dc",
   "icon": "icon.png",

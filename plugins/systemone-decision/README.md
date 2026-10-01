@@ -168,7 +168,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 结果解读
 
-- `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、或 noul 概率落在 0.45~0.55 模糊区间时，`needs_human_review = true` 并列出 `low_confidence_questions`。判定值缺失时**即便 confidence 很高也会转人工**——模型对结构性坏响应同样会给高分。
+- `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时，`needs_human_review = true` 并列出 `low_confidence_questions`。判定值缺失或越界时**即便 confidence 很高也会转人工**——模型对结构性坏响应同样会给高分。
 - **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
 
 ## 开发与测试
