@@ -16,11 +16,11 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.2' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.4.3' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
-// 环境变量在进程启动时注入，改动设置后需重启 ZCode 生效；非法自定义条目跳过并告警到 stderr。
+// 环境变量在进程启动时注入，改动设置后需重启宿主生效；非法自定义条目跳过并告警到 stderr。
 const { scenarios: SCENARIOS, problems: scenarioProblems } = resolveScenarios(
   process.env.SYSTEMONE_PLUGIN_SCENARIOS || process.env.SYSTEMONE_SCENARIOS || ''
 );
@@ -47,7 +47,7 @@ function snippet(s) {
 }
 
 function config() {
-  // 配置优先级：ZCode 插件设置页（注入 SYSTEMONE_PLUGIN_*，空串视为未配置）> 环境变量 > 内置默认
+  // 配置优先级：宿主配置项（注入 SYSTEMONE_PLUGIN_*，空串视为未配置）> 环境变量 > 内置默认
   const timeoutRaw = Number(process.env.SYSTEMONE_PLUGIN_TIMEOUT_MS || process.env.SYSTEMONE_TIMEOUT_MS);
   return {
     apiKey: process.env.SYSTEMONE_API_KEY || process.env.UNISOUND_API_KEY || '',
@@ -123,8 +123,8 @@ async function callSystemone(state, questions) {
   const cfg = config();
   if (!cfg.apiKey) {
     throw new ToolError(
-      '缺少 API Key：请设置环境变量 SYSTEMONE_API_KEY（或 UNISOUND_API_KEY）后重启 ZCode。' +
-        'Key 只能走环境变量（插件设置页不支持保存密钥），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
+      '缺少 API Key：请设置环境变量 SYSTEMONE_API_KEY（或 UNISOUND_API_KEY）后重启宿主。' +
+        'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
     );
   }
   const url = `${cfg.baseUrl}/systemone`;

@@ -14,6 +14,8 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 | `systemone_scenario` | 大多数情况。`action=run` 跑内置场景；`action=list` 列场景；`action=describe` 看问题定义 |
 | `systemone_decide` | 场景库没有的临时判断，自定义 questions（choice / noul / score） |
 
+> 下文一律用 MCP 原生名书写。opencode 会给工具加命名空间前缀，实际调用名为 `tools.systemone.systemone_scenario` / `tools.systemone.systemone_decide`；其余宿主与原生名一致。以本会话工具清单里的实际名称为准。
+
 ## 内置场景（`systemone_scenario` action=run）
 
 | 场景 id | 判定内容（题型） | 建议传入的 params |

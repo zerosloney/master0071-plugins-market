@@ -20,9 +20,20 @@
 
 用 `action=describe` 查看任意场景的问题定义与默认判据，用 `action=list` + `keyword` 按关键词找场景。
 
-## 自定义场景（设置页 JSON）
+## 自定义场景（JSON）
 
-场景库可在 ZCode 设置页（**Custom Scenarios (JSON)**）或环境变量 `SYSTEMONE_SCENARIOS` 里用 JSON 数组扩展：**同 id（大小写不敏感）覆盖内置场景，否则追加**，改动重启 ZCode 生效。适合把业务的固定判定沉淀为一等场景，避免每次用 `systemone_decide` 手拼 questions——下面"组题配方"里的例子都可以直接改造成自定义场景。
+场景库可用一个 JSON 数组扩展，**同 id（大小写不敏感）覆盖内置场景，否则追加**。适合把业务的固定判定沉淀为一等场景，避免每次用 `systemone_decide` 手拼 questions——下面"组题配方"里的例子都可以直接改造成自定义场景。
+
+各宿主的填写入口不同，值最终都收敛到 `SYSTEMONE_SCENARIOS`（建议压成单行）：
+
+| 宿主 | 入口 |
+|------|------|
+| 环境变量（通用，推荐） | `SYSTEMONE_SCENARIOS` |
+| ZCode | 设置页 → SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
+| opencode | `opencode.json` 的 `plugins[].options.scenarios` |
+| MiniMax Code / omp | 无，只能用环境变量 |
+
+改动后需重启宿主生效（MCP 是启动时拉起的 stdio 子进程）。注意它**只作用于 MCP 工具**，需求明确度预检 hook 不读这份配置。
 
 ### 场景字段
 
