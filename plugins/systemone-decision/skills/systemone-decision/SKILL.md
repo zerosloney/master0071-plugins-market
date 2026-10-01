@@ -25,7 +25,7 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 | `software_dev` | 任务类型 bugfix/feature/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul） | — |
 | `sales_lead` / `risk_control` / `recruiting` / `data_governance` / `education` / `requirements` | 见 [references/scenarios.md](references/scenarios.md) | 按业务覆盖判据 |
 
-场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能在 ZCode 设置页配置了自定义场景——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
+场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能配置了自定义场景（ZCode 设置页 / opencode 的 `plugins[].options` / `SYSTEMONE_SCENARIOS`）——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
 
 **判据都有合理默认值，且可通过 `params` 按问题 id 覆盖——传入实际业务的可选项比默认值更准，能用就传**：
 
@@ -92,16 +92,31 @@ systemone_decide(
 
 ## 切换供应商
 
-插件不绑定 unisound。端点 / 模型 / 超时两种配置方式（优先级：设置页 > 环境变量 > 内置默认），任何 SystemOne（Jev 兼容）协议端点直接替换：
+插件不绑定 unisound。任何 SystemOne（Jev 兼容）协议端点直接替换。
 
-- ZCode 插件设置页（设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced）：Base URL / Model / Timeout (ms)
-- 环境变量：
-  - `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）— 必填，Key 只能走环境变量（设置页不支持保存密钥）
-  - `SYSTEMONE_BASE_URL` — 默认 `https://maas-api.unisound.com/v1`
-  - `SYSTEMONE_MODEL` — 默认 `u2-decision`
-  - `SYSTEMONE_TIMEOUT_MS` — 默认 30000
+环境变量（**所有宿主通用，也是最省事的一种**）：
 
-改配置后需重启 ZCode 生效；设置页配置只作用于 MCP 工具，需求预检 hook 只读环境变量。
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `SYSTEMONE_API_KEY` | 是（或 `UNISOUND_API_KEY`） | — | API Key，**只能走环境变量**——各宿主都没有安全的凭据存储 |
+| `SYSTEMONE_BASE_URL` | 否 | `https://maas-api.unisound.com/v1` | 端点根地址 |
+| `SYSTEMONE_MODEL` | 否 | `u2-decision` | 决策模型编码 |
+| `SYSTEMONE_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
+| `SYSTEMONE_SCENARIOS` | 否 | 空 | 自定义场景 JSON 数组（同 id 覆盖内置），**仅 MCP 工具读取** |
+
+想在宿主里点选配置而不用记环境变量，各宿主入口不同（值都收敛到同一套 `SYSTEMONE_PLUGIN_*`，优先级：宿主配置 > 环境变量 > 内置默认）：
+
+| 宿主 | 入口 | 备注 |
+|------|------|------|
+| ZCode | 设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced | Base URL / Model / Timeout (ms) / Custom Scenarios |
+| opencode | `opencode.json` 的 `plugins[].options`，同名的 `base_url` / `model` / `timeout_ms` / `scenarios` | 见[仓库 README](../../../../README.md#opencode) |
+| MiniMax Code | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
+| omp | 无，只能用上面的环境变量 | |
+
+两个通用注意点：
+
+- **改配置后需重启宿主**才生效——MCP 是启动时拉起的 stdio 子进程，持有一份启动瞬间的环境变量快照；ZCode 的设置页也是改完要重启。
+- **宿主配置只作用于 MCP 工具，需求明确度预检 hook 只读环境变量**。如果你在宿主里换了供应商却发现预检不工作了，同时设上 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` 环境变量（hook 请求失败会静默跳过，不会报错）。
 
 ## 边界与限额
 

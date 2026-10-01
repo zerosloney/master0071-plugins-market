@@ -1,6 +1,6 @@
 {
   "name": "opencode-systemone-decision",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "SystemOne 决策模型工具集（opencode 适配入口）：注册 1 个 stdio MCP server（2 个工具）、1 个 skill 与需求明确度预检 hook；业务载荷与 ZCode / MiniMax Code / omp 共用。",
   "main": "index.mjs",
   "keywords": [
