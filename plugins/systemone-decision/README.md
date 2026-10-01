@@ -107,16 +107,16 @@ systemone_scenario(action: "run",
 | `systemone.mcp.json` | MiniMax Code | stdio MCP 声明（ZCode 直接忽略） |
 | `hooks/hooks.json` | ZCode | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
 | `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
-| `package.json` + `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，按包安装） |
+| 仓库根 `package.json` + 本目录 `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，只能按包安装） |
 
 业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`，opencode 的注册在 `index.mjs`——三端改同一处门限不会漂移。
 
 **配置差异**：MiniMax Code 与 opencode 都没有插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
-**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`。**opencode 没有市场概念**，只有 `plugins` 数组，直接装本目录这个包：
+**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
 
 ```sh
-opencode plugin add 'github:zerosloney/master0071-plugins-market#main::path:plugins/systemone-decision'
+opencode plugin add github:zerosloney/master0071-plugins-market
 ```
 
 `index.mjs` 的 `setup` 注册三样东西：stdio MCP server（`ctx.mcp.transform`，工具名不变，opencode 暴露为 `tools.systemone.systemone_scenario` 等）、skill（`ctx.skill.transform`）、需求明确度预检（`ctx.session.hook("prompt")` —— opencode 没有 Claude 式 `hooks/hooks.json`，prompt hook 就是 `UserPromptSubmit` 的等价物，结论追加到 `event.prompt.text`）。安装细节见[仓库 README](../../README.md#opencode)。

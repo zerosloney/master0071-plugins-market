@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// 统一同步插件版本号（7 处）：
+// 统一同步插件版本号（8 处）：
 //   1. marketplace.json                                        → plugins[].version
 //   2. .omp-plugin/marketplace.json                            → plugins[].version（omp 市场清单）
 //   3. plugins/systemone-decision/.zcode-plugin/plugin.json
 //   4. plugins/systemone-decision/.minimax-plugin/plugin.json
 //   5. plugins/systemone-decision/.omp-plugin/plugin.json
-//   6. plugins/systemone-decision/package.json                 → opencode 插件包版本
-//   7. plugins/systemone-decision/mcp/server.mjs               → SERVER_INFO.version
+//   6. plugins/systemone-decision/package.json                 → opencode 本地路径入口的包版本
+//   7. package.json                                            → opencode git 安装入口的包版本
+//   8. plugins/systemone-decision/mcp/server.mjs               → SERVER_INFO.version
 //
 // 用法：
 //   node scripts/release.mjs 0.4.0        设置新版本（semver 校验）
@@ -25,6 +26,7 @@ const ZCODE = 'plugins/systemone-decision/.zcode-plugin/plugin.json';
 const MINIMAX = 'plugins/systemone-decision/.minimax-plugin/plugin.json';
 const OMP_MANIFEST = 'plugins/systemone-decision/.omp-plugin/plugin.json';
 const PKG = 'plugins/systemone-decision/package.json';
+const ROOT_PKG = 'package.json';
 const MARKET = 'marketplace.json';
 const OMP_MARKET = '.omp-plugin/marketplace.json';
 const SERVER = 'plugins/systemone-decision/mcp/server.mjs';
@@ -48,6 +50,7 @@ const ompMarket = JSON.parse(readFileSync(at(OMP_MARKET), 'utf8'));
 const minimax = JSON.parse(readFileSync(at(MINIMAX), 'utf8'));
 const ompManifest = JSON.parse(readFileSync(at(OMP_MANIFEST), 'utf8'));
 const pkg = JSON.parse(readFileSync(at(PKG), 'utf8'));
+const rootPkg = JSON.parse(readFileSync(at(ROOT_PKG), 'utf8'));
 const serverSrc = readFileSync(at(SERVER), 'utf8');
 const serverVer = serverSrc.match(/const SERVER_INFO = \{ name: 'systemone-decision', version: '([^']+)' \}/)?.[1];
 
@@ -58,6 +61,7 @@ const spots = [
   [MINIMAX, minimax.version],
   [OMP_MANIFEST, ompManifest.version],
   [PKG, pkg.version],
+  [ROOT_PKG, rootPkg.version],
   [`${SERVER} SERVER_INFO`, serverVer],
 ];
 
@@ -83,8 +87,8 @@ if (next === current) {
   process.exit(1);
 }
 
-// 1/2/4/5/6：JSON 文件只替换 version 行，保留原有格式（避免 JSON.stringify 重排引起无关 diff）
-for (const file of [MARKET, OMP_MARKET, ZCODE, MINIMAX, OMP_MANIFEST, PKG]) {
+// 1/2/4/5/6/7：JSON 文件只替换 version 行，保留原有格式（避免 JSON.stringify 重排引起无关 diff）
+for (const file of [MARKET, OMP_MARKET, ZCODE, MINIMAX, OMP_MANIFEST, PKG, ROOT_PKG]) {
   const src = readFileSync(at(file), 'utf8');
   const re = new RegExp(`("version"\\s*:\\s*")${current.replace(/\./g, '\\.')}(")`);
   if (!re.test(src)) {
@@ -95,7 +99,7 @@ for (const file of [MARKET, OMP_MARKET, ZCODE, MINIMAX, OMP_MANIFEST, PKG]) {
   console.log(`✓ ${file}: ${current} → ${next}`);
 }
 
-// 7：server.mjs 只替换 SERVER_INFO 行内版本，避免误伤其他 version 字样
+// 8：server.mjs 只替换 SERVER_INFO 行内版本，避免误伤其他 version 字样
 writeFileSync(at(SERVER), serverSrc.replace(
   /(const SERVER_INFO = \{ name: 'systemone-decision', version: ')[^']+(' \})/,
   `$1${next}$2`,

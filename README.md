@@ -57,13 +57,17 @@ omp 没有插件设置页，配置全部走环境变量（stdio 进程自动继�
 
 ### opencode
 
-opencode **没有插件市场**，只有 `plugins` 数组（npm 包名 / git spec / 本地路径）。所以本仓库的市场清单对它无效，改为直接装插件包 `plugins/systemone-decision`（该目录自带 `package.json`，入口 `index.mjs`，零依赖）：
+opencode **没有插件市场**，只有 `plugins` 数组（npm 包名 / git spec / 本地路径）。所以本仓库的市场清单对它无效，改为直接装插件包。
+
+装法有个坑：opencode 的 `plugin add` 走 bun 的 npm 兼容层，**git spec 的 `::path:` 子目录选择器会被静默忽略**（加不加根 `package.json` 都一样：没有就报 `ENOENT ... git-cloneXXX/package.json`，有了就把整个仓库根当成包装下来，`::path:` 静默失效）。因此**仓库根必须本身是一个包**，`main` 指向插件入口（见根 `package.json`）：
 
 ```sh
-opencode plugin add 'github:zerosloney/master0071-plugins-market#main::path:plugins/systemone-decision'
+opencode plugin add github:zerosloney/master0071-plugins-market
 ```
 
-本地开发用路径更省事（改完 `opencode service restart` 生效）：
+装下来的是整个仓库（含 `marketplace.json` / `plugins/` / `test/`），无害但不精简。零依赖，`main` 解析进子目录由标准 Node 解析完成，`index.mjs` 用 `import.meta.url` 定位自己的目录，所以 `mcp/`、`skills/` 路径不受影响。
+
+本地开发用路径更省事（改完 `opencode service restart` 生效），这样只挂插件目录、不带市场清单：
 
 ```jsonc title="opencode.jsonc"
 {
@@ -86,7 +90,7 @@ opencode plugin add 'github:zerosloney/master0071-plugins-market#main::path:plug
 {
   "plugins": [
     {
-      "package": "github:zerosloney/master0071-plugins-market#main::path:plugins/systemone-decision",
+      "package": "github:zerosloney/master0071-plugins-market",
       "options": { "base_url": "https://maas-api.unisound.com/v1", "model": "u2-decision" }
     }
   ]
@@ -99,11 +103,12 @@ opencode plugin add 'github:zerosloney/master0071-plugins-market#main::path:plug
 
 ```
 marketplace.json           市场清单（ZCode 读取，市场名 master0071-plugins）
+package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 plugins/
 └── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp 四端共用载荷）
     ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
     ├── .minimax-plugin/   MiniMax Code 清单
-    ├── package.json       opencode 插件包入口（opencode 无市场概念，直接按包安装）
+    ├── package.json       本地路径安装时的包入口
     ├── index.mjs          opencode 适配入口（注册 MCP + skill + prompt hook）
     ├── systemone.mcp.json MiniMax 的 MCP 声明
     ├── mcp/               stdio MCP 服务器（零依赖，Node ≥ 18）
@@ -117,7 +122,7 @@ plugins/
 ## 维护
 
 - **新增插件**：在 `plugins/` 下建目录，并在 `marketplace.json` 的 `plugins` 数组登记 `name` / `source` / `version` / 描述（含 `displayName_i18n` / `description_i18n`）。
-- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 7 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、三份 plugin.json、`package.json`、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
+- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 8 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、三份 plugin.json、两份 `package.json`、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```
