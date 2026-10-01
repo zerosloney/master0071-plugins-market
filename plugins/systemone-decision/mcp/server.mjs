@@ -16,7 +16,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.3' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.4.4' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
@@ -448,7 +448,7 @@ const TOOLS = [
       'software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、sales_lead 销售线索、' +
       'risk_control 金融风控、recruiting 招聘筛选、data_governance 数据打标归因、education 教育题目归类、' +
       'requirements 需求优先级。场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项）。' +
-      '还可在插件设置页配置自定义场景（action=list 可见全部）。',
+      '还可用 SYSTEMONE_SCENARIOS 环境变量（部分宿主另有配置入口）追加自定义场景，action=list 可见全部。',
     inputSchema: {
       type: 'object',
       properties: {

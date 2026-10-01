@@ -3,11 +3,29 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const serverPath = path.join(here, '..', 'mcp', 'server.mjs');
+const pluginRoot = path.join(here, '..');
+const serverPath = path.join(pluginRoot, 'mcp', 'server.mjs');
+
+// 宿主产品名词表：从各宿主清单目录名派生（.zcode-plugin → zcode），新增宿主建了
+// <name>-plugin/ 目录就自动纳入；无清单目录的宿主（opencode 走仓库根 package.json +
+// index.mjs）列在 EXTRA_HOSTS。匹配一律忽略大小写。
+const EXTRA_HOSTS = ['opencode'];
+const HOST_TOKENS = [
+  ...readdirSync(pluginRoot, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^\..+-plugin$/.test(d.name))
+    .map((d) => d.name.replace(/^\./, '').replace(/-plugin$/, '')),
+  ...EXTRA_HOSTS,
+];
+
+// 只有部分宿主才有的界面概念。与宿主名同属「模型可见面不得指名某端」的范畴——
+// 「插件设置页」在 opencode / MiniMax / omp 下都不存在，模型读到会去找一个
+// 不存在的入口。宿主名查不到这种写法，所以要单独一类。
+const HOST_ONLY_UI = ['设置页'];
 
 // 用户文档示例中的真实响应结构作为 fixture
 const FIXTURE = {
@@ -186,6 +204,26 @@ const runScenario = (client, arguments_) =>
 const decide = (client, arguments_) => client.call('tools/call', { name: 'systemone_decide', arguments: arguments_ });
 const toolResult = (r) => JSON.parse(r.result.content[0].text);
 
+// 共享载荷的「模型可见面」（工具描述、报错文案）不得指名某个宿主。同一份
+// mcp/server.mjs 跑在 ZCode / MiniMax Code / omp / opencode 四端，指名某一端才有的
+// 东西在其他端是误导，而且不会报错、只静默失效。源代码注释不在此列：那里提宿主名
+// 是解释 why 的必要信息（如超时预算的推导依据）。
+//
+// 宿主名用词边界匹配，只认「作为名字出现」的写法：裸子串匹配会误伤——`omp` 是
+// `complexity` 的子串（agent_routing 的题量表里就有），曾导致假阳性。
+// HOST_ONLY_UI 覆盖另一种写法：不含任何宿主名、但仍只存在于部分宿主。
+const hostOffense = (text) => {
+  const t = text || '';
+  const name = HOST_TOKENS.find((x) => new RegExp(`\\b${x}\\b`, 'i').test(t));
+  if (name) return `宿主名「${name}」`;
+  const ui = HOST_ONLY_UI.find((x) => t.includes(x));
+  return ui ? `宿主专属界面「${ui}」` : null;
+};
+const assertHostNeutral = (surfaces) => {
+  const bad = surfaces.map(([label, text]) => [label, hostOffense(text)]).filter(([, hit]) => hit);
+  assert.equal(bad.length, 0, '以下文案指名了具体宿主，在其他宿主上是误导：\n' + bad.map(([l, h]) => `  ${l} → ${h}`).join('\n'));
+};
+
 const main = async () => {
   await new Promise((r) => mock.listen(0, '127.0.0.1', r));
   const port = mock.address().port;
@@ -204,6 +242,38 @@ const main = async () => {
         list.result.tools.map((t) => t.name).sort(),
         ['systemone_decide', 'systemone_scenario']
       );
+    });
+
+    // 共享载荷的「模型可见面」——工具描述与报错文案——不得指名某个宿主。同一份
+    // mcp/server.mjs 跑在 ZCode / MiniMax Code / omp / opencode 四端，指名某一端才有的
+    // 入口（插件设置页、重启 ZCode）在其他端是误导，而且不会报错、只静默失效。
+    // 源代码注释不在此列：那里提宿主名是解释 why 的必要信息（如超时预算的推导）。
+    const errorText = async (name, args) => {
+      const r = await client.call('tools/call', { name, arguments: args });
+      return r.result.content.map((c) => c.text).join('\n');
+    };
+    const surfaces = [
+      ...list.result.tools.map((t) => [`工具描述 ${t.name}`, t.description]),
+      ['错误：action 非法', await errorText('systemone_scenario', { action: 'nope' })],
+      ['错误：run 缺 state', await errorText('systemone_scenario', { action: 'run', scenario: 'customer_service' })],
+      ['错误：未知场景', await errorText('systemone_scenario', { action: 'run', scenario: 'nope', state: 'x' })],
+      ['错误：describe 缺 scenario', await errorText('systemone_scenario', { action: 'describe' })],
+      ['错误：params 未知 qid', await errorText('systemone_scenario', { action: 'run', scenario: 'customer_service', state: 'x', params: { nope: {} } })],
+      ['错误：params 形态非法', await errorText('systemone_scenario', { action: 'run', scenario: 'customer_service', state: 'x', params: [] })],
+      ['错误：params.criteria 形态非法', await errorText('systemone_scenario', { action: 'run', scenario: 'customer_service', state: 'x', params: { department: { criteria: [] } } })],
+      ['错误：confidenceThreshold 非法', await errorText('systemone_scenario', { action: 'run', scenario: 'customer_service', state: 'x', confidenceThreshold: 5 })],
+      ['错误：decide 非法题型', await errorText('systemone_decide', { state: 'x', questions: { q: { type: 'bogus', instructions: 'i' } } })],
+      ['错误：decide 缺 questions', await errorText('systemone_decide', { state: 'x', questions: {} })],
+      ['错误：decide 缺 state', await errorText('systemone_decide', { questions: { q: { type: 'noul', instructions: 'i' } } })],
+    ];
+    check('宿主清单目录被正确识别（防止词表为空导致下一条空转）', () => {
+      assert.ok(HOST_TOKENS.length >= 4, `词表只有 ${HOST_TOKENS.length} 项：${HOST_TOKENS}`);
+      for (const expected of ['zcode', 'minimax', 'omp', 'opencode']) {
+        assert.ok(HOST_TOKENS.some((t) => t.toLowerCase() === expected), `词表缺 ${expected}：${HOST_TOKENS}`);
+      }
+    });
+    check('共享载荷的模型可见面不含宿主产品名或宿主专属界面概念（工具描述 + 场景/参数报错）', () => {
+      assertHostNeutral(surfaces);
     });
 
     const scenarioList = toolResult(await runScenario(client, { action: 'list' }));
@@ -607,6 +677,11 @@ const main = async () => {
     check('缺 API Key 返回 isError 与配置指引', () => {
       assert.equal(noKey.result.isError, true);
       assert.match(noKey.result.content[0].text, /SYSTEMONE_API_KEY/);
+    });
+    // 缺 Key 报错是独立 client 产出的，不在上面 surfaces 里；它曾写着「重启 ZCode」，
+    // 在其他三个宿主上是指示了一个不存在的动作，所以单独收一遍。
+    check('缺 Key 报错文案不含宿主产品名或宿主专属界面概念', () => {
+      assertHostNeutral([['缺 Key 报错', noKey.result.content[0].text]]);
     });
   } finally {
     noKeyClient.close();
