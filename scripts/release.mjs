@@ -1,16 +1,14 @@
 #!/usr/bin/env node
-// 统一同步插件版本号（11 处）：
+// 统一同步插件版本号（9 处）：
 //   1. marketplace.json                                        → plugins[].version
 //   2. .omp-plugin/marketplace.json                            → plugins[].version（omp 市场清单）
-//   3. .qoder-plugin/marketplace.json                          → plugins[].version（Qoder / Qoder CN 市场清单）
-//   4. plugins/systemone-decision/.zcode-plugin/plugin.json
-//   5. plugins/systemone-decision/.minimax-plugin/plugin.json
-//   6. plugins/systemone-decision/.omp-plugin/plugin.json
-//   7. plugins/systemone-decision/.codex-plugin/plugin.json    → Dim 清单
-//   8. plugins/systemone-decision/.qoder-plugin/plugin.json    → Qoder / Qoder CN 清单
-//   9. plugins/systemone-decision/package.json                 → opencode 本地路径入口的包版本
-//  10. package.json                                            → opencode git 安装入口的包版本
-//  11. plugins/systemone-decision/mcp/server.mjs               → SERVER_INFO.version
+//   3. plugins/systemone-decision/.zcode-plugin/plugin.json
+//   4. plugins/systemone-decision/.minimax-plugin/plugin.json
+//   5. plugins/systemone-decision/.omp-plugin/plugin.json
+//   6. plugins/systemone-decision/.codex-plugin/plugin.json    → Dim 清单
+//   7. plugins/systemone-decision/package.json                 → opencode 本地路径入口的包版本
+//   8. package.json                                            → opencode git 安装入口的包版本
+//   9. plugins/systemone-decision/mcp/server.mjs               → SERVER_INFO.version
 //
 // 用法：
 //   node scripts/release.mjs 0.4.0        设置新版本（semver 校验）
@@ -29,12 +27,10 @@ const ZCODE = 'plugins/systemone-decision/.zcode-plugin/plugin.json';
 const MINIMAX = 'plugins/systemone-decision/.minimax-plugin/plugin.json';
 const OMP_MANIFEST = 'plugins/systemone-decision/.omp-plugin/plugin.json';
 const CODEX_MANIFEST = 'plugins/systemone-decision/.codex-plugin/plugin.json';
-const QODER_MANIFEST = 'plugins/systemone-decision/.qoder-plugin/plugin.json';
 const PKG = 'plugins/systemone-decision/package.json';
 const ROOT_PKG = 'package.json';
 const MARKET = 'marketplace.json';
 const OMP_MARKET = '.omp-plugin/marketplace.json';
-const QODER_MARKET = '.qoder-plugin/marketplace.json';
 const SERVER = 'plugins/systemone-decision/mcp/server.mjs';
 
 const arg = process.argv[2];
@@ -53,7 +49,6 @@ const next = checkOnly ? current : arg;
 // 各处当前版本
 const market = JSON.parse(readFileSync(at(MARKET), 'utf8'));
 const ompMarket = JSON.parse(readFileSync(at(OMP_MARKET), 'utf8'));
-const qoderMarket = JSON.parse(readFileSync(at(QODER_MARKET), 'utf8'));
 const minimax = JSON.parse(readFileSync(at(MINIMAX), 'utf8'));
 const ompManifest = JSON.parse(readFileSync(at(OMP_MANIFEST), 'utf8'));
 const pkg = JSON.parse(readFileSync(at(PKG), 'utf8'));
@@ -64,12 +59,10 @@ const serverVer = serverSrc.match(/const SERVER_INFO = \{ name: 'systemone-decis
 const spots = [
   ['marketplace.json', market.plugins.find(p => p.name === 'systemone-decision')?.version],
   [OMP_MARKET, ompMarket.plugins.find(p => p.name === 'systemone-decision')?.version],
-  [QODER_MARKET, qoderMarket.plugins.find(p => p.name === 'systemone-decision')?.version],
   [ZCODE, current],
   [MINIMAX, minimax.version],
   [OMP_MANIFEST, ompManifest.version],
   [CODEX_MANIFEST, JSON.parse(readFileSync(at(CODEX_MANIFEST), 'utf8')).version],
-  [QODER_MANIFEST, JSON.parse(readFileSync(at(QODER_MANIFEST), 'utf8')).version],
   [PKG, pkg.version],
   [ROOT_PKG, rootPkg.version],
   [`${SERVER} SERVER_INFO`, serverVer],
@@ -97,8 +90,8 @@ if (next === current) {
   process.exit(1);
 }
 
-// 其余 10 处都是 JSON：只替换 version 行，保留原有格式（避免 JSON.stringify 重排引起无关 diff）
-for (const file of [MARKET, OMP_MARKET, QODER_MARKET, ZCODE, MINIMAX, OMP_MANIFEST, CODEX_MANIFEST, QODER_MANIFEST, PKG, ROOT_PKG]) {
+// 其余 8 处都是 JSON：只替换 version 行，保留原有格式（避免 JSON.stringify 重排引起无关 diff）
+for (const file of [MARKET, OMP_MARKET, ZCODE, MINIMAX, OMP_MANIFEST, CODEX_MANIFEST, PKG, ROOT_PKG]) {
   const src = readFileSync(at(file), 'utf8');
   const re = new RegExp(`("version"\\s*:\\s*")${current.replace(/\./g, '\\.')}(")`);
   if (!re.test(src)) {
