@@ -1,6 +1,6 @@
 # systemone-decision
 
-ZCode 插件：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
+六端共用插件（ZCode / MiniMax Code / opencode / omp / Dim / Qoder）：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
 - **场景决策** `systemone_scenario` — `action=list / describe / run`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
 - **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
@@ -96,7 +96,7 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
-## 多端支持（ZCode / MiniMax Code / opencode / omp / Dim）
+## 多端支持（ZCode / MiniMax Code / opencode / omp / Dim / Qoder）
 
 同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
 
@@ -104,17 +104,20 @@ systemone_scenario(action: "run",
 |------|------|------|
 | `.zcode-plugin/plugin.json` | ZCode | 内联 `mcpServers`、字符串式 `skills`/`hooks`、带 `userConfig` 设置页 |
 | `.minimax-plugin/plugin.json` | MiniMax Code | 引用式 `mcpServers`/`skills`/`hooks`，含 `icon`/`category`/`exampleQueries` |
+| `.qoder-plugin/plugin.json` | Qoder / Qoder CN | 内联 `mcpServers`（脚本路径写 `${QODER_PLUGIN_ROOT}`）、`skills`、`hooks` 引用同一份 `hooks/hooks.json` |
 | `systemone.mcp.json` | MiniMax Code / Dim | stdio MCP 声明（ZCode 直接忽略） |
 | `.codex-plugin/plugin.json` | Dim | 自描述清单，`mcpServers` 引用 `./systemone.mcp.json`，`hooks` 复用 ZCode 的 `hooks/hooks.json` |
-| `hooks/hooks.json` | ZCode / Dim | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
+| `hooks/hooks.json` | ZCode / Dim / Qoder | `${CLAUDE_PLUGIN_ROOT}`（Qoder 两端同时认这个变量名），handler timeout 15s |
 | `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
 | 仓库根 `package.json` + 本目录 `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，只能按包安装） |
 
 业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`，opencode 的注册在 `index.mjs`——各端改同一处门限不会漂移。
 
-**配置差异**：MiniMax Code、opencode 与 Dim 都没有插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code 与 Dim 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
+Qoder 端不共用 `systemone.mcp.json`，MCP server 直接内联进 `.qoder-plugin/plugin.json`：那份文件里的 `./mcp/server.mjs` 是相对路径，命中与否取决于宿主给子进程的 cwd，而 Qoder 只做插件根变量替换——`${QODER_PLUGIN_ROOT}` 与 `${CLAUDE_PLUGIN_ROOT}` 两个名字都认（hook 命令额外还拿到这两个同名环境变量，由 shell 展开），但不替 MCP 的 command/args 解析相对路径。内联写成 `${QODER_PLUGIN_ROOT}/mcp/server.mjs` 就不依赖这类差异了。
 
-**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
+**配置差异**：MiniMax Code、opencode、Dim 与 Qoder / Qoder CN 都没有可用的插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code、Dim 与 Qoder / Qoder CN 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。Qoder 有 `settings.json → pluginConfigs` 加清单 `settings` 的注入机制，看着像设置页，但 `${user_config.X}` 只在用户已经为该插件写过配置项时才替换，没写过就原样进 env 变成字面量、打断取值链，所以不用它。
+
+**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；Qoder / Qoder CN 读仓库根 `.qoder-plugin/marketplace.json`（读取顺序 `.qoder-plugin/` → `.claude-plugin/` → 根 `marketplace.json`，其中 `owner` 必填），注册表落在数据目录的 `plugins/known_marketplaces.json`，两端只有数据目录不同（`~/.qoder` 与 `~/.qoder-cn`）、清单与装法一致，详见[仓库 README 的 Qoder 一节](../../README.md#qoder--qoder-cn)；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
 
 ```sh
 opencode plugin add github:zerosloney/master0071-plugins-market

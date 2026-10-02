@@ -114,6 +114,8 @@ systemone_decide(
 | opencode | `opencode.json` 的 `plugins[].options`，同名的 `base_url` / `model` / `timeout_ms` / `scenarios` | 见[仓库 README](../../../../README.md#opencode) |
 | MiniMax Code | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
 | omp | 无，只能用上面的环境变量 | |
+| Dim | 无，只能用上面的环境变量 | |
+| Qoder / Qoder CN | 无，只能用上面的环境变量 | 两端共用同一套清单与装法，只有数据目录不同（`~/.qoder` / `~/.qoder-cn`），见[仓库 README](../../../../README.md#qoder--qoder-cn) |
 
 两个通用注意点：
 

@@ -1,10 +1,11 @@
 # master0071-plugins
 
-个人维护的 ZCode / MiniMax Code / Dim 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
+个人维护的 ZCode / MiniMax Code / Dim / Qoder 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
 
 - **ZCode**：读取仓库根目录的 `marketplace.json`（内联插件清单）
 - **MiniMax Code**：以 git 仓库指针注册本市场（其数据目录下的 `known_marketplaces.json`）
 - **Dim**：`plugins/systemone-decision/.codex-plugin/plugin.json` 是自描述清单，整个插件目录可直接被 Dim 加载
+- **Qoder / Qoder CN**：市场清单读 `.qoder-plugin/marketplace.json`（优先于根 `marketplace.json`），插件清单读 `plugins/systemone-decision/.qoder-plugin/plugin.json`。两端是同一份代码、同一套清单格式，只有数据目录不同（`~/.qoder` 与 `~/.qoder-cn`），装法完全一致
 - **opencode**：**没有市场概念**，直接按 npm/git 包安装 `plugins/systemone-decision`（自带 `package.json` 入口），市场清单文件对它无效
 - **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
 
@@ -12,7 +13,7 @@
 
 | 插件 | 版本 | 简介 |
 |------|------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.3.2 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
+| [systemone-decision](plugins/systemone-decision/) | 0.4.6 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
 
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
 
@@ -112,16 +113,49 @@ Dim 没有市场清单概念，插件是自描述目录——把 `plugins/system
 
 Dim 没有插件设置页，配置走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`。注意 API Key 只走环境变量，不写入清单。
 
+### Qoder / Qoder CN
+
+Qoder（国际版，数据目录 `~/.qoder`）与 Qoder CN（国内版，`~/.qoder-cn`）是同一份插件引擎，清单格式、市场文件名、装法完全一致，只是数据目录不同——下面一套在两端通用。市场清单读仓库根的 `.qoder-plugin/marketplace.json`（Qoder 的读取顺序是 `.qoder-plugin/` → `.claude-plugin/` → 根 `marketplace.json`，我们单开一份，是因为根那份的描述写着"ZCode 设置页"，对 Qoder 端用户是误导）。
+
+```
+/marketplace add zerosloney/master0071-plugins-market
+/plugins install systemone-decision@master0071-plugins
+```
+
+本地开发也可以把市场源指向目录——Qoder 会把整个目录**拷贝**到 `<数据目录>/plugins/marketplaces/`，所以改完不会自动生效，要 `/marketplace update master0071-plugins` 重新拉取、再 `/plugins install` 覆盖安装。迭代清单本身不用反复装，直接校验：
+
+```
+/plugins validate E:/Demo/cli-tools/master0071-pluigns-market/plugins/systemone-decision
+```
+
+组件由 `plugins/systemone-decision/.qoder-plugin/plugin.json` 一次声明齐三样，业务载荷与其他各端共用同一份：
+
+| 组件 | 声明方式 | 说明 |
+| --- | --- | --- |
+| stdio MCP server | 清单内联 `mcpServers` | 跑同一份 `mcp/server.mjs`，工具名 `systemone_scenario` / `systemone_decide` |
+| skill | `skills: "./skills/"` | 复用 `skills/systemone-decision/SKILL.md` |
+| 需求明确度预检 | `hooks: "./hooks/hooks.json"` | Claude 式 `UserPromptSubmit` 命令 hook，Qoder 原生支持，与 ZCode / Dim 共用同一份文件 |
+
+两个坑位由清单写法规避掉，改动清单时别退回去：
+
+- **脚本路径必须走插件根变量**。Qoder 只替换 `${QODER_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}`，**不解析相对路径**：`./mcp/server.mjs` 能不能命中，取决于宿主给子进程的 cwd，插件不能指望。`systemone.mcp.json` 那种相对路径写法服务的是 MiniMax / Dim（它们自己按插件根解析），所以 Qoder 清单把 server 内联写成 `${QODER_PLUGIN_ROOT}/mcp/server.mjs`。
+- **不用 `${user_config.X}`**。Qoder 的 `settings.json → pluginConfigs` 确实能往清单里注入自定义值，但占位符只在用户**已经为该插件写过配置项**时才替换；没写过就整段原样留在 env 里，`SYSTEMONE_BASE_URL` 会变成字面量 `${user_config.base_url}`，把取值链（设置项 > 环境变量 > 内置默认）打断。MiniMax / omp / Dim 同样没有可用的插件设置页，四端一起走环境变量，不搞一端特例。
+
+配置：环境变量 `SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`（stdio 与 hook 子进程自动继承，Windows 用 `setx` 设置后重启 Qoder 生效）。`node` 需在 PATH 上（清单里 `command: "node"`，宿主直接 exec）。API Key 只走环境变量，不写入清单。
+
 ## 仓库结构
 
 ```
 marketplace.json           市场清单（ZCode 读取，市场名 master0071-plugins）
+.qoder-plugin/
+└── marketplace.json       Qoder / Qoder CN 市场清单（Qoder 优先读它，描述按 env 配置口径写）
 package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 plugins/
-└── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp / Dim 五端共用载荷）
+└── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp / Dim / Qoder 六端共用载荷）
     ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
     ├── .minimax-plugin/   MiniMax Code 清单
     ├── .codex-plugin/     Dim 清单（自描述清单，指向下方 systemone.mcp.json）
+    ├── .qoder-plugin/     Qoder / Qoder CN 清单（内联 mcpServers，脚本路径写 ${QODER_PLUGIN_ROOT}）
     ├── package.json       本地路径安装时的包入口
     ├── index.mjs          opencode 适配入口（注册 MCP + skill + prompt hook）
     ├── systemone.mcp.json MiniMax / Dim 的 MCP 声明
@@ -136,11 +170,12 @@ plugins/
 ## 维护
 
 - **新增插件**：在 `plugins/` 下建目录，并在 `marketplace.json` 的 `plugins` 数组登记 `name` / `source` / `version` / 描述（含 `displayName_i18n` / `description_i18n`）。
-- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 9 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、四份 plugin.json——ZCode / MiniMax / omp / Dim、两份 `package.json`、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
+- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 11 处版本号（三份市场清单——根 `marketplace.json`、`.omp-plugin/marketplace.json`、`.qoder-plugin/marketplace.json` 的插件条目；五份 plugin.json——ZCode / MiniMax / omp / Dim / Qoder；两份 `package.json`；`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```
   node test/smoke.mjs
   node test/hook.smoke.mjs
   node test/opencode.smoke.mjs
+  node test/qoder.smoke.mjs
   ```

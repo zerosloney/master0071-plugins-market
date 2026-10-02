@@ -16,7 +16,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.5' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.4.6' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
