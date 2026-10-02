@@ -1,9 +1,10 @@
 # master0071-plugins
 
-个人维护的 ZCode / MiniMax Code 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
+个人维护的 ZCode / MiniMax Code / Dim 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
 
 - **ZCode**：读取仓库根目录的 `marketplace.json`（内联插件清单）
 - **MiniMax Code**：以 git 仓库指针注册本市场（其数据目录下的 `known_marketplaces.json`）
+- **Dim**：`plugins/systemone-decision/.codex-plugin/plugin.json` 是自描述清单，整个插件目录可直接被 Dim 加载
 - **opencode**：**没有市场概念**，直接按 npm/git 包安装 `plugins/systemone-decision`（自带 `package.json` 入口），市场清单文件对它无效
 - **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
 
@@ -99,18 +100,31 @@ opencode plugin add github:zerosloney/master0071-plugins-market
 
 `options` 会被映射回服务端本来就认的 `SYSTEMONE_PLUGIN_*`，取值链（设置项 > 环境变量 > 内置默认）与 ZCode 端完全一致。API Key 不在 `options` 里，仍只走环境变量。
 
+### Dim
+
+Dim 没有市场清单概念，插件是自描述目录——把 `plugins/systemone-decision` 整个目录放进任一插件根即可，Dim 扫描时读取 `.codex-plugin/plugin.json` 并加载其组件：
+
+- **MCP server**：`systemone.mcp.json` 声明，复用同一份 `mcp/server.mjs`，工具名为 `systemone_scenario` / `systemone_decide`
+- **skill**：`skills/systemone-decision/SKILL.md` 自动发现
+- **需求明确度预检**：`hooks/hooks.json` 的 `UserPromptSubmit` hook（Claude 式命令 hook，Dim 原生支持）
+
+本地开发可直接用目录路径安装；要分享则把仓库推到 git，在 Dim 桌面端 **Plugins → Add plugin** 粘贴仓库地址（`owner/repo` 或完整 git URL，可带 ref），Dim 会克隆仓库并安装到 `<DIMCODE_HOME>/plugins/systemone-decision/`。
+
+Dim 没有插件设置页，配置走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`。注意 API Key 只走环境变量，不写入清单。
+
 ## 仓库结构
 
 ```
 marketplace.json           市场清单（ZCode 读取，市场名 master0071-plugins）
 package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 plugins/
-└── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp 四端共用载荷）
+└── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp / Dim 五端共用载荷）
     ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
     ├── .minimax-plugin/   MiniMax Code 清单
+    ├── .codex-plugin/     Dim 清单（自描述清单，指向下方 systemone.mcp.json）
     ├── package.json       本地路径安装时的包入口
     ├── index.mjs          opencode 适配入口（注册 MCP + skill + prompt hook）
-    ├── systemone.mcp.json MiniMax 的 MCP 声明
+    ├── systemone.mcp.json MiniMax / Dim 的 MCP 声明
     ├── mcp/               stdio MCP 服务器（零依赖，Node ≥ 18）
     ├── skills/            使用指引与场景文档
     ├── hooks/             需求明确度预检（清单两端分开；判定内核 clarity.mjs 全端共用）
@@ -122,7 +136,7 @@ plugins/
 ## 维护
 
 - **新增插件**：在 `plugins/` 下建目录，并在 `marketplace.json` 的 `plugins` 数组登记 `name` / `source` / `version` / 描述（含 `displayName_i18n` / `description_i18n`）。
-- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 8 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、三份 plugin.json、两份 `package.json`、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
+- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 9 处版本号（`marketplace.json` 与 `.omp-plugin/marketplace.json` 插件条目、四份 plugin.json——ZCode / MiniMax / omp / Dim、两份 `package.json`、`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```

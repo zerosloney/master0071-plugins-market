@@ -96,7 +96,7 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
-## 多端支持（ZCode / MiniMax Code / opencode / omp）
+## 多端支持（ZCode / MiniMax Code / opencode / omp / Dim）
 
 同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
 
@@ -104,16 +104,17 @@ systemone_scenario(action: "run",
 |------|------|------|
 | `.zcode-plugin/plugin.json` | ZCode | 内联 `mcpServers`、字符串式 `skills`/`hooks`、带 `userConfig` 设置页 |
 | `.minimax-plugin/plugin.json` | MiniMax Code | 引用式 `mcpServers`/`skills`/`hooks`，含 `icon`/`category`/`exampleQueries` |
-| `systemone.mcp.json` | MiniMax Code | stdio MCP 声明（ZCode 直接忽略） |
-| `hooks/hooks.json` | ZCode | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
+| `systemone.mcp.json` | MiniMax Code / Dim | stdio MCP 声明（ZCode 直接忽略） |
+| `.codex-plugin/plugin.json` | Dim | 自描述清单，`mcpServers` 引用 `./systemone.mcp.json`，`hooks` 复用 ZCode 的 `hooks/hooks.json` |
+| `hooks/hooks.json` | ZCode / Dim | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
 | `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
 | 仓库根 `package.json` + 本目录 `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，只能按包安装） |
 
-业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`，opencode 的注册在 `index.mjs`——三端改同一处门限不会漂移。
+业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单必须分文件是因为插件根目录变量名不同，且 handler 不支持用相对路径（其 cwd 是会话工作区而非插件目录）；时间预算统一取小值是因为 MiniMax 的 handler 字段不支持 `env`，无法给两端配不同预算。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`，opencode 的注册在 `index.mjs`——各端改同一处门限不会漂移。
 
-**配置差异**：MiniMax Code 与 opencode 都没有插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
+**配置差异**：MiniMax Code、opencode 与 Dim 都没有插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code 与 Dim 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
-**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
+**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
 
 ```sh
 opencode plugin add github:zerosloney/master0071-plugins-market
@@ -165,11 +166,11 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 需求明确度预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了一个 UserPromptSubmit hook（ZCode 读 `hooks/hooks.json`，MiniMax Code 读 `hooks/hooks.minimax.json`，两者指向同一个脚本）：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行，不产生任何输出。
+插件通过 hook 清单声明了一个 UserPromptSubmit hook（ZCode 读 `hooks/hooks.json`，MiniMax Code 读 `hooks/hooks.minimax.json`，Dim 复用 ZCode 的 `hooks/hooks.json`，三者指向同一个脚本）：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行，不产生任何输出。
 
 安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量，未配置 Key 时自动跳过。
 
-内部时间预算按两端最严的一侧统一收紧：请求 6 秒 < 进程自毁 7 秒 < MiniMax handler 8 秒 < ZCode handler 15 秒。实测真实接口延迟约 0.1 秒，仍有 60 倍余量；任何失败都 fail-open，绝不阻塞用户输入。
+内部时间预算按最严的一侧统一收紧：请求 6 秒 < 进程自毁 7 秒 < MiniMax handler 8 秒 < ZCode / Dim handler 15 秒。实测真实接口延迟约 0.1 秒，仍有 60 倍余量；任何失败都 fail-open，绝不阻塞用户输入。
 
 **隐私提示**：该 hook 会把你每次提交的输入发送到决策服务接口。它会跳过少于 10 字的输入与寒暄短语，判定为"明确"时静默返回，但请求本身已经发出。不需要预检时，删除（或改名）对应的 hook 清单文件即可，插件其余能力不受影响。
 
@@ -197,14 +198,15 @@ mcp/
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 hooks/
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
-├── requirement-clarity.mjs  UserPromptSubmit 脚本（ZCode / MiniMax 共享的 stdin/stdout 协议）
-├── hooks.json               ZCode 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
+├── requirement-clarity.mjs  UserPromptSubmit 脚本（ZCode / MiniMax / Dim 共享的 stdin/stdout 协议）
+├── hooks.json               ZCode / Dim 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
 └── hooks.minimax.json       MiniMax 清单（${PLUGIN_ROOT}，timeout 8）
 skills/            使用指引与场景文档
 .zcode-plugin/     ZCode 清单
 .minimax-plugin/   MiniMax Code 清单
+.codex-plugin/     Dim 清单（mcpServers 指向 systemone.mcp.json）
 package.json       opencode 包入口
 index.mjs          opencode 适配接线（MCP + skill + prompt hook）
-systemone.mcp.json MiniMax 的 MCP 声明
+systemone.mcp.json MiniMax / Dim 的 MCP 声明
 icon*.png          MiniMax 插件图标（明亮/暗色）
 ```
