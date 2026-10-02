@@ -1,6 +1,6 @@
 # systemone-decision
 
-五端共用插件（ZCode / MiniMax Code / opencode / omp / Dim）：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
+六端共用插件（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim）：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
 - **场景决策** `systemone_scenario` — `action=list / describe / run`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
 - **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
@@ -96,7 +96,7 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
-## 多端支持（ZCode / MiniMax Code / opencode / omp / Dim）
+## 多端支持（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim）
 
 同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
 
@@ -105,7 +105,7 @@ systemone_scenario(action: "run",
 | `.zcode-plugin/plugin.json` | ZCode | 内联 `mcpServers`、字符串式 `skills`/`hooks`、带 `userConfig` 设置页 |
 | `.minimax-plugin/plugin.json` | MiniMax Code | 引用式 `mcpServers`/`skills`/`hooks`，含 `icon`/`category`/`exampleQueries` |
 | `systemone.mcp.json` | MiniMax Code / Dim | stdio MCP 声明（ZCode 直接忽略） |
-| `.codex-plugin/plugin.json` | Dim | 自描述清单，`mcpServers` 引用 `./systemone.mcp.json`，`hooks` 复用 ZCode 的 `hooks/hooks.json` |
+| `.codex-plugin/plugin.json` | ChatGPT Codex / Dim | Codex 兼容清单，`mcpServers` 引用 `./systemone.mcp.json`，`hooks` 复用 `hooks/hooks.json` |
 | `hooks/hooks.json` | ZCode / Dim | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
 | `hooks/hooks.minimax.json` | MiniMax Code | `${PLUGIN_ROOT}`，handler timeout 8s（该产品上限为 10s） |
 | 仓库根 `package.json` + 本目录 `index.mjs` | opencode | 包入口 + 适配接线（opencode 无市场概念，只能按包安装） |
@@ -114,7 +114,7 @@ systemone_scenario(action: "run",
 
 **配置差异**：MiniMax Code、opencode 与 Dim 都没有可用的插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code、Dim 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
-**市场注册**：ZCode 读取仓库根目录的 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
+**市场注册**：ChatGPT Codex 读取仓库根目录 `.agents/plugins/marketplace.json`；ZCode 读取仓库根目录 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
 
 ```sh
 opencode plugin add github:zerosloney/master0071-plugins-market
@@ -199,12 +199,12 @@ mcp/
 hooks/
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
 ├── requirement-clarity.mjs  UserPromptSubmit 脚本（ZCode / MiniMax / Dim 共享的 stdin/stdout 协议）
-├── hooks.json               ZCode / Dim 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
+├── hooks.json               ZCode / ChatGPT Codex / Dim 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
 └── hooks.minimax.json       MiniMax 清单（${PLUGIN_ROOT}，timeout 8）
 skills/            使用指引与场景文档
 .zcode-plugin/     ZCode 清单
 .minimax-plugin/   MiniMax Code 清单
-.codex-plugin/     Dim 清单（mcpServers 指向 systemone.mcp.json）
+.codex-plugin/     ChatGPT Codex / Dim 兼容清单（mcpServers 指向 systemone.mcp.json）
 package.json       opencode 包入口
 index.mjs          opencode 适配接线（MCP + skill + prompt hook）
 systemone.mcp.json MiniMax / Dim 的 MCP 声明

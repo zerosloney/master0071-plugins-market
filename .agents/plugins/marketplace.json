@@ -1,0 +1,20 @@
+{
+  "name": "master0071-plugins",
+  "interface": {
+    "displayName": "master0071 Plugins"
+  },
+  "plugins": [
+    {
+      "name": "systemone-decision",
+      "source": {
+        "source": "local",
+        "path": "./plugins/systemone-decision"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

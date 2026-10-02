@@ -5,7 +5,7 @@
 //   3. plugins/systemone-decision/.zcode-plugin/plugin.json
 //   4. plugins/systemone-decision/.minimax-plugin/plugin.json
 //   5. plugins/systemone-decision/.omp-plugin/plugin.json
-//   6. plugins/systemone-decision/.codex-plugin/plugin.json    → Dim 清单
+//   6. plugins/systemone-decision/.codex-plugin/plugin.json    → ChatGPT Codex / Dim 兼容清单
 //   7. plugins/systemone-decision/package.json                 → opencode 本地路径入口的包版本
 //   8. package.json                                            → opencode git 安装入口的包版本
 //   9. plugins/systemone-decision/mcp/server.mjs               → SERVER_INFO.version

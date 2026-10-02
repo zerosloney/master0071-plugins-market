@@ -1,10 +1,11 @@
 # master0071-plugins
 
-个人维护的 ZCode / MiniMax Code / Dim 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
+个人维护的 ChatGPT Codex / ZCode / MiniMax Code / Dim 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
 
 - **ZCode**：读取仓库根目录的 `marketplace.json`（内联插件清单）
 - **MiniMax Code**：以 git 仓库指针注册本市场（其数据目录下的 `known_marketplaces.json`）
-- **Dim**：`plugins/systemone-decision/.codex-plugin/plugin.json` 是自描述清单，整个插件目录可直接被 Dim 加载
+- **ChatGPT Codex**：读取仓库根目录的 `.agents/plugins/marketplace.json`；插件使用 `.codex-plugin/plugin.json` 清单
+- **Dim**：同样使用 `plugins/systemone-decision/.codex-plugin/plugin.json` 自描述清单，整个插件目录可直接加载
 - **opencode**：**没有市场概念**，直接按 npm/git 包安装 `plugins/systemone-decision`（自带 `package.json` 入口），市场清单文件对它无效
 - **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
 
@@ -17,6 +18,16 @@
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
 
 ## 安装
+
+### ChatGPT Codex
+
+在 Codex 桌面端打开本仓库，重启应用后，在 Plugins Directory 中选择 `master0071 Plugins` 并安装 `SystemOne Decision`。也可通过 Codex CLI 注册市场：
+
+```sh
+codex plugin marketplace add zerosloney/master0071-plugins-market
+```
+
+插件使用本机 Node.js（≥18）运行 MCP server。首次使用前配置 `SYSTEMONE_API_KEY`；端点、模型、超时和自定义场景也可通过 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 配置。市场项和 `.codex-plugin/plugin.json` 分别提供发现入口与插件组件声明。
 
 ### ZCode
 
@@ -115,13 +126,14 @@ Dim 没有插件设置页，配置走环境变量（stdio 进程自动继承）�
 ## 仓库结构
 
 ```
-marketplace.json           市场清单（ZCode 读取，市场名 master0071-plugins）
+.agents/plugins/marketplace.json  ChatGPT Codex 仓库级插件市场清单
+marketplace.json           ZCode 市场清单（市场名 master0071-plugins）
 package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 plugins/
-└── systemone-decision/    插件包（ZCode / MiniMax Code / opencode / omp / Dim 五端共用载荷）
+└── systemone-decision/    插件包（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim 六端共用载荷）
     ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
     ├── .minimax-plugin/   MiniMax Code 清单
-    ├── .codex-plugin/     Dim 清单（自描述清单，指向下方 systemone.mcp.json）
+    ├── .codex-plugin/     ChatGPT Codex / Dim 兼容清单（指向下方 systemone.mcp.json）
     ├── package.json       本地路径安装时的包入口
     ├── index.mjs          opencode 适配入口（注册 MCP + skill + prompt hook）
     ├── systemone.mcp.json MiniMax / Dim 的 MCP 声明
@@ -135,8 +147,8 @@ plugins/
 
 ## 维护
 
-- **新增插件**：在 `plugins/` 下建目录，并在 `marketplace.json` 的 `plugins` 数组登记 `name` / `source` / `version` / 描述（含 `displayName_i18n` / `description_i18n`）。
-- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 9 处版本号（两份市场清单——根 `marketplace.json`、`.omp-plugin/marketplace.json` 的插件条目；四份 plugin.json——ZCode / MiniMax / omp / Dim；两份 `package.json`；`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
+- **新增插件**：在 `plugins/` 下建目录，并分别在 ZCode 的 `marketplace.json` 与 ChatGPT Codex 的 `.agents/plugins/marketplace.json` 登记插件来源；各市场字段按对应格式填写。
+- **发布新版本**：运行 `node scripts/release.mjs <x.y.z>`，一键同步 9 处版本号（根 `marketplace.json`、`.omp-plugin/marketplace.json` 两份市场清单；四份 plugin.json——ZCode / MiniMax / omp / ChatGPT Codex / Dim 共用的 Codex 兼容清单；两份 `package.json`；`mcp/server.mjs` 的 `SERVER_INFO`），只改版本行不重排格式；`node scripts/release.mjs --check` 仅校验一致性。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```
