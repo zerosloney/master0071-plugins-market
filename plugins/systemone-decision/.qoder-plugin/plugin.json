@@ -1,6 +1,6 @@
 {
   "name": "systemone-decision",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "displayName": "SystemOne Decision",
   "description": "SystemOne 决策模型工具集（默认 unisound u2-decision）：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议；附带需求明确度预检 hook。端点/模型/超时/场景通过 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
   "author": { "name": "dc" },
@@ -21,7 +21,14 @@
       "type": "stdio",
       "command": "node",
       "args": ["${QODER_PLUGIN_ROOT}/mcp/server.mjs"],
-      "timeout": 30000
+      "timeout": 30000,
+      "env_vars": [
+        "SYSTEMONE_API_KEY",
+        "SYSTEMONE_BASE_URL",
+        "SYSTEMONE_MODEL",
+        "SYSTEMONE_TIMEOUT_MS",
+        "SYSTEMONE_SCENARIOS"
+      ]
     }
   }
 }

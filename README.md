@@ -13,7 +13,7 @@
 
 | 插件 | 版本 | 简介 |
 |------|------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.4.6 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
+| [systemone-decision](plugins/systemone-decision/) | 0.4.7 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
 
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
 
@@ -117,16 +117,36 @@ Dim 没有插件设置页，配置走环境变量（stdio 进程自动继承）�
 
 Qoder（国际版，数据目录 `~/.qoder`）与 Qoder CN（国内版，`~/.qoder-cn`）是同一份插件引擎，清单格式、市场文件名、装法完全一致，只是数据目录不同——下面一套在两端通用。市场清单读仓库根的 `.qoder-plugin/marketplace.json`（Qoder 的读取顺序是 `.qoder-plugin/` → `.claude-plugin/` → 根 `marketplace.json`，我们单开一份，是因为根那份的描述写着"ZCode 设置页"，对 Qoder 端用户是误导）。
 
-```
-/marketplace add zerosloney/master0071-plugins-market
-/plugins install systemone-decision@master0071-plugins
+**桌面端没有 CLI**：`/marketplace add`、`/plugins install` 在 Qoder / Qoder CN 的聊天框里不是真命令，只会以纯文本落到模型。市场源注册的等效做法是往 `<数据目录>/settings.json` 写 `extraKnownMarketplaces`，其余（克隆到 `plugins/marketplaces/<市场名>/`、写 `plugins/known_marketplaces.json`）由引擎自己做：
+
+```jsonc title="~/.qoder-cn/settings.json"
+{ "extraKnownMarketplaces": { "master0071-plugins": { "source": { "source": "github", "repo": "zerosloney/master0071-plugins-market" } } } }
 ```
 
-本地开发也可以把市场源指向目录——Qoder 会把整个目录**拷贝**到 `<数据目录>/plugins/marketplaces/`，所以改完不会自动生效，要 `/marketplace update master0071-plugins` 重新拉取、再 `/plugins install` 覆盖安装。迭代清单本身不用反复装，直接校验：
+**但只走市场这条路，插件的 MCP server 不会注册**——skill 和 hook 正常挂载，`mcpServers` 被无声丢掉。原因是两端各挡一刀：
 
+- 桌面端的 MCP 运行时池只从 `plugins/installed_plugins_v2.json` 的登记项构建（`[PluginInventory] Plugin inventory refreshed` 里的 `pluginCount` 就是它的条目数）。git 市场是 `zip_cache_mode=false`，插件**就地**从 `plugins/marketplaces/…` 加载、不进那份登记项，于是桌面端根本不知道有这么个 MCP server。
+- worker 侧本来能自己 spawn 清单内联的 server，但桌面端启动它时带 `--strict-mcp-config` 且不带 `--allow-plugin-mcp`，`pluginMcpServersEnabled = !strictMcpConfig || allowPluginMcp === true` 直接为 false。
+
+所以要装成完整可用，得按 Qoder 自己「创建本地 Plugin」的口径登记（`settings.json` 的 `enabledPlugins` 早已就位，缺的是登记项 + 副本）：
+
+```powershell
+# 1) 把插件目录放到缓存安装位（cache/<市场名>/<插件名>/<版本>）
+Copy-Item -Recurse plugins/systemone-decision `
+  "$env:USERPROFILE\.qoder-cn\plugins\cache\master0071-plugins\systemone-decision\0.4.7"
 ```
-/plugins validate E:/Demo/cli-tools/master0071-pluigns-market/plugins/systemone-decision
+
+```jsonc title="~/.qoder-cn/plugins/installed_plugins_v2.json（plugins 里加一条）"
+"systemone-decision@master0071-plugins": [
+  { "scope": "user",
+    "installPath": "C:\\Users\\<你>\\.qoder-cn\\plugins\\cache\\master0071-plugins\\systemone-decision\\0.4.7",
+    "version": "0.4.7", "installedAt": "<ISO 时间>", "displayName": "SystemOne Decision" }
+]
 ```
+
+写完**不用重启整个 App**：桌面端监听 `installed_plugins_v2.json`（日志 `reason:"watched-plugin-registry-changed"`），inventory 刷新后会重新解析清单 `mcpServers` 并拉起 stdio 进程（`[MCP] MCP runtime state changed … status:"ready"`），**新开一个会话**即可在启动参数里看到 `plugin:systemone-decision:systemone`，工具名变成 `mcp__plugin_systemone-decision_systemone__systemone_scenario` / `…__systemone_decide`。已开着的会话读的是陈旧快照，看不到。
+
+去重按插件**名字**：登记项先加载，`plugins/marketplaces/…` 那份就地副本会被跳过，所以 skill 和 hook 不会挂两份（`plugin_root` 会变成缓存路径）。副本是静态的——市场 `autoUpdate` 只更新 `marketplaces/` 那份，发新版要重新拷一次缓存目录并同步登记项里的 `version` / `installPath`。
 
 组件由 `plugins/systemone-decision/.qoder-plugin/plugin.json` 一次声明齐三样，业务载荷与其他各端共用同一份：
 
@@ -136,12 +156,13 @@ Qoder（国际版，数据目录 `~/.qoder`）与 Qoder CN（国内版，`~/.qod
 | skill | `skills: "./skills/"` | 复用 `skills/systemone-decision/SKILL.md` |
 | 需求明确度预检 | `hooks: "./hooks/hooks.json"` | Claude 式 `UserPromptSubmit` 命令 hook，Qoder 原生支持，与 ZCode / Dim 共用同一份文件 |
 
-两个坑位由清单写法规避掉，改动清单时别退回去：
+三个坑位由清单写法规避掉，改动清单时别退回去：
 
 - **脚本路径必须走插件根变量**。Qoder 只替换 `${QODER_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}`，**不解析相对路径**：`./mcp/server.mjs` 能不能命中，取决于宿主给子进程的 cwd，插件不能指望。`systemone.mcp.json` 那种相对路径写法服务的是 MiniMax / Dim（它们自己按插件根解析），所以 Qoder 清单把 server 内联写成 `${QODER_PLUGIN_ROOT}/mcp/server.mjs`。
+- **`env_vars` 必须显式列出 `SYSTEMONE_*`**。桌面端 spawn 插件 MCP 子进程时，env 只装 `QODER_PLUGIN_ROOT` / `QODER_PLUGIN_DATA`（含 CLAUDE 别名）+ 清单里 `env_vars` 点名的那几个进程环境变量，**不整份继承**。不写 `env_vars`，`SYSTEMONE_API_KEY` 到不了 server，工具会带着默认端点去请求然后 401。
 - **不用 `${user_config.X}`**。Qoder 的 `settings.json → pluginConfigs` 确实能往清单里注入自定义值，但占位符只在用户**已经为该插件写过配置项**时才替换；没写过就整段原样留在 env 里，`SYSTEMONE_BASE_URL` 会变成字面量 `${user_config.base_url}`，把取值链（设置项 > 环境变量 > 内置默认）打断。MiniMax / omp / Dim 同样没有可用的插件设置页，四端一起走环境变量，不搞一端特例。
 
-配置：环境变量 `SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`（stdio 与 hook 子进程自动继承，Windows 用 `setx` 设置后重启 Qoder 生效）。`node` 需在 PATH 上（清单里 `command: "node"`，宿主直接 exec）。API Key 只走环境变量，不写入清单。
+配置：环境变量 `SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`。hook 子进程由 worker 直接 spawn，整份继承进程环境；插件 MCP 的 stdio 子进程由桌面端 spawn，只拿到清单 `env_vars` 点名的那几个（见上一条坑位）。Windows 用 `setx` 设置后重启 Qoder 才进得了新进程环境。`node` 需在 PATH 上（清单里 `command: "node"`，宿主直接 exec）。API Key 只走环境变量，不写入清单。
 
 ## 仓库结构
 
