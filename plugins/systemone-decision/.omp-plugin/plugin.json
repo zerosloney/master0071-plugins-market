@@ -1,6 +1,6 @@
 {
   "name": "systemone-decision",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "SystemOne 决策模型工具集：2 个 MCP 工具（场景调度 + 自定义问题）覆盖 11 个内置决策场景",
   "author": { "name": "dc" },
   "mcpServers": {
