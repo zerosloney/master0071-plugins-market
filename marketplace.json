@@ -20,6 +20,19 @@
       "version": "0.1.2",
       "description": "超压缩通信模式：删废话，保技术准确。hooks 在会话各事件点自动注入压缩规则，支持 lite、full、ultra、wenyan 强度级别，统计 token 节省，附 cavecrew 多代理协作。",
       "displayName": "Caveman"
+    },
+    {
+      "name": "agent-pipelines",
+      "source": "./plugins/agent-pipelines",
+      "version": "0.1.0",
+      "description": "多代理编排管道套件：/ralph-pipeline 通用任务编排（TaskList + 背压熔断 + 状态持久化）与 /coding-pipeline 受控编码管道（scope 零容忍、根因分组修复、真实验证），含 6 个配套子智能体（orchestrator/worker/builder/reviewer）。",
+      "displayName": "Agent Pipelines",
+      "displayName_i18n": {
+        "zh-CN": "Agent 编排管道"
+      },
+      "description_i18n": {
+        "zh-CN": "多代理编排管道套件：/ralph-pipeline 通用任务编排（TaskList + 背压熔断 + 状态持久化）与 /coding-pipeline 受控编码管道（scope 零容忍、根因分组修复、真实验证），含 6 个配套子智能体（orchestrator/worker/builder/reviewer）。"
+      }
     }
   ]
 }

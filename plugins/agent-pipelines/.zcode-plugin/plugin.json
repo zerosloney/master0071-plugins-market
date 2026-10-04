@@ -1,0 +1,21 @@
+{
+  "name": "agent-pipelines",
+  "version": "0.1.0",
+  "description": "多代理编排管道套件：Ralph-Pipeline 通用任务编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": [
+    "productivity",
+    "multi-agent",
+    "orchestration",
+    "pipeline",
+    "code-review"
+  ],
+  "commands": "./commands",
+  "agents": "./agents"
+}
