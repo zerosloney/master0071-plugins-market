@@ -19,8 +19,8 @@
     {
       "name": "caveman",
       "source": "./plugins/caveman",
-      "version": "0.1.1",
-      "description": "超压缩通信模式：删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，附 cavecrew 多代理协作；hooks 自动化经 caveman4cn 上游 installer 提供。",
+      "version": "0.1.2",
+      "description": "超压缩通信模式：删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，附 cavecrew 多代理协作；hooks 需按插件 README 手动配置一次（Qwen 无插件根变量注入）。",
       "strict": false,
       "commands": "commands",
       "agents": "agents",

@@ -11,20 +11,21 @@ Cline SDK Plugin implementing full caveman mode with lifecycle hooks.
 - **Token Statistics**: Record per-run token usage via SDK hooks, persist session/lifetime stats
 - **Output Quality Check**: Warn on verbose output (log-only; the SDK cannot re-block a finished run)
 
-## Installation
+## Status
+
+> **Retired channel**: the upstream caveman4cn repo (and its install-cline.js) has been
+> deleted, and this subpackage is no longer distributed through any install channel. It
+> remains in the plugin payload for reference. Cline is a Claude-compatible host —
+> prefer the marketplace install of the parent plugin (skills + hooks).
+
+## Installation (historical)
 
 ```bash
-# From this directory
+# From this directory (local path still works if you have the checkout)
 cline plugin install ./plugins/caveman/hooks/cline
-
-# From git
-cline plugin install --git https://github.com/zerosloney/caveman4cn.git
-
-# Via npm (after publishing)
-cline plugin install --npm @master0071/caveman-cline
 ```
 
-Or use the install script:
+Historical script reference:
 
 ```bash
 node scripts/install-cline.js --plugin    # Install plugin

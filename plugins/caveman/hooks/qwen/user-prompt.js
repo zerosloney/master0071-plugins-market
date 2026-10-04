@@ -219,9 +219,8 @@ async function main() {
   const slashMode = parseSlashCommand(lowerPrompt);
   if (slashMode) {
     if (slashMode === '__install__') {
-      const installCmd = 'node ' + path.join(process.env.USERPROFILE || process.env.HOME || '.', '.qwen', 'extensions', 'caveman', 'scripts', 'install-qwen.js').replace(/\\/g, '/');
-      const reason = 'Caveman hooks not yet merged into Qwen Code settings. Run this command in a terminal to activate:\n\n' + installCmd + '\n\nThen restart Qwen Code or run /extensions to reload.';
-      process.stderr.write('[caveman] settings missing hooks, hinting install command\n');
+      const reason = 'Caveman hooks not yet merged into Qwen Code settings. Follow the manual setup in the caveman plugin README (Qwen hooks section): merge the hooks snippet into ~/.qwen/settings.json, then restart Qwen Code or run /extensions to reload.';
+      process.stderr.write('[caveman] settings missing hooks, hinting manual setup\n');
       process.stdout.write(JSON.stringify({
         decision: 'block',
         reason,

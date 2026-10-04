@@ -4,10 +4,10 @@
   "description": "Ultra-compressed communication mode for Qwen Code. Cut filler. Keep technical accuracy. Supports intensity levels: lite, full (default), ultra, wenyan-lite, wenyan-full, wenyan-ultra.",
   "author": {
     "name": "master0071",
-    "url": "https://github.com/zerosloney/caveman4cn"
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
   },
-  "homepage": "https://github.com/zerosloney/caveman4cn",
-  "repository": "https://github.com/zerosloney/caveman4cn",
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
   "keywords": [
     "productivity",

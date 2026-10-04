@@ -158,7 +158,7 @@ qwen extensions install zerosloney/master0071-plugins-market:caveman
 ```
 
 - **systemone-decision**：skills + 内联 MCP server 声明。需求明确度预检 hook 在 Qwen 下不注册（Qwen 无插件根变量替换，`${CLAUDE_PLUGIN_ROOT}` 会留在命令里），配置走 `SYSTEMONE_*` 环境变量。
-- **caveman**：commands + agents + skills。Qwen 的 hook 命令同样无插件根变量注入，自动化 hooks 不随市场安装，仍走 [caveman4cn 上游 installer](https://github.com/zerosloney/caveman4cn)（铺设扩展 + 合并 `~/.qwen/settings.json`）。
+- **caveman**：commands + agents + skills。Qwen 的 hook 命令同样无插件根变量注入，自动化 hooks 不随市场接线——按[插件 README](plugins/caveman/README.md) 的「Qwen hooks 手动配置」节把片段合并进 `~/.qwen/settings.json`（一次性，安装路径无版本号子目录）；不配置也能用，只是没有自动激活与 token 统计。原 caveman4cn 上游 installer 已退役。
 
 ## 仓库结构
 
@@ -182,7 +182,7 @@ plugins/
 │   ├── skills/            使用指引与场景文档
 │   ├── hooks/             需求明确度预检（清单两端分开；判定内核 clarity.mjs 全端共用）
 │   └── test/              冒烟测试（本地 mock 端点，无需真实 Key）
-└── caveman/               插件包（ZCode / CodeBuddy / omp / Codex / Dim / MiniMax 市场安装；opencode 本地路径；Trae / Qwen / Qoder / Cline 走上游 installer）
+└── caveman/               插件包（ZCode / CodeBuddy / omp / Codex / Dim / MiniMax / Qwen 市场安装；opencode 本地路径；Trae / Qoder / Cline 已随上游 installer 退役）
     ├── .zcode-plugin/ 等  七份按宿主分清单（zcode / omp / qoder / codebuddy / trae / codex / minimax）
     ├── commands/ agents/  斜杠命令与 cavecrew 子代理
     ├── skills/            压缩规则与使用技能（7 个）

@@ -17,9 +17,12 @@ const {
   getDefaultMode, safeWriteFlag, recordModeChange, getAgentFlagPath, migrateLegacyFiles
 } = require('./caveman-config');
 
-// Auto-merge caveman hooks + statusLine into Qwen Code settings on session start.
-// This makes git/marketplace installs self-activating without requiring the user
-// to manually run `node scripts/install-qwen.js`.
+// Best-effort auto-merge of caveman hooks + statusLine into Qwen Code settings,
+// only when the legacy merge helper is present (caveman4cn installer era — now
+// retired). The upstream installer is gone; merge the hooks snippet from the
+// caveman plugin README (Qwen hooks section) into ~/.qwen/settings.json once.
+// Hooks merged there are invoked by Qwen itself, so no runtime wiring is needed
+// and this require failing (the normal case) changes nothing.
 let autoMergeSettings;
 try {
   autoMergeSettings = require('../../../../scripts/install-qwen').mergeCavemanIntoSettings;

@@ -13,7 +13,7 @@
     {
       "name": "caveman",
       "source": "./plugins/caveman",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "CodeBuddy 的超压缩通信模式。删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，hooks 自动注入压缩规则并统计 token 节省。",
       "category": "productivity",
       "keywords": ["caveman", "communication", "brevity", "codebuddy"]

@@ -61,4 +61,4 @@ export CAVEMAN_DEFAULT_MODE=ultra
 
 ## 更多
 
-完整文档：https://github.com/zerosloney/caveman4cn
+完整文档：https://github.com/zerosloney/master0071-plugins-market

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "caveman",
   "displayName": "Caveman",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MiniMax Code 的超压缩通信模式。删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，每次提交输入自动注入压缩规则，/caveman 系列指令在输入层拦截切换模式。",
   "author": "master0071",
   "category": "Code",

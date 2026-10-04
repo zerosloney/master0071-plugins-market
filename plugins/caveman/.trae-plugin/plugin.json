@@ -1,14 +1,14 @@
 {
-  "_comment": "Documentational manifest only. Trae IDE does NOT scan for plugin.json or marketplace.json — its AI assets (skills/commands/hooks/rules) are loose files under ~/.trae-cn/ (global) and .trae/ (project). This repo ships caveman via marketplace for other hosts; Trae is served by the installer in the upstream caveman4cn repo (scripts/install-trae.js), which lays assets into ~/.trae-cn/ and merges ~/.trae-cn/hooks.json.",
+  "_comment": "Documentational manifest only. Trae IDE does NOT scan for plugin.json or marketplace.json — its AI assets (skills/commands/hooks/rules) are loose files under ~/.trae-cn/ (global) and .trae/ (project). The installer that laid them (caveman4cn upstream) has been retired, so Trae currently has no install channel for this plugin; this manifest remains to declare intent and keep the hooks/trae build in sync via scripts/sync-shared.js.",
   "name": "caveman",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Trae IDE 的超压缩通信模式。删废话，保技术准确。支持 lite、full、ultra、wenyan-lite、wenyan-full、wenyan-ultra 强度级别。",
   "author": {
     "name": "master0071",
-    "url": "https://github.com/zerosloney/caveman4cn"
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
   },
-  "homepage": "https://github.com/zerosloney/caveman4cn",
-  "repository": "https://github.com/zerosloney/caveman4cn",
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
   "keywords": ["productivity", "communication", "brevity", "trae"],
   "category": "Productivity",

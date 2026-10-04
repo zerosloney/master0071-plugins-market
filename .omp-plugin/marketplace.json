@@ -13,7 +13,7 @@
     {
       "name": "caveman",
       "source": "./plugins/caveman",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Oh My Pi 的超压缩通信模式。删废话，保技术准确。marketplace 安装一键加载 skills/commands/agents 与 extension hooks。",
       "category": "productivity",
       "keywords": ["caveman", "communication", "brevity", "omp"]

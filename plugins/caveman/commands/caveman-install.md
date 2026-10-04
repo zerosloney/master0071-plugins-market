@@ -1,44 +1,37 @@
 ---
-description: 为当前宿主运行 caveman 安装器，合并钩子（及状态行，若宿主支持）到其 settings.json。
-argument-hint: "[--uninstall|--dry-run]"
+description: 检查当前宿主的 caveman hooks 接线状态；市场已接线的宿主直接报告，Qwen 引导一次性手动配置（上游 installer 已退役）。
 ---
 
 # Caveman Install Helper
 
-## Step 0 — Detect the host agent (do this first)
+## 背景
 
-The caveman plugin ships a per-host installer per agent (`codebuddy`/`qwen`/`qoder`/`trae`/`zcode`), each writing to that host's own settings and data dirs. You must detect which host is running before running the installer.
+原 caveman4cn 上游 installer（`install-*.js`）已退役。当前各宿主的 hooks 接线方式：
+
+| 宿主 | hooks 接线 | 本命令要做的 |
+|---|---|---|
+| ZCode / CodeBuddy / omp / Codex / Dim / MiniMax | 市场安装自动接线 | 检测后报告"无需操作" |
+| opencode | prompt hook 随适配器接线（无工具事件 hooks） | 同上 |
+| Qwen Code | 需一次性手动合并 `~/.qwen/settings.json` | 引导/代为执行下方配置 |
+| Trae / Qoder / Cline | 无通道 | 明确告知不支持 |
+
+## Step 0 — Detect the host agent (do this first)
 
 Detection order (same as `scripts/statusline.js::detectAgentId`):
 
 1. `CAVEMAN_AGENT` env var — explicit override. `echo $CAVEMAN_AGENT` (bash) or `$env:CAVEMAN_AGENT` (PowerShell).
 2. Host env hints — `CODEBUDDY_TMUX_SESSION` or `CODEBUDDY_INSTANCE_META_PURPOSE` present ⇒ CodeBuddy.
 3. Live `active` flag on disk — whichever of `codebuddy`/`qwen`/`qoder`/`trae`/`zcode` has a file at `~/.caveman/<agent>/active` wins. Check with: `ls ~/.caveman/*/active` and ignore the "no such file" noise from the shell.
-4. Fallback — `qwen`.
+4. Fallback — `qwen` (the only host that still needs manual wiring).
 
 Report the detected host to the user before proceeding.
 
 ## What to do
 
-1. **Report the detected host**, then run the matching installer. The installer binaries are published via the package `bin` field:
+1. **市场已接线的宿主**（ZCode / CodeBuddy / omp / Codex / Dim / MiniMax / opencode）：报告 hooks 已随插件自动接线，无需任何安装步骤。若用户报告 hooks 未生效，建议重装插件或检查宿主版本。
 
-   | Host | Installer command (npm) | Local command |
-   |---|---|---|
-   | **codebuddy** | `npx -p @master0071/caveman4cn caveman-codebuddy` | `node scripts/install-codebuddy.js` |
-   | **qwen** | `npx -p @master0071/caveman4cn caveman-qwen` | `node scripts/install-qwen.js` |
-   | **qoder** | `npx -p @master0071/caveman4cn caveman-qoder` | `node scripts/install-qoder.js` |
-   | **trae** | `npx -p @master0071/caveman4cn caveman-trae` | `node scripts/install-trae.js` |
-   | **zcode** | `npx -p @master0071/caveman4cn caveman-zcode` | `node scripts/install-zcode.js` |
+2. **Qwen Code**：读 `~/.qwen/settings.json`，检查 `hooks` 下是否已有 `name` 以 `caveman-` 开头的条目。没有则按 `plugins/caveman/README.md` 的「Qwen hooks 手动配置」节，把 hooks 片段（7 事件 + 可选 `ui.statusLine`）合并进 `settings.json`——command 用 `~/.qwen/extensions/caveman/` 下脚本（含 `hooks/qwen/`）的绝对 POSIX 路径。合并前向用户展示将写入的内容并确认；合并后提示重启 Qwen Code 或运行 `/extensions` 重载。
 
-2. **Flags** (all installers accept the same set):
-   - `--uninstall` — remove caveman hooks and statusLine config from this host.
-   - `--dry-run` — preview what would change without writing.
+3. **Trae / Qoder / Cline**：告知不支持——上游 installer 已退役，本仓库未提供替代通道。
 
-3. **Use this command** if hooks or statusLine are not active after a marketplace or git install. Each installer:
-   - Copies plugin files into the host's data dir (e.g. `~/.qwen/extensions/caveman/`, `~/.codebuddy/plugins/caveman/`).
-   - Merges hooks into the host's `settings.json`.
-   - Where the host supports a status line (qwen `ui.statusLine`, codebuddy root `statusLine`), merges that too. qoder/trae/zcode have no status line config and skip this step.
-
-4. **Before running**, show the user the exact command you will run and confirm. Always prefer `--dry-run` first if the user is unsure.
-
-Do **not** write settings.json directly from this command — the installer script is the single writer. This command only detects the host and runs the right installer.
+4. **不要运行任何 `install-*.js`**——它们已不存在。本命令只做宿主检测与（Qwen 的）手动合并引导，不要直接改写 settings.json 之外的文件。

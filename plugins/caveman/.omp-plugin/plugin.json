@@ -1,13 +1,13 @@
 {
   "name": "caveman",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Oh My Pi 的 caveman 插件。marketplace 安装一键加载 skills/commands/agents 与 extension hooks。",
   "author": {
     "name": "master0071",
-    "url": "https://github.com/zerosloney/caveman4cn"
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
   },
-  "homepage": "https://github.com/zerosloney/caveman4cn",
-  "repository": "https://github.com/zerosloney/caveman4cn",
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
   "keywords": [
     "productivity",
