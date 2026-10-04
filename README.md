@@ -16,7 +16,7 @@
 | 插件 | 版本 | 简介 |
 |------|------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.4.9 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
-| [caveman](plugins/caveman/) | 0.1.1 | Caveman 超压缩通信模式：hooks 在会话各事件点自动注入压缩规则，lite/full/ultra/wenyan 强度级别，统计 token 节省，附 cavecrew 多代理协作 |
+| [caveman](plugins/caveman/) | 0.1.2 | Caveman 超压缩通信模式：hooks 在会话各事件点自动注入压缩规则，lite/full/ultra/wenyan 强度级别，统计 token 节省，附 cavecrew 多代理协作 |
 
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
 
