@@ -1,0 +1,18 @@
+{
+  "name": "caveman",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Caveman 超压缩通信模式插件包入口。omp：marketplace 安装经 omp.extensions 加载 extension hooks；opencode：本地路径安装经 main 解析 index.mjs（注册 skills + 模式管理 prompt hook）。业务载荷与 ZCode / CodeBuddy / MiniMax 共用。",
+  "license": "MIT",
+  "main": "./index.mjs",
+  "keywords": [
+    "omp",
+    "opencode",
+    "opencode-plugin",
+    "caveman",
+    "compression"
+  ],
+  "omp": {
+    "extensions": ["./hooks/omp/index.ts"]
+  }
+}

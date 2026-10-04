@@ -1,0 +1,30 @@
+{
+  "name": "caveman",
+  "version": "0.1.1",
+  "description": "CodeBuddy 的 caveman 模式插件。为 CodeBuddy 代理提供超压缩通信。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/caveman4cn"
+  },
+  "homepage": "https://github.com/zerosloney/caveman4cn",
+  "repository": "https://github.com/zerosloney/caveman4cn",
+  "keywords": [
+    "productivity",
+    "communication",
+    "brevity",
+    "codebuddy"
+  ],
+  "category": "Productivity",
+  "commands": "./commands",
+  "agents": "./agents",
+  "skills": [
+    "./skills/caveman",
+    "./skills/caveman-commit",
+    "./skills/caveman-compress",
+    "./skills/caveman-help",
+    "./skills/caveman-review",
+    "./skills/caveman-stats",
+    "./skills/cavecrew"
+  ],
+  "hooks": "./hooks/codebuddy/hooks.json"
+}

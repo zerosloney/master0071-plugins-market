@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "caveman",
+  "displayName": "Caveman",
+  "version": "0.1.1",
+  "description": "MiniMax Code 的超压缩通信模式。删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，每次提交输入自动注入压缩规则，/caveman 系列指令在输入层拦截切换模式。",
+  "author": "master0071",
+  "category": "Code",
+  "exampleQueries": [
+    "切换到 ultra 压缩模式",
+    "用 /caveman-stats 看看这个会话省了多少 token",
+    "按 caveman-commit 模式给这次改动写提交说明"
+  ],
+  "apps": [],
+  "skills": [
+    "skills/caveman/SKILL.md",
+    "skills/caveman-commit/SKILL.md",
+    "skills/caveman-compress/SKILL.md",
+    "skills/caveman-help/SKILL.md",
+    "skills/caveman-review/SKILL.md",
+    "skills/caveman-stats/SKILL.md",
+    "skills/cavecrew/SKILL.md"
+  ],
+  "hooks": [
+    "hooks/minimax/hooks.json"
+  ]
+}

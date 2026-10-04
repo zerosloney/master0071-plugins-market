@@ -1,0 +1,43 @@
+{
+  "name": "caveman",
+  "version": "0.1.1",
+  "description": "ZCode 的超压缩通信模式。删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/caveman4cn"
+  },
+  "homepage": "https://github.com/zerosloney/caveman4cn",
+  "repository": "https://github.com/zerosloney/caveman4cn",
+  "license": "MIT",
+  "keywords": [
+    "productivity",
+    "communication",
+    "brevity",
+    "writing",
+    "caveman"
+  ],
+  "commands": "./commands",
+  "skills": "./skills",
+  "agents": "./agents",
+  "hooks": "./hooks/zcode/hooks.json",
+  "userConfig": {
+    "default_mode": {
+      "title": "Default Mode",
+      "description": "Default caveman intensity level: lite, full, ultra, wenyan, off",
+      "type": "string",
+      "default": "full"
+    },
+    "statusline_enabled": {
+      "title": "Statusline Indicator",
+      "description": "Show caveman mode indicator in terminal prompt",
+      "type": "boolean",
+      "default": true
+    },
+    "stats_enabled": {
+      "title": "Token Usage Stats",
+      "description": "Track token savings from caveman compression",
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

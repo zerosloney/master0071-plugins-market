@@ -1,0 +1,94 @@
+{
+  "description": "Caveman Qoder hooks. IDE supports 5 events (UserPromptSubmit/PreToolUse/PostToolUse/PostToolUseFailure/Stop); CLI supports 22 including SessionStart and PreCompact. This config registers both — IDE silently ignores the CLI-only events, CLI uses them. SessionStart gives true auto-activation (IDE falls back to UserPromptSubmit's first-prompt activation).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/session-start.js\"",
+            "description": "Activate caveman mode and inject compressed-communication rules (CLI only — IDE ignores this event)",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/user-prompt.js\"",
+            "description": "Activate caveman mode (fallback for IDE's missing SessionStart), track mode, handle /caveman commands, per-turn reinforcement",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/pre-tool-use.js\"",
+            "description": "Block dangerous operations (rm -rf, system file writes, etc.)",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/post-tool-use.js\"",
+            "description": "Track tool usage for stats",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/post-tool-use-failure.js\"",
+            "description": "Provide compressed recovery advice on tool failure",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/pre-compact.js\"",
+            "description": "Inject caveman rules into compression guidance (CLI only — IDE ignores this event)",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${QODER_PLUGIN_ROOT}/hooks/stop.js\"",
+            "description": "Check output quality when caveman mode is active",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
