@@ -1,0 +1,30 @@
+{
+  "name": "master0071-plugins",
+  "owner": { "name": "dc" },
+  "plugins": [
+    {
+      "name": "systemone-decision",
+      "source": "./plugins/systemone-decision",
+      "version": "0.4.9",
+      "description": "SystemOne 决策模型工具集：2 个 MCP 工具（场景调度 + 自定义问题）覆盖工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定等 11 个内置场景，判据可覆盖，返回概率化判定与处置建议。默认 unisound u2-decision，经 SYSTEMONE_* 环境变量配置。",
+      "strict": false,
+      "skills": "skills/systemone-decision",
+      "mcpServers": {
+        "systemone": {
+          "command": "node",
+          "args": ["mcp/server.mjs"]
+        }
+      }
+    },
+    {
+      "name": "caveman",
+      "source": "./plugins/caveman",
+      "version": "0.1.1",
+      "description": "超压缩通信模式：删废话，保技术准确。支持 lite、full、ultra、wenyan 强度级别，附 cavecrew 多代理协作；hooks 自动化经 caveman4cn 上游 installer 提供。",
+      "strict": false,
+      "commands": "commands",
+      "agents": "agents",
+      "skills": "skills"
+    }
+  ]
+}

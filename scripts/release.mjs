@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（11 处）：
-//     市场清单条目版本 ×3：marketplace.json / .omp-plugin/marketplace.json /
-//                        .codebuddy-plugin/marketplace.json
+//   systemone-decision（12 处）：
+//     市场清单条目版本 ×4：marketplace.json / .omp-plugin/marketplace.json /
+//                        .codebuddy-plugin/marketplace.json / .claude-plugin/marketplace.json
 //     插件清单 ×5：.zcode-plugin / .minimax-plugin / .omp-plugin /
 //                 .codex-plugin / .codebuddy-plugin 的 plugin.json
 //     包版本 ×2：plugins/systemone-decision/package.json（opencode 本地入口）、
 //               根 package.json（opencode git 安装入口）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
 //
-//   caveman（13 处）：
-//     市场清单条目版本 ×3：同上三份市场清单
+//   caveman（14 处）：
+//     市场清单条目版本 ×4：同上四份市场清单
 //     插件清单 ×7：.zcode-plugin / .omp-plugin / .qoder-plugin /
 //                 .codebuddy-plugin / .trae-plugin / .codex-plugin /
 //                 .minimax-plugin 的 plugin.json
@@ -34,7 +34,12 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const at = (rel) => path.join(ROOT, rel);
 
-const MARKETS = ['marketplace.json', '.omp-plugin/marketplace.json', '.codebuddy-plugin/marketplace.json'];
+const MARKETS = [
+  'marketplace.json',
+  '.omp-plugin/marketplace.json',
+  '.codebuddy-plugin/marketplace.json',
+  '.claude-plugin/marketplace.json',
+];
 const inPlugin = (name, rel) => `plugins/${name}/${rel}`;
 
 const PLUGINS = {

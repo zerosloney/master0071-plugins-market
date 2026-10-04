@@ -7,6 +7,7 @@
 - **ChatGPT Codex**：读取仓库根目录的 `.agents/plugins/marketplace.json`；插件使用 `.codex-plugin/plugin.json` 清单
 - **Dim**：同样使用 `plugins/systemone-decision/.codex-plugin/plugin.json` 自描述清单，整个插件目录可直接加载
 - **CodeBuddy**：兼容 Claude 插件清单格式，读取仓库根目录的 `.codebuddy-plugin/marketplace.json`；插件使用 `.codebuddy-plugin/plugin.json` 清单
+- **Qwen Code**：市场机制复用 Claude 清单格式，读取仓库根目录的 `.claude-plugin/marketplace.json` 并转换安装（市场条目即权威清单）
 - **opencode**：**没有市场概念**，直接按 npm/git 包安装 `plugins/systemone-decision`（自带 `package.json` 入口），市场清单文件对它无效
 - **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
 
@@ -147,12 +148,25 @@ codebuddy plugin install caveman@master0071-plugins
 
 API Key 仍走环境变量 `SYSTEMONE_API_KEY`；端点 / 模型 / 超时 / 自定义场景四项在启用插件时按 `userConfig` 提示填写即可（留空回退环境变量 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`）。需求明确度预检 hook 复用 `hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 变量 CodeBuddy 兼容展开）。
 
+### Qwen Code
+
+Qwen Code 的市场机制复用 Claude 清单格式：读取仓库根 `.claude-plugin/marketplace.json`，按 `仓库:插件名` 选择条目并转换为本地扩展安装（`strict: false`，市场条目即权威清单，组件随转换拷入扩展包）：
+
+```sh
+qwen extensions install zerosloney/master0071-plugins-market:systemone-decision
+qwen extensions install zerosloney/master0071-plugins-market:caveman
+```
+
+- **systemone-decision**：skills + 内联 MCP server 声明。需求明确度预检 hook 在 Qwen 下不注册（Qwen 无插件根变量替换，`${CLAUDE_PLUGIN_ROOT}` 会留在命令里），配置走 `SYSTEMONE_*` 环境变量。
+- **caveman**：commands + agents + skills。Qwen 的 hook 命令同样无插件根变量注入，自动化 hooks 不随市场安装，仍走 [caveman4cn 上游 installer](https://github.com/zerosloney/caveman4cn)（铺设扩展 + 合并 `~/.qwen/settings.json`）。
+
 ## 仓库结构
 
 ```
 .agents/plugins/marketplace.json  ChatGPT Codex 仓库级插件市场清单
 marketplace.json           ZCode 市场清单（市场名 master0071-plugins）
 .codebuddy-plugin/marketplace.json  CodeBuddy 市场清单（Claude 插件清单格式）
+.claude-plugin/marketplace.json  Qwen Code 市场清单（Claude 格式转换安装）
 package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 shared/                    caveman 多宿主共享配置模板（scripts/sync-shared.js 渲染到各 hooks/<host>/）
 plugins/
@@ -184,7 +198,7 @@ plugins/
 
 ## 维护
 
-- **新增插件**：在 `plugins/` 下建目录，并分别在 ZCode 的 `marketplace.json`、CodeBuddy 的 `.codebuddy-plugin/marketplace.json`、omp 的 `.omp-plugin/marketplace.json` 与 ChatGPT Codex 的 `.agents/plugins/marketplace.json` 登记插件来源；各市场字段按对应格式填写。
+- **新增插件**：在 `plugins/` 下建目录，并分别在 ZCode 的 `marketplace.json`、CodeBuddy 的 `.codebuddy-plugin/marketplace.json`、omp 的 `.omp-plugin/marketplace.json`、Qwen Code 的 `.claude-plugin/marketplace.json` 与 ChatGPT Codex 的 `.agents/plugins/marketplace.json` 登记插件来源；各市场字段按对应格式填写。
 - **发布新版本**：运行 `node scripts/release.mjs <plugin> <x.y.z>`（如 `node scripts/release.mjs caveman 0.1.2`），按插件同步各自 11 处版本号，两插件版本独立演进；`node scripts/release.mjs --check` 校验所有插件一致性；`node scripts/sync-shared.js` 渲染 caveman 的共享 hooks 配置（幂等，改 `shared/caveman-config.template.js` 后执行）。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 

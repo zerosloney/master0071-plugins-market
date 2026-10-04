@@ -96,7 +96,7 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
 - 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
 
-## 多端支持（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim / CodeBuddy）
+## 多端支持（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim / CodeBuddy / Qwen Code）
 
 同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
 
@@ -115,7 +115,7 @@ systemone_scenario(action: "run",
 
 **配置差异**：CodeBuddy 在启用插件时按 `userConfig` 提示收集上表四项配置（键名与 ZCode 设置页一致），MiniMax Code、opencode 与 Dim 都没有可用的插件设置页。上表四项配置在 opencode 走 `plugins[].options`（同名的 `base_url` / `model` / `timeout_ms` / `scenarios`），在 MiniMax Code、Dim 走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
-**市场注册**：ChatGPT Codex 读取仓库根目录 `.agents/plugins/marketplace.json`；ZCode 读取仓库根目录 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；CodeBuddy 读 `.codebuddy-plugin/marketplace.json`（Claude 插件清单格式，CLI `codebuddy plugin marketplace add zerosloney/master0071-plugins-market`）；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
+**市场注册**：ChatGPT Codex 读取仓库根目录 `.agents/plugins/marketplace.json`；ZCode 读取仓库根目录 `marketplace.json`；MiniMax Code 使用数据目录下的 `known_marketplaces.json`，存的是 git 仓库指针而非内联插件列表；omp 读 `.omp-plugin/marketplace.json`；CodeBuddy 读 `.codebuddy-plugin/marketplace.json`（Claude 插件清单格式，CLI `codebuddy plugin marketplace add zerosloney/master0071-plugins-market`）；Qwen Code 读 `.claude-plugin/marketplace.json`（Claude 格式转换安装，`qwen extensions install zerosloney/master0071-plugins-market:systemone-decision`——skills + 内联 MCP 声明，hook 不注册）；**Dim 没有市场概念**，插件是自描述目录——把本目录放进任一插件根，Dim 读取 `.codex-plugin/plugin.json` 即加载 MCP / skill / hook，也可在桌面端 **Plugins → Add plugin** 粘贴仓库 git 地址安装。**opencode 没有市场概念**，只有 `plugins` 数组，且 `plugin add` 走 bun 的 npm 兼容层——git spec 的 `::path:` 子目录选择器会被静默忽略，所以只能装仓库根本身这个包（根 `package.json` 的 `main` 指向 `plugins/systemone-decision/index.mjs`）：
 
 ```sh
 opencode plugin add github:zerosloney/master0071-plugins-market

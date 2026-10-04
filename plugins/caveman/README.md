@@ -2,7 +2,7 @@
 
 超压缩通信模式插件：删废话，保技术准确。通过 hooks 在会话各事件点（启动、提问、工具调用、回答结束）自动注入压缩规则并统计 token 节省，支持 lite、full、ultra、wenyan 强度级别，附 cavecrew 多代理协作（builder / investigator / reviewer / general）。
 
-本插件随 [master0071-plugins 市场](../../README.md)分发，市场安装支持 ZCode / CodeBuddy / omp / ChatGPT Codex / Dim / MiniMax Code；opencode 走本地路径安装（`plugins/caveman` 自带包入口）；Trae / Qwen Code / Qoder / Cline 走 [caveman4cn 上游仓库](https://github.com/zerosloney/caveman4cn)的 installer（`install-trae.js` 等）。
+本插件随 [master0071-plugins 市场](../../README.md)分发，市场安装支持 ZCode / CodeBuddy / omp / ChatGPT Codex / Dim / MiniMax Code / Qwen Code；opencode 走本地路径安装（`plugins/caveman` 自带包入口）；Trae / Qoder / Cline 走 [caveman4cn 上游仓库](https://github.com/zerosloney/caveman4cn)的 installer（`install-trae.js` 等）。
 
 ## 压缩级别
 
@@ -30,6 +30,9 @@
 # ChatGPT Codex CLI
 codex plugin marketplace add zerosloney/master0071-plugins-market
 codex plugin install caveman@master0071-plugins
+
+# Qwen Code
+qwen extensions install zerosloney/master0071-plugins-market:caveman
 ```
 
 | 宿主 | 载荷 | 说明 |
@@ -39,6 +42,7 @@ codex plugin install caveman@master0071-plugins
 | omp | skills + commands + agents + extension hooks | marketplace 安装一键加载 |
 | ChatGPT Codex / Dim | skills + hooks（`${CLAUDE_PLUGIN_ROOT}`） | 经 `.codex-plugin/plugin.json` 加载 |
 | MiniMax Code | skills + UserPromptSubmit hook（`${PLUGIN_ROOT}`，8s 预算） | `.minimax-plugin/plugin.json` 清单；模式强化随每次输入注入，`/caveman` 系列在输入文本层拦截 |
+| Qwen Code | commands + agents + skills（市场转换安装） | `.claude-plugin/marketplace.json` 条目；Qwen hook 命令无插件根变量注入，自动化 hooks 走 [caveman4cn installer](https://github.com/zerosloney/caveman4cn) |
 | opencode | skills ×7 + 模式管理 prompt hook | 本地路径安装 `"plugins": ["…/plugins/caveman"]`；opencode 只能接 prompt 等价物，SessionStart / 工具事件 / token 统计不接线 |
 | Trae / Qwen / Qoder / Cline | installer 铺设 | 见 [caveman4cn](https://github.com/zerosloney/caveman4cn) |
 
