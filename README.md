@@ -16,7 +16,8 @@
 | 插件 | 版本 | 简介 |
 |------|------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.4.9 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
-| [caveman](plugins/caveman/) | 0.1.2 | Caveman 超压缩通信模式：hooks 在会话各事件点自动注入压缩规则，lite/full/ultra/wenyan 强度级别，统计 token 节省，附 cavecrew 多代理协作 |
+| [caveman](plugins/caveman/) | 0.1.3 | Caveman 超压缩通信模式：hooks 在会话各事件点自动注入压缩规则，lite/full/ultra/wenyan 强度级别，统计 token 节省，附 cavecrew 多代理协作 |
+| [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | 多代理编排管道套件：/ralph-pipeline 通用任务编排（TaskList + 背压熔断 + 状态持久化）+ /coding-pipeline 受控编码管道（scope 零容忍、根因分组修复、真实验证），含 6 个子智能体（ZCode 独占） |
 
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
 
@@ -199,7 +200,7 @@ plugins/
 ## 维护
 
 - **新增插件**：在 `plugins/` 下建目录，并分别在 ZCode 的 `marketplace.json`、CodeBuddy 的 `.codebuddy-plugin/marketplace.json`、omp 的 `.omp-plugin/marketplace.json`、Qwen Code 的 `.claude-plugin/marketplace.json` 与 ChatGPT Codex 的 `.agents/plugins/marketplace.json` 登记插件来源；各市场字段按对应格式填写。
-- **发布新版本**：运行 `node scripts/release.mjs <plugin> <x.y.z>`（如 `node scripts/release.mjs caveman 0.1.2`），按插件同步各自 11 处版本号，两插件版本独立演进；`node scripts/release.mjs --check` 校验所有插件一致性；`node scripts/sync-shared.js` 渲染 caveman 的共享 hooks 配置（幂等，改 `shared/caveman-config.template.js` 后执行）。改完提交推送，客户端更新插件即拉到新版。
+- **发布新版本**：运行 `node scripts/release.mjs <plugin> <x.y.z>`（如 `node scripts/release.mjs caveman 0.1.3`），按插件同步各自版本位，各插件版本独立演进；`node scripts/release.mjs --check` 校验所有插件一致性；`node scripts/sync-shared.js` 渲染 caveman 的共享 hooks 配置（幂等，改 `shared/caveman-config.template.js` 后执行）。改完提交推送，客户端更新插件即拉到新版。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```

@@ -10,6 +10,10 @@
 //               根 package.json（opencode git 安装入口）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
 //
+//   agent-pipelines（2 处，ZCode 独占）：
+//     市场清单条目版本 ×1：marketplace.json
+//     插件清单 ×1：.zcode-plugin/plugin.json
+//
 //   caveman（14 处）：
 //     市场清单条目版本 ×4：同上四份市场清单
 //     插件清单 ×7：.zcode-plugin / .omp-plugin / .qoder-plugin /
@@ -56,6 +60,12 @@ const PLUGINS = {
     ],
     markets: MARKETS,
     serverInfo: inPlugin('systemone-decision', 'mcp/server.mjs'),
+  },
+  'agent-pipelines': {
+    currentFrom: inPlugin('agent-pipelines', '.zcode-plugin/plugin.json'),
+    jsonFiles: [inPlugin('agent-pipelines', '.zcode-plugin/plugin.json')],
+    // ZCode 独占插件，无其余宿主市场清单
+    markets: ['marketplace.json'],
   },
   caveman: {
     currentFrom: inPlugin('caveman', '.zcode-plugin/plugin.json'),

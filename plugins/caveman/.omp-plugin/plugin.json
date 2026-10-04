@@ -1,6 +1,6 @@
 {
   "name": "caveman",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Oh My Pi 的 caveman 插件。marketplace 安装一键加载 skills/commands/agents 与 extension hooks。",
   "author": {
     "name": "master0071",
