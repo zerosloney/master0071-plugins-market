@@ -73,7 +73,7 @@ async function main() {
   // Qoder CLI's SessionStart fires on startup|clear|compact. Empty/absent
   // source also activates (IDE may not always send source). All of these
   // (re-)establish caveman mode at the start of a fresh context.
-  if (source === 'startup' || source === 'clear' || source === 'compact' || source === '') {
+  if (source === 'startup' || source === 'clear' || source === '') {
     additionalContext = skillContent
       ? `Caveman mode active (${mode}). Rules:\n${skillContent}`
       : `Caveman mode active (${mode}). ${FALLBACK_RULES}`;

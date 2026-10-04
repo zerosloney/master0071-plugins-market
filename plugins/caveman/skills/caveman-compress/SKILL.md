@@ -3,7 +3,7 @@ name: caveman-compress
 description: >
   Compress natural language memory files (CLAUDE.md, todos, preferences) into caveman format
   to save input tokens. Preserves all technical substance, code, URLs, and structure.
-  Compressed version overwrites the original file. Human-readable backup saved as FILE.original.md.
+  Compressed version overwrites the original file. Backup saved as FILE.original.md under the system data dir (caveman-compress/backups, see SECURITY.md).
   Trigger: /caveman-compress FILEPATH or "compress memory file"
   中文触发：用户说"压缩文件""压缩 md""省 token""压缩记忆文件"，或调用 /caveman-compress <文件路径> 时触发。
 ---
@@ -108,5 +108,5 @@ Compressed:
 - 绝不修改：.py, .js, .ts, .json, .yaml, .yml, .toml, .env, .lock, .css, .html, .xml, .sql, .sh
 - 文件含混合内容（散文 + 代码）时，仅压缩散文部分
 - 不确定某段是代码还是散文时，保持不变
-- 原文件覆盖前备份为 FILE.original.md
+- 原文件覆盖前备份为 FILE.original.md（存放在系统数据目录 caveman-compress/backups/<父目录名>/，不在原文件旁）
 - 绝不压缩 FILE.original.md（跳过它）

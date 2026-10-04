@@ -8,13 +8,13 @@
 
 1. **子进程使用**：未设置 `ANTHROPIC_API_KEY` 时，技能通过 `subprocess.run()` 调用 `claude` CLI 作为兜底。子进程调用使用固定参数列表——无 shell 插值。用户文件内容通过 stdin 传递，不作为 shell 参数。
 
-2. **文件读写**：技能读取用户明确指定的文件，压缩后写回同一路径。旁边保存一份 `.original.md` 备份。不读写用户指定路径之外的任何文件。
+2. **文件读写**：技能读取用户明确指定的文件，压缩后写回同一路径。备份保存为 `FILE.original.md`，写入系统数据目录（Windows 为 `%LOCALAPPDATA%\caveman-compress\backups\<源文件父目录名>\`，其余为 `$XDG_DATA_HOME` 或 `~/.local/share` 下的 `caveman-compress/backups/`），以避免 skill 自动加载器把备份副本当作正文反复摄入。除该备份目录外，不读写用户指定路径之外的任何文件。
 
 ### 该技能不做的事
 
 - 不把用户文件内容当代码执行
 - 除调用 Anthropic API（通过 SDK 或 CLI）外不发任何网络请求
-- 不访问用户提供的路径之外的文件
+- 除上述备份目录外，不访问用户提供的路径之外的文件
 - 子进程调用中不使用 shell=True 或字符串插值
 - 不收集或传输被压缩文件之外的任何数据
 

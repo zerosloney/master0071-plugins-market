@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy PreCompact hook
+// caveman — Claude (Codex/Dim) PreCompact hook
 // Injects caveman mode rules into the compression guidance so the model
 // doesn't lose caveman behavior after context compression.
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON { hook_event_name, trigger: "auto"|"manual", ... }
 //   - stdout: JSON. Exit code 0 + additionalContext -> injected as compression guidance.
 //   - The additionalContext is added to the compression instructions, telling
@@ -30,7 +30,7 @@ async function main() {
 
   const activeMode = readFlag(flagPath);
 
-  if (!activeMode) {
+  if (!activeMode || activeMode === 'off') {
     // Caveman not active — nothing to preserve.
     process.stdout.write(JSON.stringify({ continue: true }));
     return;

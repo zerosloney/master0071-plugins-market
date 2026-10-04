@@ -126,7 +126,7 @@ async function main() {
 
   let additionalContext = '';
   const source = input.source || '';
-  if (source === 'startup' || source === 'clear' || source === 'compact' || source === '') {
+  if (source === 'startup' || source === 'clear' || source === '') {
     // Empty/absent source also activates: CodeBuddy may not always send source.
     additionalContext = skillContent
       ? `Caveman mode active (${mode}). Rules:\n${skillContent}`

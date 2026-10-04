@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/session-start.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/session-start.js\"",
             "description": "Activate caveman mode and inject compressed-communication rules",
             "timeout": 10,
             "statusMessage": "Activating caveman mode…"
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/user-prompt.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/user-prompt.js\"",
             "description": "Track caveman mode, handle /caveman commands, per-turn reinforcement",
             "timeout": 10,
             "statusMessage": "Tracking caveman mode…"
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/pre-tool-use.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/pre-tool-use.js\"",
             "description": "Block dangerous operations (rm -rf, system file writes, etc.)",
             "timeout": 10,
             "statusMessage": "Verifying tool use…"
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/pre-compact.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/pre-compact.js\"",
             "description": "Inject caveman rules into compression guidance",
             "timeout": 5,
             "statusMessage": "Preserving caveman mode during compression…"
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/post-tool-use.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/post-tool-use.js\"",
             "description": "Warn when a tool returns a large response",
             "timeout": 5,
             "statusMessage": "Checking tool response size…"
@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/post-tool-use-failure.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/post-tool-use-failure.js\"",
             "description": "Provide compressed recovery advice on tool failure",
             "timeout": 5,
             "statusMessage": "Analyzing tool failure…"
@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/codebuddy/stop.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claude/stop.js\"",
             "description": "Check caveman output quality and record session stats snapshot",
             "timeout": 10,
             "statusMessage": "Finalizing caveman turn…"

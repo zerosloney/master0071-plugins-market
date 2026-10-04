@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy Stop hook
+// caveman — Claude (Codex/Dim) Stop hook
 // Checks output quality when caveman mode is active. If the model is about to
 // end with verbose output in caveman mode, blocks to allow correction.
 // Max 3 consecutive blocks.
@@ -7,7 +7,7 @@
 // Also records a near-real-time session stats snapshot (and refreshes the
 // lifetime badge) so the statusline reflects the latest turn's token usage.
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON { hook_event_name, last_assistant_message, ... }
 //   - stdout: JSON. Stop may request continuation via exit code 2 (block) with
 //     the reason on stderr; the host surfaces stderr and re-prompts the model.
@@ -15,7 +15,7 @@
 
 const fs = require('fs');
 const {
-  getAgentDataDir, getAgentCounterFile, getAgentFlagPath
+  getAgentDataDir, getAgentCounterFile, getAgentFlagPath, readFlag
 } = require('./caveman-config');
 const {
   computeStats, writeSessionSnapshot, writeLifetimeBadge
@@ -52,7 +52,8 @@ function resetBlockCount() {
 
 function isCavemanActive() {
   try {
-    return fs.existsSync(getAgentFlagPath());
+    const mode = readFlag(getAgentFlagPath());
+    return Boolean(mode && mode !== 'off');
   } catch {
     return false;
   }

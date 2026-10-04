@@ -72,7 +72,7 @@ async function main() {
   const source = input.source || '';
   // Trae sends source on SessionStart; treat empty/unknown the same as startup
   // so caveman activates on the first message (mirrors CodeBuddy behaviour).
-  if (source === 'startup' || source === 'clear' || source === 'compact' || source === '') {
+  if (source === 'startup' || source === 'clear' || source === '') {
     additionalContext = skillContent
       ? `Caveman mode active (${mode}). Rules:\n${skillContent}`
       : `Caveman mode active (${mode}). ${FALLBACK_RULES}`;

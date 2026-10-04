@@ -198,7 +198,7 @@ async function main() {
   const prompt = (input.prompt || '').trim();
 
   // ── Empty prompt block ──────────────────────────────────────────────────
-  if (!prompt || prompt.length < 3) {
+  if (!prompt) {
     const output = {
       continue: false,
       reason: 'Empty prompt blocked. Provide a specific question.',
@@ -230,10 +230,10 @@ async function main() {
   const slashMode = parseSlashCommand(lowerPrompt);
   if (slashMode) {
     if (slashMode === 'off') {
-      recordModeChange(null);
-      try { fs.unlinkSync(flagPath); } catch (e) {}
+      recordModeChange('off');
+      safeWriteFlag(flagPath, 'off');
       try { fs.unlinkSync(prevPath); } catch (e) {}
-      currentMode = null;
+      currentMode = 'off';
       changedMode = true;
     } else if (INDEPENDENT_MODES.has(slashMode)) {
       const current = readFlag(flagPath);
@@ -255,10 +255,10 @@ async function main() {
   if (!slashMode) {
     const nlMode = parseNlActivation(lowerPrompt);
     if (nlMode === 'off') {
-      recordModeChange(null);
-      try { fs.unlinkSync(flagPath); } catch (e) {}
+      recordModeChange('off');
+      safeWriteFlag(flagPath, 'off');
       try { fs.unlinkSync(prevPath); } catch (e) {}
-      currentMode = null;
+      currentMode = 'off';
       changedMode = true;
     } else if (nlMode && nlMode !== 'off') {
       const mode = getDefaultMode();
@@ -288,7 +288,7 @@ async function main() {
 
   // ── Per-turn reinforcement ──────────────────────────────────────────────
   let additionalContext = activationContext;
-  if (currentMode && !INDEPENDENT_MODES.has(currentMode)) {
+  if (currentMode && currentMode !== 'off' && !INDEPENDENT_MODES.has(currentMode)) {
     const reinforcement =
       `CAVEMAN MODE ACTIVE (${currentMode}). ` +
       `Drop articles/filler/pleasantries/hedging. Fragments OK. ` +

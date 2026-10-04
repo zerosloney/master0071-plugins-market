@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// caveman-stats.js — shared aggregator for /caveman-stats (CodeBuddy build).
-// Reads CodeBuddy session transcripts (JSONL under ~/.codebuddy/projects/) and
+// caveman-stats.js — shared aggregator for /caveman-stats (Claude (Codex/Dim) build).
+// Reads session transcripts (JSONL under ~/.claude/projects/, Claude Code format) and
 // sums token usage from model records (payload.usage). No AI estimation; real receipts.
 //
 // Exported: computeStats(opts) -> { turns, input, output, saved, found }
 //           formatStats(stats)   -> string
 //
-// Used by caveman-mode-tracker.js (UserPromptSubmit hook). Designed to require
+// Used by the merged user-prompt.js hook (UserPromptSubmit). Designed to require
 // zero npm deps and tolerate missing/partial logs. CodeBuddy's transcript record
 // schema is not publicly documented, so usage extraction is defensive: it tries
 // the zcode-compatible shape (`type === "model_complete"` + `payload.usage`),
@@ -16,23 +16,23 @@ const fs = require('fs');
 const path = require('path');
 const { getAgentDataDir, getAgentLifetimeFile, getAgentSnapshotFile } = require('./caveman-config');
 
-// CodeBuddy's primary transcript location (documented contract):
-//   ~/.codebuddy/projects/<encoded-project>/<uuid>.jsonl
-// Probe several candidate roots so stats keep working if CodeBuddy
+// Primary transcript location (Claude Code documented layout):
+//   ~/.claude/projects/<encoded-project>/<uuid>.jsonl
+// Probe several candidate roots so stats keep working if the host
 // relocates transcripts in a future update. First root that exists wins.
 function candidateRoots() {
   const base = process.env.HOME || process.env.USERPROFILE || '.';
   return [
-    path.join(base, '.codebuddy', 'projects'),
-    path.join(base, '.codebuddy', 'sessions'),
-    path.join(base, '.codebuddy', 'logs'),
-    path.join(base, '.codebuddy', 'transcripts'),
-    path.join(base, '.codebuddy', 'history'),
-    path.join(base, '.codebuddy'),
+    path.join(base, '.claude', 'projects'),
+    path.join(base, '.claude', 'sessions'),
+    path.join(base, '.claude', 'logs'),
+    path.join(base, '.claude', 'transcripts'),
+    path.join(base, '.claude', 'history'),
+    path.join(base, '.claude'),
   ];
 }
 
-// Per-agent data dir: ~/.caveman/codebuddy/
+// Per-agent data dir: ~/.caveman/claude/
 const DATA_DIR = getAgentDataDir();
 const LIFETIME_FILE = getAgentLifetimeFile();
 const SNAPSHOT_FILE = getAgentSnapshotFile();
@@ -131,6 +131,7 @@ function listTranscripts(projectDir) {
  *   3. { type: "assistant", message: { usage: {...} } }                                                  (Claude-compat)
  *   4. { usage: {...} } / { payload: { usage: {...} } }                                                  (top-level / wrapped)
  *   5. { type: "assistant", usageMetadata: { promptTokenCount, candidatesTokenCount, ... } }             (Gemini-style)
+ *   6. { type: "assistant", message: { usage: { input_tokens, output_tokens, ... } } }                  (Claude Code snake_case)
  */
 function extractUsage(rec) {
   if (!rec) return null;
@@ -159,6 +160,16 @@ function extractUsage(rec) {
         outputTokens: u.outputTokens || 0,
         cacheReadTokens: u.cacheReadTokens || 0,
         cacheWriteTokens: u.cacheWriteTokens || 0,
+      };
+    }
+    // Claude Code transcripts (JSONL, ~/.claude/projects): snake_case fields on
+    // message.usage — input_tokens/output_tokens + cache_read/cache_creation_input_tokens.
+    if (u.input_tokens != null || u.output_tokens != null) {
+      return {
+        inputTokens: u.input_tokens || 0,
+        outputTokens: u.output_tokens || 0,
+        cacheReadTokens: u.cache_read_input_tokens || 0,
+        cacheWriteTokens: u.cache_creation_input_tokens || 0,
       };
     }
     // OpenAI-style fields (prompt_tokens/completion_tokens) — CodeBuddy's shape.

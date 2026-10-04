@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy SessionStart hook
+// caveman — Claude (Codex/Dim) SessionStart hook
 // Activates caveman mode and injects the compressed-communication ruleset.
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON with { hook_event_name, source, ... }
 //   - stdout: JSON envelope. For context injection emit { additionalContext: "..." }
 //   - plugin root: process.env.CODEBUDDY_PLUGIN_ROOT (fallback CLAUDE_PLUGIN_ROOT, then __dirname/..)
@@ -126,7 +126,7 @@ async function main() {
 
   let additionalContext = '';
   const source = input.source || '';
-  if (source === 'startup' || source === 'clear' || source === 'compact' || source === '') {
+  if (source === 'startup' || source === 'clear' || source === '') {
     // Empty/absent source also activates: CodeBuddy may not always send source.
     additionalContext = skillContent
       ? `Caveman mode active (${mode}). Rules:\n${skillContent}`

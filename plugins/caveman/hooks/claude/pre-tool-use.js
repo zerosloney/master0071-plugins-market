@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy PreToolUse hook
+// caveman — Claude (Codex/Dim) PreToolUse hook
 // Guards against dangerous operations. Cross-platform (Windows + Unix).
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON { hook_event_name, tool_name, tool_input }
 //   - stdout: JSON { hookSpecificOutput: { hookEventName, permissionDecision, permissionDecisionReason } }
 //   - permissionDecision values: "allow" | "deny" | "ask"
@@ -48,8 +48,8 @@ const DANGEROUS_PATTERNS = {
     // Fork bomb
     /:\(\)\s*\{\s*:\|:\&\s*\}\s*;\s*:/,
     // Pipe-to-shell remote execution
-    /curl[^\n]*\|\s*(sh|bash)/i,
-    /wget[^\n]*\|\s*(sh|bash)/i,
+    /curl[^\n]*\|\s*(sh|bash)\b/i,
+    /wget[^\n]*\|\s*(sh|bash)\b/i,
     /irm[^\n]*\|\s*iex/i,      // PowerShell iex
     /Invoke-Expression[^\n]*\)/i,
     // Crypto miner / known malware patterns

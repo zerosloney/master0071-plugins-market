@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy PostToolUse hook
+// caveman — Claude (Codex/Dim) PostToolUse hook
 // Injects a brief note when a tool returns an unusually large response.
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON { hook_event_name, tool_name, tool_response, ... }
 //   - stdout: JSON. additionalContext is the only recognized key for injection.
 //   - Emit { continue: true } when there's nothing to inject.

@@ -95,8 +95,8 @@ export default {
     }
 
     // 2) 模式管理 hook：opencode 只能追加 prompt 文本（等价 additionalContext）；
-    //    判定为无强化时一个字都不加。少于 3 字符的输入直接放行（与 hook 内的
-    //    空输入拦截同阈值，避免无谓的子进程开销）。
+    //    判定为无强化时一个字都不加。少于 3 字符的输入直接跳过（hook 内也只
+    //    拦真空输入，这里提前返回只是为了省一次子进程开销）。
     await ctx.session.hook('prompt', async (event) => {
       const text = typeof event.prompt.text === 'string' ? event.prompt.text : '';
       if (text.trim().length < 3) return;

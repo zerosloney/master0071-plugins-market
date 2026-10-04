@@ -48,8 +48,8 @@ const DANGEROUS_PATTERNS = {
     // Fork bomb
     /:\(\)\s*\{\s*:\|:\&\s*\}\s*;\s*:/,
     // Pipe-to-shell remote execution
-    /curl[^\n]*\|\s*(sh|bash)/i,
-    /wget[^\n]*\|\s*(sh|bash)/i,
+    /curl[^\n]*\|\s*(sh|bash)\b/i,
+    /wget[^\n]*\|\s*(sh|bash)\b/i,
     /irm[^\n]*\|\s*iex/i,      // PowerShell iex
     /Invoke-Expression[^\n]*\)/i,
     // Crypto miner / known malware patterns

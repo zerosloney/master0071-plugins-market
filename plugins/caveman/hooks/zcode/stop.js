@@ -12,7 +12,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { getAgentDataDir, getAgentCounterFile, getAgentFlagPath } = require('./caveman-config');
+const { getAgentDataDir, getAgentCounterFile, getAgentFlagPath, readFlag } = require('./caveman-config');
 const { computeStats, writeSessionSnapshot, writeLifetimeBadge } = require('./caveman-stats');
 
 const COUNTER_FILE = getAgentCounterFile();
@@ -46,7 +46,8 @@ function resetBlockCount() {
 
 function isCavemanActive() {
   try {
-    return fs.existsSync(getAgentFlagPath());
+    const mode = readFlag(getAgentFlagPath());
+    return Boolean(mode && mode !== 'off');
   } catch {
     return false;
   }

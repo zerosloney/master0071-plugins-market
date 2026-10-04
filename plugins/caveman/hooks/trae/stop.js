@@ -24,7 +24,8 @@ const flagPath = getAgentFlagPath();
 const MAX_BLOCKS = 3; // matches hooks.json loop_limit; belt-and-suspenders
 
 function isCavemanActive() {
-  return readFlag(flagPath) !== null;
+  const mode = readFlag(flagPath);
+  return Boolean(mode && mode !== 'off');
 }
 
 // Near-real-time stats snapshot for the statusline. Computes the current

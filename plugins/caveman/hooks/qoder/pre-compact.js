@@ -32,7 +32,7 @@ async function main() {
 
   const activeMode = readFlag(flagPath);
 
-  if (!activeMode) {
+  if (!activeMode || activeMode === 'off') {
     // Caveman not active — nothing to preserve.
     process.stdout.write(JSON.stringify({ continue: true }));
     return;

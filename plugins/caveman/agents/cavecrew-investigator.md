@@ -42,8 +42,8 @@ Q: "where symlink-safe flag write?"
 
 ```
 Defs:
-- hooks/caveman-config.js:81 — `safeWriteFlag` — atomic write w/ O_NOFOLLOW
+- hooks/claude/caveman-config.js:255 — `safeWriteFlag` — atomic write w/ O_NOFOLLOW
 Callers:
-- hooks/caveman-mode-tracker.js:33,87
+- hooks/claude/user-prompt.js:187,195
 2 defs, 2 callers.
 ```

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// caveman — CodeBuddy PostToolUseFailure hook
+// caveman — Claude (Codex/Dim) PostToolUseFailure hook
 // Provides recovery advice when a tool fails in caveman mode.
 // Suggests compressed fixes — no verbose debugging.
 //
-// CodeBuddy contract:
+// Host contract:
 //   - stdin: JSON { hook_event_name, tool_name, error, is_interrupt, ... }
 //   - stdout: JSON. additionalContext is the only recognized key for injection.
 //     PostToolUseFailure is NOT blockable — emit { continue: true } when nothing to inject.
