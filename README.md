@@ -1,14 +1,11 @@
 # master0071-plugins
 
-个人维护的 ChatGPT Codex / ZCode / MiniMax Code / Dim / CodeBuddy 插件市场（marketplace），并附带 opencode / oh-my-pi(omp) 适配。
+个人维护的 ChatGPT Codex / ZCode / CodeBuddy 插件市场（marketplace），并附带 Qwen Code / oh-my-pi(omp) 适配。
 
 - **ZCode**：读取仓库根目录的 `marketplace.json`（内联插件清单）
-- **MiniMax Code**：以 git 仓库指针注册本市场（其数据目录下的 `known_marketplaces.json`）
 - **ChatGPT Codex**：读取仓库根目录的 `.agents/plugins/marketplace.json`；插件使用 `.codex-plugin/plugin.json` 清单
-- **Dim**：同样使用 `plugins/systemone-decision/.codex-plugin/plugin.json` 自描述清单，整个插件目录可直接加载
 - **CodeBuddy**：兼容 Claude 插件清单格式，读取仓库根目录的 `.codebuddy-plugin/marketplace.json`；插件使用 `.codebuddy-plugin/plugin.json` 清单
 - **Qwen Code**：市场机制复用 Claude 清单格式，读取仓库根目录的 `.claude-plugin/marketplace.json` 并转换安装（市场条目即权威清单）
-- **opencode**：**没有市场概念**，直接按 npm/git 包安装 `plugins/systemone-decision`（自带 `package.json` 入口），市场清单文件对它无效
 - **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
 
 ## 插件列表
@@ -66,66 +63,6 @@ omp 兼容 Claude 插件清单格式，但市场清单固定读 `.omp-plugin/mar
 
 omp 没有插件设置页，配置全部走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`，自定义场景用 `SYSTEMONE_SCENARIOS`。注意：需求明确度预检 hook（Claude 式 `hooks/hooks.json`）在 omp 下不生效——omp 的 hook 是 `hooks/pre|post/` 下的 JS 工厂模块，格式不同。
 
-### MiniMax Code
-
-将本仓库 git 地址（`https://github.com/zerosloney/master0071-plugins-market`）加入 MiniMax Code 的插件市场（`known_marketplaces.json`）后安装。MiniMax Code 没有插件设置页，所有配置改用环境变量：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`。
-
-### opencode
-
-opencode **没有插件市场**，只有 `plugins` 数组（npm 包名 / git spec / 本地路径）。所以本仓库的市场清单对它无效，改为直接装插件包。
-
-装法有个坑：opencode 的 `plugin add` 走 bun 的 npm 兼容层，**git spec 的 `::path:` 子目录选择器会被静默忽略**（加不加根 `package.json` 都一样：没有就报 `ENOENT ... git-cloneXXX/package.json`，有了就把整个仓库根当成包装下来，`::path:` 静默失效）。因此**仓库根必须本身是一个包**，`main` 指向插件入口（见根 `package.json`）：
-
-```sh
-opencode plugin add github:zerosloney/master0071-plugins-market
-```
-
-装下来的是整个仓库（含 `marketplace.json` / `plugins/` / `test/`），无害但不精简。零依赖，`main` 解析进子目录由标准 Node 解析完成，`index.mjs` 用 `import.meta.url` 定位自己的目录，所以 `mcp/`、`skills/` 路径不受影响。
-
-本地开发用路径更省事（改完 `opencode service restart` 生效），这样只挂插件目录、不带市场清单：
-
-```jsonc title="opencode.jsonc"
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["E:/Demo/cli-tools/master0071-plugins-market/plugins/systemone-decision"]
-}
-```
-
-`index.mjs` 的 `setup` 一次注册三样东西，业务载荷与另外两端共用：
-
-| 注册内容 | opencode API | 说明 |
-| --- | --- | --- |
-| stdio MCP server | `ctx.mcp.transform` | 跑同一份 `mcp/server.mjs`；工具名不变，opencode 暴露为 `tools.systemone.systemone_scenario` 等 |
-| skill | `ctx.skill.transform` | 复用 `skills/systemone-decision/SKILL.md` |
-| 需求明确度预检 | `ctx.session.hook("prompt", ...)` | opencode 没有 Claude 式 `hooks/hooks.json`，`UserPromptSubmit` 的等价物就是 prompt hook |
-
-配置：opencode 同样没有插件设置页，`plugins[].options` 是等价入口（`base_url` / `model` / `timeout_ms` / `scenarios` 四个键），不传就用环境变量 `SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`：
-
-```jsonc
-{
-  "plugins": [
-    {
-      "package": "github:zerosloney/master0071-plugins-market",
-      "options": { "base_url": "https://maas-api.unisound.com/v1", "model": "u2-decision" }
-    }
-  ]
-}
-```
-
-`options` 会被映射回服务端本来就认的 `SYSTEMONE_PLUGIN_*`，取值链（设置项 > 环境变量 > 内置默认）与 ZCode 端完全一致。API Key 不在 `options` 里，仍只走环境变量。
-
-### Dim
-
-Dim 没有市场清单概念，插件是自描述目录——把 `plugins/systemone-decision` 整个目录放进任一插件根即可，Dim 扫描时读取 `.codex-plugin/plugin.json` 并加载其组件：
-
-- **MCP server**：`systemone.mcp.json` 声明，复用同一份 `mcp/server.mjs`，工具名为 `systemone_scenario` / `systemone_decide`
-- **skill**：`skills/systemone-decision/SKILL.md` 自动发现
-- **需求明确度预检**：`hooks/hooks.json` 的 `UserPromptSubmit` hook（Claude 式命令 hook，Dim 原生支持）
-
-本地开发可直接用目录路径安装；要分享则把仓库推到 git，在 Dim 桌面端 **Plugins → Add plugin** 粘贴仓库地址（`owner/repo` 或完整 git URL，可带 ref），Dim 会克隆仓库并安装到 `<DIMCODE_HOME>/plugins/systemone-decision/`。
-
-Dim 没有插件设置页，配置走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`。注意 API Key 只走环境变量，不写入清单。
-
 ### CodeBuddy
 
 CodeBuddy Code 兼容 Claude 插件清单格式，市场清单读仓库根 `.codebuddy-plugin/marketplace.json`，插件清单读插件目录 `.codebuddy-plugin/plugin.json`：
@@ -156,19 +93,15 @@ qwen extensions install zerosloney/master0071-plugins-market:systemone-decision
 marketplace.json           ZCode 市场清单（市场名 master0071-plugins）
 .codebuddy-plugin/marketplace.json  CodeBuddy 市场清单（Claude 插件清单格式）
 .claude-plugin/marketplace.json  Qwen Code 市场清单（Claude 格式转换安装）
-package.json               opencode 装整个仓库时的包入口（main 指向下方 index.mjs）
 plugins/
-└── systemone-decision/    插件包（ChatGPT Codex / ZCode / MiniMax Code / opencode / omp / Dim / CodeBuddy 七端共用载荷）
+└── systemone-decision/    插件包（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp 五端共用载荷）
     ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
-    ├── .minimax-plugin/   MiniMax Code 清单
-    ├── .codex-plugin/     ChatGPT Codex / Dim 兼容清单（指向下方 systemone.mcp.json）
+    ├── .codex-plugin/     ChatGPT Codex 清单（指向下方 systemone.mcp.json）
     ├── .codebuddy-plugin/ CodeBuddy 清单（内联 mcpServers + userConfig 提示配置）
-    ├── package.json       本地路径安装时的包入口
-    ├── index.mjs          opencode 适配入口（注册 MCP + skill + prompt hook）
-    ├── systemone.mcp.json MiniMax / Dim 的 MCP 声明
+    ├── systemone.mcp.json ChatGPT Codex 的 MCP 声明
     ├── mcp/               stdio MCP 服务器（零依赖，Node ≥ 18）
     ├── skills/            使用指引与场景文档
-    ├── hooks/             需求明确度预检（清单两端分开；判定内核 clarity.mjs 全端共用）
+    ├── hooks/             需求明确度预检（判定内核 clarity.mjs 全端共用）
     └── test/              冒烟测试（本地 mock 端点，无需真实 Key）
 ```
 
@@ -183,5 +116,4 @@ plugins/
   ```
   node test/smoke.mjs
   node test/hook.smoke.mjs
-  node test/opencode.smoke.mjs
   ```

@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（12 处）：
+//   systemone-decision（9 处）：
 //     市场清单条目版本 ×4：marketplace.json / .omp-plugin/marketplace.json /
 //                        .codebuddy-plugin/marketplace.json / .claude-plugin/marketplace.json
-//     插件清单 ×5：.zcode-plugin / .minimax-plugin / .omp-plugin /
+//     插件清单 ×4：.zcode-plugin / .omp-plugin /
 //                 .codex-plugin / .codebuddy-plugin 的 plugin.json
-//     包版本 ×2：plugins/systemone-decision/package.json（opencode 本地入口）、
-//               根 package.json（opencode git 安装入口）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
 //
 //   agent-pipelines（2 处，ZCode 独占）：
@@ -43,12 +41,9 @@ const PLUGINS = {
     currentFrom: inPlugin('systemone-decision', '.zcode-plugin/plugin.json'),
     jsonFiles: [
       inPlugin('systemone-decision', '.zcode-plugin/plugin.json'),
-      inPlugin('systemone-decision', '.minimax-plugin/plugin.json'),
       inPlugin('systemone-decision', '.omp-plugin/plugin.json'),
       inPlugin('systemone-decision', '.codex-plugin/plugin.json'),
       inPlugin('systemone-decision', '.codebuddy-plugin/plugin.json'),
-      inPlugin('systemone-decision', 'package.json'),
-      'package.json',
     ],
     markets: MARKETS,
     serverInfo: inPlugin('systemone-decision', 'mcp/server.mjs'),

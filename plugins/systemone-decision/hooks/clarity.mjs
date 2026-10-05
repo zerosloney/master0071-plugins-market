@@ -1,6 +1,5 @@
-// 需求明确度预检的宿主无关内核：ZCode / MiniMax Code / opencode 三端共用同一份门限、
-// 三问定义与结论文案，改这里三端同时生效。Claude 式 UserPromptSubmit 的 stdin/stdout 协议
-// 留在 hooks/requirement-clarity.mjs，opencode 的 hook 注册留在 index.mjs。
+// 需求明确度预检的宿主无关内核：各端共用同一份门限、三问定义与结论文案，改这里全端
+// 同时生效。Claude 式 UserPromptSubmit 的 stdin/stdout 协议留在 hooks/requirement-clarity.mjs。
 // 契约：precheck(text, env) 返回结论文本，判定为"明确"/寒暄/缺 Key 时返回 null，
 // 网络或响应异常一律 throw —— 由调用方 fail-open，绝不阻塞用户输入。
 // 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.6。
@@ -43,12 +42,9 @@ function config(env) {
     apiKey: env.SYSTEMONE_API_KEY || env.UNISOUND_API_KEY || '',
     baseUrl: (env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
     model: env.SYSTEMONE_MODEL || 'u2-decision',
-    // 时间预算按最严的一侧（MiniMax：handler timeout 上限 10s）统一收紧：
-    // 请求 6s < 自毁 7s < MiniMax handler 8s < ZCode handler 15s。
-    // MiniMax 的 hook handler 不支持 env 字段，无法给两端配不同预算，只能取小值。
-    // opencode 的 prompt hook 没有 handler 超时，但仍会挡住输入入队，沿用同一上限。
-    // 实测真实接口延迟约 0.1s，6s 仍有 60 倍余量；hook 失败绝不阻塞用户输入。
-    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(timeoutRaw, 6000) : 5000,
+    // 时间预算：请求默认 8s（用户可配至 12s）< 进程自毁 14s < hooks.json 的 handler 15s 上限。
+    // 实测真实接口延迟约 0.1s，8s 仍有 80 倍余量；hook 失败绝不阻塞用户输入。
+    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(timeoutRaw, 12000) : 8000,
   };
 }
 

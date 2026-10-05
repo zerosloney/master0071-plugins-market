@@ -14,7 +14,7 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 | `systemone_scenario` | 大多数情况。`action=run` 跑内置场景；`action=list` 列场景；`action=describe` 看问题定义 |
 | `systemone_decide` | 场景库没有的临时判断，自定义 questions（choice / noul / score） |
 
-> 下文一律用 MCP 原生名书写。opencode 会给工具加命名空间前缀，实际调用名为 `tools.systemone.systemone_scenario` / `tools.systemone.systemone_decide`；其余宿主与原生名一致。以本会话工具清单里的实际名称为准。
+> 下文一律用 MCP 原生名书写，各宿主与原生名一致；个别宿主可能加命名空间前缀，以本会话工具清单里的实际名称为准。
 
 ## 内置场景（`systemone_scenario` action=run）
 
@@ -27,7 +27,7 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 | `software_dev` | 任务类型 bugfix/feature/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul） | — |
 | `sales_lead` / `risk_control` / `recruiting` / `data_governance` / `education` / `requirements` | 见 [references/scenarios.md](references/scenarios.md) | 按业务覆盖判据 |
 
-场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能配置了自定义场景（ZCode 设置页 / opencode 的 `plugins[].options` / `SYSTEMONE_SCENARIOS`）——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
+场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能配置了自定义场景（ZCode 设置页 / `SYSTEMONE_SCENARIOS`）——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
 
 **判据都有合理默认值，且可通过 `params` 按问题 id 覆盖——传入实际业务的可选项比默认值更准，能用就传**：
 
@@ -111,10 +111,7 @@ systemone_decide(
 | 宿主 | 入口 | 备注 |
 |------|------|------|
 | ZCode | 设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced | Base URL / Model / Timeout (ms) / Custom Scenarios |
-| opencode | `opencode.json` 的 `plugins[].options`，同名的 `base_url` / `model` / `timeout_ms` / `scenarios` | 见[仓库 README](../../../../README.md#opencode) |
-| MiniMax Code | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
-| omp | 无，只能用上面的环境变量 | |
-| Dim | 无，只能用上面的环境变量 | |
+| omp / Qwen Code | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
 
 两个通用注意点：
 

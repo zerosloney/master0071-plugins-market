@@ -12,18 +12,13 @@ const pluginRoot = path.join(here, '..');
 const serverPath = path.join(pluginRoot, 'mcp', 'server.mjs');
 
 // 宿主产品名词表：从各宿主清单目录名派生（.zcode-plugin → zcode），新增宿主建了
-// <name>-plugin/ 目录就自动纳入；无清单目录的宿主（opencode 走仓库根 package.json +
-// index.mjs）列在 EXTRA_HOSTS。匹配一律忽略大小写。
-const EXTRA_HOSTS = ['opencode'];
-const HOST_TOKENS = [
-  ...readdirSync(pluginRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && /^\..+-plugin$/.test(d.name))
-    .map((d) => d.name.replace(/^\./, '').replace(/-plugin$/, '')),
-  ...EXTRA_HOSTS,
-];
+// <name>-plugin/ 目录就自动纳入。匹配一律忽略大小写。
+const HOST_TOKENS = readdirSync(pluginRoot, { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^\..+-plugin$/.test(d.name))
+  .map((d) => d.name.replace(/^\./, '').replace(/-plugin$/, ''));
 
 // 只有部分宿主才有的界面概念。与宿主名同属「模型可见面不得指名某端」的范畴——
-// 「插件设置页」在 opencode / MiniMax / omp 下都不存在，模型读到会去找一个
+// 「插件设置页」在 omp 等宿主下不存在，模型读到会去找一个
 // 不存在的入口。宿主名查不到这种写法，所以要单独一类。
 const HOST_ONLY_UI = ['设置页'];
 
@@ -205,7 +200,7 @@ const decide = (client, arguments_) => client.call('tools/call', { name: 'system
 const toolResult = (r) => JSON.parse(r.result.content[0].text);
 
 // 共享载荷的「模型可见面」（工具描述、报错文案）不得指名某个宿主。同一份
-// mcp/server.mjs 跑在 ZCode / MiniMax Code / omp / opencode 四端，指名某一端才有的
+// mcp/server.mjs 跑在 ZCode / ChatGPT Codex / CodeBuddy / omp 等多端，指名某一端才有的
 // 东西在其他端是误导，而且不会报错、只静默失效。源代码注释不在此列：那里提宿主名
 // 是解释 why 的必要信息（如超时预算的推导依据）。
 //
@@ -245,7 +240,7 @@ const main = async () => {
     });
 
     // 共享载荷的「模型可见面」——工具描述与报错文案——不得指名某个宿主。同一份
-    // mcp/server.mjs 跑在 ZCode / MiniMax Code / omp / opencode 四端，指名某一端才有的
+    // mcp/server.mjs 跑在 ZCode / ChatGPT Codex / CodeBuddy / omp 等多端，指名某一端才有的
     // 入口（插件设置页、重启 ZCode）在其他端是误导，而且不会报错、只静默失效。
     // 源代码注释不在此列：那里提宿主名是解释 why 的必要信息（如超时预算的推导）。
     const errorText = async (name, args) => {
@@ -268,7 +263,7 @@ const main = async () => {
     ];
     check('宿主清单目录被正确识别（防止词表为空导致下一条空转）', () => {
       assert.ok(HOST_TOKENS.length >= 4, `词表只有 ${HOST_TOKENS.length} 项：${HOST_TOKENS}`);
-      for (const expected of ['zcode', 'minimax', 'omp', 'opencode']) {
+      for (const expected of ['zcode', 'omp', 'codex', 'codebuddy']) {
         assert.ok(HOST_TOKENS.some((t) => t.toLowerCase() === expected), `词表缺 ${expected}：${HOST_TOKENS}`);
       }
     });

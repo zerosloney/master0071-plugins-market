@@ -30,8 +30,7 @@
 |------|------|
 | 环境变量（通用，推荐） | `SYSTEMONE_SCENARIOS` |
 | ZCode | 设置页 → SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
-| opencode | `opencode.json` 的 `plugins[].options.scenarios` |
-| MiniMax Code / omp | 无，只能用环境变量 |
+| omp / Qwen Code | 无，只能用环境变量 |
 
 改动后需重启宿主生效（MCP 是启动时拉起的 stdio 子进程）。注意它**只作用于 MCP 工具**，需求明确度预检 hook 不读这份配置。
 
