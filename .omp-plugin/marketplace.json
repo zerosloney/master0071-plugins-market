@@ -5,7 +5,7 @@
     {
       "name": "systemone-decision",
       "source": "./plugins/systemone-decision",
-      "version": "0.4.9",
+      "version": "0.4.10",
       "description": "SystemOne 决策模型工具集：2 个 MCP 工具（场景调度 + 自定义问题）覆盖工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定等 11 个内置场景，判据可覆盖，返回概率化判定与处置建议，支持环境变量注入自定义场景。默认 unisound u2-decision，端点/模型/超时经 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
       "category": "productivity",
       "keywords": ["mcp", "decision", "systemone"]

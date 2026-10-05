@@ -16,7 +16,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.9' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.4.10' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
@@ -59,12 +59,26 @@ function config() {
 
 // ---------- 信任边界校验：发给外部 API 的请求体在此统一校验 ----------
 
+// intentional-simple: 100K 字符按「对话数组级业务上下文」估的上限，挡住把整个代码库塞进
+// state 的滥用（决策模型输入窗口远小于此）；若出现超大合法 state 用例再上调。
+const STATE_MAX_CHARS = 100_000;
+
 function validateState(state) {
   if (state === null || (typeof state !== 'string' && typeof state !== 'object')) {
     throw new ToolError('state 必须是字符串、对象或数组');
   }
-  if (typeof state === 'string' && state.trim() === '') {
-    throw new ToolError('state 不能是空字符串');
+  let text;
+  if (typeof state === 'string') {
+    if (state.trim() === '') {
+      throw new ToolError('state 不能是空字符串');
+    }
+    text = state;
+  } else {
+    // state 来自 stdin 的 JSON.parse，不存在循环引用，序列化只为量长度
+    text = JSON.stringify(state);
+  }
+  if (text.length > STATE_MAX_CHARS) {
+    throw new ToolError(`state 过大（${text.length} 字符 > 上限 ${STATE_MAX_CHARS}）：决策模型处理不了超长输入，请精简业务上下文`);
   }
 }
 
@@ -570,6 +584,9 @@ process.stdin.on('data', (chunk) => {
       continue;
     }
     if (!msg || typeof msg !== 'object' || typeof msg.method !== 'string') continue;
+    if (msg.jsonrpc !== '2.0') continue;
+    // id 非法（对象/数组/布尔）时无法回写合法响应，直接忽略
+    if (msg.id !== undefined && msg.id !== null && typeof msg.id !== 'string' && typeof msg.id !== 'number') continue;
     if (msg.id === undefined || msg.id === null) continue; // notification，无需响应
     dispatch(msg)
       .then((result) => reply({ jsonrpc: '2.0', id: msg.id, result }))

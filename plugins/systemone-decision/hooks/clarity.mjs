@@ -102,6 +102,7 @@ function verdictLine(clarity, missing, proceed) {
  */
 export async function precheck(text, env = process.env) {
   const prompt = typeof text === 'string' ? text.trim() : '';
+  // <10 字符的输入描述不出可判定的任务（CASUAL 挡不住的短指令如「修复它」），也省一次判定请求
   if (prompt.length < 10 || CASUAL.test(prompt)) return null; // 空输入 / 寒暄捷径
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默跳过

@@ -483,14 +483,37 @@ export function validateScenario(spec) {
       }
     }
   }
-  if (spec.derive !== undefined && (spec.derive === null || typeof spec.derive !== 'object' || Array.isArray(spec.derive))) {
-    problems.push('derive 必须是 {派生名: {question, values|map}} 对象');
+  if (spec.aliases !== undefined && (!Array.isArray(spec.aliases) || spec.aliases.some((a) => typeof a !== 'string' || a.trim() === ''))) {
+    problems.push('aliases 必须是非空字符串数组');
+  }
+  if (spec.derive !== undefined) {
+    if (spec.derive === null || typeof spec.derive !== 'object' || Array.isArray(spec.derive)) {
+      problems.push('derive 必须是 {派生名: {question, values|map}} 对象');
+    } else {
+      // 逐项校验到 deriveFields 真正消费的形状：校验放行但运行时静默丢弃的定义（缺 values/map、
+      // values 非数组被 Array.isArray 分支跳过）在这里拦截，走统一的「整条跳过并告警」路径
+      for (const [name, d] of Object.entries(spec.derive)) {
+        if (!d || typeof d !== 'object' || Array.isArray(d)) {
+          problems.push(`派生 ${name} 必须是 {question, values|map} 对象`);
+          continue;
+        }
+        if (typeof d.question !== 'string' || d.question.trim() === '') {
+          problems.push(`派生 ${name} 的 question 必须是非空字符串`);
+          continue;
+        }
+        if (d.values === undefined && d.map === undefined) {
+          problems.push(`派生 ${name} 需要 values（分值映射数组）或 map（选项映射对象）之一`);
+        } else {
+          if (d.values !== undefined && !Array.isArray(d.values)) problems.push(`派生 ${name} 的 values 必须是数组`);
+          if (d.map !== undefined && (d.map === null || typeof d.map !== 'object' || Array.isArray(d.map))) {
+            problems.push(`派生 ${name} 的 map 必须是 {键: 值} 对象`);
+          }
+        }
+      }
+    }
   }
   if (spec.recommendation !== undefined && typeof spec.recommendation !== 'string') {
     problems.push('recommendation 必须是字符串');
-  }
-  if (spec.aliases !== undefined && !Array.isArray(spec.aliases)) {
-    problems.push('aliases 必须是字符串数组');
   }
   return problems;
 }

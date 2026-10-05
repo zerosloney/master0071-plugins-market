@@ -152,6 +152,7 @@ class McpClient {
     this.child = spawn(process.execPath, [serverPath], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
     this.nextId = 1;
     this.pending = new Map();
+    this.seen = []; // 收到的全部响应，供「不该收到响应」类断言使用
     let buf = '';
     this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', (chunk) => {
@@ -162,6 +163,7 @@ class McpClient {
         buf = buf.slice(idx + 1);
         if (!line) continue;
         const msg = JSON.parse(line);
+        this.seen.push(msg);
         if (msg.id !== undefined && this.pending.has(msg.id)) {
           this.pending.get(msg.id)(msg);
           this.pending.delete(msg.id);
@@ -578,6 +580,24 @@ const main = async () => {
       assert.match(bad.result.content[0].text, /type 必须/);
     });
 
+    const huge = await decide(client, { state: 'x'.repeat(100_001), questions: { q1: { type: 'noul', instructions: '是吗？' } } });
+    check('state 超过 100K 字符上限被拒绝（校验先行，不发请求）', () => {
+      assert.equal(huge.result.isError, true);
+      assert.match(huge.result.content[0].text, /state 过大/);
+    });
+    // 注：循环引用的 state 在任何 JSON-RPC 客户端序列化时就会失败，到不了服务器，无需防御
+
+    // JSON-RPC 加严：jsonrpc 字段非法 / id 类型非法的消息直接忽略，不响应也不崩
+    client.child.stdin.write(`${JSON.stringify({ jsonrpc: '1.0', id: 987001, method: 'ping' })}\n`);
+    client.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: { bad: true }, method: 'ping' })}\n`);
+    await new Promise((r) => setTimeout(r, 150));
+    const pongAfterBad = await client.call('ping', {});
+    check('JSON-RPC 加严：非法 jsonrpc 版本 / 非法 id 类型的消息被忽略，服务器仍存活', () => {
+      assert.deepEqual(pongAfterBad.result, {});
+      assert.ok(!client.seen.some((m) => m.id === 987001), 'jsonrpc=1.0 的消息不应收到响应');
+      assert.ok(!client.seen.some((m) => m.id && typeof m.id === 'object'), '对象 id 的消息不应收到响应');
+    });
+
     const perm = await decide(client, { state: 'mock:permission-error', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
     check('模型无权限错误附带排查提示', () => {
       assert.equal(perm.result.isError, true);
@@ -613,6 +633,10 @@ const main = async () => {
       },
     },
     { id: 'bad_one', title: '坏场景', questions: { q1: { type: 'essay', instructions: '?' } } },
+    // 校验器与规范化器对称：aliases 混入非字符串、derive 缺 values/map，都在校验层拦截整条跳过，
+    // 不允许"校验放行、normalizeScenario/deriveFields 运行时静默丢弃"
+    { id: 'bad_aliases', title: '坏别名', aliases: ['合规别名', 123], questions: { q1: { type: 'noul', instructions: '?' } } },
+    { id: 'bad_derive', title: '坏派生', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'q1' } } },
   ]);
   const customClient = new McpClient({
     SYSTEMONE_API_KEY: 'test-key',
@@ -622,12 +646,14 @@ const main = async () => {
   try {
     const customList = toolResult(await runScenario(customClient, { action: 'list' }));
     check('自定义场景：新增生效、同 id 覆盖内置、非法条目被跳过', () => {
-      assert.equal(customList.count, 12); // 11 内置 + legal_review；customer_service 原位覆盖；bad_one 跳过
+      assert.equal(customList.count, 12); // 11 内置 + legal_review；customer_service 原位覆盖；bad_one / bad_aliases / bad_derive 跳过
       const byId = new Map(customList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('legal_review').source, 'custom');
       assert.equal(byId.get('customer_service').source, 'custom');
       assert.equal(byId.get('software_dev').source, 'builtin');
       assert.ok(!byId.has('bad_one'));
+      assert.ok(!byId.has('bad_aliases'));
+      assert.ok(!byId.has('bad_derive'));
       assert.ok(customList.summary.includes('（自定义）'));
     });
 

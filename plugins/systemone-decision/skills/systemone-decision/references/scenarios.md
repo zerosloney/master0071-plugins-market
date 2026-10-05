@@ -60,7 +60,7 @@
 | `{qid.key}` | 原始值（choice=选项 key，score=取整分值，noul=true/false） |
 | `{qid.confidence}` | 置信度百分比 |
 | `{派生名}` | derive 派生字段 |
-| `{qid?文案A\|文案B}` | 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套） |
+| `{qid?文案A\|文案B}` | 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套，条件文案里也不要写 `{…}` 占位符——条件替换先执行，产物会被第二遍取值替换意外处理） |
 
 ### 示例
 

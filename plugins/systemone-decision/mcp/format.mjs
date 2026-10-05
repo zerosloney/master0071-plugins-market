@@ -130,6 +130,9 @@ export function deriveFields(deriveSpec, decision) {
  *   {qid.confidence}   → 置信度百分比
  *   {derivedName}      → 派生字段
  *   {qid?文案A|文案B}   → 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套）
+ *
+ * 条件文案 A/B 里不要再写 {…} 占位符：条件替换先于取值替换执行，其产物会被第二遍扫描，
+ * 写了会被当作占位符意外处理（用户文档见 references/scenarios.md 的建议模板语法）。
  */
 export function renderTemplate(template, { labels = {}, decision = {}, confidences = {}, derived = {} } = {}) {
   if (!template) return '';
