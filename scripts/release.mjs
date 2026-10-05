@@ -14,14 +14,6 @@
 //     市场清单条目版本 ×1：marketplace.json
 //     插件清单 ×1：.zcode-plugin/plugin.json
 //
-//   caveman（14 处）：
-//     市场清单条目版本 ×4：同上四份市场清单
-//     插件清单 ×7：.zcode-plugin / .omp-plugin / .qoder-plugin /
-//                 .codebuddy-plugin / .trae-plugin / .codex-plugin /
-//                 .minimax-plugin 的 plugin.json
-//     包版本 ×3：package.json（omp extension hooks 入口 + opencode 入口）、
-//               hooks/omp/package.json、hooks/cline/package.json
-//
 // 用法：
 //   node scripts/release.mjs <plugin> <x.y.z>    设置某插件的新版本（semver 校验）
 //   node scripts/release.mjs --check             校验所有插件各处版本一致
@@ -66,22 +58,6 @@ const PLUGINS = {
     jsonFiles: [inPlugin('agent-pipelines', '.zcode-plugin/plugin.json')],
     // ZCode 独占插件，无其余宿主市场清单
     markets: ['marketplace.json'],
-  },
-  caveman: {
-    currentFrom: inPlugin('caveman', '.zcode-plugin/plugin.json'),
-    jsonFiles: [
-      inPlugin('caveman', '.zcode-plugin/plugin.json'),
-      inPlugin('caveman', '.omp-plugin/plugin.json'),
-      inPlugin('caveman', '.qoder-plugin/plugin.json'),
-      inPlugin('caveman', '.codebuddy-plugin/plugin.json'),
-      inPlugin('caveman', '.trae-plugin/plugin.json'),
-      inPlugin('caveman', '.codex-plugin/plugin.json'),
-      inPlugin('caveman', '.minimax-plugin/plugin.json'),
-      inPlugin('caveman', 'package.json'),
-      inPlugin('caveman', 'hooks/omp/package.json'),
-      inPlugin('caveman', 'hooks/cline/package.json'),
-    ],
-    markets: MARKETS,
   },
 };
 
