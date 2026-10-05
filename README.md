@@ -39,7 +39,7 @@ codex plugin marketplace add zerosloney/master0071-plugins-market
 本地开发也可直接指向目录：
 
 ```
-/plugin marketplace add D:\code\master0071-plugins-market
+/plugin marketplace add E:\Demo\cli-tools\master0071-pluigns-market
 ```
 
 插件默认接入 unisound u2-decision，需要先配置 API Key（设置页不支持敏感值，走环境变量），设置后重启 ZCode 生效：
