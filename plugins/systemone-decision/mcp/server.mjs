@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // systemone-decision MCP server — stdio JSON-RPC, zero dependencies, requires Node >= 18.
 // 只注册 2 个工具，控制工具 schema 的上下文开销，场景全部来自 scenarios.mjs 场景库：
-//   1. systemone_scenario — action: list / describe / run，覆盖全部内置场景
+//   1. systemone_scenario — action: list / describe / run / batch / stats，覆盖全部内置场景
 //   2. systemone_decide   — 直接提交自定义 questions 的低层入口
 // 供应商配置见插件 README.md：SYSTEMONE_API_KEY / SYSTEMONE_BASE_URL / SYSTEMONE_MODEL / SYSTEMONE_TIMEOUT_MS。
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
+import { appendFileSync, readFileSync } from 'node:fs';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
 import { writeEndpointConfig } from '../endpoint-config.mjs';
 import {
@@ -17,16 +18,26 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.11' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.0' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
-// 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
-// 环境变量在进程启动时注入，改动设置后需重启宿主生效；非法自定义条目跳过并告警到 stderr。
-const { scenarios: SCENARIOS, problems: scenarioProblems } = resolveScenarios(
-  process.env.SYSTEMONE_PLUGIN_SCENARIOS || process.env.SYSTEMONE_SCENARIOS || ''
-);
+// 场景库 = 内置 15 个 + 自定义场景（场景文件 / 设置页 / 环境变量，同 id 覆盖内置，
+// 靠后的来源覆盖靠前的）。均在进程启动时读取，改动后需重启宿主生效；非法条目跳过并告警到 stderr。
+const scenarioSources = [];
+const scenarioLoadProblems = [];
+const CUSTOM_JSON = process.env.SYSTEMONE_PLUGIN_SCENARIOS || process.env.SYSTEMONE_SCENARIOS || '';
+const SCENARIOS_FILE = process.env.SYSTEMONE_PLUGIN_SCENARIOS_FILE || process.env.SYSTEMONE_SCENARIOS_FILE || '';
+if (SCENARIOS_FILE.trim() !== '') {
+  try {
+    scenarioSources.push({ label: `场景文件 ${SCENARIOS_FILE}`, json: readFileSync(SCENARIOS_FILE, 'utf8') });
+  } catch (e) {
+    scenarioLoadProblems.push(`场景文件 ${SCENARIOS_FILE} 读取失败：${e.message}`);
+  }
+}
+scenarioSources.push({ label: '自定义场景', json: CUSTOM_JSON });
+const { scenarios: SCENARIOS, problems: scenarioProblems } = resolveScenarios(scenarioSources);
 const SCENARIO_IDS = SCENARIOS.map((s) => s.id);
-for (const problem of scenarioProblems) {
+for (const problem of [...scenarioLoadProblems, ...scenarioProblems]) {
   process.stderr.write(`[systemone-decision] ${problem}\n`);
 }
 // 把已解析端点（设置页 > 环境变量 > 默认）落盘共享给需求预检 hook——hook 进程拿不到
@@ -60,6 +71,33 @@ function config() {
     model: process.env.SYSTEMONE_PLUGIN_MODEL || process.env.SYSTEMONE_MODEL || 'u2-decision',
     timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 30000,
   };
+}
+
+// ---------- 决策缓存：相同输入（模型+state+问题）短 TTL 内免远端往返 ----------
+
+const CACHE_TTL_MS = (() => {
+  const raw = Number(process.env.SYSTEMONE_PLUGIN_CACHE_TTL_MS || process.env.SYSTEMONE_CACHE_TTL_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000; // 默认 5 分钟；0 = 关闭
+})();
+const CACHE_MAX = 200;
+const decisionCache = new Map(); // key → { at, data }；Map 迭代序即插入序，尾部为最近使用
+
+function cacheKey(model, state, request) {
+  return `${model}\u0000${JSON.stringify(state)}\u0000${JSON.stringify(request)}`;
+}
+
+// ---------- 审计日志：LOG_FILE 指向 JSONL 文件时逐条追加，action=stats 消费 ----------
+
+const LOG_FILE = process.env.SYSTEMONE_PLUGIN_LOG_FILE || process.env.SYSTEMONE_LOG_FILE || '';
+let logBroken = false;
+function appendLog(entry) {
+  if (!LOG_FILE || logBroken) return;
+  try {
+    appendFileSync(LOG_FILE, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
+  } catch (e) {
+    logBroken = true;
+    process.stderr.write(`[systemone-decision] 审计日志写入失败，本次进程内停用：${e.message}\n`);
+  }
 }
 
 // ---------- 信任边界校验：发给外部 API 的请求体在此统一校验 ----------
@@ -146,6 +184,15 @@ async function callSystemone(state, questions) {
         'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
     );
   }
+  const key = cacheKey(cfg.model, state, questions);
+  if (CACHE_TTL_MS > 0) {
+    const hit = decisionCache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+      decisionCache.delete(key);
+      decisionCache.set(key, hit); // 刷新 LRU 位次
+      return { ...hit.data, cached: true };
+    }
+  }
   const url = `${cfg.baseUrl}/systemone`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), cfg.timeoutMs);
@@ -185,6 +232,12 @@ async function callSystemone(state, questions) {
   if (!data || typeof data !== 'object' || !data.answers || typeof data.answers !== 'object') {
     throw new ToolError(`systemone 响应缺少 answers 字段：${snippet(text)}`);
   }
+  if (CACHE_TTL_MS > 0) {
+    decisionCache.set(key, { at: Date.now(), data });
+    if (decisionCache.size > CACHE_MAX) {
+      decisionCache.delete(decisionCache.keys().next().value); // 淘汰最久未使用
+    }
+  }
   return data;
 }
 
@@ -197,17 +250,24 @@ function metaOf(data) {
   };
 }
 
-function thresholdOf(args) {
+function thresholdOf(args, fallback = 0.7) {
   const raw = args.confidenceThreshold;
-  // 空值一律回退默认，与 config() 把空串视为「未配置」同一套约定：
+  // 空值一律回退 fallback（调用参数未给时为场景默认阈值，场景未定义则 0.7），
+  // 与 config() 把空串视为「未配置」同一套约定：
   // Number(null) 与 Number('') 都得 0，而 0 落在合法区间内，会把复核阈值静默关掉
-  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return 0.7;
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return fallback;
   // 非数字非字符串（true / [] / {}）不参与强转——Number([]) 与 Number(false) 同样得 0
   const t = typeof raw === 'string' ? Number(raw.trim()) : raw;
   if (typeof t !== 'number' || !Number.isFinite(t) || t < 0 || t > 1) {
     throw new ToolError('confidenceThreshold 必须是 0~1 之间的数字');
   }
   return t;
+}
+
+function formatOf(args) {
+  if (args.format === undefined || args.format === null) return 'full';
+  if (args.format === 'full' || args.format === 'brief') return args.format;
+  throw new ToolError('format 必须是 full（默认，完整明细）或 brief（精简，省上下文）');
 }
 
 // ---------- 决策执行（场景 run 与 systemone_decide 共用） ----------
@@ -217,8 +277,9 @@ function thresholdOf(args) {
  * @param {object} questions - 问题定义（含本地展示字段 label，发送前剥离）
  * @param {number} threshold - 低置信度阈值
  * @param {object} [meta] - 场景元数据 { id, title, derive, recommendation }，自定义决策留空
+ * @param {string} [format] - full（默认，含逐题明细/摘要/原始响应）| brief（精简，省上下文）
  */
-async function executeDecision(state, questions, threshold, meta = {}) {
+async function executeDecision(state, questions, threshold, meta = {}, format = 'full') {
   validateState(state);
   validateQuestions(questions);
   const request = {};
@@ -257,6 +318,36 @@ async function executeDecision(state, questions, threshold, meta = {}) {
     lowQuestions: low,
   });
 
+  const cached = data.cached === true;
+  appendLog({
+    scenario: meta.id ?? null,
+    model: data.model,
+    request_id: data.request_id,
+    latency_ms: data.latency_ms,
+    decision,
+    derived,
+    confidences,
+    needs_human_review: low.length > 0,
+    low_confidence_questions: low,
+    cached,
+  });
+  if (format === 'brief') {
+    return {
+      ok: true,
+      scenario: meta.id ?? null,
+      model: data.model,
+      latency_ms: data.latency_ms,
+      decision,
+      labels,
+      derived,
+      confidences,
+      needs_human_review: low.length > 0,
+      low_confidence_questions: low,
+      confidence_threshold: threshold,
+      recommendation,
+      cached,
+    };
+  }
   return {
     ok: true,
     scenario: meta.id ?? null,
@@ -272,6 +363,7 @@ async function executeDecision(state, questions, threshold, meta = {}) {
     recommendation,
     summary,
     raw: data,
+    cached,
   };
 }
 
@@ -437,6 +529,10 @@ function applyParams(scenario, params) {
   return merged;
 }
 
+function scenarioMeta(scenario) {
+  return { id: scenario.id, title: scenario.title, derive: scenario.derive, recommendation: scenario.recommendation };
+}
+
 function runScenario(args) {
   if (!isNonEmptyString(args.scenario)) {
     throw new ToolError(`action=run 需要 scenario（场景 id 或别名），可用场景：${SCENARIO_IDS.join('、')}`);
@@ -446,12 +542,122 @@ function runScenario(args) {
     throw new ToolError(`未知场景 "${args.scenario}"，可用场景：${SCENARIO_IDS.join('、')}`);
   }
   const questions = applyParams(scenario, args.params);
-  return executeDecision(args.state, questions, thresholdOf(args), {
-    id: scenario.id,
-    title: scenario.title,
-    derive: scenario.derive,
-    recommendation: scenario.recommendation,
-  });
+  const format = formatOf(args);
+  // 阈值优先级：调用参数 > 场景定义默认（如 security_triage 0.8）> 全局 0.7
+  return executeDecision(args.state, questions, thresholdOf(args, scenario.confidenceThreshold ?? 0.7), scenarioMeta(scenario), format);
+}
+
+// ---------- 批量决策：同一场景对多条 state 依次判定，单条失败不中断 ----------
+
+const BATCH_MAX = 10;
+
+async function runBatch(args) {
+  if (!isNonEmptyString(args.scenario)) {
+    throw new ToolError(`action=batch 需要 scenario（场景 id 或别名），可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  const scenario = findScenario(SCENARIOS, args.scenario);
+  if (!scenario) {
+    throw new ToolError(`未知场景 "${args.scenario}"，可用场景：${SCENARIO_IDS.join('、')}`);
+  }
+  if (!Array.isArray(args.states) || args.states.length < 2) {
+    throw new ToolError('states 必须是至少 2 个元素的数组（单条判定用 action=run）');
+  }
+  if (args.states.length > BATCH_MAX) {
+    throw new ToolError(`states 一次最多 ${BATCH_MAX} 条（当前 ${args.states.length} 条）：批量过大易超时，请分批`);
+  }
+  const questions = applyParams(scenario, args.params);
+  const threshold = thresholdOf(args, scenario.confidenceThreshold ?? 0.7);
+  const meta = scenarioMeta(scenario);
+  const results = [];
+  for (const [index, state] of args.states.entries()) {
+    try {
+      // batch 走精简形状（不含逐题明细/摘要/原始响应），避免批量返回撑爆上下文
+      const r = await executeDecision(state, questions, threshold, meta, 'brief');
+      results.push({ index, ...r, ok: true }); // ok 显式置后：brief 结果本就带 ok:true，展开后仍须保住
+    } catch (e) {
+      results.push({ index, ok: false, error: e.message });
+    }
+  }
+  const failed = results.filter((r) => !r.ok);
+  const summary = [
+    `## ${scenario.title} · 批量判定（${results.length} 条）`,
+    ...results.map((r) =>
+      r.ok
+        ? `- #${r.index + 1}：${r.recommendation || '（无建议）'}${r.needs_human_review ? ' ⚠️ 需人工复核' : ''}`
+        : `- #${r.index + 1}：失败 — ${r.error}`
+    ),
+    failed.length ? `\n${failed.length} 条失败，其余正常。` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return { ok: true, action: 'batch', scenario: scenario.id, count: results.length, failed: failed.length, results, summary };
+}
+
+// ---------- 决策统计：消费审计日志（LOG_FILE），按场景汇总复核率与判定分布 ----------
+
+function readStats() {
+  if (!LOG_FILE) {
+    throw new ToolError(
+      '未启用审计日志：设置环境变量 SYSTEMONE_LOG_FILE（或插件设置项）指向一个 JSONL 文件路径后，' +
+        '每次决策会逐条落盘，action=stats 才有数据可统计'
+    );
+  }
+  let text;
+  try {
+    text = readFileSync(LOG_FILE, 'utf8');
+  } catch {
+    throw new ToolError(`审计日志不存在或不可读：${LOG_FILE}（还没有决策落盘？）`);
+  }
+  const entries = text
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  if (entries.length === 0) {
+    throw new ToolError(`审计日志为空：${LOG_FILE}（还没有决策落盘？）`);
+  }
+  const byScenario = new Map();
+  let cached = 0;
+  for (const e of entries) {
+    const id = e.scenario ?? '(通用决策)';
+    const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
+    s.count += 1;
+    if (e.needs_human_review) s.review += 1;
+    if (e.cached) s.cached += 1;
+    s.latency_total += Number(e.latency_ms) || 0;
+    for (const [qid, v] of Object.entries(e.decision || {})) {
+      const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
+      s.decisions[key] = (s.decisions[key] ?? 0) + 1;
+    }
+    byScenario.set(id, s);
+  }
+  const scenarios = {};
+  for (const [id, s] of byScenario) {
+    scenarios[id] = {
+      count: s.count,
+      review_rate: Number((s.review / s.count).toFixed(3)),
+      cached: s.cached,
+      avg_latency_ms: Math.round(s.latency_total / s.count),
+      top_decisions: Object.fromEntries(Object.entries(s.decisions).sort((a, b) => b[1] - a[1]).slice(0, 8)),
+    };
+  }
+  const summary = [
+    `## SystemOne 决策统计（${entries.length} 条，日志 ${LOG_FILE}）`,
+    ...Object.entries(scenarios).map(([id, s]) => {
+      const top = Object.entries(s.top_decisions)
+        .slice(0, 3)
+        .map(([k, n]) => `${k}×${n}`)
+        .join('，');
+      return `- **${id}**：${s.count} 次，复核率 ${(s.review_rate * 100).toFixed(1)}%，缓存命中 ${s.cached}，平均延迟 ${s.avg_latency_ms}ms${top ? `；高频判定：${top}` : ''}`;
+    }),
+  ].join('\n');
+  return { ok: true, action: 'stats', log_file: LOG_FILE, total: entries.length, cached, scenarios, summary };
 }
 
 // ---------- 工具定义 ----------
@@ -462,28 +668,36 @@ const TOOLS = [
     description:
       'SystemOne 场景决策：把业务状态与预置的结构化问题一次性提交给决策模型，返回带概率分布的判定、' +
       '归一化决策（decision/labels/derived）与处置建议（recommendation）。action=list 列出场景，' +
-      'action=describe 查看场景问题定义，action=run 执行决策。内置场景：customer_service 工单分流、' +
-      'content_moderation 内容审核、agent_routing 智能体路由、result_verification 结果校验、' +
-      'software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、sales_lead 销售线索、' +
-      'risk_control 金融风控、recruiting 招聘筛选、data_governance 数据打标归因、education 教育题目归类、' +
-      'requirements 需求优先级。场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项）。' +
-      '还可用 SYSTEMONE_SCENARIOS 环境变量（部分宿主另有配置入口）追加自定义场景，action=list 可见全部。',
+      'action=describe 查看场景问题定义，action=run 执行决策，action=batch 对同一场景批量判定多条 state' +
+      '（最多 10 条，返回精简结果），action=stats 汇总审计日志（需配置 SYSTEMONE_LOG_FILE）。' +
+      '内置场景：customer_service 工单分流、content_moderation 内容审核、agent_routing 智能体路由、' +
+      'result_verification 结果校验、software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、' +
+      'test_failure 测试失败根因分流、pr_review 代码评审合并门禁、incident_response 事故定级与回滚处置、' +
+      'security_triage 安全告警真伪与遏制（默认阈值 0.8）、sales_lead 销售线索、risk_control 金融风控、' +
+      'recruiting 招聘筛选、data_governance 数据打标归因、education 教育题目归类、requirements 需求优先级。' +
+      '场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项）；' +
+      '相同输入 5 分钟内命中本地缓存（cached 标记），可用 SYSTEMONE_CACHE_TTL_MS=0 关闭。' +
+      '还可用 SYSTEMONE_SCENARIOS 环境变量或 SYSTEMONE_SCENARIOS_FILE 场景文件追加自定义场景，action=list 可见全部。',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'describe', 'run'],
-          description: 'list=列出场景；describe=查看场景问题定义；run=执行决策',
+          enum: ['list', 'describe', 'run', 'batch', 'stats'],
+          description: 'list=列出场景；describe=查看场景问题定义；run=执行决策；batch=批量决策；stats=决策统计',
         },
         scenario: {
           type: 'string',
-          description: '场景 id 或别名（describe/run 必填），如 customer_service / 工单分流 / software_dev',
+          description: '场景 id 或别名（describe/run/batch 必填），如 customer_service / 工单分流 / software_dev',
         },
         state: {
           type: ['string', 'object', 'array'],
           description:
             '业务上下文（run 必填）：工单文本、任务描述、对话数组或结构化对象，非字符串会被序列化后送入模型',
+        },
+        states: {
+          type: 'array',
+          description: '业务上下文数组（batch 必填，2~10 条）：每条与 state 同构，逐条判定',
         },
         params: {
           type: 'object',
@@ -494,7 +708,12 @@ const TOOLS = [
             '如 {"department":{"criteria":{"vip":"VIP 专属通道","general":"普通通道"}}}',
         },
         keyword: { type: 'string', description: '可选：action=list 时按关键词过滤场景（匹配 id/标题/说明/别名）' },
-        confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
+        confidenceThreshold: { type: 'number', description: '低置信度判定阈值；未传时用场景默认（如 security_triage 0.8），再回退 0.7' },
+        format: {
+          type: 'string',
+          enum: ['full', 'brief'],
+          description: '可选：full=完整结果（默认，含逐题明细/摘要/原始响应）；brief=精简结果（省上下文）',
+        },
       },
       required: ['action'],
     },
@@ -503,7 +722,9 @@ const TOOLS = [
       if (action === 'list') return listScenarios(args.keyword);
       if (action === 'describe') return describeScenario(args.scenario);
       if (action === 'run') return runScenario(args);
-      throw new ToolError('action 必须是 list / describe / run');
+      if (action === 'batch') return runBatch(args);
+      if (action === 'stats') return readStats();
+      throw new ToolError('action 必须是 list / describe / run / batch / stats');
     },
   },
   {
@@ -525,10 +746,16 @@ const TOOLS = [
             '{type: "noul", instructions}（回答是/否类，返回 0~1 概率）| {type: "score", instructions, criteria: [等级描述...]}（索引即分值）',
         },
         confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
+        format: {
+          type: 'string',
+          enum: ['full', 'brief'],
+          description: '可选：full=完整结果（默认）；brief=精简结果（省上下文）',
+        },
       },
       required: ['state', 'questions'],
     },
-    handler: async (args) => executeDecision(args.state, args.questions || {}, thresholdOf(args)),
+    handler: async (args) =>
+      executeDecision(args.state, args.questions || {}, thresholdOf(args), {}, formatOf(args)),
   },
 ];
 

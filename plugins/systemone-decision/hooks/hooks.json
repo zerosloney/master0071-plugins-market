@@ -1,5 +1,5 @@
 {
-  "description": "SystemOne 需求明确度预检：用户提交输入时用决策模型判定需求是否明确（clarity/missing/proceed 三问），仅在需求不明确时把结论注入上下文提醒 Agent 先澄清；明确、寒暄或预检失败时静默放行。",
+  "description": "SystemOne 双预检 hook：① 用户提交输入时判定需求是否明确（clarity/missing/proceed 三问），仅在不明确时注入上下文提醒先澄清；② 工具调用前对 shell 类命令做风险闸判定（放行/确认/拒绝三问），仅在高风险时输出 permissionDecision（deny/ask）。两者对明确/放行/寒暄/只读捷径/缺 Key/判定失败一律静默放行（fail-open），绝不阻塞用户输入或工具调用。",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -7,6 +7,17 @@
           {
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/requirement-clarity.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs",
             "timeout": 15
           }
         ]

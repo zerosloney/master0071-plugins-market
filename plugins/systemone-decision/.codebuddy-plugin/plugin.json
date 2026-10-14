@@ -1,7 +1,7 @@
 {
   "name": "systemone-decision",
-  "version": "0.4.11",
-  "description": "SystemOne 决策模型工具集（默认 unisound u2-decision）：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议；附带需求明确度预检 hook。端点/模型/超时可在启用插件时按提示配置，或经 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
+  "version": "0.5.0",
+  "description": "SystemOne 决策模型工具集（默认 unisound u2-decision）：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议；附带需求明确度预检 hook。端点/模型/超时可在启用插件时按提示配置，或经 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
   "author": { "name": "dc" },
   "mcpServers": {
     "systemone": {
@@ -11,7 +11,9 @@
         "SYSTEMONE_PLUGIN_BASE_URL": "${user_config.base_url}",
         "SYSTEMONE_PLUGIN_MODEL": "${user_config.model}",
         "SYSTEMONE_PLUGIN_TIMEOUT_MS": "${user_config.timeout_ms}",
-        "SYSTEMONE_PLUGIN_SCENARIOS": "${user_config.scenarios}"
+        "SYSTEMONE_PLUGIN_SCENARIOS": "${user_config.scenarios}",
+        "SYSTEMONE_PLUGIN_SCENARIOS_FILE": "${user_config.scenarios_file}",
+        "SYSTEMONE_PLUGIN_LOG_FILE": "${user_config.log_file}"
       }
     }
   },
@@ -28,7 +30,13 @@
       "description": "请求超时毫秒数，留空用内置默认 30000，或环境变量 SYSTEMONE_TIMEOUT_MS"
     },
     "scenarios": {
-      "description": "自定义场景 JSON 数组，同 id 覆盖内置场景，字段与示例见插件 README。留空仅用内置 11 个场景，改动后重启 CodeBuddy 生效"
+      "description": "自定义场景 JSON 数组，同 id 覆盖内置场景，字段与示例见插件 README。留空仅用内置 15 个场景，改动后重启 CodeBuddy 生效"
+    },
+    "scenarios_file": {
+      "description": "自定义场景 JSON 文件路径（数组内容同上，便于纳入版本管理），与 Custom Scenarios (JSON) 可并用、后者覆盖前者。留空不用场景文件，改动后重启 CodeBuddy 生效"
+    },
+    "log_file": {
+      "description": "审计日志 JSONL 文件路径，每次决策逐条追加，systemone_scenario 的 action=stats 消费。留空不记录，改动后重启 CodeBuddy 生效"
     }
   }
 }

@@ -12,7 +12,7 @@
 
 | 插件 | 版本 | 简介 |
 |------|------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.4.9 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 11 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
+| [systemone-decision](plugins/systemone-decision/) | 0.5.0 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | 多代理编排管道套件：/ralph-pipeline 通用任务编排（TaskList + 背压熔断 + 状态持久化）+ /coding-pipeline 受控编码管道（scope 零容忍、根因分组修复、真实验证），含 6 个子智能体（ZCode 独占） |
 
 字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。

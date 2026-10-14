@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -279,14 +279,15 @@ const main = async () => {
     });
 
     const scenarioList = toolResult(await runScenario(client, { action: 'list' }));
-    check('action=list 列出 11 个内置场景', () => {
+    check('action=list 列出 15 个内置场景', () => {
       assert.equal(scenarioList.ok, true);
-      assert.equal(scenarioList.count, 11);
+      assert.equal(scenarioList.count, 15);
       assert.deepEqual(
         scenarioList.scenarios.map((s) => s.id),
         [
           'customer_service', 'content_moderation', 'agent_routing', 'result_verification', 'sales_lead',
           'risk_control', 'recruiting', 'data_governance', 'education', 'requirements', 'software_dev',
+          'test_failure', 'pr_review', 'incident_response', 'security_triage',
         ]
       );
       assert.ok(scenarioList.summary.includes('software_dev'));
@@ -512,6 +513,116 @@ const main = async () => {
       assert.equal(devRun.needs_human_review, false);
     });
 
+    const tfRun = toolResult(await runScenario(client, { action: 'run', scenario: '测试失败', state: 'e2e 下单测试在 CI 里偶发超时' }));
+    check('test_failure 新场景端到端（别名 + 动态答案 + 派生 block）', () => {
+      assert.equal(tfRun.ok, true);
+      assert.equal(tfRun.scenario, 'test_failure');
+      assert.equal(tfRun.decision.cause, 'code');
+      assert.equal(tfRun.derived.block, '不阻塞');
+      assert.match(tfRun.recommendation, /先原样重跑一次确认稳定性/);
+    });
+
+    const secRun = toolResult(await runScenario(client, { action: 'run', scenario: 'security_triage', state: '凌晨 3 点数据库导出接口异常告警' }));
+    check('security_triage 场景默认阈值 0.8 生效（派生 verdict_label）', () => {
+      assert.equal(secRun.ok, true);
+      assert.equal(secRun.confidence_threshold, 0.8);
+      assert.equal(secRun.derived.verdict_label, '真实威胁');
+    });
+
+    const secOverride = toolResult(
+      await runScenario(client, {
+        action: 'run',
+        scenario: 'security_triage',
+        state: '支付网关登录接口 SQL 注入告警',
+        confidenceThreshold: 0.95,
+      })
+    );
+    check('调用参数阈值覆盖场景默认并触发复核', () => {
+      assert.equal(secOverride.confidence_threshold, 0.95);
+      assert.equal(secOverride.needs_human_review, true);
+      assert.ok(secOverride.low_confidence_questions.length > 0);
+    });
+
+    const brief = toolResult(
+      await decide(client, { state: '精简模式探测', questions: { q: { type: 'noul', instructions: '是吗？' } }, format: 'brief' })
+    );
+    check('format=brief 只返回精简结果（无逐题明细/摘要/原始响应）', () => {
+      assert.equal(brief.ok, true);
+      for (const key of ['answers', 'raw', 'summary', 'meta']) {
+        assert.ok(!(key in brief), `brief 不应包含 ${key}`);
+      }
+      assert.equal(brief.decision.q, true);
+      assert.ok(brief.recommendation === '', '无模板时 recommendation 为空串');
+    });
+
+    const badFormat = await decide(client, { state: '非法格式探测', questions: { q: { type: 'noul', instructions: '是吗？' } }, format: 'compact' });
+    check('非法 format 被拒绝', () => {
+      assert.equal(badFormat.result.isError, true);
+      assert.match(badFormat.result.content[0].text, /format 必须是/);
+    });
+
+    await decide(client, { state: '缓存探测', questions: { q: { type: 'noul', instructions: '是吗？' } } });
+    const afterFirst = received.length;
+    const cachedRun = toolResult(
+      await decide(client, { state: '缓存探测', questions: { q: { type: 'noul', instructions: '是吗？' } } })
+    );
+    check('相同输入命中本地缓存（cached 标记且不再发请求）', () => {
+      assert.equal(received.length, afterFirst, '缓存命中不应产生新的远端请求');
+      assert.equal(cachedRun.cached, true);
+    });
+    const cacheOff = toolResult(
+      await decide(client, { state: '缓存探测二号', questions: { q: { type: 'noul', instructions: '是吗？' } } })
+    );
+    check('不同输入不命中缓存（cached 为 false）', () => {
+      assert.equal(cacheOff.cached, false);
+      assert.equal(received.length, afterFirst + 1);
+    });
+
+    const batch = toolResult(
+      await runScenario(client, {
+        action: 'batch',
+        scenario: 'customer_service',
+        states: ['批量工单一：支付失败', '批量工单二：功能咨询', '批量工单三：无法登录'],
+      })
+    );
+    check('action=batch 批量判定（逐条归一化 + 精简形状 + 汇总）', () => {
+      assert.equal(batch.ok, true);
+      assert.equal(batch.count, 3);
+      assert.equal(batch.failed, 0);
+      assert.equal(batch.results[0].decision.department, 'billing');
+      assert.equal(batch.results[0].index, 0);
+      assert.ok(typeof batch.results[0].recommendation === 'string');
+      assert.ok(!('raw' in batch.results[0]) && !('answers' in batch.results[0]), '批量条目必须是精简形状');
+      assert.ok(batch.summary.includes('批量判定'));
+    });
+
+    const batchTooFew = await runScenario(client, { action: 'batch', scenario: 'customer_service', states: ['只有一条'] });
+    check('batch 少于 2 条被拒绝', () => {
+      assert.equal(batchTooFew.result.isError, true);
+      assert.match(batchTooFew.result.content[0].text, /至少 2 个元素/);
+    });
+
+    const batchMixed = toolResult(
+      await runScenario(client, {
+        action: 'batch',
+        scenario: 'customer_service',
+        states: ['批量混排一', 'mock:permission-error', '批量混排二'],
+      })
+    );
+    check('batch 单条失败不中断整体（逐条标注错误）', () => {
+      assert.equal(batchMixed.failed, 1);
+      assert.equal(batchMixed.results[0].ok, true);
+      assert.equal(batchMixed.results[1].ok, false);
+      assert.match(batchMixed.results[1].error, /HTTP 404/);
+      assert.equal(batchMixed.results[2].ok, true);
+    });
+
+    const statsOff = await runScenario(client, { action: 'stats' });
+    check('未启用审计日志时 stats 报错并给配置指引', () => {
+      assert.equal(statsOff.result.isError, true);
+      assert.match(statsOff.result.content[0].text, /SYSTEMONE_LOG_FILE/);
+    });
+
     const unknown = await runScenario(client, { action: 'run', scenario: 'nope', state: 'x' });
     check('未知场景报错并附可用场景列表', () => {
       assert.equal(unknown.result.isError, true);
@@ -642,6 +753,17 @@ const main = async () => {
     // 不允许"校验放行、normalizeScenario/deriveFields 运行时静默丢弃"
     { id: 'bad_aliases', title: '坏别名', aliases: ['合规别名', 123], questions: { q1: { type: 'noul', instructions: '?' } } },
     { id: 'bad_derive', title: '坏派生', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'q1' } } },
+    // 模板增强语法：then-only 条件、AND 条件、花括号转义
+    {
+      id: 'tmpl_test',
+      title: '模板语法测试',
+      questions: {
+        clause: { type: 'choice', label: '问题条款', instructions: '主要问题出在哪类条款？', criteria: { none: '无问题条款', liability: '责任条款' } },
+        risk: { type: 'score', label: '风险等级', instructions: '这份合同的风险有多高？', criteria: ['无风险', '高风险'] },
+        lawyer: { type: 'noul', label: '法务介入', instructions: '是否需要法务介入？' },
+      },
+      recommendation: '条款 {clause}，{lawyer?需法务|自审}，{risk&lawyer?双真|非双真}，\\{字面\\}',
+    },
   ]);
   const customClient = new McpClient({
     SYSTEMONE_API_KEY: 'test-key',
@@ -651,7 +773,7 @@ const main = async () => {
   try {
     const customList = toolResult(await runScenario(customClient, { action: 'list' }));
     check('自定义场景：新增生效、同 id 覆盖内置、非法条目被跳过', () => {
-      assert.equal(customList.count, 12); // 11 内置 + legal_review；customer_service 原位覆盖；bad_one / bad_aliases / bad_derive 跳过
+      assert.equal(customList.count, 17); // 15 内置 + legal_review + tmpl_test；customer_service 原位覆盖；bad_* 跳过
       const byId = new Map(customList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('legal_review').source, 'custom');
       assert.equal(byId.get('customer_service').source, 'custom');
@@ -671,6 +793,13 @@ const main = async () => {
       assert.equal(legalRun.recommendation, '风险等级 无风险。需法务介入');
     });
 
+    const tmplRun = toolResult(await runScenario(customClient, { action: 'run', scenario: 'tmpl_test', state: '模板夹具合同' }));
+    check('模板增强语法：then-only / AND 条件 / 花括号转义', () => {
+      assert.equal(tmplRun.ok, true);
+      // mock 动态答案：clause=none（falsy 哨兵）、risk=0（falsy）、lawyer=true
+      assert.equal(tmplRun.recommendation, '条款 无问题条款，需法务，非双真，{字面}');
+    });
+
     await runScenario(customClient, { action: 'run', scenario: 'customer_service', state: 'VIP 用户投诉' });
     check('同 id 覆盖后 run 使用覆盖判据', () => {
       const last = received[received.length - 1];
@@ -686,11 +815,85 @@ const main = async () => {
   try {
     const brokenList = toolResult(await runScenario(brokenClient, { action: 'list' }));
     check('自定义场景 JSON 解析失败时回退内置场景库', () => {
-      assert.equal(brokenList.count, 11);
+      assert.equal(brokenList.count, 15);
       assert.equal(brokenList.scenarios.find((s) => s.id === 'customer_service').source, 'builtin');
     });
   } finally {
     brokenClient.close();
+  }
+
+  // 审计日志 + stats：专用 client 把决策逐条落盘到临时 JSONL
+  const logFile = path.join(runRoot, 'decisions-audit.jsonl');
+  const logClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_LOG_FILE: logFile,
+  });
+  try {
+    await runScenario(logClient, { action: 'run', scenario: 'customer_service', state: '统计样本工单一' });
+    await runScenario(logClient, { action: 'run', scenario: 'software_dev', state: '统计样本任务一' });
+    await runScenario(logClient, { action: 'run', scenario: 'customer_service', state: '统计样本工单一' }); // 命中缓存，仍应落盘
+    const stats = toolResult(await runScenario(logClient, { action: 'stats' }));
+    check('action=stats 汇总审计日志（计数/复核率/缓存命中/延迟）', () => {
+      assert.equal(stats.ok, true);
+      assert.equal(stats.total, 3);
+      assert.equal(stats.scenarios.customer_service.count, 2);
+      assert.equal(stats.scenarios.customer_service.cached, 1);
+      assert.equal(stats.scenarios.software_dev.count, 1);
+      assert.ok(stats.summary.includes('决策统计'));
+    });
+  } finally {
+    logClient.close();
+  }
+
+  // 场景文件加载：SYSTEMONE_PLUGIN_SCENARIOS_FILE + 设置页 JSON 同 id 覆盖文件
+  const scenarioFile = path.join(runRoot, 'team-scenarios.json');
+  writeFileSync(
+    scenarioFile,
+    JSON.stringify([
+      {
+        id: 'team_gate',
+        title: '团队发布门禁',
+        description: '判断发布是否达标。',
+        aliases: ['发布门禁'],
+        questions: { ready: { type: 'noul', label: '是否达标', instructions: '是否达到发布标准？' } },
+      },
+      {
+        id: 'customer_service',
+        title: '客服 · 团队覆盖',
+        questions: {
+          department: { type: 'choice', label: '受理组', instructions: '该工单应分派给哪个组？', criteria: { team_a: '一组', team_b: '二组' } },
+          severity: { type: 'score', label: '严重程度', instructions: '严重程度是？', criteria: ['低', '高'] },
+          escalate: { type: 'noul', label: '升级', instructions: '是否升级？' },
+        },
+      },
+    ])
+  );
+  const fileClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_PLUGIN_SCENARIOS_FILE: scenarioFile,
+    SYSTEMONE_PLUGIN_SCENARIOS: JSON.stringify([
+      {
+        id: 'team_gate',
+        title: '团队发布门禁 · 设置页覆盖',
+        description: '覆盖文件里的版本。',
+        questions: { ready: { type: 'noul', label: '是否达标', instructions: '是否达到发布标准？' } },
+      },
+    ]),
+  });
+  try {
+    const fileList = toolResult(await runScenario(fileClient, { action: 'list' }));
+    check('场景文件加载生效，设置页同 id 覆盖文件条目', () => {
+      assert.equal(fileList.count, 16); // 15 内置 + team_gate（customer_service 原位覆盖）
+      const byId = new Map(fileList.scenarios.map((s) => [s.id, s]));
+      assert.equal(byId.get('team_gate').source, 'custom');
+      assert.equal(byId.get('team_gate').title, '团队发布门禁 · 设置页覆盖');
+      assert.equal(byId.get('customer_service').source, 'custom');
+      assert.equal(byId.get('software_dev').source, 'builtin');
+    });
+  } finally {
+    fileClient.close();
   }
 
   // 缺 Key 场景：清空两个 Key 环境变量

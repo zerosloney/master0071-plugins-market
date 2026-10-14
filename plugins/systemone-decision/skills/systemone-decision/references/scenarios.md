@@ -1,6 +1,6 @@
 # 场景目录与组题参考
 
-`systemone_scenario` 的 11 个内置场景目录、`params` 判据覆盖指南，以及场景库外用 `systemone_decide` 组题的配方。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
+`systemone_scenario` 的 15 个内置场景目录、`params` 判据覆盖指南，以及场景库外用 `systemone_decide` 组题的配方。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
 
 ## 场景快速索引
 
@@ -11,6 +11,10 @@
 | `agent_routing` | 任务路由、路由 | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul） | complexity→S/M/L/XL |
 | `result_verification` | 结果校验、校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | 一句话质检建议 |
 | `software_dev` | 开发、编程、编码、研发 | 任务类型（choice：bugfix/feature/refactor/review/test/docs/build/perf）+ 改动复杂度（score）+ 是否先探查代码库（noul） | complexity→S/M/L/XL |
+| `test_failure` | 测试失败、ci、test | 根因（choice：code/env/flaky/data/other）+ 阻塞等级（score）+ 是否先重跑确认（noul） | blocking→不阻塞/可跟进/阻塞合并/阻塞发布 |
+| `pr_review` | pr、评审、code review | 评审结论（choice：approve/comment/changes/block）+ 变更风险（score）+ 是否需第二评审人（noul） | verdict→合并门禁 |
+| `incident_response` | 事故、故障、incident | 事故等级（score：S4~S1）+ 回滚处置（choice）+ 是否拉起应急（noul） | severity→S4~S1 |
+| `security_triage` | 安全、告警、security | 告警真伪（choice：真实威胁/误报/证据不足）+ 影响面（score）+ 是否立即遏制（noul），**默认阈值 0.8** | verdict→真伪标签 |
 | `sales_lead` | 线索评分、销售 | 线索质量（score）+ 线索归属（choice）+ 是否跟进（noul） | — |
 | `risk_control` | 风控、反欺诈 | 交易异常（score）+ 风险等级（choice）+ 人工复核（noul） | — |
 | `recruiting` | 招聘、hr、resume | 简历匹配度（score）+ 岗位归属（choice）+ 进入下一轮（noul） | — |
@@ -22,17 +26,17 @@
 
 ## 自定义场景（JSON）
 
-场景库可用一个 JSON 数组扩展，**同 id（大小写不敏感）覆盖内置场景，否则追加**。适合把业务的固定判定沉淀为一等场景，避免每次用 `systemone_decide` 手拼 questions——下面"组题配方"里的例子都可以直接改造成自定义场景。
+场景库可用 JSON 数组扩展，**同 id（大小写不敏感）覆盖内置场景，否则追加**。适合把业务的固定判定沉淀为一等场景，避免每次用 `systemone_decide` 手拼 questions——下面"组题配方"里的例子都可以直接改造成自定义场景。
 
-各宿主的填写入口不同，值最终都收敛到 `SYSTEMONE_SCENARIOS`（建议压成单行）：
+三个来源按优先级合并：**设置页 JSON > 场景文件 > 内置**（同 id 时靠前的覆盖靠后的）：
 
-| 宿主 | 入口 |
+| 来源 | 入口 |
 |------|------|
-| 环境变量（通用，推荐） | `SYSTEMONE_SCENARIOS` |
-| ZCode | 设置页 → SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
-| omp / Qwen Code | 无，只能用环境变量 |
+| 环境变量 | `SYSTEMONE_SCENARIOS`（建议压成单行） |
+| 场景文件 | `SYSTEMONE_SCENARIOS_FILE` / ZCode 设置页 **Scenarios File**——指向 JSON 文件，便于纳入版本管理 |
+| ZCode / CodeBuddy 设置页 | SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
 
-改动后需重启宿主生效（MCP 是启动时拉起的 stdio 子进程）。注意它**只作用于 MCP 工具**，需求明确度预检 hook 不读这份配置。
+改动后需重启宿主生效（MCP 是启动时拉起的 stdio 子进程）。注意它**只作用于 MCP 工具**，预检与风险闸 hook 不读这份配置。
 
 ### 场景字段
 
@@ -45,12 +49,13 @@
 | `questions` | ✅ | 问题映射，1~16 个；问题对象 `{type, instructions, label?, criteria?}`（label 缺省用问题 id） |
 | `derive` | | 派生字段：`{名: {question, values: [...]}}`（分值取整按下标映射，如 severity→P1~P4）或 `{名: {question, map: {...}}}` |
 | `recommendation` | | 建议模板，渲染为结果里的 `recommendation` 一句话建议 |
+| `confidenceThreshold` | | 场景级低置信度默认阈值（0~1），调用参数可覆盖；高风险场景建议调高（内置 `security_triage` 为 0.8） |
 
 ### 校验规则
 
 - 问题 1~16 个（延迟随问题数线性增长）；choice 选项 2~26 个；score 分级 ≥2 级。
-- **非法条目整条跳过并在启动日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
-- 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
+- **非法条目整条跳过并在启动日志告警**，不影响内置与其余自定义场景；某一来源 JSON 解析失败则跳过该来源、回退其余来源与内置场景库。
+- 生效后 `action=list` 可见（标注"自定义"），describe / run / batch 与内置场景无差别。
 
 ### 建议模板语法
 
@@ -61,6 +66,9 @@
 | `{qid.confidence}` | 置信度百分比 |
 | `{派生名}` | derive 派生字段 |
 | `{qid?文案A\|文案B}` | 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套，条件文案里也不要写 `{…}` 占位符——条件替换先执行，产物会被第二遍取值替换意外处理） |
+| `{qid?文案A}` | then-only：条件为假时输出空 |
+| `{a&b?文案A\|文案B}` | 多条件与：所有条件都为真取 A（条件名可以是问题 id 或派生名） |
+| `\{` 与 `\}` | 字面花括号（JSON 源里写作 `\\{` 与 `\\}`） |
 
 ### 示例
 

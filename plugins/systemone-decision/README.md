@@ -2,12 +2,12 @@
 
 五端共用插件（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp）：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
-- **场景决策** `systemone_scenario` — `action=list / describe / run`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
+- **场景决策** `systemone_scenario` — `action=list / describe / run / batch / stats`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
 - **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
-## 内置场景（11 个）
+## 内置场景（15 个）
 
 每个场景 = 3 个结构化问题，判据可通过 `params` 覆盖为实际业务选项。
 
@@ -18,6 +18,10 @@
 | `agent_routing` | 智能体路由 | 执行 Agent（choice）+ 复杂度（score）+ 是否转人工（noul），派生 S/M/L/XL |
 | `result_verification` | 结果校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） |
 | `software_dev` | 软件开发 | 任务类型 bugfix/feature/refactor/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul），派生 S/M/L/XL |
+| `test_failure` | 测试失败分流 | 根因 代码/环境/不稳定/数据（choice）+ 阻塞等级（score）+ 是否先重跑确认（noul），派生 不阻塞/可跟进/阻塞合并/阻塞发布 |
+| `pr_review` | 代码评审 | 结论 放行/附意见/打回/阻塞（choice）+ 变更风险（score）+ 是否需第二评审人（noul），派生合并门禁 |
+| `incident_response` | 事故响应 | 等级 S4~S1（score）+ 回滚处置（choice）+ 是否拉起应急（noul），派生事故级别 |
+| `security_triage` | 安全告警 | 告警真伪（choice）+ 影响面（score）+ 是否立即遏制（noul），派生真伪标签；**默认阈值 0.8** |
 | `sales_lead` | 销售线索 | 线索质量（score）+ 线索归属（choice）+ 是否跟进（noul） |
 | `risk_control` | 金融风控 | 交易异常（score）+ 风险等级（choice）+ 是否人工复核（noul） |
 | `recruiting` | 招聘 HR | 简历匹配度（score）+ 岗位归属（choice）+ 是否进入下一轮（noul） |
@@ -67,9 +71,17 @@ systemone_scenario(action: "run",
 
 接入真实业务时**传入实际可选项比默认值更准**，能用就传。
 
-## 自定义场景（设置页 / 环境变量）
+## 批量、精简与观测
 
-内置场景不够用时，在设置页 **Custom Scenarios (JSON)** 粘贴场景 JSON 数组（可多行），重启 ZCode 生效；**同 id 覆盖内置场景，否则追加**，无需改代码。也可用环境变量 `SYSTEMONE_SCENARIOS`（建议压缩成单行）。示例：
+- **批量** `action=batch`：同一场景对多条 `states`（2~10 条）依次判定，单条失败不中断（逐条标注 `error`），条目为精简形状（不含逐题明细与原始响应）。
+- **精简模式** `format: "brief"`（run / decide 可选）：只返回 `decision` / `labels` / `derived` / `confidences` / `recommendation` 与复核标记，不含 `answers` / `summary` / `raw`——长会话里省上下文。
+- **本地缓存**：相同输入（模型 + state + 问题）5 分钟内命中缓存，`cached: true` 标记且不发远端请求；`SYSTEMONE_CACHE_TTL_MS=0` 关闭（默认 300000，上限 200 条 LRU）。
+- **审计日志**：设置 `SYSTEMONE_LOG_FILE`（或设置页 Decision Log）指向一个 JSONL 文件后，每次决策逐条落盘（判定值、置信度、延迟、复核标记）；`action=stats` 汇总各场景的判定次数、复核率、缓存命中与高频判定——场景判据调优的数据基础。
+- **阈值优先级**：调用参数 `confidenceThreshold` > 场景默认（如 `security_triage` 0.8）> 全局 0.7。
+
+## 自定义场景（设置页 / 场景文件 / 环境变量）
+
+内置场景不够用时，在设置页 **Custom Scenarios (JSON)** 粘贴场景 JSON 数组（可多行），重启 ZCode 生效；**同 id 覆盖内置场景，否则追加**，无需改代码。也可用环境变量 `SYSTEMONE_SCENARIOS`（建议压缩成单行），或 **Scenarios File** 配置项 / `SYSTEMONE_SCENARIOS_FILE` 环境变量指向一个 JSON 文件（便于把场景剧本纳入版本管理）。三个来源按优先级合并：**设置页 JSON > 场景文件 > 内置**。示例：
 
 ```json
 [
@@ -93,8 +105,8 @@ systemone_scenario(action: "run",
 ```
 
 - 字段说明、建议模板语法与校验规则见 `skills/systemone-decision/references/scenarios.md`。
-- 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；JSON 解析失败则回退纯内置场景库。
-- 生效后 `action=list` 可见（标注"自定义"），describe / run 与内置场景无差别。
+- 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；某一来源 JSON 解析失败则跳过该来源、回退其余来源与内置场景库。
+- 场景可带 `confidenceThreshold`（0~1）定义自己的默认复核阈值；生效后 `action=list` 可见（标注"自定义"），describe / run / batch 与内置场景无差别。
 
 ## 多端支持（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp）
 
@@ -123,7 +135,9 @@ systemone_scenario(action: "run",
 | Base URL | SystemOne 兼容端点根地址 | 用内置默认，或环境变量 `SYSTEMONE_BASE_URL` |
 | Model | 决策模型编码 | 用内置默认 `u2-decision`，或环境变量 `SYSTEMONE_MODEL` |
 | Timeout (ms) | 请求超时毫秒数 | 用内置默认 30000，或环境变量 `SYSTEMONE_TIMEOUT_MS` |
-| Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 11 个场景 |
+| Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 15 个场景 |
+| Scenarios File | 自定义场景 JSON 文件路径（便于纳入版本管理），优先级低于上面的 JSON | 不用场景文件 |
+| Decision Log (JSONL) | 审计日志文件路径，每次决策逐条追加，`action=stats` 消费 | 不记录 |
 
 优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
 
@@ -139,6 +153,10 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_BASE_URL` | 否 | `https://maas-api.unisound.com/v1` | SystemOne 兼容端点根地址 |
 | `SYSTEMONE_MODEL` | 否 | `u2-decision` | 模型编码 |
 | `SYSTEMONE_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
+| `SYSTEMONE_SCENARIOS` | 否 | — | 自定义场景 JSON 数组（与设置页同源，优先级低于设置页） |
+| `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件） |
+| `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费 |
+| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭 |
 
 Windows 设置示例（设置后重启 ZCode）：
 
@@ -156,15 +174,19 @@ setx SYSTEMONE_MODEL "你的决策模型"
 setx SYSTEMONE_API_KEY "对应的Key"
 ```
 
-## 需求明确度预检 hook（随插件自动安装）
+## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了一个 UserPromptSubmit hook（ZCode / ChatGPT Codex / CodeBuddy 读 `hooks/hooks.json`）：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行，不产生任何输出。
+插件通过 hook 清单声明了两个 hook（ZCode / ChatGPT Codex / CodeBuddy 读 `hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`，任何失败都 fail-open，绝不阻塞输入或工具调用）：
 
-安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量，未配置 Key 时自动跳过。
+**① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
-内部时间预算：请求默认 8 秒（可配至 12 秒）< 进程自毁 14 秒 < hooks.json 的 handler 15 秒上限。实测真实接口延迟约 0.1 秒，仍有 80 倍余量；任何失败都 fail-open，绝不阻塞用户输入。
+**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具（名称匹配 bash / shell / terminal / command / exec 等，各宿主命名差异在内核里归一）的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
 
-**隐私提示**：该 hook 会把你每次提交的输入发送到决策服务接口。它会跳过少于 10 字的输入与寒暄短语，判定为"明确"时静默返回，但请求本身已经发出。不需要预检时，删除（或改名）对应的 hook 清单文件即可，插件其余能力不受影响。
+安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量与 `.endpoint.json` 共享端点，未配置 Key 时自动跳过。
+
+内部时间预算：请求默认 8 秒（可配至 12 秒）< 进程自毁 14 秒 < hooks.json 的 handler 15 秒上限。实测真实接口延迟约 0.1 秒，仍有 80 倍余量。
+
+**隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）；风险闸会把 shell 命令文本发送到决策服务接口（跳过只读命令）。判定为"明确"/"放行"时静默返回，但请求本身已经发出。不需要某个 hook 时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
 
 ## 结果解读
 
@@ -178,18 +200,22 @@ node test/smoke.mjs
 node test/hook.smoke.mjs
 ```
 
-冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错），不需要真实 API Key。`hook.smoke.mjs` 覆盖 UserPromptSubmit 的六类行为。
+冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错 / 批量 / 精简模式 / 缓存 / 审计统计 / 场景文件），不需要真实 API Key。`hook.smoke.mjs` 覆盖需求预检与风险闸两个 hook 的全部行为路径。
 
 ## 架构
 
 ```
 mcp/
-├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用、信任边界校验、2 个工具定义
-├── scenarios.mjs  场景库（11 个内置 + 设置页/环境变量自定义场景合并，纯数据）+ 校验与查找
+├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用（含本地缓存）、信任边界校验、审计日志、2 个工具定义
+├── scenarios.mjs  场景库（15 个内置 + 场景文件/设置页/环境变量自定义合并，纯数据）+ 校验与查找
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
+endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
 hooks/
+├── decide-client.mjs        配置解析 + 判定请求 + 答案归一化（两个 hook 内核共用）
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
 ├── requirement-clarity.mjs  UserPromptSubmit 脚本（hooks.json 各端共享的 stdin/stdout 协议）
+├── risk-gate.mjs            shell 命令风险闸内核（放行 / 确认 / 拒绝的门限与理由文案）
+├── pretool-risk.mjs         PreToolUse 脚本（permissionDecision deny/ask 输出协议）
 └── hooks.json               ZCode / ChatGPT Codex / CodeBuddy 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
 skills/            使用指引与场景文档
 .zcode-plugin/     ZCode 清单

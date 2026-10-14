@@ -1,6 +1,6 @@
 ---
 name: systemone-decision
-description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 11 个内置场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
+description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 15 个内置场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
 ---
 
 # SystemOne 决策
@@ -11,7 +11,7 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 
 | 工具 | 用途 |
 |------|------|
-| `systemone_scenario` | 大多数情况。`action=run` 跑内置场景；`action=list` 列场景；`action=describe` 看问题定义 |
+| `systemone_scenario` | 大多数情况。`action=run` 跑内置场景；`action=list` 列场景；`action=describe` 看问题定义；`action=batch` 批量判定（2~10 条 states）；`action=stats` 汇总审计日志 |
 | `systemone_decide` | 场景库没有的临时判断，自定义 questions（choice / noul / score） |
 
 > 下文一律用 MCP 原生名书写，各宿主与原生名一致；个别宿主可能加命名空间前缀，以本会话工具清单里的实际名称为准。
@@ -25,9 +25,13 @@ description: SystemOne 决策模型工具集（默认 unisound u2-decision）：
 | `agent_routing` | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul）→ 派生 S/M/L/XL | `agent.criteria`（实际可用 Agent 名册） |
 | `result_verification` | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | `state` 传 `{task, result}` |
 | `software_dev` | 任务类型 bugfix/feature/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul） | — |
+| `test_failure` | 根因 代码/环境/不稳定/数据（choice）+ 阻塞等级（score）+ 先重跑确认（noul）→ 派生阻塞结论 | — |
+| `pr_review` | 结论 放行/附意见/打回/阻塞（choice）+ 变更风险（score）+ 需第二评审人（noul）→ 派生合并门禁 | — |
+| `incident_response` | 等级 S4~S1（score）+ 回滚处置（choice）+ 拉起应急（noul）→ 派生事故级别 | — |
+| `security_triage` | 告警真伪（choice）+ 影响面（score）+ 立即遏制（noul），默认阈值 0.8 | `impact.criteria`（实际资产分级） |
 | `sales_lead` / `risk_control` / `recruiting` / `data_governance` / `education` / `requirements` | 见 [references/scenarios.md](references/scenarios.md) | 按业务覆盖判据 |
 
-场景支持中文别名（`工单分流`、`审核`、`开发` 等）。用户也可能配置了自定义场景（ZCode 设置页 / `SYSTEMONE_SCENARIOS`）——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run 用法与内置场景完全一致。
+场景支持中文别名（`工单分流`、`审核`、`开发`、`测试失败`、`评审`、`事故`、`安全` 等）。用户也可能配置了自定义场景（设置页 JSON / `SYSTEMONE_SCENARIOS` / `SYSTEMONE_SCENARIOS_FILE` 场景文件）——`action=list` 可见全部场景（自定义场景带"自定义"标注），describe / run / batch 用法与内置场景完全一致。
 
 **判据都有合理默认值，且可通过 `params` 按问题 id 覆盖——传入实际业务的可选项比默认值更准，能用就传**：
 
@@ -38,6 +42,8 @@ systemone_scenario(action: "run", scenario: "agent_routing",
 ```
 
 `params` 覆盖语义：`criteria` 整体替换选项（choice 传对象 / score 传 ≥2 级标签数组）、`addCriteria` 在默认选项上追加（仅 choice）、`instructions` / `label` 局部替换。更多场景与组题方法见 [references/scenarios.md](references/scenarios.md)。
+
+**省上下文与批量**：`format: "brief"`（run / decide 可选）只返回 `decision` / `labels` / `derived` / `recommendation` 与复核标记，不含逐题明细与原始响应——结果只需驱动流程分支时用 brief。多条同类输入（批量工单、批量校验）用 `action=batch`（2~10 条 states，逐条返回精简结果，单条失败不中断）。相同输入 5 分钟内命中本地缓存（`cached: true`）。
 
 ## 题型语义
 
@@ -56,7 +62,7 @@ systemone_scenario(action: "run", scenario: "agent_routing",
 - `recommendation` — 场景建议模板渲染出的一句话处置建议（如"转 支付、退款和账单问题 处理（优先级 P2）。需立即通知值班人员"）
 - `summary` — Markdown 摘要；`meta`（model / request_id / latency_ms / usage）与 `raw`（原始响应）供追溯
 
-`confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时 `needs_human_review = true`，并列出 `low_confidence_questions`。判定值缺失或越界时即便 confidence 很高也会转人工。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
+`confidenceThreshold` 默认 0.7（可被场景默认覆盖，如 `security_triage` 0.8；调用参数优先级最高）：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时 `needs_human_review = true`，并列出 `low_confidence_questions`。判定值缺失或越界时即便 confidence 很高也会转人工。noul 的 confidence 是概率决断度 `max(p, 1-p)`。
 
 - **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
 
@@ -105,6 +111,9 @@ systemone_decide(
 | `SYSTEMONE_MODEL` | 否 | `u2-decision` | 决策模型编码 |
 | `SYSTEMONE_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
 | `SYSTEMONE_SCENARIOS` | 否 | 空 | 自定义场景 JSON 数组（同 id 覆盖内置），**仅 MCP 工具读取** |
+| `SYSTEMONE_SCENARIOS_FILE` | 否 | 空 | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件） |
+| `SYSTEMONE_LOG_FILE` | 否 | 空 | 审计日志 JSONL 路径，`action=stats` 消费 |
+| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭 |
 
 想在宿主里点选配置而不用记环境变量，各宿主入口不同（值都收敛到同一套 `SYSTEMONE_PLUGIN_*`，优先级：宿主配置 > 环境变量 > 内置默认）：
 

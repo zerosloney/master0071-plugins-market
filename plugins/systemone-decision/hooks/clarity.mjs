@@ -4,8 +4,9 @@
 // 网络或响应异常一律 throw —— 由调用方 fail-open，绝不阻塞用户输入。
 // 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.6。
 // 低置信度不改门限，只在命中的结论里附注——硬信号归 hook，软怀疑归 Agent。
+// 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与风险闸同一份）。
 
-import { readEndpointConfig } from '../endpoint-config.mjs';
+import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
 
 export const GATE = { clarityMax: 1, proceedMin: 0.6 };
 const CASUAL = /^(好的?|好吧|可以|是的?|对滴?|行|嗯+|哦+|不了|不用了?|再见|收到|继续|谢谢|多谢|麻烦了|辛苦了|ok|okay|yes|thanks?|thank you)[!。.，,～~！?\s]*$/i;
@@ -38,55 +39,6 @@ const QUESTIONS = {
   },
 };
 
-function config(env) {
-  const timeoutRaw = Number(env.SYSTEMONE_TIMEOUT_MS);
-  // 端点优先取 MCP 服务启动时落盘的共享配置（endpoint-config.mjs，含设置页变量的解析
-  // 结果），保证 hook 与 MCP 打同一个端点；文件缺失/损坏回退环境变量（即旧行为）。
-  // API Key 不在共享文件里，仍只从环境变量取。
-  const shared = readEndpointConfig();
-  const timeoutPreferred = shared?.timeoutMs ?? (Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 8000);
-  return {
-    apiKey: env.SYSTEMONE_API_KEY || env.UNISOUND_API_KEY || '',
-    baseUrl: (shared?.baseUrl || env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
-    model: shared?.model || env.SYSTEMONE_MODEL || 'u2-decision',
-    // 时间预算：请求默认 8s（用户可配至 12s）< 进程自毁 14s < hooks.json 的 handler 15s 上限。
-    // 实测真实接口延迟约 0.1s，8s 仍有 80 倍余量；hook 失败绝不阻塞用户输入。
-    timeoutMs: Math.min(timeoutPreferred, 12000),
-  };
-}
-
-async function decide(state, cfg) {
-  const res = await fetch(`${cfg.baseUrl}/systemone`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: cfg.model, state, questions: QUESTIONS }),
-    signal: AbortSignal.timeout(cfg.timeoutMs),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return data && typeof data === 'object' && data.answers && typeof data.answers === 'object' ? data.answers : null;
-}
-
-// 归一化：字段缺失或题型不符一律返回 null，由调用方 fail-open
-function scoreOf(a) {
-  if (!a || a.type !== 'score' || typeof a.score !== 'number' || !Number.isFinite(a.score)) return null;
-  return {
-    score: a.score,
-    level: (a.legend || {})[String(Math.round(a.score))] || null,
-    confidence: typeof a.confidence === 'number' ? a.confidence : null,
-  };
-}
-
-function choiceOf(a) {
-  if (!a || a.type !== 'choice' || typeof a.choice !== 'string') return null;
-  return { value: a.choice, confidence: typeof a.confidence === 'number' ? a.confidence : null };
-}
-
-function noulOf(a) {
-  const p = a && typeof a.noul === 'number' && Number.isFinite(a.noul) ? a.noul : null;
-  return p === null ? null : { probability: p, confidence: Math.max(p, 1 - p) };
-}
-
 function verdictLine(clarity, missing, proceed) {
   const conf = [clarity.confidence, missing.confidence, proceed.confidence].filter((c) => c !== null);
   const low =
@@ -113,7 +65,7 @@ export async function precheck(text, env = process.env) {
   if (prompt.length < 10 || CASUAL.test(prompt)) return null; // 空输入 / 寒暄捷径
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默跳过
-  const answers = await decide(prompt, cfg);
+  const answers = await decide(prompt, cfg, QUESTIONS);
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;
   const proceed = answers ? noulOf(answers.proceed) : null;

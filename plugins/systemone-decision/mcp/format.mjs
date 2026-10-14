@@ -130,6 +130,9 @@ export function deriveFields(deriveSpec, decision) {
  *   {qid.confidence}   → 置信度百分比
  *   {derivedName}      → 派生字段
  *   {qid?文案A|文案B}   → 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套）
+ *   {qid?文案A}        → then-only 条件（为假输出空）
+ *   {a&b?文案A|文案B}  → 多条件与（所有条件都为真取 A）
+ *   \{ 与 \}           → 字面花括号（JSON 源里写作 "\\{" 与 "\\}"）
  *
  * 条件文案 A/B 里不要再写 {…} 占位符：条件替换先于取值替换执行，其产物会被第二遍扫描，
  * 写了会被当作占位符意外处理（用户文档见 references/scenarios.md 的建议模板语法）。
@@ -137,10 +140,11 @@ export function deriveFields(deriveSpec, decision) {
 export function renderTemplate(template, { labels = {}, decision = {}, confidences = {}, derived = {} } = {}) {
   if (!template) return '';
   const ctx = { labels, decision, confidences, derived };
-  let out = String(template);
-  out = out.replace(/\{(\w+)\?([^{}]*)\|([^{}]*)\}/g, (_, name, thenText, elseText) =>
-    truthy(name, ctx) ? thenText : elseText
-  );
+  let out = String(template).replace(/\\([{}])/g, '\u0000$1');
+  out = out.replace(/\{([\w&]+)\?([^{}|]*)(?:\|([^{}]*))?\}/g, (_, names, thenText, elseText) => {
+    const hit = names.split('&').every((n) => truthy(n, ctx));
+    return hit ? thenText : elseText ?? '';
+  });
   out = out.replace(/\{(\w+)(?:\.(\w+))?\}/g, (_, name, prop) => {
     if (prop === 'key') return stringify(decision[name]);
     if (prop === 'confidence') {
@@ -151,7 +155,7 @@ export function renderTemplate(template, { labels = {}, decision = {}, confidenc
     if (name in derived) return stringify(derived[name]);
     return stringify(decision[name]);
   });
-  return out.replace(/\s+/g, ' ').trim();
+  return out.replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /**

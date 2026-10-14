@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -35,13 +35,37 @@ const SCENARIOS = {
 };
 let scenario = 'clear';
 
+// 风险闸三问的固定答案：verdict(choice) + risk(score) + irreversible(noul)
+const RISK_LEVELS = ['只读或完全可回滚', '可逆的写操作', '难以回滚的写操作', '不可逆删除或影响生产/远程资源'];
+const GATE_ANSWERS = {
+  deny: {
+    verdict: { type: 'choice', choice: 'deny', probabilities: { deny: 0.9, confirm: 0.1 }, confidence: 0.9 },
+    risk: { type: 'score', legend: Object.fromEntries(RISK_LEVELS.map((c, i) => [String(i), c])), probabilities: { '3': 0.95 }, score: 3, confidence: 0.95 },
+    irreversible: { type: 'noul', noul: 0.9 },
+  },
+  confirm: {
+    verdict: { type: 'choice', choice: 'confirm', probabilities: { confirm: 0.85, allow: 0.15 }, confidence: 0.85 },
+    risk: { type: 'score', legend: Object.fromEntries(RISK_LEVELS.map((c, i) => [String(i), c])), probabilities: { '2': 0.9 }, score: 2, confidence: 0.9 },
+    irreversible: { type: 'noul', noul: 0.2 },
+  },
+  allow: {
+    verdict: { type: 'choice', choice: 'allow', probabilities: { allow: 0.92 }, confidence: 0.92 },
+    risk: { type: 'score', legend: Object.fromEntries(RISK_LEVELS.map((c, i) => [String(i), c])), probabilities: { '0': 0.93 }, score: 0, confidence: 0.93 },
+    irreversible: { type: 'noul', noul: 0.05 },
+  },
+};
+let gateScenario = 'allow';
+
 const mock = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
-    received.push(JSON.parse(body));
+    const parsed = JSON.parse(body);
+    received.push(parsed);
+    // 风险闸请求的题目 id 与需求预检不同，按题目特征分流固定答案
+    const answers = parsed.questions && parsed.questions.verdict ? GATE_ANSWERS[gateScenario] : SCENARIOS[scenario];
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ model: 'u2-decision', answers: SCENARIOS[scenario] }));
+    res.end(JSON.stringify({ model: 'u2-decision', answers }));
   });
 });
 
@@ -71,6 +95,15 @@ let failed = false;
 const check = (name, fn) => {
   try {
     fn();
+    console.log(`PASS  ${name}`);
+  } catch (e) {
+    failed = true;
+    console.error(`FAIL  ${name}\n      ${e.message}`);
+  }
+};
+const checkA = async (name, fn) => {
+  try {
+    await fn();
     console.log(`PASS  ${name}`);
   } catch (e) {
     failed = true;
@@ -173,6 +206,87 @@ const main = async () => {
     assert.equal(received.length, 1, '应回退到环境变量指定的 mock 端点');
     assert.equal(received[0].model, 'u2-decision');
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  // ---------- 风险闸（PreToolUse）：内核直接调用 + 协议包装子进程 ----------
+
+  const { assess } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'risk-gate.mjs')).href);
+  const hookEnv = {
+    SYSTEMONE_API_KEY: 'test-key',
+    UNISOUND_API_KEY: '',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+  };
+  const gateRun = (payload, envExtra = {}) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [path.join(runRoot, 'hooks', 'pretool-risk.mjs')], {
+        env: { ...process.env, ...hookEnv, ...envExtra },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (c) => (stdout += c));
+      child.stderr.on('data', (c) => (stderr += c));
+      child.stdin.end(JSON.stringify(payload));
+      child.on('close', (status) => resolve({ status, stdout, stderr }));
+    });
+
+  gateScenario = 'allow';
+  received = [];
+  await checkA('风险闸内核：非 shell 工具与只读命令直通（不发请求）', async () => {
+    assert.equal(await assess('Read', { file_path: 'x' }, hookEnv), null);
+    assert.equal(await assess('Bash', { command: 'ls -la' }, hookEnv), null);
+    assert.equal(await assess('Bash', { command: 'git status' }, hookEnv), null);
+    assert.equal(received.length, 0);
+  });
+
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：高风险且不可逆判定为 deny', async () => {
+    const v = await assess('Bash', { command: 'rm -rf ./build' }, hookEnv);
+    assert.equal(v.decision, 'deny');
+    assert.match(v.reason, /风险闸/);
+    assert.match(v.reason, /拒绝执行/);
+    assert.equal(received.length, 1);
+  });
+
+  gateScenario = 'confirm';
+  await checkA('风险闸内核：中风险或模型确认判定为 ask', async () => {
+    const v = await assess('Bash', { command: 'npm run deploy' }, hookEnv);
+    assert.equal(v.decision, 'ask');
+    assert.match(v.reason, /确认/);
+  });
+
+  gateScenario = 'allow';
+  await checkA('风险闸内核：allow 判定且低风险可逆时放行', async () => {
+    assert.equal(await assess('Bash', { command: 'npm test' }, hookEnv), null);
+  });
+
+  gateScenario = 'deny';
+  r = await gateRun({ tool_name: 'Bash', tool_input: { command: 'rm -rf ./build' } });
+  check('风险闸 hook：deny 判定输出 permissionDecision=deny', () => {
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /风险闸/);
+  });
+
+  r = await gateRun({ tool_name: 'Bash', tool_input: { command: 'git status' } });
+  check('风险闸 hook：只读命令静默放行（exit 0 无输出）', () => {
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  r = await gateRun(
+    { tool_name: 'Bash', tool_input: { command: 'rm -rf ./build' } },
+    { SYSTEMONE_BASE_URL: 'http://127.0.0.1:9/v1', SYSTEMONE_TIMEOUT_MS: '1000' }
+  );
+  check('风险闸 hook：接口故障 fail-open 静默放行', () => {
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /风险闸跳过/);
   });
 
   rmSync(runRoot, { recursive: true, force: true });

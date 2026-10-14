@@ -5,6 +5,7 @@
 //   questions[qid] = { type, label?, instructions, criteria? }  // criteria：choice=选项映射，score=分级标签数组
 //   derive[name]   = { question, values: [] }                    // 分值（取整、越界钳制）按下标映射为派生值
 //   recommendation = 建议模板，语法见 format.mjs 的 renderTemplate
+//   confidenceThreshold = 场景级低置信度默认阈值（0~1，可选），调用参数可覆盖
 //
 // 前四个场景沿用 0.1.x 预设工具的判据（审核违规类型等产品判据更细），其余移植自 dsh-system-one 0.4.0。
 
@@ -406,6 +407,156 @@ export const BUILTIN_SCENARIOS = [
     derive: { effort: { question: 'complexity', values: ['S', 'M', 'L', 'XL'] } },
     recommendation: '任务类型「{task_type}」，改动规模 {effort}。{needs_context?建议先检索代码库并确认相关实现|可直接动手}',
   },
+  {
+    id: 'test_failure',
+    title: '测试失败 · 根因分流与阻塞判定',
+    description: '判断测试失败的根因类别（代码缺陷/环境/不稳定）、阻塞等级，以及是否值得先原样重跑。',
+    aliases: ['测试失败', 'ci', 'test'],
+    questions: {
+      cause: {
+        type: 'choice',
+        label: '失败根因',
+        instructions: '该测试失败最可能的原因是？',
+        criteria: {
+          code: '代码缺陷导致的功能回归',
+          env: '环境、依赖或配置差异导致',
+          flaky: '测试本身不稳定（时序、竞态、随机数据）',
+          data: '测试数据或夹具过期失真',
+          other: '其他或暂无法归类',
+        },
+      },
+      blocking: {
+        type: 'score',
+        label: '阻塞等级',
+        instructions: '该失败对合并/发布的阻塞程度是？',
+        criteria: [
+          '可忽略，不阻塞合并',
+          '局部影响，可带病合并但需跟进',
+          '阻塞合并，需当次修复',
+          '阻塞发布，影响主干',
+        ],
+      },
+      retry_first: {
+        type: 'noul',
+        label: '先重跑确认',
+        instructions: '先原样重跑一次以排除偶发因素，是否值得？',
+      },
+    },
+    derive: { block: { question: 'blocking', values: ['不阻塞', '可跟进', '阻塞合并', '阻塞发布'] } },
+    recommendation: '根因「{cause}」，{block}。{retry_first?先原样重跑一次确认稳定性|直接按根因排查处理}',
+  },
+  {
+    id: 'pr_review',
+    title: '代码评审 · 合并门禁判定',
+    description: '判断一次代码变更的评审结论（放行/打回/阻塞）、变更风险，以及是否需要第二评审人。',
+    aliases: ['pr', '评审', 'code review'],
+    questions: {
+      verdict: {
+        type: 'choice',
+        label: '评审结论',
+        instructions: '综合该变更的质量与风险，评审结论应为？',
+        criteria: {
+          approve: '可合并',
+          comment: '放行但需附带跟进意见',
+          changes: '需要修改后重新提审',
+          block: '阻塞合并（存在重大问题）',
+        },
+      },
+      risk: {
+        type: 'score',
+        label: '变更风险',
+        instructions: '该变更的引入风险是？',
+        criteria: [
+          '无风险：纯文档、注释或格式化',
+          '低风险：局部逻辑且有测试覆盖',
+          '中风险：跨模块或影响公共接口',
+          '高风险：核心链路、数据或安全相关',
+        ],
+      },
+      needs_second: {
+        type: 'noul',
+        label: '需第二评审人',
+        instructions: '是否需要第二位评审人独立复核？',
+      },
+    },
+    derive: { gate: { question: 'verdict', map: { approve: '通过', comment: '通过（附意见）', changes: '打回修改', block: '阻塞' } } },
+    recommendation: '结论「{gate}」，风险等级 {risk}。{needs_second?需第二评审人复核后放行|单一评审结论即可生效}',
+  },
+  {
+    id: 'incident_response',
+    title: '事故响应 · 定级与处置',
+    description: '给线上事故定级（S1~S4）、判断是否回滚及回滚方式，以及是否立即拉起应急响应。',
+    aliases: ['事故', '故障', 'incident'],
+    questions: {
+      severity: {
+        type: 'score',
+        label: '事故等级',
+        instructions: '该线上事故的等级是？',
+        criteria: [
+          'S4 轻微：个案受影响、有绕过方案',
+          'S3 一般：部分用户受影响',
+          'S2 严重：核心功能受损、影响面大',
+          'S1 致命：全站不可用或数据丢失',
+        ],
+      },
+      rollback: {
+        type: 'choice',
+        label: '回滚处置',
+        instructions: '是否需要回滚，以何种方式？',
+        criteria: {
+          none: '无需回滚，可前向修复',
+          partial: '部分回滚（灰度/单实例）',
+          full: '整体回滚到上一稳定版本',
+          other: '其他处置方式',
+        },
+      },
+      escalate: {
+        type: 'noul',
+        label: '拉起应急',
+        instructions: '是否需要立即升级拉起应急响应（值班/应急群）？',
+      },
+    },
+    derive: { level: { question: 'severity', values: ['S4', 'S3', 'S2', 'S1'] } },
+    recommendation: '事故定级 {level}。处置：{rollback}。{escalate?立即拉起应急响应并同步值班|按常规流程处理并持续观察}',
+  },
+  {
+    id: 'security_triage',
+    title: '安全告警 · 真伪判定与遏制',
+    description: '判断安全告警真伪（真实威胁/误报/证据不足）、影响面，以及是否需要立即遏制。',
+    aliases: ['安全', '告警', 'security'],
+    questions: {
+      verdict: {
+        type: 'choice',
+        label: '告警真伪',
+        instructions: '综合告警内容与上下文，判定应为？',
+        criteria: {
+          true_positive: '真实威胁，需要处置',
+          false_positive: '误报，可关闭',
+          needs_evidence: '证据不足，需要进一步取证',
+        },
+      },
+      impact: {
+        type: 'score',
+        label: '影响面',
+        instructions: '若为真实威胁，影响面是？',
+        criteria: [
+          '无实际影响',
+          '有限影响：单点或实验环境',
+          '中等影响：内部系统或部分用户',
+          '严重影响：生产、核心数据或外部用户',
+        ],
+      },
+      contain_now: {
+        type: 'noul',
+        label: '立即遏制',
+        instructions: '是否需要立即采取遏制措施（封禁/隔离/下线）？',
+      },
+    },
+    derive: { verdict_label: { question: 'verdict', map: { true_positive: '真实威胁', false_positive: '误报', needs_evidence: '证据不足' } } },
+    recommendation: '判定「{verdict_label}」，影响面 {impact}。{contain_now?立即执行遏制并同步安全值班|按常规流程取证跟进}',
+    // 安全判定宁可多复核：默认阈值高于全局 0.7
+    confidenceThreshold: 0.8,
+  },
 ];
 
 /**
@@ -515,47 +666,56 @@ export function validateScenario(spec) {
   if (spec.recommendation !== undefined && typeof spec.recommendation !== 'string') {
     problems.push('recommendation 必须是字符串');
   }
+  if (
+    spec.confidenceThreshold !== undefined &&
+    (typeof spec.confidenceThreshold !== 'number' || !Number.isFinite(spec.confidenceThreshold) || spec.confidenceThreshold < 0 || spec.confidenceThreshold > 1)
+  ) {
+    problems.push('confidenceThreshold 必须是 0~1 之间的数字');
+  }
   return problems;
 }
 
 /**
- * 解析自定义场景 JSON 并与内置场景合并：同 id（大小写不敏感）覆盖内置场景，否则追加。
- * 非法条目跳过并记入 problems，不影响其余场景。
- * @param {string} customJson - 自定义场景 JSON 数组字符串
+ * 解析自定义场景（支持多个来源，按数组顺序应用：靠后的源同 id 覆盖靠前的）并合并内置场景。
+ * 同 id（大小写不敏感）覆盖，否则追加；非法条目跳过并记入 problems，不影响其余场景。
+ * @param {{ label: string, json: string }[]} sources - 场景来源列表（设置页 / 环境变量 / 文件）
  * @returns {{ scenarios: object[], problems: string[] }}
  */
-export function resolveScenarios(customJson) {
+export function resolveScenarios(sources) {
   const scenarios = BUILTIN_SCENARIOS.map((s) => ({ ...s, source: 'builtin' }));
   const problems = [];
-  const raw = typeof customJson === 'string' ? customJson.trim() : '';
-  if (!raw) return { scenarios, problems };
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return { scenarios, problems: [`自定义场景 JSON 解析失败：${e.message}`] };
-  }
-  if (!Array.isArray(parsed)) {
-    return { scenarios, problems: ['自定义场景必须是 JSON 数组（[...]）'] };
-  }
-
-  const indexById = new Map(scenarios.map((s, i) => [s.id.toLowerCase(), i]));
-  parsed.forEach((spec, i) => {
-    const issues = validateScenario(spec);
-    if (issues.length > 0) {
-      problems.push(`自定义场景 #${i + 1}（${spec && spec.id ? spec.id : '未命名'}）已跳过：${issues.join('；')}`);
-      return;
+  const list = Array.isArray(sources) ? sources : [];
+  for (const { label, json } of list) {
+    const raw = typeof json === 'string' ? json.trim() : '';
+    if (!raw) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      problems.push(`${label} JSON 解析失败：${e.message}`);
+      continue;
     }
-    const entry = normalizeScenario(spec);
-    const key = entry.id.toLowerCase();
-    if (indexById.has(key)) {
-      scenarios[indexById.get(key)] = entry;
-    } else {
-      indexById.set(key, scenarios.length);
-      scenarios.push(entry);
+    if (!Array.isArray(parsed)) {
+      problems.push(`${label} 必须是 JSON 数组（[...]）`);
+      continue;
     }
-  });
+    const indexById = new Map(scenarios.map((s, i) => [s.id.toLowerCase(), i]));
+    parsed.forEach((spec, i) => {
+      const issues = validateScenario(spec);
+      if (issues.length > 0) {
+        problems.push(`${label} #${i + 1}（${spec && spec.id ? spec.id : '未命名'}）已跳过：${issues.join('；')}`);
+        return;
+      }
+      const entry = normalizeScenario(spec);
+      const key = entry.id.toLowerCase();
+      if (indexById.has(key)) {
+        scenarios[indexById.get(key)] = entry;
+      } else {
+        indexById.set(key, scenarios.length);
+        scenarios.push(entry);
+      }
+    });
+  }
   return { scenarios, problems };
 }
 
@@ -583,6 +743,7 @@ function normalizeScenario(spec) {
     questions,
     derive: spec.derive && typeof spec.derive === 'object' ? spec.derive : {},
     recommendation: typeof spec.recommendation === 'string' ? spec.recommendation : '',
+    confidenceThreshold: typeof spec.confidenceThreshold === 'number' && Number.isFinite(spec.confidenceThreshold) ? spec.confidenceThreshold : undefined,
     source: 'custom',
   };
 }
