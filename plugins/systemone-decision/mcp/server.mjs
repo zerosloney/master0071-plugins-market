@@ -7,6 +7,7 @@
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
 import { findScenario, resolveScenarios } from './scenarios.mjs';
+import { writeEndpointConfig } from '../endpoint-config.mjs';
 import {
   buildSummary,
   deriveFields,
@@ -16,7 +17,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.4.10' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.4.11' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 11 个 + 设置页/环境变量注入的自定义场景（同 id 覆盖内置）。
@@ -28,6 +29,10 @@ const SCENARIO_IDS = SCENARIOS.map((s) => s.id);
 for (const problem of scenarioProblems) {
   process.stderr.write(`[systemone-decision] ${problem}\n`);
 }
+// 把已解析端点（设置页 > 环境变量 > 默认）落盘共享给需求预检 hook——hook 进程拿不到
+// SYSTEMONE_PLUGIN_* 注入，不落盘的话设置页切换供应商后 hook 会打旧端点并静默失效。
+// config() 是函数声明，已提升，此处可先调用。
+writeEndpointConfig(config());
 
 class ToolError extends Error {}
 class RpcError extends Error {

@@ -108,7 +108,7 @@ systemone_scenario(action: "run",
 | `.codebuddy-plugin/plugin.json` | CodeBuddy | 内联 `mcpServers`（`${CODEBUDDY_PLUGIN_ROOT}`）+ `userConfig` 启用提示配置，`hooks` 复用 `hooks/hooks.json` |
 | `hooks/hooks.json` | ZCode / ChatGPT Codex / CodeBuddy | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
 
-业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单的 handler 不支持相对路径（其 cwd 是会话工作区而非插件目录），插件根目录用 `${CLAUDE_PLUGIN_ROOT}` 变量定位。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`——各端改同一处门限不会漂移。
+业务载荷（`mcp/*.mjs`、`endpoint-config.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单的 handler 不支持相对路径（其 cwd 是会话工作区而非插件目录），插件根目录用 `${CLAUDE_PLUGIN_ROOT}` 变量定位。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`——各端改同一处门限不会漂移。
 
 **配置差异**：CodeBuddy 在启用插件时按 `userConfig` 提示收集上表四项配置（键名与 ZCode 设置页一致），omp 与 Qwen Code 没有可用的插件设置页，走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
@@ -129,7 +129,7 @@ systemone_scenario(action: "run",
 
 **API Key 例外**：ZCode 目前没有安全凭据存储，插件设置页不支持保存敏感值，Key 仍只能走环境变量 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）。
 
-**hook 例外**：需求预检 hook 不支持读取插件设置页配置，只读环境变量。若通过设置页切换了供应商，需同时设置 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` 环境变量，预检才会继续生效（否则 hook 请求失败后静默跳过）。
+**hook 端点共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）落盘到插件根目录 `.endpoint.json`，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商后，预检自动跟随同一端点，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
 
 ## 配置（环境变量）
 

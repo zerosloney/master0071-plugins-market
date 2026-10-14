@@ -3,13 +3,18 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
-const serverPath = path.join(pluginRoot, 'mcp', 'server.mjs');
+// 在临时目录跑被测插件：服务器启动会把已解析端点落盘到插件根 .endpoint.json，
+// 直接跑仓库副本会污染工作区，并与 hook 冒烟测试互相串扰端点。
+const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-smoke-'));
+cpSync(pluginRoot, runRoot, { recursive: true });
+const serverPath = path.join(runRoot, 'mcp', 'server.mjs');
 
 // 宿主产品名词表：从各宿主清单目录名派生（.zcode-plugin → zcode），新增宿主建了
 // <name>-plugin/ 目录就自动纳入。匹配一律忽略大小写。
@@ -728,10 +733,27 @@ const main = async () => {
       assert.equal(last.url, '/v1/systemone');
       assert.equal(last.body.model, 'alt-decision');
     });
+
+    // 端点共享文件：uiClient 是最后一个启动的服务进程，落盘内容应为其已解析配置
+    // （设置页值胜出）；API Key 绝不落盘。
+    const endpointFile = JSON.parse(readFileSync(path.join(runRoot, '.endpoint.json'), 'utf8'));
+    check('启动时落盘已解析端点（设置页优先，不含 API Key）', () => {
+      assert.deepEqual(Object.keys(endpointFile).sort(), ['baseUrl', 'model', 'timeoutMs']);
+      assert.equal(endpointFile.baseUrl, `http://127.0.0.1:${port}/v1`);
+      assert.equal(endpointFile.model, 'alt-decision');
+      assert.equal(endpointFile.timeoutMs, 30000, 'PLUGIN_TIMEOUT_MS 留空应落盘默认值');
+      assert.ok(!JSON.stringify(endpointFile).includes('test-key'), 'Key 不得出现在共享文件里');
+    });
   } finally {
     uiClient.close();
     mock.close();
   }
+
+  check('测试运行未污染仓库工作区（源插件目录无端点共享文件）', () => {
+    assert.ok(!existsSync(path.join(pluginRoot, '.endpoint.json')));
+    assert.ok(!existsSync(`${path.join(pluginRoot, '.endpoint.json')}.tmp`));
+  });
+  rmSync(runRoot, { recursive: true, force: true });
 
   if (failed) {
     console.error('\n冒烟测试存在失败项');

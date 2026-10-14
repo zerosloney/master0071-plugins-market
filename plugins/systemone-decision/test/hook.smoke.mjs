@@ -6,11 +6,17 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const hookPath = path.join(here, '..', 'hooks', 'requirement-clarity.mjs');
+// 在临时目录跑被测插件：端点共享文件（.endpoint.json）写在插件根目录，直接跑仓库
+// 副本会污染工作区，也让「写文件的用例」与「依赖环境变量的用例」互相串扰端点。
+const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-hook-smoke-'));
+cpSync(path.join(here, '..'), runRoot, { recursive: true });
+const hookPath = path.join(runRoot, 'hooks', 'requirement-clarity.mjs');
 
 const LEVELS = ['模糊：目标都不清楚', '偏低：目标清楚但范围或关键约束不明', '较高：目标范围清楚，细节可自行决策', '明确：目标、范围、验收都清楚'];
 
@@ -139,6 +145,37 @@ const main = async () => {
     assert.equal(r.stdout, '');
   });
 
+  // 7. 端点共享文件优先于环境变量：MCP 服务落盘的 baseUrl/model 生效，
+  //    环境变量里的死端点被忽略（这是「设置页切换供应商后 hook 不再静默失效」的机制）
+  scenario = 'unclear';
+  received = [];
+  writeFileSync(
+    path.join(runRoot, '.endpoint.json'),
+    JSON.stringify({ baseUrl: `http://127.0.0.1:${port}/v1`, model: 'shared-decision', timeoutMs: 9000 })
+  );
+  r = await run('帮我把这个项目优化一下，尽快弄好', {
+    SYSTEMONE_BASE_URL: 'http://127.0.0.1:1/wrong',
+    SYSTEMONE_MODEL: 'env-model',
+  });
+  check('共享端点文件优先于环境变量（含 model）', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '应打到共享文件里的端点而非环境变量的死端点');
+    assert.equal(received[0].model, 'shared-decision');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  // 8. 共享文件损坏 → 回退环境变量（即落盘机制不存在时的旧行为）
+  received = [];
+  writeFileSync(path.join(runRoot, '.endpoint.json'), '{"oops');
+  r = await run('帮我把这个项目优化一下，尽快弄好');
+  check('共享端点文件损坏时回退环境变量', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '应回退到环境变量指定的 mock 端点');
+    assert.equal(received[0].model, 'u2-decision');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  rmSync(runRoot, { recursive: true, force: true });
   mock.close();
   if (failed) {
     console.error('\nhook 冒烟测试存在失败项');
