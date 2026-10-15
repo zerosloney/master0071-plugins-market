@@ -57,15 +57,16 @@ function verdictLine(clarity, missing, proceed) {
 /**
  * @param {unknown} text - 用户提交的原始输入
  * @param {Record<string, string|undefined>} [env] - 供应商配置来源，默认进程环境
+ * @param {object} [opts] - { timeoutMs } 共享 deadline 的剩余预算，透传给 decide
  * @returns {Promise<string|null>} 结论文本；无需提醒时返回 null
  */
-export async function precheck(text, env = process.env) {
+export async function precheck(text, env = process.env, opts = {}) {
   const prompt = typeof text === 'string' ? text.trim() : '';
   // <10 字符的输入描述不出可判定的任务（CASUAL 挡不住的短指令如「修复它」），也省一次判定请求
   if (prompt.length < 10 || CASUAL.test(prompt)) return null; // 空输入 / 寒暄捷径
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默跳过
-  const answers = await decide(prompt, cfg, QUESTIONS);
+  const answers = await decide(prompt, cfg, QUESTIONS, opts.timeoutMs);
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;
   const proceed = answers ? noulOf(answers.proceed) : null;

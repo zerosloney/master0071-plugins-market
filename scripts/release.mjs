@@ -1,24 +1,28 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（9 处）：
-//     市场清单条目版本 ×4：marketplace.json / .omp-plugin/marketplace.json /
-//                        .codebuddy-plugin/marketplace.json / .claude-plugin/marketplace.json
-//     插件清单 ×4：.zcode-plugin / .omp-plugin /
-//                 .codex-plugin / .codebuddy-plugin 的 plugin.json
+//   systemone-decision（4 处）：
+//     市场清单条目版本 ×1：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//     插件清单 ×2：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
 //
-//   agent-pipelines（2 处，ZCode 独占）：
-//     市场清单条目版本 ×1：marketplace.json
-//     插件清单 ×1：.zcode-plugin/plugin.json
+//   agent-pipelines（3 处）：
+//     市场清单条目版本 ×1：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//     插件清单 ×2：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//
+// 仓库已按 Agent Plugins 1.0.0 标准打包：根 plugin.json（封闭 schema）+ skills/ + mcp.json。
+// 根 marketplace.json 与 .zcode-plugin/ 是超出标准的 ZCode 兼容层，仅为保住 ZCode 的
+// /plugin marketplace add 装法而保留；Agent Plugins 客户端会忽略它们。
+//
+// 市场清单内含多个插件条目，版本替换按条目 name 定位（不依赖"两插件版本号恰好不同"），
+// 替换后整体 JSON.parse 校验：目标条目已更新、其余条目版本未被波及，才写盘。
 //
 // 用法：
 //   node scripts/release.mjs <plugin> <x.y.z>    设置某插件的新版本（semver 校验）
 //   node scripts/release.mjs --check             校验所有插件各处版本一致
 // 零依赖，Node ≥ 18。
-//
-// 市场清单内含多个插件条目，版本替换按条目 name 定位（不依赖"两插件版本号恰好不同"），
-// 替换后整体 JSON.parse 校验：目标条目已更新、其余条目版本未被波及，才写盘。
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -28,31 +32,25 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const at = (rel) => path.join(ROOT, rel);
 
-const MARKETS = [
-  'marketplace.json',
-  '.omp-plugin/marketplace.json',
-  '.codebuddy-plugin/marketplace.json',
-  '.claude-plugin/marketplace.json',
-];
+// 根 marketplace.json 是 ZCode 的兼容垫片，只保留这一份
+const MARKETS = ['marketplace.json'];
 const inPlugin = (name, rel) => `plugins/${name}/${rel}`;
+
+// 每个插件两份清单：根 plugin.json 是 Agent Plugins 标准清单（版本权威来源），
+// .zcode-plugin 是超出标准的 ZCode 兼容垫片
+const PLUGIN_MANIFESTS = ['plugin.json', '.zcode-plugin/plugin.json'];
 
 const PLUGINS = {
   'systemone-decision': {
-    currentFrom: inPlugin('systemone-decision', '.zcode-plugin/plugin.json'),
-    jsonFiles: [
-      inPlugin('systemone-decision', '.zcode-plugin/plugin.json'),
-      inPlugin('systemone-decision', '.omp-plugin/plugin.json'),
-      inPlugin('systemone-decision', '.codex-plugin/plugin.json'),
-      inPlugin('systemone-decision', '.codebuddy-plugin/plugin.json'),
-    ],
+    currentFrom: inPlugin('systemone-decision', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('systemone-decision', f)),
     markets: MARKETS,
     serverInfo: inPlugin('systemone-decision', 'mcp/server.mjs'),
   },
   'agent-pipelines': {
-    currentFrom: inPlugin('agent-pipelines', '.zcode-plugin/plugin.json'),
-    jsonFiles: [inPlugin('agent-pipelines', '.zcode-plugin/plugin.json')],
-    // ZCode 独占插件，无其余宿主市场清单
-    markets: ['marketplace.json'],
+    currentFrom: inPlugin('agent-pipelines', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('agent-pipelines', f)),
+    markets: MARKETS,
   },
 };
 

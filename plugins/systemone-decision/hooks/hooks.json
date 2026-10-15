@@ -1,5 +1,4 @@
 {
-  "description": "SystemOne 双预检 hook：① 用户提交输入时判定需求是否明确（clarity/missing/proceed 三问），仅在不明确时注入上下文提醒先澄清；② 工具调用前对 shell 类命令做风险闸判定（放行/确认/拒绝三问），仅在高风险时输出 permissionDecision（deny/ask）。两者对明确/放行/寒暄/只读捷径/缺 Key/判定失败一律静默放行（fail-open），绝不阻塞用户输入或工具调用。",
   "hooks": {
     "UserPromptSubmit": [
       {

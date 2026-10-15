@@ -243,6 +243,32 @@ const main = async () => {
 
   gateScenario = 'deny';
   received = [];
+  await checkA('风险闸内核：破坏性写法不走只读捷径（链式/重定向/find 副作用）', async () => {
+    // 这几条首 token 都命中只读白名单，修复前会被直接放行、一个判定请求都不发
+    const destructive = [
+      'echo start; rm -rf build',
+      'find . -name *.log -delete',
+      'ls -la && rm -rf out',
+      'cat a.txt > b.txt',
+      'find /tmp -exec rm -rf {} +',
+    ];
+    for (const command of destructive) {
+      const v = await assess('Bash', { command }, hookEnv);
+      assert.equal(v?.decision, 'deny', `应判定为 deny 而非静默放行：${command}`);
+    }
+    assert.equal(received.length, destructive.length);
+  });
+
+  gateScenario = 'allow';
+  received = [];
+  await checkA('风险闸内核：只读 find / grep 仍走捷径（不发请求）', async () => {
+    assert.equal(await assess('Bash', { command: 'find . -name node_modules -type d' }, hookEnv), null);
+    assert.equal(await assess('Bash', { command: 'grep -rn foo src' }, hookEnv), null);
+    assert.equal(received.length, 0);
+  });
+
+  gateScenario = 'deny';
+  received = [];
   await checkA('风险闸内核：高风险且不可逆判定为 deny', async () => {
     const v = await assess('Bash', { command: 'rm -rf ./build' }, hookEnv);
     assert.equal(v.decision, 'deny');
@@ -287,6 +313,30 @@ const main = async () => {
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /风险闸跳过/);
+  });
+
+  // decide 的共享 deadline 收缩：override 小于端点延迟时必须提前中止，而不是吃满 cfg.timeoutMs。
+  // 这是 requirement-clarity / pretool-risk「stdin 耗时 + 请求 ≤ handler 15s」机制的直接断言。
+  await checkA('decide 共享 deadline：timeoutMsOverride 收缩请求超时', async () => {
+    const slow = http.createServer((req, res) =>
+      setTimeout(() => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ model: 'u2-decision', answers: { q1: { type: 'noul', noul: 0.9 } } }));
+      }, 400)
+    );
+    await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+    try {
+      const { decide } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'decide-client.mjs')).href);
+      const cfg = { apiKey: 'k', baseUrl: `http://127.0.0.1:${slow.address().port}/v1`, model: 'm', timeoutMs: 8000 };
+      const questions = { q1: { type: 'noul', instructions: '是吗？' } };
+      const ok = await decide('s', cfg, questions);
+      assert.ok(ok && ok.q1, '无 override 时正常返回（收缩逻辑不影响常规路径）');
+      const started = Date.now();
+      await assert.rejects(() => decide('s', cfg, questions, 100), /timeout/i, 'override 100ms 应在端点 400ms 响应前中止');
+      assert.ok(Date.now() - started < 3000, `应在 3s 内中止，实际 ${Date.now() - started}ms`);
+    } finally {
+      slow.close();
+    }
   });
 
   rmSync(runRoot, { recursive: true, force: true });

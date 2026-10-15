@@ -19,16 +19,22 @@ function readStdin() {
 }
 
 async function main() {
-  // stdin 异常挂起时的兜底自毁，避免每次输入都吃满 hook 进程超时
+  // stdin 与判定请求共享一个 deadline（而非各自接力）：stdin 花掉多久，请求就只剩多少
+  // （留 1s 进程收尾余量），总和锁死在 hooks.json 的 handler 15s 内。killer 保留为
+  // stdin 异常挂起时的兜底自毁，避免每次输入都吃满 hook 进程超时。
+  const startedAt = Date.now();
   const killer = setTimeout(() => process.exit(0), 14000);
   const raw = await readStdin();
+  clearTimeout(killer);
   let input = {};
   try {
     input = raw.trim() ? JSON.parse(raw) : {};
   } catch {
     input = {};
   }
-  const additionalContext = await precheck(input.prompt);
+  const left = 14_000 - (Date.now() - startedAt) - 1_000;
+  if (left <= 0) return null; // stdin 已耗尽预算：fail-open，不再发判定请求
+  const additionalContext = await precheck(input.prompt, process.env, { timeoutMs: left });
   if (!additionalContext) return null;
   return JSON.stringify({
     hookSpecificOutput: {

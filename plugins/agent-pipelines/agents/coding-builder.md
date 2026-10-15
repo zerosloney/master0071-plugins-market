@@ -2,7 +2,6 @@
 name: "coding-builder"
 description: "Coding-Pipeline 受控编码 Builder：声明 scope 内编码、按根因分组修复、真实验证。"
 color: yellow
-model: "account:bigmodel-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: max
 injectAgentsMd: true
 ---
@@ -68,12 +67,13 @@ test: ...
     "pass": ["lint", "typecheck"],
     "fail": [{ "cmd": "test", "reason": "<原样失败输出>" }]
   },
-  "scope_drift": false,
+  "scope_drift": "PASS | WARN | FAIL",
   "note": "<可选说明>"
 }
 ```
 
-`scope_drift: true` 时必须立即停止改动，把控制权交回 Orchestrator。
+`scope_drift` 是 builder 的**自报**，与 coding-reviewer 的同名字段用同一套枚举；权威判定以 reviewer 输出为准。
+自报 `FAIL` 时必须立即停止改动，把控制权交回 Orchestrator。
 
 ## 红线
 - 不越界（forbidden_scope 一行不碰）。

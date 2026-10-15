@@ -20,7 +20,9 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 {
   "version": 1,
   "prompt": "<原始 prompt>",
-  "max_iterations": 0,           // 0 = 使用默认值 (coding=8, ralph=10)；>0 则覆盖 MAX_CYCLES
+  "max_iterations": 0,
+  "max_failures": 3,
+  "retry_on_failure": false,
   "completion_promise": null,
   "outer_iteration": 0,
   "tasks": [
@@ -44,6 +46,14 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 }
 ```
 
+上面代码块是**可直接复制的合法 JSON**（不要往 JSON 里写注释），字段说明：
+
+- `max_iterations`：`0` = 使用默认值（ralph 为 10），`>0` 则覆盖 `MAX_CYCLES`。
+- `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
+- `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
+- `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
+- `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
+
 ### 写入规则
 - 每轮结束时写入，先写 `.loop-cli/state/ralph-pipeline.json.tmp`，再重命名为 `.loop-cli/state/ralph-pipeline.json`（防止写入中断导致文件损坏）。
 - `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
@@ -52,10 +62,11 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 
 ### 读取规则
 1. 解析 JSON，校验 `version === 1` 且所有必填字段存在。
-2. 若格式不合法 → 询问"状态文件损坏，是否新建？"
-3. 若 `stop_reason` 非空 → 询问"上次因 {stop_reason} 终止，是否重试？"
-4. 若所有任务状态为 `done` → 询问"已完成，是否重新开始？"
-5. 恢复时跳过 `done` 任务，继续执行剩余任务。
+2. 旧版本状态文件缺少 `max_failures` / `retry_on_failure` 时按默认值补齐，不算损坏。
+3. 若格式不合法 → 询问"状态文件损坏，是否新建？"
+4. 若 `stop_reason` 非空 → 询问"上次因 {stop_reason} 终止，是否重试？"
+5. 若所有任务状态为 `done` → 询问"已完成，是否重新开始？"
+6. 恢复时跳过 `done` 任务，继续执行剩余任务。
 
 ## 完成标准
 
@@ -73,7 +84,7 @@ DONE 必须同时满足：
 3. 把请求拆解为 TaskList，每项严格按 JSON schema 的 `tasks[]` 格式。**检查 `depends_on` 是否存在循环依赖**（如 A→B→C→A），存在则报错并要求用户修正。
 4. **复杂度评估与再拆分**：按 Ralph Orchestrator agent 模板「## 任务复杂度评估与拆分」的判据（accept_criteria > 3 / 跨文件 > 5 或跨模块 > 2）逐项评估，对过大任务原地拆成子任务，`subtask_of` 标注溯源，新 `depends_on` 接入拓扑。核算子任务总数 ≤ 8（`= MAX_CYCLES × 0.8`），超限且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 初始化 `consecutive_failures = 0`、`stall_counter = 0`、`round = 0`、`stop_reason = null`。
-6. 设置 `MAX_CYCLES = 10`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step（DELEGATE + WAIT_REVIEW + JUDGE），确保 frontmatter 的 `steps >= MAX_CYCLES × 3`。
+6. 设置 `MAX_CYCLES = 10`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step（DELEGATE + WAIT_REVIEW + JUDGE）。
 7. 确定背压验证命令（默认沿用领域 backpressure 配置）。
 
 ## 委派机制
@@ -172,7 +183,7 @@ accept_criteria:
 
 ## 背压熔断
 
-- `consecutive_failures` 达到 `max_failures` → 立即 ESCALATE，停止委派。
+- `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
 
 ## 停止

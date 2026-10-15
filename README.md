@@ -1,116 +1,94 @@
 # master0071-plugins
 
-个人维护的 ChatGPT Codex / ZCode / CodeBuddy 插件市场（marketplace），并附带 Qwen Code / oh-my-pi(omp) 适配。
+两个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
 
-- **ZCode**：读取仓库根目录的 `marketplace.json`（内联插件清单）
-- **ChatGPT Codex**：读取仓库根目录的 `.agents/plugins/marketplace.json`；插件使用 `.codex-plugin/plugin.json` 清单
-- **CodeBuddy**：兼容 Claude 插件清单格式，读取仓库根目录的 `.codebuddy-plugin/marketplace.json`；插件使用 `.codebuddy-plugin/plugin.json` 清单
-- **Qwen Code**：市场机制复用 Claude 清单格式，读取仓库根目录的 `.claude-plugin/marketplace.json` 并转换安装（市场条目即权威清单）
-- **omp**：兼容 Claude 插件清单格式，但固定读 `.omp-plugin/marketplace.json`
+| 插件 | 版本 | 可移植组件 | 简介 |
+|------|------|-----------|------|
+| [systemone-decision](plugins/systemone-decision/) | 0.5.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 
-## 插件列表
+## 标准包结构
 
-| 插件 | 版本 | 简介 |
-|------|------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.5.0 | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持设置页自定义场景，附需求明确度预检 hook |
-| [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | 多代理编排管道套件：/ralph-pipeline 通用任务编排（TaskList + 背压熔断 + 状态持久化）+ /coding-pipeline 受控编码管道（scope 零容忍、根因分组修复、真实验证），含 6 个子智能体（ZCode 独占） |
+Agent Plugins 的可移植核心只有三样：**根 `plugin.json`**（封闭 schema 的清单）、**`skills/<name>/SKILL.md`**、**`mcp.json`**。客户端按固定位置自动发现，不需要在清单里声明路径。
 
-字段说明、用法示例、判据覆盖、供应商切换等完整文档见[插件 README](plugins/systemone-decision/README.md)。
+```
+plugins/
+├── systemone-decision/
+│   ├── plugin.json           # 标准清单：$schema + name + 元数据（版本权威来源）
+│   ├── mcp.json              # 标准 MCP 声明：mcpServers.{name}.type = stdio
+│   ├── skills/systemone-decision/   # 标准 skill
+│   ├── hooks/                # ↓ 以下为客户端约定，非 Agent Plugins 核心
+│   ├── mcp/  test/  endpoint-config.mjs  icon.png
+│   └── .zcode-plugin/        # ↓ ZCode 兼容层，非标准
+└── agent-pipelines/
+    ├── plugin.json           # 标准清单
+    ├── skills/               # 标准 skill：ralph-pipeline / coding-pipeline
+    ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心
+    └── .zcode-plugin/        # ↓ ZCode 兼容层，非标准
+```
+
+根 `plugin.json` 的顶层字段受规范封闭约束，只有：`$schema`、`name`（前两项必填）、`version`、`description`、`author`（`{name, email, url}` 对象）、`homepage`、`repository`、`license`、`keywords`、`extensions`。组件路径不写在这里——放进去会被判为未知字段（报告并忽略，不致命但无意义）。
+
+规范还强制**路径隔离**：插件内所有相对路径必须解析在插件根目录内。
+
+### 非标准部分说明
+
+Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标准，兼容客户端会忽略，但本仓库仍保留以服务实际使用的宿主：
+
+| 内容 | 状态 | 谁在用 |
+|------|------|--------|
+| `plugins/*/hooks/hooks.json` | 客户端约定（非标准） | Claude Code / ZCode 等支持 Claude 式 hook 的宿主，用 `${CLAUDE_PLUGIN_ROOT}` 定位插件根 |
+| `plugins/agent-pipelines/commands/`、`agents/` | 客户端约定（非标准） | 支持斜杠命令与子智能体的宿主 |
+| `plugins/*/.zcode-plugin/plugin.json` | **非标准 ZCode 兼容垫片** | ZCode；提供内联 `mcpServers` 与 `userConfig` 设置页 |
+| 根 `marketplace.json` | **非标准 ZCode 兼容垫片** | ZCode 的 `/plugin marketplace add` 发现入口 |
+
+保留垫片是为了**不破坏 ZCode 现有的安装方式**。严格意义上一个包内有且仅有一个 `plugin.json`，垫片那份会让包不再是纯粹的单清单形态——这是为兼容性做的自觉取舍，不是疏忽。
 
 ## 安装
 
-### ChatGPT Codex
+### Agent Plugins 兼容客户端（VS Code / Cursor / Copilot / Kiro / OpenClaw 等）
 
-在 Codex 桌面端打开本仓库，重启应用后，在 Plugins Directory 中选择 `master0071 Plugins` 并安装 `SystemOne Decision`。也可通过 Codex CLI 注册市场：
+直接加载插件目录：
 
-```sh
-codex plugin marketplace add zerosloney/master0071-plugins-market
+```
+plugins/systemone-decision
+plugins/agent-pipelines
 ```
 
-插件使用本机 Node.js（≥18）运行 MCP server。首次使用前配置 `SYSTEMONE_API_KEY`；端点、模型、超时和自定义场景也可通过 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 配置。市场项和 `.codex-plugin/plugin.json` 分别提供发现入口与插件组件声明。
+各客户端的分发入口以其自身文档为准（规范刻意不规定分发机制）。
 
 ### ZCode
 
 ```
 /plugin marketplace add zerosloney/master0071-plugins-market
 /plugin install systemone-decision@master0071-plugins
+/plugin install agent-pipelines@master0071-plugins
 ```
 
-本地开发也可直接指向目录：
+本地开发直接指向仓库目录：
 
 ```
 /plugin marketplace add E:\Demo\cli-tools\master0071-pluigns-market
 ```
 
-插件默认接入 unisound u2-decision，需要先配置 API Key（设置页不支持敏感值，走环境变量），设置后重启 ZCode 生效：
+> 垫片与标准清单的版本必须一致，发版前用 `node scripts/release.mjs --check` 校验。
+
+## 配置
+
+两个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
 
 ```
 setx SYSTEMONE_API_KEY "你的Key"
 ```
 
-端点 / 模型 / 超时可在 **设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced** 配置，无需环境变量。
+端点 / 模型 / 超时 / 自定义场景 / 审计日志 / 缓存 TTL 全部可选，完整说明见[插件 README](plugins/systemone-decision/README.md)。
 
-### oh-my-pi（omp）
-
-omp 兼容 Claude 插件清单格式，但市场清单固定读 `.omp-plugin/marketplace.json`（本仓库已内置），并读 `.omp-plugin/plugin.json` 获取 MCP 声明：
-
-```
-/marketplace add zerosloney/master0071-plugins-market
-/marketplace install systemone-decision@master0071-plugins
-```
-
-或 CLI：`omp plugin marketplace add zerosloney/master0071-plugins-market && omp plugin install systemone-decision@master0071-plugins`。
-
-omp 没有插件设置页，配置全部走环境变量（stdio 进程自动继承）：`SYSTEMONE_API_KEY` / `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS`，自定义场景用 `SYSTEMONE_SCENARIOS`。注意：需求明确度预检 hook（Claude 式 `hooks/hooks.json`）在 omp 下不生效——omp 的 hook 是 `hooks/pre|post/` 下的 JS 工厂模块，格式不同。
-
-### CodeBuddy
-
-CodeBuddy Code 兼容 Claude 插件清单格式，市场清单读仓库根 `.codebuddy-plugin/marketplace.json`，插件清单读插件目录 `.codebuddy-plugin/plugin.json`：
-
-```sh
-codebuddy plugin marketplace add zerosloney/master0071-plugins-market
-codebuddy plugin install systemone-decision@master0071-plugins
-```
-
-或在 CodeBuddy 会话内执行 `/plugin marketplace add zerosloney/master0071-plugins-market` 后按提示安装。
-
-API Key 仍走环境变量 `SYSTEMONE_API_KEY`；端点 / 模型 / 超时 / 自定义场景四项在启用插件时按 `userConfig` 提示填写即可（留空回退环境变量 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS`）。需求明确度预检 hook 复用 `hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 变量 CodeBuddy 兼容展开）。
-
-### Qwen Code
-
-Qwen Code 的市场机制复用 Claude 清单格式：读取仓库根 `.claude-plugin/marketplace.json`，按 `仓库:插件名` 选择条目并转换为本地扩展安装（`strict: false`，市场条目即权威清单，组件随转换拷入扩展包）：
-
-```sh
-qwen extensions install zerosloney/master0071-plugins-market:systemone-decision
-```
-
-- **systemone-decision**：skills + 内联 MCP server 声明。需求明确度预检 hook 在 Qwen 下不注册（Qwen 无插件根变量替换，`${CLAUDE_PLUGIN_ROOT}` 会留在命令里），配置走 `SYSTEMONE_*` 环境变量。
-
-## 仓库结构
-
-```
-.agents/plugins/marketplace.json  ChatGPT Codex 仓库级插件市场清单
-marketplace.json           ZCode 市场清单（市场名 master0071-plugins）
-.codebuddy-plugin/marketplace.json  CodeBuddy 市场清单（Claude 插件清单格式）
-.claude-plugin/marketplace.json  Qwen Code 市场清单（Claude 格式转换安装）
-plugins/
-└── systemone-decision/    插件包（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp 五端共用载荷）
-    ├── .zcode-plugin/     ZCode 清单（内联 mcpServers + 设置页 userConfig）
-    ├── .codex-plugin/     ChatGPT Codex 清单（指向下方 systemone.mcp.json）
-    ├── .codebuddy-plugin/ CodeBuddy 清单（内联 mcpServers + userConfig 提示配置）
-    ├── systemone.mcp.json ChatGPT Codex 的 MCP 声明
-    ├── mcp/               stdio MCP 服务器（零依赖，Node ≥ 18）
-    ├── skills/            使用指引与场景文档
-    ├── hooks/             需求明确度预检（判定内核 clarity.mjs 全端共用）
-    └── test/              冒烟测试（本地 mock 端点，无需真实 Key）
-```
-
-同一插件包内并存多份清单，各产品只认自己那份，业务载荷（`mcp/*.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享。细节见插件 README 的「多端支持」一节。
+agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
 ## 维护
 
-- **新增插件**：在 `plugins/` 下建目录，并分别在 ZCode 的 `marketplace.json`、CodeBuddy 的 `.codebuddy-plugin/marketplace.json`、omp 的 `.omp-plugin/marketplace.json`、Qwen Code 的 `.claude-plugin/marketplace.json` 与 ChatGPT Codex 的 `.agents/plugins/marketplace.json` 登记插件来源；各市场字段按对应格式填写。
-- **发布新版本**：运行 `node scripts/release.mjs <plugin> <x.y.z>`（如 `node scripts/release.mjs systemone-decision 0.5.0`），按插件同步各自版本位，各插件版本独立演进；`node scripts/release.mjs --check` 校验所有插件一致性。改完提交推送，客户端更新插件即拉到新版。
+- **发版**：`node scripts/release.mjs <plugin> <x.y.z>`，同步该插件的各版本位（根 `plugin.json`、ZCode 垫片两处、市场条目，systemone-decision 还含 `mcp/server.mjs` 的 `SERVER_INFO`）；`node scripts/release.mjs --check` 校验全部一致。
+- **新增插件**：在 `plugins/` 下建目录，至少写一份根 `plugin.json`（含 `$schema` 与 `name`），按需加 `skills/` 与 `mcp.json`，并在 `scripts/release.mjs` 的 `PLUGINS` 中登记；若需要在 ZCode 可装，再补 `.zcode-plugin/plugin.json` 与根 `marketplace.json` 条目。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```

@@ -120,7 +120,7 @@ systemone_decide(
 | 宿主 | 入口 | 备注 |
 |------|------|------|
 | ZCode | 设置 → 插件管理 → 已安装 → SystemOne Decision → Advanced | Base URL / Model / Timeout (ms) / Custom Scenarios |
-| omp / Qwen Code | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
+| Claude Code / CodeBuddy / Qwen Code / omp | 无，只能用上面的环境变量 | 尤其 `SYSTEMONE_SCENARIOS` |
 
 两个通用注意点：
 
@@ -131,5 +131,5 @@ systemone_decide(
 
 - 决策模型只做判定，不做生成。需要解释性输出时：先决策拿结构化结论，再交给对话模型展开。
 - 问题数建议 ≤16（延迟随问题数近似线性增长）；choice/score 选项建议 ≤26，上限 255。
-- `state` 上下文上限 131072 tokens，超长会被截断。
+- `state` 上限 10 万**字符**（不是 token），超出直接报错并提示精简，**不会自动截断**。
 - 非法或超限的问题在响应 `answers` 中可能缺失，归一化结果中标记 `present: false` 并计入 `low_confidence_questions`。

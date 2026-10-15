@@ -34,7 +34,7 @@
 |------|------|
 | 环境变量 | `SYSTEMONE_SCENARIOS`（建议压成单行） |
 | 场景文件 | `SYSTEMONE_SCENARIOS_FILE` / ZCode 设置页 **Scenarios File**——指向 JSON 文件，便于纳入版本管理 |
-| ZCode / CodeBuddy 设置页 | SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
+| ZCode 设置页 | SystemOne Decision → Advanced → **Custom Scenarios (JSON)** |
 
 改动后需重启宿主生效（MCP 是启动时拉起的 stdio 子进程）。注意它**只作用于 MCP 工具**，预检与风险闸 hook 不读这份配置。
 

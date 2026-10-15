@@ -642,7 +642,8 @@ export function validateScenario(spec) {
       problems.push('derive 必须是 {派生名: {question, values|map}} 对象');
     } else {
       // 逐项校验到 deriveFields 真正消费的形状：校验放行但运行时静默丢弃的定义（缺 values/map、
-      // values 非数组被 Array.isArray 分支跳过）在这里拦截，走统一的「整条跳过并告警」路径
+      // values 非数组被 Array.isArray 分支跳过、question 指向不存在的 qid、values/map 与题型不配、
+      // values 长度与分级数不等）在这里拦截，走统一的「整条跳过并告警」路径
       for (const [name, d] of Object.entries(spec.derive)) {
         if (!d || typeof d !== 'object' || Array.isArray(d)) {
           problems.push(`派生 ${name} 必须是 {question, values|map} 对象`);
@@ -652,12 +653,33 @@ export function validateScenario(spec) {
           problems.push(`派生 ${name} 的 question 必须是非空字符串`);
           continue;
         }
+        // question 必须落到本场景真实存在、题型合法的问题上，否则 deriveFields 取不到值、
+        // recommendation 里的 {派生名} 会渲染成空串
+        const target = questions[d.question];
+        if (!target || typeof target !== 'object' || !VALID_TYPES.has(target.type)) {
+          problems.push(`派生 ${name} 的 question "${d.question}" 不是本场景的有效问题（可用：${ids.join('、')}）`);
+          continue;
+        }
         if (d.values === undefined && d.map === undefined) {
           problems.push(`派生 ${name} 需要 values（分值映射数组）或 map（选项映射对象）之一`);
         } else {
-          if (d.values !== undefined && !Array.isArray(d.values)) problems.push(`派生 ${name} 的 values 必须是数组`);
-          if (d.map !== undefined && (d.map === null || typeof d.map !== 'object' || Array.isArray(d.map))) {
-            problems.push(`派生 ${name} 的 map 必须是 {键: 值} 对象`);
+          if (d.values !== undefined) {
+            if (!Array.isArray(d.values)) {
+              problems.push(`派生 ${name} 的 values 必须是数组`);
+            } else if (d.values.length === 0) {
+              problems.push(`派生 ${name} 的 values 不能为空数组`);
+            } else if (target.type !== 'score') {
+              problems.push(`派生 ${name} 的 values 按分值下标取值，只能用于 score 问题（${d.question} 是 ${target.type}）`);
+            } else if (Array.isArray(target.criteria) && d.values.length !== target.criteria.length) {
+              problems.push(`派生 ${name} 的 values 长度 ${d.values.length} 与问题 ${d.question} 的分级数 ${target.criteria.length} 不一致`);
+            }
+          }
+          if (d.map !== undefined) {
+            if (d.map === null || typeof d.map !== 'object' || Array.isArray(d.map)) {
+              problems.push(`派生 ${name} 的 map 必须是 {键: 值} 对象`);
+            } else if (target.type !== 'choice') {
+              problems.push(`派生 ${name} 的 map 按选项键取值，只能用于 choice 问题（${d.question} 是 ${target.type}）`);
+            }
           }
         }
       }
@@ -684,6 +706,14 @@ export function validateScenario(spec) {
 export function resolveScenarios(sources) {
   const scenarios = BUILTIN_SCENARIOS.map((s) => ({ ...s, source: 'builtin' }));
   const problems = [];
+  // 内置场景同样过一遍校验器：只告警、不丢弃（丢一个内置场景等于能力缺失），
+  // 让新增场景的同类缺陷在启动期就暴露，而不是等到运行时报错才被发现。
+  for (const s of BUILTIN_SCENARIOS) {
+    const issues = validateScenario(s);
+    if (issues.length > 0) {
+      problems.push(`内置场景 ${s.id} 定义异常（不影响加载）：${issues.join('；')}`);
+    }
+  }
   const list = Array.isArray(sources) ? sources : [];
   for (const { label, json } of list) {
     const raw = typeof json === 'string' ? json.trim() : '';

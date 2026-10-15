@@ -2,7 +2,6 @@
 name: "ralph-worker"
 description: "Ralph Pipeline 执行者：单任务执行、运行验证、原样回报。"
 color: yellow
-model: "custom:account%3Abigmodel-individual-coding-plan:GLM-5.3-Flash"
 injectAgentsMd: true
 ---
 

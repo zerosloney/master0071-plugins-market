@@ -16,11 +16,25 @@ const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-smoke-'));
 cpSync(pluginRoot, runRoot, { recursive: true });
 const serverPath = path.join(runRoot, 'mcp', 'server.mjs');
 
-// 宿主产品名词表：从各宿主清单目录名派生（.zcode-plugin → zcode），新增宿主建了
-// <name>-plugin/ 目录就自动纳入。匹配一律忽略大小写。
-const HOST_TOKENS = readdirSync(pluginRoot, { withFileTypes: true })
-  .filter((d) => d.isDirectory() && /^\..+-plugin$/.test(d.name))
-  .map((d) => d.name.replace(/^\./, '').replace(/-plugin$/, ''));
+// 宿主产品名词表：仓库已移除市场概念，只剩 .zcode-plugin 垫片一个清单目录，
+// 靠目录派生会漏掉「兼容 Agent Plugins 标准或支持 Claude 式 hook，但没有专属清单目录」
+// 的宿主。目录派生（<name>-plugin → name）+ 显式补充的并集才是完整词表。匹配一律忽略大小写。
+const HOST_TOKENS = [
+  ...new Set([
+    ...readdirSync(pluginRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && /^\..+-plugin$/.test(d.name))
+      .map((d) => d.name.replace(/^\./, '').replace(/-plugin$/, '')),
+    'claude',
+    'codebuddy',
+    'qwen',
+    'omp',
+    'cursor',
+    'vscode',
+    'copilot',
+    'kiro',
+    'openclaw',
+  ]),
+];
 
 // 只有部分宿主才有的界面概念。与宿主名同属「模型可见面不得指名某端」的范畴——
 // 「插件设置页」在 omp 等宿主下不存在，模型读到会去找一个
@@ -145,6 +159,31 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ ...FIXTURE, answers }));
       return;
     }
+    // 置信度垃圾值：JSON 没有 NaN/Infinity 字面量，1e999 靠文本替换注入（解析后即 Infinity）。
+    // typeof Infinity === 'number' 会漏过弱守卫；choice 的 probabilities 回退值还可能是非数字字符串。
+    // 归一化必须把它们收敛成 null（与 normalizeDecision 同一套 finite 口径），noul 概率无效时
+    // decision 已是「无法判断」，必须同步转人工。
+    if (parsed.state === 'mock:confidence-garbage') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        if (q.type === 'noul') {
+          answers[qid] = { type: 'noul', noul: '__INF__' };
+        } else if (q.type === 'score') {
+          answers[qid] = {
+            type: 'score',
+            legend: { '2': '核心功能不可用，没有替代方案' },
+            probabilities: { '2': 0.98 },
+            score: 2.000796,
+            confidence: '__INF__',
+          };
+        } else {
+          answers[qid] = { type: 'choice', choice: 'billing', probabilities: { billing: 'high' } };
+        }
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }).replaceAll('"__INF__"', '1e999'));
+      return;
+    }
     const answers = {};
     for (const [qid, q] of Object.entries(parsed.questions || {})) answers[qid] = answerFor(qid, q);
     res.setHeader('content-type', 'application/json');
@@ -207,8 +246,8 @@ const decide = (client, arguments_) => client.call('tools/call', { name: 'system
 const toolResult = (r) => JSON.parse(r.result.content[0].text);
 
 // 共享载荷的「模型可见面」（工具描述、报错文案）不得指名某个宿主。同一份
-// mcp/server.mjs 跑在 ZCode / ChatGPT Codex / CodeBuddy / omp 等多端，指名某一端才有的
-// 东西在其他端是误导，而且不会报错、只静默失效。源代码注释不在此列：那里提宿主名
+// mcp/server.mjs 跑在 ZCode / Claude Code / CodeBuddy / Qwen Code / omp 等多端，指名某一端
+// 才有的东西在其他端是误导，而且不会报错、只静默失效。源代码注释不在此列：那里提宿主名
 // 是解释 why 的必要信息（如超时预算的推导依据）。
 //
 // 宿主名用词边界匹配，只认「作为名字出现」的写法：裸子串匹配会误伤——`omp` 是
@@ -247,7 +286,7 @@ const main = async () => {
     });
 
     // 共享载荷的「模型可见面」——工具描述与报错文案——不得指名某个宿主。同一份
-    // mcp/server.mjs 跑在 ZCode / ChatGPT Codex / CodeBuddy / omp 等多端，指名某一端才有的
+    // mcp/server.mjs 跑在 ZCode / Claude Code / CodeBuddy / Qwen Code / omp 等多端，指名某一端才有的
     // 入口（插件设置页、重启 ZCode）在其他端是误导，而且不会报错、只静默失效。
     // 源代码注释不在此列：那里提宿主名是解释 why 的必要信息（如超时预算的推导）。
     const errorText = async (name, args) => {
@@ -270,7 +309,7 @@ const main = async () => {
     ];
     check('宿主清单目录被正确识别（防止词表为空导致下一条空转）', () => {
       assert.ok(HOST_TOKENS.length >= 4, `词表只有 ${HOST_TOKENS.length} 项：${HOST_TOKENS}`);
-      for (const expected of ['zcode', 'omp', 'codex', 'codebuddy']) {
+      for (const expected of ['zcode', 'claude', 'codebuddy', 'qwen', 'omp', 'cursor']) {
         assert.ok(HOST_TOKENS.some((t) => t.toLowerCase() === expected), `词表缺 ${expected}：${HOST_TOKENS}`);
       }
     });
@@ -389,6 +428,25 @@ const main = async () => {
       assert.equal(badNoul.labels.escalate, '无法判断');
       assert.equal(badNoul.needs_human_review, true);
       assert.deepEqual(badNoul.low_confidence_questions, ['escalate']);
+    });
+
+    // 同类缺口：置信度本身的垃圾值（Infinity / 非数字回退）必须收敛为 null——
+    // answers 与 confidences 两个视图不得一个丢弃一个放行；置信度缺失与低于阈值
+    // 同等对待（无法证明可信的判定不自动放行），三题全部转人工。
+    const garbage = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:confidence-garbage' })
+    );
+    check('畸形置信度（Infinity/非数字回退）收敛为 null，三题全部转人工且视图一致', () => {
+      assert.equal(garbage.answers.escalate.probability, null, 'noul 概率 Infinity 必须收敛为 null');
+      assert.equal(garbage.answers.escalate.confidence, null);
+      assert.equal(garbage.decision.escalate, null);
+      assert.equal(garbage.labels.escalate, '无法判断');
+      assert.equal(garbage.answers.department.confidence, null, 'probabilities 回退的非数字字符串必须收敛为 null');
+      assert.equal(garbage.decision.department, 'billing', 'choice 判定值本身有效时不受影响');
+      assert.equal(garbage.answers.severity.confidence, null, 'score 的 Infinity 置信度必须收敛为 null');
+      assert.ok(!('department' in garbage.confidences) && !('severity' in garbage.confidences) && !('escalate' in garbage.confidences), 'answers 与 confidences 两个视图必须一致');
+      assert.equal(garbage.needs_human_review, true, '置信度缺失的三题必须全部转人工');
+      assert.deepEqual(garbage.low_confidence_questions, ['department', 'severity', 'escalate']);
     });
 
     // 同一类缺口的另两种形态：choice 幻觉出判据表里没有的选项（高 confidence 也必须转人工）、
@@ -559,6 +617,14 @@ const main = async () => {
     check('非法 format 被拒绝', () => {
       assert.equal(badFormat.result.isError, true);
       assert.match(badFormat.result.content[0].text, /format 必须是/);
+    });
+
+    const emptyFormat = toolResult(
+      await decide(client, { state: '空格式探测', questions: { q: { type: 'noul', instructions: '是吗？' } }, format: '' })
+    );
+    check('format 空串视为未配置（回退 full，与阈值同一套空值约定）', () => {
+      assert.equal(emptyFormat.ok, true);
+      assert.ok('answers' in emptyFormat, '回退 full 应含逐题明细');
     });
 
     await decide(client, { state: '缓存探测', questions: { q: { type: 'noul', instructions: '是吗？' } } });
@@ -753,6 +819,13 @@ const main = async () => {
     // 不允许"校验放行、normalizeScenario/deriveFields 运行时静默丢弃"
     { id: 'bad_aliases', title: '坏别名', aliases: ['合规别名', 123], questions: { q1: { type: 'noul', instructions: '?' } } },
     { id: 'bad_derive', title: '坏派生', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'q1' } } },
+    // derive 与 questions 的对应关系：qid 必须存在、values 只配 score / map 只配 choice、
+    // values 长度须与分级数一致、空数组会让模板条件恒真——全部在校验层拦截
+    { id: 'bad_qid', title: '坏派生 qid', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'ghost', values: ['a'] } } },
+    { id: 'bad_values_type', title: 'values 挂在 choice 上', questions: { q1: { type: 'choice', instructions: '?', criteria: { a: 'A', b: 'B' } } }, derive: { x: { question: 'q1', values: ['低', '高'] } } },
+    { id: 'bad_map_type', title: 'map 挂在 score 上', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', map: { 0: '低' } } } },
+    { id: 'bad_values_len', title: 'values 长度不匹配', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', values: ['P1', 'P2', 'P3'] } } },
+    { id: 'bad_values_empty', title: 'values 空数组', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', values: [] } } },
     // 模板增强语法：then-only 条件、AND 条件、花括号转义
     {
       id: 'tmpl_test',
@@ -781,6 +854,11 @@ const main = async () => {
       assert.ok(!byId.has('bad_one'));
       assert.ok(!byId.has('bad_aliases'));
       assert.ok(!byId.has('bad_derive'));
+      // derive 与 questions 不对应（qid 不存在 / 题型不配 / 长度不符 / 空数组）一律整条跳过，
+      // 不允许「校验放行、运行时静默产出空建议或恒真条件」
+      for (const id of ['bad_qid', 'bad_values_type', 'bad_map_type', 'bad_values_len', 'bad_values_empty']) {
+        assert.ok(!byId.has(id), `${id} 应被校验器跳过，实际混进了场景库`);
+      }
       assert.ok(customList.summary.includes('（自定义）'));
     });
 
@@ -840,6 +918,7 @@ const main = async () => {
       assert.equal(stats.scenarios.customer_service.count, 2);
       assert.equal(stats.scenarios.customer_service.cached, 1);
       assert.equal(stats.scenarios.software_dev.count, 1);
+      assert.equal(stats.cached, 1, '顶层 cached 应等于全部缓存命中数');
       assert.ok(stats.summary.includes('决策统计'));
     });
   } finally {

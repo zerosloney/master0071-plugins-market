@@ -13,18 +13,22 @@ export function config(env) {
     apiKey: env.SYSTEMONE_API_KEY || env.UNISOUND_API_KEY || '',
     baseUrl: (shared?.baseUrl || env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
     model: shared?.model || env.SYSTEMONE_MODEL || 'u2-decision',
-    // 时间预算：请求默认 8s（用户可配至 12s）< 进程自毁 14s < hooks.json 的 handler 15s 上限。
+    // 时间预算：请求默认 8s（用户可配至 12s）；hook 侧以共享 deadline 收缩（见
+    // requirement-clarity.mjs / pretool-risk.mjs），stdin 耗时与请求总和不超过 handler 15s。
     // 实测真实接口延迟约 0.1s，8s 仍有 80 倍余量；hook 失败绝不阻塞用户输入。
     timeoutMs: Math.min(timeoutPreferred, 12000),
   };
 }
 
-export async function decide(state, cfg, questions) {
+export async function decide(state, cfg, questions, timeoutMsOverride) {
+  // 调用方传入共享 deadline 的剩余预算时取二者较小值，请求不会越过 hook 的 handler 超时
+  const timeoutMs =
+    Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;
   const res = await fetch(`${cfg.baseUrl}/systemone`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: cfg.model, state, questions }),
-    signal: AbortSignal.timeout(cfg.timeoutMs),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();

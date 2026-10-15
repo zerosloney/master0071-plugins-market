@@ -18,7 +18,10 @@ function readStdin() {
 }
 
 async function main() {
-  // stdin 异常挂起时的兜底自毁，避免每次工具调用都吃满 hook 进程超时
+  // stdin 与判定请求共享一个 deadline（而非各自接力）：stdin 花掉多久，请求就只剩多少
+  // （留 1s 进程收尾余量），总和锁死在 hooks.json 的 handler 15s 内。killer 保留为
+  // stdin 异常挂起时的兜底自毁，避免每次工具调用都吃满 hook 进程超时。
+  const startedAt = Date.now();
   const killer = setTimeout(() => process.exit(0), 14000);
   const raw = await readStdin();
   clearTimeout(killer);
@@ -28,7 +31,9 @@ async function main() {
   } catch {
     input = {};
   }
-  const verdict = await assess(input.tool_name, input.tool_input);
+  const left = 14_000 - (Date.now() - startedAt) - 1_000;
+  if (left <= 0) return null; // stdin 已耗尽预算：fail-open，不再发判定请求
+  const verdict = await assess(input.tool_name, input.tool_input, process.env, { timeoutMs: left });
   if (!verdict) return null;
   return JSON.stringify({
     hookSpecificOutput: {

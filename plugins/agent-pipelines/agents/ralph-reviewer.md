@@ -2,7 +2,6 @@
 name: "ralph-reviewer"
 description: "Ralph Pipeline 只读质量阀：accept_criteria 复核、verdict 输出。"
 color: yellow
-model: "account:bigmodel-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: max
 injectAgentsMd: true
 ---

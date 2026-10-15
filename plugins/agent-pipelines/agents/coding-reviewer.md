@@ -2,7 +2,6 @@
 name: "coding-reviewer"
 description: "Coding-Pipeline 只读审查 Agent：scope drift 检测、根因归并、verdict 输出。"
 color: yellow
-model: "account:bigmodel-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: max
 tools:
   - Read
@@ -63,7 +62,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
   "scope_drift": "PASS | WARN | FAIL",
   "issues": [
     {
-      "severity": "critical | major | minor | nit",
+      "severity": "critical | major | minor | info",
       "category": "scope | correctness | safety | performance | maintainability",
       "root_cause_group": "<归并到的根因 id；同一根因的多个 issue 用同一 id>",
       "file": "<路径>",

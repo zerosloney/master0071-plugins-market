@@ -1,6 +1,6 @@
 # systemone-decision
 
-五端共用插件（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp）：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
+标准 Agent Plugin 布局插件：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
 - **场景决策** `systemone_scenario` — `action=list / describe / run / batch / stats`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
 - **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
@@ -108,23 +108,26 @@ systemone_scenario(action: "run",
 - 校验约束：问题 1~16 个、choice 选项 2~26 个、score 分级 ≥2 级；**非法条目整条跳过并在日志告警**，不影响内置与其余自定义场景；某一来源 JSON 解析失败则跳过该来源、回退其余来源与内置场景库。
 - 场景可带 `confidenceThreshold`（0~1）定义自己的默认复核阈值；生效后 `action=list` 可见（标注"自定义"），describe / run / batch 与内置场景无差别。
 
-## 多端支持（ChatGPT Codex / ZCode / CodeBuddy / Qwen Code / omp）
+## 宿主支持（Agent Plugins 标准布局）
 
-同一个插件包内并存多份清单，各产品只认自己那份，互不遮蔽：
+插件按 [Agent Plugins 1.0.0](https://agent-plugins.org) 打包，可移植核心是根 `plugin.json`（封闭 schema）、`skills/systemone-decision/SKILL.md`、`mcp.json`，客户端按固定位置自动发现，清单里不写组件路径：
 
-| 文件 | 归属 | 作用 |
+| 组件 | 位置 | 状态 |
 |------|------|------|
-| `.zcode-plugin/plugin.json` | ZCode | 内联 `mcpServers`、字符串式 `skills`/`hooks`、带 `userConfig` 设置页 |
-| `systemone.mcp.json` | ChatGPT Codex | stdio MCP 声明（ZCode 直接忽略） |
-| `.codex-plugin/plugin.json` | ChatGPT Codex | Codex 兼容清单，`mcpServers` 引用 `./systemone.mcp.json`，`hooks` 复用 `hooks/hooks.json` |
-| `.codebuddy-plugin/plugin.json` | CodeBuddy | 内联 `mcpServers`（`${CODEBUDDY_PLUGIN_ROOT}`）+ `userConfig` 启用提示配置，`hooks` 复用 `hooks/hooks.json` |
-| `hooks/hooks.json` | ZCode / ChatGPT Codex / CodeBuddy | `${CLAUDE_PLUGIN_ROOT}`，handler timeout 15s |
+| 清单 | `plugin.json` | 标准（`$schema` + `name` 必填，版本以此为准） |
+| MCP | `mcp.json` | 标准（`mcpServers.systemone.type = "stdio"`） |
+| Skill | `skills/systemone-decision/` | 标准（`skills/<name>/SKILL.md`） |
+| Hooks | `hooks/hooks.json` | **客户端约定，非标准** |
 
-业务载荷（`mcp/*.mjs`、`endpoint-config.mjs`、`skills/`、`hooks/clarity.mjs`）完全共享，各端运行的是同一份代码。hook 清单的 handler 不支持相对路径（其 cwd 是会话工作区而非插件目录），插件根目录用 `${CLAUDE_PLUGIN_ROOT}` 变量定位。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`——各端改同一处门限不会漂移。
+`hooks/` 不是 Agent Plugins 的组件类型，它服务 Claude Code / ZCode 这类支持 Claude 式 hook 的宿主，用 `${CLAUDE_PLUGIN_ROOT}` 定位插件根。Agent Plugins 兼容客户端会忽略它，插件其余能力不受影响。
 
-**配置差异**：CodeBuddy 在启用插件时按 `userConfig` 提示收集上表四项配置（键名与 ZCode 设置页一致），omp 与 Qwen Code 没有可用的插件设置页，走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
+**ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 额外提供内联 `mcpServers` 与 `userConfig` 设置页，配合仓库根 `marketplace.json` 使用，ZCode 的 `/plugin marketplace add` 装法不变。这两份是**非标准**的（规范要求一个包内有且仅有一个根 `plugin.json`），保留它们是为不破坏 ZCode 现有安装方式的自觉取舍。Agent Plugins 客户端会忽略。两处版本必须一致（`node scripts/release.mjs --check` 校验）。
 
-**市场注册**：ChatGPT Codex 读取仓库根目录 `.agents/plugins/marketplace.json`；ZCode 读取仓库根目录 `marketplace.json`；omp 读 `.omp-plugin/marketplace.json`；CodeBuddy 读 `.codebuddy-plugin/marketplace.json`（Claude 插件清单格式，CLI `codebuddy plugin marketplace add zerosloney/master0071-plugins-market`）；Qwen Code 读 `.claude-plugin/marketplace.json`（Claude 格式转换安装，`qwen extensions install zerosloney/master0071-plugins-market:systemone-decision`——skills + 内联 MCP 声明，hook 不注册）。
+**凭据**：`mcp.json` 里不写任何密钥，stdio 子进程直接继承用户环境变量，因此 `SYSTEMONE_API_KEY` 不会被打包或落盘。
+
+业务载荷（`mcp/*.mjs`、`endpoint-config.mjs`、`skills/`、`hooks/`）完全共享，各宿主运行的是同一份代码。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`——改同一处门限不会跨端漂移。
+
+**配置入口差异**：只有 ZCode 的兼容垫片清单带 `userConfig`，所以只有它有设置页；其余宿主走 `SYSTEMONE_BASE_URL` / `SYSTEMONE_MODEL` / `SYSTEMONE_TIMEOUT_MS` / `SYSTEMONE_SCENARIOS` 环境变量。功能不丢，只是入口不同——服务端取值链本身就是 `SYSTEMONE_PLUGIN_*`（设置项）→ `SYSTEMONE_*`（环境变量）→ 内置默认。
 
 ## ZCode 设置页配置
 
@@ -176,7 +179,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（ZCode / ChatGPT Codex / CodeBuddy 读 `hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`，任何失败都 fail-open，绝不阻塞输入或工具调用）：
+插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`，任何失败都 fail-open，绝不阻塞输入或工具调用）：
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
@@ -216,11 +219,10 @@ hooks/
 ├── requirement-clarity.mjs  UserPromptSubmit 脚本（hooks.json 各端共享的 stdin/stdout 协议）
 ├── risk-gate.mjs            shell 命令风险闸内核（放行 / 确认 / 拒绝的门限与理由文案）
 ├── pretool-risk.mjs         PreToolUse 脚本（permissionDecision deny/ask 输出协议）
-└── hooks.json               ZCode / ChatGPT Codex / CodeBuddy 清单（${CLAUDE_PLUGIN_ROOT}，timeout 15）
-skills/            使用指引与场景文档
-.zcode-plugin/     ZCode 清单
-.codex-plugin/     ChatGPT Codex 清单（mcpServers 指向 systemone.mcp.json）
-.codebuddy-plugin/ CodeBuddy 清单（内联 mcpServers + userConfig）
-systemone.mcp.json ChatGPT Codex 的 MCP 声明
-icon.png           ChatGPT Codex 界面 logo
+└── hooks.json               事件清单（UserPromptSubmit 需求预检 + PreToolUse 风险闸，${CLAUDE_PLUGIN_ROOT}，timeout 15）
+skills/            使用指引与场景文档（skills/systemone-decision/SKILL.md）
+plugin.json        Agent Plugins 标准清单（版本权威来源）
+mcp.json           Agent Plugins 标准 MCP 声明（mcpServers / type: stdio）
+.zcode-plugin/     ZCode 兼容垫片，非标准（内联 mcpServers + 设置页 userConfig）
+icon.png           界面 logo
 ```

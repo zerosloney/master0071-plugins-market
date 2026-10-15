@@ -16,6 +16,17 @@ function finiteScore(answer) {
 }
 
 /**
+ * 取出可用的 confidence 数值，无效时返回 null。与 finiteScore 同理：`Number(null) === 0`
+ * 会被 isFinite 判真，把「模型没给置信度」渲染成 0.0%，所以先做 typeof 收窄再取值。
+ * @param {object} answer - SystemOne 原始答案
+ * @returns {number | null}
+ */
+function finiteConfidence(answer) {
+  const c = answer ? answer.confidence : undefined;
+  return typeof c === 'number' && Number.isFinite(c) ? c : null;
+}
+
+/**
  * 归一化单个答案为逐题明细（answers[qid]）。
  * @param {object} question - 问题定义（含 type / criteria）
  * @param {object} answer - SystemOne 原始答案
@@ -29,11 +40,14 @@ export function normalizeAnswer(question, answer) {
   if (out.type === 'choice') {
     out.value = answer.choice ?? null;
     out.probabilities = answer.probabilities || {};
-    out.confidence =
-      typeof answer.confidence === 'number' ? answer.confidence : (answer.probabilities || {})[answer.choice] ?? null;
+    // probabilities 回退值同样只认有限数字：字符串（如 "high"）或 Infinity 会静默绕过阈值比较
+    const fallback = (answer.probabilities || {})[answer.choice];
+    out.confidence = finiteConfidence(answer) ?? (Number.isFinite(fallback) ? fallback : null);
   } else if (out.type === 'noul') {
-    // noul 无独立 confidence 字段，用概率的决断度 max(p, 1-p) 代替
-    const p = typeof answer.noul === 'number' ? answer.noul : null;
+    // noul 无独立 confidence 字段，用概率的决断度 max(p, 1-p) 代替。
+    // typeof Infinity === 'number'（JSON 里 1e999 即是），必须同时 isFinite，否则
+    // Infinity 概率会同时漏过阈值比较与 isBorderline，决策却已显示「无法判断」
+    const p = typeof answer.noul === 'number' && Number.isFinite(answer.noul) ? answer.noul : null;
     out.probability = p;
     out.confidence = p === null ? null : Math.max(p, 1 - p);
   } else if (out.type === 'score') {
@@ -48,7 +62,7 @@ export function normalizeAnswer(question, answer) {
           (Array.isArray(question?.criteria) ? question.criteria[Math.round(score)] : undefined) ??
           null;
     out.probabilities = answer.probabilities || {};
-    out.confidence = typeof answer.confidence === 'number' ? answer.confidence : null;
+    out.confidence = finiteConfidence(answer);
   }
   return out;
 }
@@ -73,7 +87,8 @@ export function normalizeDecision(rawAnswers, questions = {}) {
       const key = raw.choice ?? null;
       decision[qid] = key;
       labels[qid] = key != null ? (question?.criteria?.[key] ?? raw.choice ?? String(key)) : '无法判断';
-      if (Number.isFinite(Number(raw.confidence))) confidences[qid] = Number(raw.confidence);
+      const c = finiteConfidence(raw);
+      if (c !== null) confidences[qid] = c;
       continue;
     }
     if (type === 'score') {
@@ -83,7 +98,8 @@ export function normalizeDecision(rawAnswers, questions = {}) {
       const legend = raw.legend || {};
       const scale = Array.isArray(question?.criteria) ? question.criteria : [];
       labels[qid] = idx != null ? (legend[String(idx)] ?? scale[idx] ?? String(idx)) : '无法判断';
-      if (Number.isFinite(Number(raw.confidence))) confidences[qid] = Number(raw.confidence);
+      const c = finiteConfidence(raw);
+      if (c !== null) confidences[qid] = c;
       continue;
     }
     if (type === 'noul') {
@@ -114,7 +130,12 @@ export function deriveFields(deriveSpec, decision) {
       const idx = Number(value);
       if (!Number.isFinite(idx)) continue;
       const clamped = Math.min(Math.max(Math.round(idx), 0), spec.values.length - 1);
-      derived[name] = spec.values[clamped];
+      const picked = spec.values[clamped];
+      // values 为空数组时 clamped 算出 -1、取到 undefined。绝不能把 undefined 写进 derived：
+      // 模板 truthy() 只看 `name in derived`，键一存在 {d?A|B} 就无条件命中 A，
+      // 派生没值却输出「命中」结论。
+      if (picked === undefined) continue;
+      derived[name] = picked;
     } else if (spec.map && typeof spec.map === 'object') {
       if (value == null) continue;
       derived[name] = spec.map[String(value)] ?? String(value);
@@ -251,7 +272,7 @@ export function buildSummary({ title, model, requestId, latencyMs, lines = [], r
   if (recommendation) out.push(`- **建议**：${recommendation}`);
   out.push(
     needsReview
-      ? `- **建议复核**：需要人工复核（低置信或无法判断：${lowQuestions.join('、')}）`
+      ? `- **建议复核**：需要人工复核（低置信、置信度缺失或无法判断：${lowQuestions.join('、')}）`
       : '- **建议复核**：无需人工复核'
   );
   return out.filter(Boolean).join('\n');

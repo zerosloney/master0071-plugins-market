@@ -6,7 +6,7 @@
 // 供应商配置见插件 README.md：SYSTEMONE_API_KEY / SYSTEMONE_BASE_URL / SYSTEMONE_MODEL / SYSTEMONE_TIMEOUT_MS。
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
 import { writeEndpointConfig } from '../endpoint-config.mjs';
 import {
@@ -18,7 +18,7 @@ import {
   renderTemplate,
 } from './format.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.0' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.1' };
 const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 15 个 + 自定义场景（场景文件 / 设置页 / 环境变量，同 id 覆盖内置，
@@ -89,11 +89,25 @@ function cacheKey(model, state, request) {
 // ---------- 审计日志：LOG_FILE 指向 JSONL 文件时逐条追加，action=stats 消费 ----------
 
 const LOG_FILE = process.env.SYSTEMONE_PLUGIN_LOG_FILE || process.env.SYSTEMONE_LOG_FILE || '';
+// 审计日志只追加不轮转的话，长跑进程会让 action=stats 一次读进几 MB 并逐行 parse。
+// 超上限时原地截断并留一行标记，保证 stats 的读放大有界（更早的记录以标记明示丢失）。
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
 let logBroken = false;
 function appendLog(entry) {
   if (!LOG_FILE || logBroken) return;
+  const line = `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`;
   try {
-    appendFileSync(LOG_FILE, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
+    let size = 0;
+    try {
+      size = statSync(LOG_FILE).size;
+    } catch {
+      size = 0; // 文件还不存在
+    }
+    // 字节数按 UTF-8 计（Buffer.byteLength）：中文行用 line.length 会低估约 3 倍，5MB 上限实际装得下 ~15MB
+    if (size + Buffer.byteLength(line) > LOG_MAX_BYTES) {
+      writeFileSync(LOG_FILE, `# 日志超过 ${LOG_MAX_BYTES} 字节，已截断，更早的记录不再保留\n`);
+    }
+    appendFileSync(LOG_FILE, line);
   } catch (e) {
     logBroken = true;
     process.stderr.write(`[systemone-decision] 审计日志写入失败，本次进程内停用：${e.message}\n`);
@@ -176,7 +190,7 @@ function validateQuestions(questions) {
 
 // ---------- 供应商接入点：换厂商只改环境变量，不动这里 ----------
 
-async function callSystemone(state, questions) {
+async function callSystemone(state, questions, timeoutMsOverride) {
   const cfg = config();
   if (!cfg.apiKey) {
     throw new ToolError(
@@ -184,6 +198,7 @@ async function callSystemone(state, questions) {
         'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
     );
   }
+  const timeoutMs = Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? timeoutMsOverride : cfg.timeoutMs;
   const key = cacheKey(cfg.model, state, questions);
   if (CACHE_TTL_MS > 0) {
     const hit = decisionCache.get(key);
@@ -195,7 +210,7 @@ async function callSystemone(state, questions) {
   }
   const url = `${cfg.baseUrl}/systemone`;
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), cfg.timeoutMs);
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(url, {
@@ -206,7 +221,7 @@ async function callSystemone(state, questions) {
     });
   } catch (e) {
     if (ac.signal.aborted) {
-      throw new ToolError(`systemone 请求超时（${cfg.timeoutMs}ms）：POST ${url}`);
+      throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${url}`);
     }
     throw new ToolError(`systemone 请求失败：POST ${url}，原因：${e.message}`);
   } finally {
@@ -265,8 +280,10 @@ function thresholdOf(args, fallback = 0.7) {
 }
 
 function formatOf(args) {
-  if (args.format === undefined || args.format === null) return 'full';
-  if (args.format === 'full' || args.format === 'brief') return args.format;
+  const raw = args.format;
+  // 空串视为未配置（回退 full），与 thresholdOf / config() 的「空串=未配置」同一套约定
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return 'full';
+  if (raw === 'full' || raw === 'brief') return raw;
   throw new ToolError('format 必须是 full（默认，完整明细）或 brief（精简，省上下文）');
 }
 
@@ -275,18 +292,20 @@ function formatOf(args) {
 /**
  * @param {unknown} state - 业务上下文
  * @param {object} questions - 问题定义（含本地展示字段 label，发送前剥离）
- * @param {number} threshold - 低置信度阈值
- * @param {object} [meta] - 场景元数据 { id, title, derive, recommendation }，自定义决策留空
- * @param {string} [format] - full（默认，含逐题明细/摘要/原始响应）| brief（精简，省上下文）
+ * @param {object} opts - 执行选项
+ * @param {number} opts.threshold - 低置信度阈值
+ * @param {object} [opts.meta] - 场景元数据 { id, title, derive, recommendation }，自定义决策留空
+ * @param {string} [opts.format] - full（默认，含逐题明细/摘要/原始响应）| brief（精简，省上下文）
+ * @param {number} [opts.timeoutMs] - 本次请求的超时上限（批量判定按剩余预算收敛）
  */
-async function executeDecision(state, questions, threshold, meta = {}, format = 'full') {
+async function executeDecision(state, questions, { threshold, meta = {}, format = 'full', timeoutMs } = {}) {
   validateState(state);
   validateQuestions(questions);
   const request = {};
   for (const [qid, q] of Object.entries(questions)) {
     request[qid] = q.type === 'noul' ? { type: q.type, instructions: q.instructions } : { type: q.type, instructions: q.instructions, criteria: q.criteria };
   }
-  const data = await callSystemone(state, request);
+  const data = await callSystemone(state, request, timeoutMs);
 
   const answers = {};
   const low = [];
@@ -295,7 +314,9 @@ async function executeDecision(state, questions, threshold, meta = {}, format = 
     answers[qid] = a;
     if (!a.present) {
       low.push(qid); // 响应缺失该答案，视作无法判断
-    } else if (a.confidence !== null && a.confidence < threshold) {
+    } else if (a.confidence === null || a.confidence < threshold) {
+      // confidence 缺失/非法（已在 normalizeAnswer 收敛为 null）与低于阈值同等对待：
+      // 无法证明可信的判定不自动放行
       low.push(qid);
     } else if (isBorderline(a, q, data.answers[qid])) {
       low.push(qid);
@@ -544,12 +565,20 @@ function runScenario(args) {
   const questions = applyParams(scenario, args.params);
   const format = formatOf(args);
   // 阈值优先级：调用参数 > 场景定义默认（如 security_triage 0.8）> 全局 0.7
-  return executeDecision(args.state, questions, thresholdOf(args, scenario.confidenceThreshold ?? 0.7), scenarioMeta(scenario), format);
+  return executeDecision(args.state, questions, {
+    threshold: thresholdOf(args, scenario.confidenceThreshold ?? 0.7),
+    meta: scenarioMeta(scenario),
+    format,
+  });
 }
 
 // ---------- 批量决策：同一场景对多条 state 依次判定，单条失败不中断 ----------
 
 const BATCH_MAX = 10;
+// 整批聚合预算：串行判定 10 条若各吃满单条超时（默认 30s）会到 300s，而宿主 MCP 客户端
+// 对单次工具调用的超时通常在 30s 量级，客户端先断则已完成结果全丢。留 25s 收口，
+// 并把剩余预算作为单条上限传下去，保证不会出现「一条把整批拖爆」的长尾。
+const BATCH_BUDGET_MS = 25_000;
 
 async function runBatch(args) {
   if (!isNonEmptyString(args.scenario)) {
@@ -568,17 +597,26 @@ async function runBatch(args) {
   const questions = applyParams(scenario, args.params);
   const threshold = thresholdOf(args, scenario.confidenceThreshold ?? 0.7);
   const meta = scenarioMeta(scenario);
+  const startedAt = Date.now();
   const results = [];
   for (const [index, state] of args.states.entries()) {
+    const left = BATCH_BUDGET_MS - (Date.now() - startedAt);
+    if (left <= 0) {
+      // 预算耗尽：逐条标出未执行并提示分批，已完成的结果照常返回，不让客户端超时把成果全吞掉。
+      // budget_exhausted 是结构化标记：判定不得依赖 error 文案，改文案不该翻转归类
+      results.push({ index, ok: false, budget_exhausted: true, error: `批量总预算 ${BATCH_BUDGET_MS}ms 已用尽，该条未执行，请分批重试` });
+      continue;
+    }
     try {
       // batch 走精简形状（不含逐题明细/摘要/原始响应），避免批量返回撑爆上下文
-      const r = await executeDecision(state, questions, threshold, meta, 'brief');
+      const r = await executeDecision(state, questions, { threshold, meta, format: 'brief', timeoutMs: left });
       results.push({ index, ...r, ok: true }); // ok 显式置后：brief 结果本就带 ok:true，展开后仍须保住
     } catch (e) {
       results.push({ index, ok: false, error: e.message });
     }
   }
   const failed = results.filter((r) => !r.ok);
+  const exhausted = failed.filter((r) => r.budget_exhausted === true).length;
   const summary = [
     `## ${scenario.title} · 批量判定（${results.length} 条）`,
     ...results.map((r) =>
@@ -586,11 +624,23 @@ async function runBatch(args) {
         ? `- #${r.index + 1}：${r.recommendation || '（无建议）'}${r.needs_human_review ? ' ⚠️ 需人工复核' : ''}`
         : `- #${r.index + 1}：失败 — ${r.error}`
     ),
-    failed.length ? `\n${failed.length} 条失败，其余正常。` : '',
+    failed.length
+      ? `\n${failed.length} 条失败（其中 ${exhausted} 条因超出 ${BATCH_BUDGET_MS}ms 批量预算未执行）${exhausted ? '，其余正常，请对未执行部分分批重试' : '，其余正常'}。`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');
-  return { ok: true, action: 'batch', scenario: scenario.id, count: results.length, failed: failed.length, results, summary };
+  return {
+    ok: true,
+    action: 'batch',
+    scenario: scenario.id,
+    count: results.length,
+    failed: failed.length,
+    budget_exhausted: exhausted > 0,
+    elapsed_ms: Date.now() - startedAt,
+    results,
+    summary,
+  };
 }
 
 // ---------- 决策统计：消费审计日志（LOG_FILE），按场景汇总复核率与判定分布 ----------
@@ -629,7 +679,10 @@ function readStats() {
     const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
     s.count += 1;
     if (e.needs_human_review) s.review += 1;
-    if (e.cached) s.cached += 1;
+    if (e.cached) {
+      s.cached += 1;
+      cached += 1;
+    }
     s.latency_total += Number(e.latency_ms) || 0;
     for (const [qid, v] of Object.entries(e.decision || {})) {
       const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
@@ -669,7 +722,8 @@ const TOOLS = [
       'SystemOne 场景决策：把业务状态与预置的结构化问题一次性提交给决策模型，返回带概率分布的判定、' +
       '归一化决策（decision/labels/derived）与处置建议（recommendation）。action=list 列出场景，' +
       'action=describe 查看场景问题定义，action=run 执行决策，action=batch 对同一场景批量判定多条 state' +
-      '（最多 10 条，返回精简结果），action=stats 汇总审计日志（需配置 SYSTEMONE_LOG_FILE）。' +
+      '（最多 10 条，返回精简结果；整批预算 25s，超预算的条目会标为未执行并提示分批），' +
+      'action=stats 汇总审计日志（需配置 SYSTEMONE_LOG_FILE）。' +
       '内置场景：customer_service 工单分流、content_moderation 内容审核、agent_routing 智能体路由、' +
       'result_verification 结果校验、software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、' +
       'test_failure 测试失败根因分流、pr_review 代码评审合并门禁、incident_response 事故定级与回滚处置、' +
@@ -697,7 +751,9 @@ const TOOLS = [
         },
         states: {
           type: 'array',
-          description: '业务上下文数组（batch 必填，2~10 条）：每条与 state 同构，逐条判定',
+          description:
+            '业务上下文数组（batch 必填，2~10 条）：每条与 state 同构，逐条判定。整批共享 25s 预算，' +
+            '超预算的条目返回 error 标注未执行，请分批重试',
         },
         params: {
           type: 'object',
@@ -755,7 +811,7 @@ const TOOLS = [
       required: ['state', 'questions'],
     },
     handler: async (args) =>
-      executeDecision(args.state, args.questions || {}, thresholdOf(args), {}, formatOf(args)),
+      executeDecision(args.state, args.questions || {}, { threshold: thresholdOf(args), format: formatOf(args) }),
   },
 ];
 

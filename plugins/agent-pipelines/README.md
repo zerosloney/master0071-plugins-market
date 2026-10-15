@@ -25,13 +25,65 @@ coding 管道额外约束：
 
 ## 使用
 
-```
-/ralph-pipeline <目标描述>
-/coding-pipeline <编码任务描述>
-```
+两种入口，机制完全一致：
+
+| 入口 | 宿主要求 | 文件 |
+|------|---------|------|
+| `/ralph-pipeline <目标>` / `/coding-pipeline <编码任务>` | 支持斜杠命令的宿主 | `commands/`（客户端约定） |
+| 加载 `ralph-pipeline` / `coding-pipeline` skill | 支持 Agent Skills 的宿主 | `skills/`（**Agent Plugins 1.0.0 标准**） |
 
 Orchestrator 全程通过子代理工具委派，不直接产出业务代码；每轮写入状态文件并按门禁决定停止。
 
-## 子智能体模型说明
+## 子智能体模型策略
 
-agents frontmatter 中 pin 了 `GLM-5.3`（主控）与 `GLM-5.3-Flash`（执行/审查）分层。若模型不可用，可在安装后编辑各 agent 定义或移除 `model` 字段回退会话默认模型。
+agents frontmatter **不写死 `model`**，一律回退宿主会话的默认模型——换账号、换供应商、换宿主的用户装完即可直接用，不需要改文件。
+
+需要分层模型（主控用强模型、执行/审查用轻模型）时，在各 agent frontmatter 里自行补 `model` 字段即可，其余内容不用动。
+
+## 宿主支持
+
+按 [Agent Plugins 1.0.0](https://agent-plugins.org) 打包，根 `plugin.json` 是标准清单（`$schema` + `name` 必填，版本以此为准）。
+
+### 可移植核心（标准，Agent Plugins 兼容客户端会加载）
+
+| 路径 | 内容 |
+|------|------|
+| `skills/ralph-pipeline/SKILL.md` | Ralph 管道编排协议（状态 schema、拆分判据、委派契约、停止枚举） |
+| `skills/ralph-pipeline/references/worker-role.md` | ralph-worker 角色契约（内联，可移植宿主不加载 `agents/`） |
+| `skills/ralph-pipeline/references/reviewer-role.md` | ralph-reviewer 角色契约 |
+| `skills/coding-pipeline/SKILL.md` | Coding 管道编排协议（含 scope 零容忍、根因分组、零证据禁令） |
+| `skills/coding-pipeline/references/builder-role.md` | coding-builder 角色契约 |
+| `skills/coding-pipeline/references/reviewer-role.md` | coding-reviewer 角色契约 |
+
+skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内联在 `references/`（相对 skill 根恰一层深，符合 Agent Skills 引用规则）。任何支持 Agent Plugins 的宿主装上即可用。
+
+### 客户端约定（非标准，可移植宿主会忽略）
+
+| 路径 | 状态 | 谁在用 |
+|------|------|--------|
+| `commands/` | 客户端约定 | 支持斜杠命令的宿主（`/ralph-pipeline`、`/coding-pipeline`），走 `agents/` 的 `agent:` frontmatter |
+| `agents/` | 客户端约定 | 支持子智能体的宿主（6 个 .md，含 `color` / `thoughtLevel` / `tools` 等宿主字段） |
+| `.zcode-plugin/` | **非标准 ZCode 兼容垫片** | ZCode 的设置页与 `/plugin marketplace add` 装法 |
+
+`commands/` 与 `skills/` 是**两套等价入口**，不是薄封装——刻意保持各自完整，因为无法验证 ZCode 斜杠命令是否会自动加载 skill，让 `commands/` 依赖 skill 加载会把现有用户的唯一入口变成空壳。
+
+> **维护提示**：改动编排判据（`MAX_CYCLES`、`STALL_MAX`、拆分预算、完成标准、停止枚举）时，**必须同步改 4 处**：
+> `commands/<pipeline>.md`、`skills/<pipeline>/SKILL.md`、对应 `agents/<pipeline>-orchestrator.md`、本 README 的「机制」表。
+
+**ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`node scripts/release.mjs --check` 校验）。代价：规范要求包内有且仅有一个根 `plugin.json`。
+
+`injectAgentsMd` / `thoughtLevel` 是 ZCode 专属 frontmatter 字段，其他宿主会忽略未知字段，不影响加载。
+
+## 委派机制的宿主差异
+
+两个 orchestrator 只声明语义（委派给哪个子代理、注入哪些 `=== X ===` 段落），参数名按宿主实际 schema 填写：
+
+| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+|------|-----------------------------|---------------------|
+| 目标子代理 | `target` | `subagent_type` |
+| 任务标题（3-5 个词） | `description` | `description` |
+| 完整上下文正文 | `query` | `prompt` |
+
+宿主若不支持子代理委派，命令正文会退化为主会话直接扮演 orchestrator，不会静默失败。
+
+状态文件写在**项目工作区**的 `.loop-cli/state/` 下，不写入插件目录。

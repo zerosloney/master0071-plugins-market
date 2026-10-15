@@ -18,6 +18,19 @@ const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run)
 const READONLY =
   /^(ls|dir|pwd|cat|head|tail|grep|rg|find|which|type|echo|whoami|date|git (status|log|diff|show|branch|remote|config --get)|node -v|npm (ls|view|outdated))\b/i;
 
+// 链式/重定向/命令替换：出现任一符号，整条命令就不再「明显只读」。首 token 白名单再准也
+// 不作数——`echo start; rm -rf build`、`ls && rm -rf x`、`cat a > b` 都会绕过白名单直接放行。
+const COMPOUND = /[;&|><`]|\$\(|\n/;
+// find 的副作用开关：-delete / -exec / -execdir / -ok 会删改文件，不算只读。
+const FIND_MUTATES = /\s-(delete|exec|execdir|ok)\b/i;
+
+/** 首 token 命中只读白名单、且整条命令无链式副作用时才走捷径（省一次判定请求）。 */
+function isReadonlyShortcut(command) {
+  if (COMPOUND.test(command)) return false;
+  if (/^find\b/i.test(command)) return !FIND_MUTATES.test(command);
+  return READONLY.test(command);
+}
+
 const QUESTIONS = {
   verdict: {
     type: 'choice',
@@ -67,15 +80,16 @@ function commandOf(toolInput) {
  * @param {string} toolName - 宿主传入的工具名
  * @param {unknown} toolInput - 工具入参（取 command / cmd / script 字段，退化序列化整体）
  * @param {Record<string, string|undefined>} [env] - 供应商配置来源，默认进程环境
+ * @param {object} [opts] - { timeoutMs } 共享 deadline 的剩余预算，透传给 decide
  * @returns {Promise<{decision: 'ask'|'deny', reason: string} | null>} null = 放行（不拦截）
  */
-export async function assess(toolName, toolInput, env = process.env) {
+export async function assess(toolName, toolInput, env = process.env, opts = {}) {
   if (!applies(toolName)) return null;
   const command = commandOf(toolInput);
-  if (READONLY.test(command)) return null;
+  if (isReadonlyShortcut(command)) return null;
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默放行
-  const answers = await decide(`工具：${toolName}\n命令：${command}`, cfg, QUESTIONS);
+  const answers = await decide(`工具：${toolName}\n命令：${command}`, cfg, QUESTIONS, opts.timeoutMs);
   const verdict = answers ? choiceOf(answers.verdict) : null;
   const risk = answers ? scoreOf(answers.risk) : null;
   const irreversible = answers ? noulOf(answers.irreversible) : null;

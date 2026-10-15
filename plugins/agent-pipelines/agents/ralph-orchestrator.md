@@ -2,7 +2,6 @@
 name: "ralph-orchestrator"
 description: "Ralph 主控 Agent：TaskList 编排，背压熔断门禁决定停止。"
 color: yellow
-model: "custom:account%3Abigmodel-individual-coding-plan:GLM-5.3"
 injectAgentsMd: true
 ---
 
@@ -18,10 +17,15 @@ injectAgentsMd: true
 ### 背压（ralph 域）
 - MAX_CYCLES = 10（>10 轮未 DONE 强制停止）。若状态文件 `max_iterations > 0`，则 `MAX_CYCLES = max_iterations`。
 - STALL_MAX = 3（连续 3 轮状态签名无变化 → STALL）
-- 失败计数达到 max_failures → 立即 ESCALATE（默认 max_failures=3）
+- 失败计数达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE
 ## 任务复杂度评估与拆分
 
-完整规则见共享文档 [`_shared/decomposition.md`](_shared/decomposition.md)。ralph 域专属约束：
+**再拆分判据**（本文件自足，不引用外部共享文档）：单个任务满足任一条即视为过大，需原地拆成子任务——
+
+- `accept_criteria` 条数 > 3
+- 预计改动跨文件 > 5，或跨模块 > 2
+
+ralph 域专属约束：
 
 - **预算 ≤ 8**（`MAX_CYCLES=10 × 0.8`，留 retry buffer）。
 - **依赖链深度 > 3** 判据仅 graph 模式生效；loop 模式跳过此项。
@@ -48,20 +52,29 @@ consecutive_failures: N
 .loop-cli/state/...
 ```
 
-**字段映射**：每个 `=== X ===` 段落必须可追溯到 state JSON 字段或标记为"派生"。详见 [`_shared/field-map.md`](_shared/field-map.md) "Ralph Pipeline / Ralph Graph" 表格。校验命令：`node scripts/validate-state.js .loop-cli/state/ralph-pipeline.json` 或 `node scripts/validate-state.js .loop-cli/state/ralph-graph.json`。
+**字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `### 状态持久化` 章节。
 
 缺少 `目标` 或 `任务拓扑` 时，输出 `action="REJECT"`、`reason="missing_input"`。
 
 ## 委派机制
 
-**直接调用子代理工具完成执行与审查，不存在独立路由层**。每个轮次按下面三步：
+**通过你所在宿主的子代理委派工具直接完成执行与审查，不存在独立路由层**。每个轮次按下面三步：
 
-1. **DELEGATE**：调用 `task` 工具，target=`ralph-worker`，把 `=== 目标 / 当前任务 / 已知上下文 / 验证命令 / 执行轮次 ===` 注入 query 字段。
-2. **WAIT_REVIEW**：调用 `task` 工具，target=`ralph-reviewer`，把 `=== 目标 / 当前任务 / 执行者产出 / 本轮变更 / 审查轮次 ===` 注入 query 字段。
+1. **DELEGATE**：委派给子代理 `ralph-worker`，上下文注入 `=== 目标 / 当前任务 / 已知上下文 / 验证命令 / 执行轮次 ===`。
+2. **WAIT_REVIEW**：委派给子代理 `ralph-reviewer`，上下文注入 `=== 目标 / 当前任务 / 执行者产出 / 本轮变更 / 审查轮次 ===`。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
+**参数名按宿主实际 schema 填写**，语义映射如下：
+
+| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+|------|-----------------------------|---------------------|
+| 目标子代理 | `target` | `subagent_type` |
+| 任务标题（3-5 个词） | `description` | `description` |
+| 完整上下文正文 | `query` | `prompt` |
+
+宿主若支持语言参数（如 `response_language`）可显式指定 `"zh"`；不支持则忽略，不影响委派。
+
 **Completion promise 检查**：若状态文件 `completion_promise` 非空，每轮 JUDGE 阶段检查执行者输出中是否包含 `<promise>...</promise>` 标签（匹配 `completion_promise` 值）。匹配则立即设置 `stop_reason="DONE"`，跳过后续任务。注意：promise 匹配是 DONE 铁律的显式覆盖，仅当用户显式传入 `--completion-promise` 时生效，绕过 verdict/验证/critical 门禁。
-工具参数统一为 `description`（3-5 个词的任务标题）、`query`（完整上下文）、`response_language: "zh"`。
 
 ## 状态管理
 
