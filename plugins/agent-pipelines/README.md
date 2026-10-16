@@ -64,6 +64,8 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 | `commands/` | 客户端约定 | 支持斜杠命令的宿主（`/ralph-pipeline`、`/coding-pipeline`），走 `agents/` 的 `agent:` frontmatter |
 | `agents/` | 客户端约定 | 支持子智能体的宿主（6 个 .md，含 `color` / `thoughtLevel` / `tools` 等宿主字段） |
 | `.zcode-plugin/` | **非标准 ZCode 兼容垫片** | ZCode 的设置页与 `/plugin marketplace add` 装法 |
+| `.codex-plugin/` | **非标准 Codex 兼容垫片** | Codex 的插件发现（`skills` + `interface`）；Codex 不加载 `commands/` 与 `agents/` |
+| `.omp-plugin/` | **非标准 Oh My Pi 兼容垫片** | Oh My Pi（`omp`）；同时加载 `skills`、`commands`、`agents` |
 
 `commands/` 与 `skills/` 是**两套等价入口**，不是薄封装——刻意保持各自完整，因为无法验证 ZCode 斜杠命令是否会自动加载 skill，让 `commands/` 依赖 skill 加载会把现有用户的唯一入口变成空壳。
 
@@ -71,6 +73,10 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 > `commands/<pipeline>.md`、`skills/<pipeline>/SKILL.md`、对应 `agents/<pipeline>-orchestrator.md`、本 README 的「机制」表。
 
 **ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`node scripts/release.mjs --check` 校验）。代价：规范要求包内有且仅有一个根 `plugin.json`。
+
+**Codex 兼容垫片**：`.codex-plugin/plugin.json`（配合仓库根 `.agents/plugins/marketplace.json`）。Codex 只声明 `skills`，不加载 `commands/` 与 `agents/`，所以在 Codex 上用 skill 入口而不是斜杠命令；skill 本身是自足的（角色契约内联在 `references/`），不会因缺 agents 而退化。
+
+**Oh My Pi 兼容垫片**：`.omp-plugin/plugin.json`（配合仓库根 `.omp-plugin/marketplace.json`）。omp 同时加载 `skills`、`commands`、`agents`，是唯一能拿到 6 个编排子智能体的宿主——想用子代理委派就装 omp。
 
 `injectAgentsMd` / `thoughtLevel` 是 ZCode 专属 frontmatter 字段，其他宿主会忽略未知字段，不影响加载。
 

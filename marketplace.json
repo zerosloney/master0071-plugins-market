@@ -26,6 +26,19 @@
       "description_i18n": {
         "zh-CN": "多代理编排管道套件：Ralph-Pipeline 通用编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。模型不写死，回退会话默认模型。"
       }
+    },
+    {
+      "name": "pstack",
+      "source": "./plugins/pstack",
+      "version": "0.1.0",
+      "description": "poteto 风格 agent 工作流栈：poteto-mode 作为路由入口，按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理，支持 Claude 式 hook 的宿主由 SessionStart 自动注入路由令。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan）。",
+      "displayName": "pstack",
+      "displayName_i18n": {
+        "zh-CN": "pstack 工作流栈"
+      },
+      "description_i18n": {
+        "zh-CN": "poteto 风格 agent 工作流栈（63 个 skill）：poteto-mode 路由按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan）。"
+      }
     }
   ]
 }

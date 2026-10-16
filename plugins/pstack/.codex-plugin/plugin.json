@@ -1,0 +1,54 @@
+{
+  "name": "pstack",
+  "version": "0.1.0",
+  "description": "poteto 风格 agent 工作流栈（63 个 skill）：poteto-mode 作为路由入口，调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": [
+    "productivity",
+    "agent-style",
+    "workflow",
+    "principles",
+    "poteto-mode",
+    "parallel-agents",
+    "code-review",
+    "tdd"
+  ],
+  "skills": "./skills/",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\" codex",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ps1\""
+          }
+        ]
+      }
+    ]
+  },
+  "interface": {
+    "displayName": "pstack",
+    "shortDescription": "poteto 风格工作流：先深挖，再快跑",
+    "longDescription": "pstack 用 poteto-mode 的原则与工作流约束 agent：architect 并行起草设计、arena 方案竞速、interrogate 多模型对抗式审 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，配合 24 条 principle 原则。skills 与 Claude Code 版共用；Codex 上的工具名映射见 skills/poteto-mode/references/codex-tools.md。原作者 Lauren Tan (poteto)，移植自 michael-denyer/pstack-claude。",
+    "developerName": "master0071 (port of Lauren Tan's pstack)",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/michael-denyer/pstack-claude",
+    "defaultPrompt": [
+      "Work on this in poteto-mode.",
+      "Interrogate this diff with multiple models."
+    ]
+  }
+}

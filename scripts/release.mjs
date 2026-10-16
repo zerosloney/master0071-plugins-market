@@ -1,16 +1,36 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（4 处）：
-//     市场清单条目版本 ×1：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
-//     插件清单 ×2：plugin.json（Agent Plugins 标准清单，权威来源）
+//   systemone-decision（6 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
 //                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
 //
-//   agent-pipelines（3 处）：
-//     市场清单条目版本 ×1：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
-//     插件清单 ×2：plugin.json（Agent Plugins 标准清单，权威来源）
+//   agent-pipelines（5 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
 //                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//
+//   pstack（5 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     注意：pstack 的版本号只表示本仓库的移植包版本，与上游 poteto/pstack 的版本号解耦，
+//     上游版本记录在 plugins/pstack/NOTICE-PORT.md，不在此同步。
+//
+// 根 .agents/plugins/marketplace.json（Codex 市场根清单）不带条目版本：Codex 的市场 schema
+// 里 plugins[] 只有 name / source / policy / category，版本从各插件的 .codex-plugin/plugin.json 读，
+// 因此它不进 MARKETS，只作为 Codex 侧的插件发现入口。
 //
 // 仓库已按 Agent Plugins 1.0.0 标准打包：根 plugin.json（封闭 schema）+ skills/ + mcp.json。
 // 根 marketplace.json 与 .zcode-plugin/ 是超出标准的 ZCode 兼容层，仅为保住 ZCode 的
@@ -33,12 +53,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const at = (rel) => path.join(ROOT, rel);
 
 // 根 marketplace.json 是 ZCode 的兼容垫片，只保留这一份
-const MARKETS = ['marketplace.json'];
+// 根 .omp-plugin/marketplace.json 是 Oh My Pi 的市场目录，条目带版本，同样需要同步
+const MARKETS = ['marketplace.json', '.omp-plugin/marketplace.json'];
 const inPlugin = (name, rel) => `plugins/${name}/${rel}`;
 
-// 每个插件两份清单：根 plugin.json 是 Agent Plugins 标准清单（版本权威来源），
-// .zcode-plugin 是超出标准的 ZCode 兼容垫片
-const PLUGIN_MANIFESTS = ['plugin.json', '.zcode-plugin/plugin.json'];
+// 每个插件四份清单：根 plugin.json 是 Agent Plugins 标准清单（版本权威来源），
+// .zcode-plugin / .codex-plugin / .omp-plugin 是超出标准的客户端兼容垫片
+const PLUGIN_MANIFESTS = ['plugin.json', '.zcode-plugin/plugin.json', '.codex-plugin/plugin.json', '.omp-plugin/plugin.json'];
 
 const PLUGINS = {
   'systemone-decision': {
@@ -50,6 +71,11 @@ const PLUGINS = {
   'agent-pipelines': {
     currentFrom: inPlugin('agent-pipelines', 'plugin.json'),
     jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('agent-pipelines', f)),
+    markets: MARKETS,
+  },
+  'pstack': {
+    currentFrom: inPlugin('pstack', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('pstack', f)),
     markets: MARKETS,
   },
 };

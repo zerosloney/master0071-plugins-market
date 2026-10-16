@@ -123,6 +123,10 @@ systemone_scenario(action: "run",
 
 **ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 额外提供内联 `mcpServers` 与 `userConfig` 设置页，配合仓库根 `marketplace.json` 使用，ZCode 的 `/plugin marketplace add` 装法不变。这两份是**非标准**的（规范要求一个包内有且仅有一个根 `plugin.json`），保留它们是为不破坏 ZCode 现有安装方式的自觉取舍。Agent Plugins 客户端会忽略。两处版本必须一致（`node scripts/release.mjs --check` 校验）。
 
+**Codex 兼容垫片**：`.codex-plugin/plugin.json` 声明 `skills` 与 `mcpServers: "./mcp.json"`，配合仓库根 `.agents/plugins/marketplace.json` 使用。同样是非标准的。Codex 侧的 `hooks/` 未在垫片里声明——本机 Codex 插件样本中的 hook 只有 `mcp_tool` 类型，Claude 式的 `command` hook 是否被接受无法离线确认，所以不写进去：Codex 上少两个预检 hook（需求明确度、shell 风险闸），MCP 判定与 skill 不受影响。
+
+**Oh My Pi 兼容垫片**：`.omp-plugin/plugin.json` 声明 `skills` 与内联 `mcpServers`（`node ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`），配合仓库根 `.omp-plugin/marketplace.json` 使用。这份写法沿用 omp 侧已验证的 0.3.1 清单形状（`~/.omp/plugins/cache/plugins/` 里的旧安装可直接比对）。omp 不加载 `hooks/`，预检 hook 同样缺失。
+
 **凭据**：`mcp.json` 里不写任何密钥，stdio 子进程直接继承用户环境变量，因此 `SYSTEMONE_API_KEY` 不会被打包或落盘。
 
 业务载荷（`mcp/*.mjs`、`endpoint-config.mjs`、`skills/`、`hooks/`）完全共享，各宿主运行的是同一份代码。判定内核（门限 / 三问 / 结论文案）抽在 `hooks/clarity.mjs`，Claude 式 stdin/stdout 协议留在 `hooks/requirement-clarity.mjs`——改同一处门限不会跨端漂移。
@@ -224,5 +228,7 @@ skills/            使用指引与场景文档（skills/systemone-decision/SKILL
 plugin.json        Agent Plugins 标准清单（版本权威来源）
 mcp.json           Agent Plugins 标准 MCP 声明（mcpServers / type: stdio）
 .zcode-plugin/     ZCode 兼容垫片，非标准（内联 mcpServers + 设置页 userConfig）
+.codex-plugin/     Codex 兼容垫片，非标准（skills + mcpServers + interface）
+.omp-plugin/       Oh My Pi 兼容垫片，非标准（skills + 内联 mcpServers）
 icon.png           界面 logo
 ```

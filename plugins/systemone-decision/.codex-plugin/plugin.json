@@ -1,0 +1,39 @@
+{
+  "name": "systemone-decision",
+  "version": "0.5.1",
+  "description": "SystemOne 决策模型工具集：2 个 MCP 工具（场景调度 + 自定义问题）覆盖 15 个内置业务场景，返回概率化判定、归一化决策与处置建议。端点 / 模型 / 超时经 SYSTEMONE_* 环境变量配置。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": [
+    "decision",
+    "mcp",
+    "productivity",
+    "classification",
+    "routing"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "interface": {
+    "displayName": "SystemOne Decision",
+    "shortDescription": "SystemOne 决策模型工具集：2 个 MCP 工具 + 15 个内置业务场景",
+    "longDescription": "把一个真实问题交给 SystemOne u2-decision：工单分流、内容审核、Agent 路由、结果校验、测试失败分流、代码评审门禁等 15 个内置场景，返回概率化判定、归一化决策与处置建议；判据可按问题覆盖，也可自行追加场景。",
+    "developerName": "master0071",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/zerosloney/master0071-plugins-market",
+    "composerIcon": "./icon.png",
+    "logo": "./icon.png",
+    "defaultPrompt": [
+      "这个工单应该分给哪个团队？",
+      "帮我审一下这条内容是否合规"
+    ]
+  }
+}
