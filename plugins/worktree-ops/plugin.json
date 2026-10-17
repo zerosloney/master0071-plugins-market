@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "worktree-ops",
+  "version": "0.1.0",
+  "description": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，注册 8 个 MCP 工具（create / list / status / audit / remove / merge_back / set_root / handoff），并用 worktree-manager skill 规定何时建、怎么把工作交接到新会话、破坏性操作如何二次确认。根目录、分支前缀、基线策略与闲置阈值均可配置（环境变量 > 单仓库覆盖 > 全局配置），根目录必须显式配置（未配置时拒绝创建），脏工作树、未合并提交与受管目录外的 worktree 一律拒绝删除。",
+  "author": {
+    "name": "dc",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": ["git", "worktree", "mcp", "branch", "code-review", "productivity"]
+}

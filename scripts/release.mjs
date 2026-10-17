@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（6 处）：
+//   systemone-decision（7 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     mcp/server.mjs 的 SERVER_INFO.version ×1
+//
+//   worktree-ops（7 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
@@ -68,6 +77,12 @@ const PLUGINS = {
     markets: MARKETS,
     serverInfo: inPlugin('systemone-decision', 'mcp/server.mjs'),
   },
+  'worktree-ops': {
+    currentFrom: inPlugin('worktree-ops', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('worktree-ops', f)),
+    markets: MARKETS,
+    serverInfo: inPlugin('worktree-ops', 'mcp/server.mjs'),
+  },
   'agent-pipelines': {
     currentFrom: inPlugin('agent-pipelines', 'plugin.json'),
     jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('agent-pipelines', f)),
@@ -100,9 +115,10 @@ const readJson = (file) => JSON.parse(readFileSync(at(file), 'utf8'));
 const marketEntryVersion = (file, name) =>
   readJson(file).plugins.find((p) => p.name === name)?.version;
 
-const serverInfoVersion = (file) =>
+// SERVER_INFO 版本位按插件名锚定，避免只认 systemone-decision 那一条字面量
+const serverInfoVersion = (file, pluginName) =>
   readFileSync(at(file), 'utf8').match(
-    /const SERVER_INFO = \{ name: 'systemone-decision', version: '([^']+)' \}/,
+    new RegExp(`const SERVER_INFO = \\{ name: '${esc(pluginName)}', version: '([^']+)' \\}`),
   )?.[1];
 
 // 每个插件收集 [label, 当前版本值]；以 currentFrom 清单为基准版本
@@ -112,7 +128,7 @@ function collect(name) {
   const spots = [];
   for (const f of cfg.markets) spots.push([f, marketEntryVersion(f, name)]);
   for (const f of cfg.jsonFiles) spots.push([f, readJson(f).version]);
-  if (cfg.serverInfo) spots.push([`${cfg.serverInfo} SERVER_INFO`, serverInfoVersion(cfg.serverInfo)]);
+  if (cfg.serverInfo) spots.push([`${cfg.serverInfo} SERVER_INFO`, serverInfoVersion(cfg.serverInfo, name)]);
   return { current, spots };
 }
 
@@ -188,7 +204,7 @@ try {
   for (const f of cfg.jsonFiles) writeJsonRoot(f, current, next);
   if (cfg.serverInfo) {
     const src = readFileSync(at(cfg.serverInfo), 'utf8');
-    const re = /(const SERVER_INFO = \{ name: 'systemone-decision', version: ')[^']+(' \})/;
+    const re = new RegExp(`(const SERVER_INFO = \\{ name: '${esc(name)}', version: ')[^']+(' \\})`);
     if (!re.test(src)) throw new Error(`${cfg.serverInfo} 中未找到 SERVER_INFO 版本行`);
     writeFileSync(at(cfg.serverInfo), src.replace(re, `$1${next}$2`));
     console.log(`✓ ${cfg.serverInfo} SERVER_INFO: ${current} → ${next}`);

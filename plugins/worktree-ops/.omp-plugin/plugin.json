@@ -1,0 +1,21 @@
+{
+  "name": "worktree-ops",
+  "version": "0.1.0",
+  "description": "Git worktree 操作台：8 个 MCP 工具在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，脏工作树与未合并提交默认拒绝删除。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": ["git", "worktree", "mcp", "branch"],
+  "category": "productivity",
+  "mcpServers": {
+    "worktree": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
+    }
+  },
+  "skills": "./skills"
+}

@@ -5,6 +5,7 @@
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.5.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [worktree-ops](plugins/worktree-ops/) | 0.1.0 | `skills/` + `mcp.json` | Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，破坏性操作强制二次确认 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.0 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 63 个 skill，含 24 条 principle 原则、13 个子智能体与会话启动 hook |
 
@@ -21,6 +22,13 @@ plugins/
 │   ├── hooks/                # ↓ 以下为客户端约定，非 Agent Plugins 核心
 │   ├── mcp/  test/  endpoint-config.mjs  icon.png
 │   └── .zcode-plugin/        # ↓ ZCode 兼容层，非标准
+├── worktree-ops/
+│   ├── plugin.json           # 标准清单
+│   ├── mcp.json              # 标准 MCP 声明：worktree = node ./mcp/server.mjs
+│   ├── mcp/server.mjs        # 零依赖 Node 实现，8 个 worktree 工具
+│   ├── skills/worktree-manager/    # 标准 skill：何时建、怎么交接、何时能删
+│   ├── test/smoke.mjs        # ↓ 一次性 git 仓库上的端到端冒烟测试
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 ├── agent-pipelines/
 │   ├── plugin.json           # 标准清单
 │   ├── skills/               # 标准 skill：ralph-pipeline / coding-pipeline
@@ -64,6 +72,7 @@ Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标�
 
 ```
 plugins/systemone-decision
+plugins/worktree-ops
 plugins/agent-pipelines
 plugins/pstack
 ```
@@ -75,6 +84,7 @@ plugins/pstack
 ```
 /plugin marketplace add zerosloney/master0071-plugins-market
 /plugin install systemone-decision@master0071-plugins
+/plugin install worktree-ops@master0071-plugins
 /plugin install agent-pipelines@master0071-plugins
 /plugin install pstack@master0071-plugins
 ```
@@ -98,6 +108,7 @@ source = 'E:\Demo\cli-tools\master0071-pluigns-market'
 
 ```
 codex plugin add systemone-decision@master0071-plugins
+codex plugin add worktree-ops@master0071-plugins
 codex plugin add agent-pipelines@master0071-plugins
 codex plugin add pstack@master0071-plugins
 ```
@@ -113,6 +124,7 @@ omp plugin marketplace add E:\Demo\cli-tools\master0071-pluigns-market
 omp plugin install pstack@master0071-plugins
 omp plugin install agent-pipelines@master0071-plugins
 omp plugin install systemone-decision@master0071-plugins
+omp plugin install worktree-ops@master0071-plugins
 ```
 
 市场目录有缓存，仓库改动后用 `omp plugin marketplace update master0071-plugins` 刷新；`omp plugin upgrade` 会把已装插件升到目录里的版本。
@@ -133,6 +145,8 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
+worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_set_root`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
+
 pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写入 `~/.claude/pstack-models.md`，会话 hook 读它决定是否注入路由令。pstack 是第三方 MIT 作品的移植（原作者 Lauren Tan / poteto，移植版 Michael Denyer），署名链见 [pstack/NOTICE-PORT.md](plugins/pstack/NOTICE-PORT.md)，再分发时那几份 LICENSE 不可删。
 
 ## 维护
@@ -145,3 +159,5 @@ pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写
   node test/smoke.mjs
   node test/hook.smoke.mjs
   ```
+
+  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完 22 项断言后自动清理，同样不需要真实仓库或凭据。
