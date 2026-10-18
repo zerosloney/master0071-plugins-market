@@ -20,6 +20,7 @@
 // Override the whole directory with WORKTREE_CONFIG_HOME.
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,13 +72,17 @@ function envOverrides() {
 function loadConfig() {
   const file = path.join(configDir(), "config.json");
   let parsed = {};
+  let parseError = null;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
+  } catch (err) {
+    // 文件不存在属首次运行的正常情况；真正的解析损坏要留痕，set_root 写回前会拒绝并给出修复指引
+    if (err && err.code !== "ENOENT") parseError = String((err && err.message) || err);
     parsed = {};
   }
   const config = {
     file,
+    parseError,
     root: typeof parsed.root === "string" ? parsed.root : null,
     baseRef: typeof parsed.baseRef === "string" ? parsed.baseRef : DEFAULT_CONFIG.baseRef,
     branchPrefix: typeof parsed.branchPrefix === "string" ? parsed.branchPrefix : DEFAULT_CONFIG.branchPrefix,
@@ -97,7 +102,10 @@ function saveConfig(config) {
     staleDays: config.staleDays,
     repos: config.repos,
   };
-  fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+  // 原子写：先落临时文件再 rename 覆盖，避免写一半进程退出留下截断的 config.json
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+  fs.renameSync(tmp, file);
   return file;
 }
 
@@ -127,10 +135,17 @@ function repoRoot(input) {
   return path.resolve(top.trim());
 }
 
+/** Windows 大小写不敏感的路径等值比较：统一 resolve + 小写后再比 */
+function samePath(a, b) {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+function repoKey(config, repo) {
+  return Object.keys(config.repos).find((k) => samePath(k, repo));
+}
+
 function repoOverrides(config, repo) {
-  const key = Object.keys(config.repos).find(
-    (k) => path.resolve(k).toLowerCase() === repo.toLowerCase(),
-  );
+  const key = repoKey(config, repo);
   return key ? config.repos[key] : null;
 }
 
@@ -160,16 +175,29 @@ function defaultBranch(repo) {
   return null;
 }
 
+/** ref 类参数（target/baseRef 等）进 git argv 前的边界校验：
+ *  非空、不以 "-" 开头、首尾无空白、无控制字符，防止被解析成 git 选项。 */
+function assertSafeRef(value, label) {
+  const s = String(value);
+  if (!s || s.trim() !== s || s.startsWith("-") || /[\u0000-\u001f\u007f]/.test(s)) {
+    throw new Error(`invalid ${label} \`${s}\`: ref-like arguments must not be empty, start with "-", or contain surrounding whitespace / control characters.`);
+  }
+  return s;
+}
+
 function resolveBase(config, repo, explicit) {
-  if (explicit && String(explicit).trim()) return String(explicit).trim();
+  const raw = explicit === undefined || explicit === null ? "" : String(explicit);
+  if (raw.trim()) return assertSafeRef(raw, "baseRef");
   const e = effective(config, repo);
-  if (e.baseRef && e.baseRef !== "auto") return e.baseRef;
+  // 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
+  if (e.baseRef && e.baseRef !== "auto") return assertSafeRef(e.baseRef, "baseRef");
   const d = defaultBranch(repo);
   return d || "HEAD";
 }
 
 function resolveTarget(repo, explicit) {
-  if (explicit && String(explicit).trim()) return String(explicit).trim();
+  const raw = explicit === undefined || explicit === null ? "" : String(explicit);
+  if (raw.trim()) return assertSafeRef(raw, "target");
   const d = defaultBranch(repo);
   if (!d) return "HEAD";
   const remote = git(["rev-parse", "--verify", "--quiet", `origin/${d}`], repo, { allowFail: true });
@@ -179,14 +207,16 @@ function resolveTarget(repo, explicit) {
 /* ---------------------------------------------------------------- worktrees */
 
 function slug(value) {
-  return String(value)
+  const s = String(value)
     .trim()
     .replace(/^[\\/]+|[\\/]+$/g, "")
     .replace(/[\\/]+/g, "-")
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-    .toLowerCase() || "worktree";
+    .toLowerCase();
+  // 非 ASCII 任务名（如纯中文）剥完可能为空：用原名的稳定短哈希兜底，避免不同名字都落到 "worktree" 互相撞目录
+  return s || createHash("sha1").update(String(value).trim()).digest("hex").slice(0, 8);
 }
 
 function listWorktrees(repo) {
@@ -221,7 +251,7 @@ function pickWorktree(repo, nameOrPath) {
   }
   const needle = String(nameOrPath).trim();
   const lower = needle.toLowerCase();
-  const direct = entries.find((e) => path.resolve(e.path).toLowerCase() === path.resolve(needle).toLowerCase());
+  const direct = entries.find((e) => samePath(e.path, needle));
   if (direct) return direct;
   const byBranch = entries.find((e) => e.branch === needle);
   if (byBranch) return byBranch;
@@ -379,7 +409,9 @@ function configSummary(config, repo) {
     `baseRef: ${e.baseRef}`,
     `branchPrefix: ${e.branchPrefix}`,
     `staleDays: ${e.staleDays}`,
-    `config: ${config.file}`,
+    ...(config.parseError
+      ? [`config: ${config.file} (corrupted, failed to parse: ${config.parseError} — defaults in effect)`]
+      : [`config: ${config.file}`]),
   ].join(" | ");
 }
 
@@ -400,7 +432,7 @@ const fail = (text) => ({ content: [{ type: "text", text: `Error: ${text}` }], i
 
 /* ------------------------------------------------------------------- tools */
 
-const stringArg = (value, name) => (value === undefined || value === null ? "" : String(value));
+const stringArg = (value) => (value === undefined || value === null ? "" : String(value));
 const boolArg = (value) => value === true || value === "true";
 const isInside = (dir, root) => {
   const rel = path.relative(root, dir);
@@ -430,7 +462,7 @@ const tools = [
     handler: (args) => {
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
-      const name = stringArg(args.name, "name").trim();
+      const name = stringArg(args.name).trim();
       if (!name) return fail("`name` is required (branch name or short task name).");
 
       const e = effective(config, repo);
@@ -446,14 +478,24 @@ const tools = [
         );
       }
       const looksLikeBranch = name.includes("/") || /^[A-Za-z0-9._-]+$/.test(name);
+      // 带 "/" 的名字按显式分支名原样使用；短任务名走 slug()，其白名单剥除（[^A-Za-z0-9._-]）
+      // 保证合成出的分支不可能夹带选项或空白，这里再对最终分支名兜底校验一次
       const branch = looksLikeBranch && name.includes("/") ? name : `${e.branchPrefix}${slug(name)}`;
+      if (branch.startsWith("-") || branch.trim() !== branch) {
+        return fail(`invalid branch name \`${branch}\`: must not start with "-" or contain surrounding whitespace.`);
+      }
       const baseRef = resolveBase(config, repo, args.baseRef);
-      const dir = args.path ? path.resolve(String(args.path)) : path.join(managedRoot(config, repo), slug(branch));
+      const rootDir = managedRoot(config, repo);
+      // README 承诺 worktree 建在配置根目录下：显式 path 也必须落在受管根内
+      const dir = args.path ? path.resolve(String(args.path)) : path.join(rootDir, slug(branch));
+      if (args.path && !isInside(dir, rootDir)) {
+        return fail(`explicit \`path\` resolves to ${dir}, outside the managed root ${rootDir}.\nChoose a directory inside the managed root, or drop \`path\` to use <root>/<branch-slug>.`);
+      }
 
       if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
         return fail(`target directory is not empty: ${dir}\nChoose another \`path\`, or remove the leftover directory first.`);
       }
-      const existing = listWorktrees(repo).find((w) => path.resolve(w.path).toLowerCase() === dir.toLowerCase());
+      const existing = listWorktrees(repo).find((w) => samePath(w.path, dir));
       if (existing) return fail(`git already registers this worktree: ${dir} (branch ${existing.branch || "detached"}).`);
 
       fs.mkdirSync(path.dirname(dir), { recursive: true });
@@ -512,8 +554,8 @@ const tools = [
       const includeSize = boolArg(args.includeSize);
       const infos = entries.map((e) => describe(repo, e, target, { includeSize }));
 
-      const rows = [["WORKTREE", "PATH", "BRANCH", "CLEAN", "AHEAD", "BEHIND", "MERGED", "AGE(d)", includeSize ? "SIZE" : null].filter(Boolean)
-        .map(String)];
+      // 列只在 includeSize 时追加/省略 SIZE；禁用 filter(Boolean)，否则 ahead=0 / ageDays=0 这类有效零值会被丢掉导致列错位
+      const rows = [["WORKTREE", "PATH", "BRANCH", "CLEAN", "AHEAD", "BEHIND", "MERGED", "AGE(d)", ...(includeSize ? ["SIZE"] : [])].map(String)];
       for (const i of infos) {
         rows.push([
           i.isMain ? "main" : "wt",
@@ -524,8 +566,8 @@ const tools = [
           i.behind ?? "-",
           i.mergedIntoTarget === null ? "-" : i.mergedIntoTarget ? "yes" : "no",
           i.ageDays ?? "-",
-          includeSize ? human(i.sizeBytes) : null,
-        ].filter(Boolean).map(String));
+          ...(includeSize ? [human(i.sizeBytes)] : []),
+        ].map(String));
       }
 
       return ok(
@@ -563,7 +605,10 @@ const tools = [
       const target = resolveTarget(repo, args.target);
       const info = describe(repo, entry, target, { includeSize: boolArg(args.includeSize) });
       const bucket = bucketOf(info, effective(config, repo).staleDays);
-      const cwdInside = path.resolve(process.cwd()).toLowerCase().startsWith(info.path.toLowerCase());
+      // cwd 等于该 worktree 或位于其内部都算在其中；用 isInside 而非 startsWith，避免兄弟前缀目录（wt-a vs wt-ab）误判
+      const cwdDir = path.resolve(process.cwd());
+      const wtDir = path.resolve(info.path);
+      const cwdInside = samePath(cwdDir, wtDir) || isInside(cwdDir, wtDir);
       return ok(
         [
           `Worktree: ${info.path}`,
@@ -609,7 +654,7 @@ const tools = [
       const order = { hold: 0, review: 1, safe: 2 };
       rated.sort((a, b) => order[a.bucket] - order[b.bucket] || (b.info.sizeBytes || 0) - (a.info.sizeBytes || 0));
 
-      const rows = [["BUCKET", "BRANCH", "PATH", "REASON", "AGE(d)", includeSize ? "SIZE" : null].filter(Boolean).map(String)];
+      const rows = [["BUCKET", "BRANCH", "PATH", "REASON", "AGE(d)", ...(includeSize ? ["SIZE"] : [])].map(String)];
       for (const r of rated) {
         rows.push([
           r.bucket,
@@ -617,8 +662,8 @@ const tools = [
           r.info.path,
           r.reason,
           r.info.ageDays ?? "-",
-          includeSize ? human(r.info.sizeBytes) : null,
-        ].filter(Boolean).map(String));
+          ...(includeSize ? [human(r.info.sizeBytes)] : []),
+        ].map(String));
       }
 
       const safe = rated.filter((r) => r.bucket === "safe");
@@ -661,7 +706,7 @@ const tools = [
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
       const entry = pickWorktree(repo, args.name);
-      if (path.resolve(entry.path).toLowerCase() === repo.toLowerCase()) {
+      if (samePath(entry.path, repo)) {
         return fail("refusing to remove the primary worktree.");
       }
       const target = resolveTarget(repo, args.target);
@@ -723,7 +768,7 @@ const tools = [
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
       const entry = pickWorktree(repo, args.name);
-      if (path.resolve(entry.path).toLowerCase() === repo.toLowerCase()) {
+      if (samePath(entry.path, repo)) {
         return fail("this is the primary worktree; nothing to merge back from it.");
       }
       if (boolArg(args.remove) && entry.locked) {
@@ -743,9 +788,13 @@ const tools = [
         try {
           git(["rebase", target], info.path);
           steps.push(`- rebase onto ${target}: ok`);
-        } catch {
-          const conflicts = git(["diff", "--name-only", "--diff-filter=U"], info.path, { allowFail: true });
-          return fail(`${steps.join("\n")}\n- rebase onto ${target}: CONFLICT, stopped for the user.\nResolve in ${info.path}, then re-run with --continue/--abort on the command line.\nconflicted files:\n${(conflicts || "").trim() || "(unknown)"}`);
+        } catch (err) {
+          // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因（如无效 ref、仓库不可用）
+          const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], info.path, { allowFail: true }) || "").trim();
+          if (conflicts) {
+            return fail(`${steps.join("\n")}\n- rebase onto ${target}: CONFLICT, stopped for the user.\nResolve in ${info.path}, then re-run with --continue/--abort on the command line.\nconflicted files:\n${conflicts}`);
+          }
+          return fail(`${steps.join("\n")}\n- rebase onto ${target}: failed.\n${err.message}`);
         }
       }
 
@@ -762,30 +811,44 @@ const tools = [
           try {
             git(["merge", "--no-ff", "-m", `Merge ${branch} into ${target}`, branch], repo);
             steps.push(`- merge ${branch} into ${target}: ok`);
-          } catch {
-            const conflicts = git(["diff", "--name-only", "--diff-filter=U"], repo, { allowFail: true });
-            return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${repo}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${(conflicts || "").trim() || "(unknown)"}`);
+          } catch (err) {
+            // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因
+            const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], repo, { allowFail: true }) || "").trim();
+            if (conflicts) {
+              return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${repo}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}`);
+            }
+            return fail(`${steps.join("\n")}\n- merge: failed.\n${err.message}`);
           }
         }
       }
 
       if (doRemove) {
+        // 与 worktree_remove 一致的受管根护栏：越界一律不删，任何 flag 都不放宽
+        const managedPath = managedRoot(config, repo);
+        const inManaged = Boolean(managedPath) && isInside(info.path, path.resolve(managedPath));
         const mergedNow = info.branch ? isAncestor(repo, info.branch, target) : false;
-      try {
-        git(["worktree", "remove", ...(mergedNow ? [] : ["--force"]), info.path], repo);
-      } catch (err) {
-        // Merge already landed (or was skipped as already merged); never report it as a plain failure.
-        // The merge has already landed in a shared ref, so report success with the cleanup
-        // failure instead of isError, which would make clients retry the whole call.
-        return ok(
-          `${steps.join("\n")}\n\nWorktree cleanup FAILED after the merge step:\n${err.message}\nThe worktree ${info.path} was left in place${info.branch ? `; branch \`${info.branch}\` was left in place` : ""}.\nFix the cause above (e.g. unlock it), then run worktree_remove.`,
-        );
-      }
-        git(["worktree", "prune"], repo, { allowFail: true });
-        steps.push(`- removed worktree ${info.path}${mergedNow ? "" : " (forced: branch was not merged)"}`);
-        if (boolArg(args.deleteBranch) && info.branch && mergedNow) {
-          const deleted = git(["branch", "-d", info.branch], repo, { allowFail: true });
-          steps.push(deleted === null ? `- branch ${info.branch} kept` : `- branch ${info.branch} deleted`);
+        if (!inManaged) {
+          steps.push(`- kept worktree ${info.path}: outside the managed root ${managedPath ?? "(none configured)"}; run worktree_remove if intentional`);
+        } else if (!mergedNow) {
+          // 分支未并入 target 时禁止强删：--force 会连带丢掉未合并提交
+          steps.push(`- kept worktree ${info.path}: branch not merged into ${target}; run worktree_remove if intentional`);
+        } else {
+          try {
+            git(["worktree", "remove", info.path], repo);
+          } catch (err) {
+            // Merge already landed (or was skipped as already merged); never report it as a plain failure.
+            // The merge has already landed in a shared ref, so report success with the cleanup
+            // failure instead of isError, which would make clients retry the whole call.
+            return ok(
+              `${steps.join("\n")}\n\nWorktree cleanup FAILED after the merge step:\n${err.message}\nThe worktree ${info.path} was left in place${info.branch ? `; branch \`${info.branch}\` was left in place` : ""}.\nFix the cause above (e.g. unlock it), then run worktree_remove.`,
+            );
+          }
+          git(["worktree", "prune"], repo, { allowFail: true });
+          steps.push(`- removed worktree ${info.path}`);
+          if (boolArg(args.deleteBranch) && info.branch) {
+            const deleted = git(["branch", "-d", info.branch], repo, { allowFail: true });
+            steps.push(deleted === null ? `- branch ${info.branch} kept` : `- branch ${info.branch} deleted`);
+          }
         }
       }
 
@@ -817,9 +880,6 @@ const tools = [
         return fail(`invalid scope \`${scope}\`: use "global" or "repo".`);
       }
       if (scope === "repo" && !repo) return fail("scope=repo requires `repoPath`.");
-      if (scope === "global" && repo) {
-        // Reading global while a repo is given is fine; ignore repo silently on writes.
-      }
 
       const isSet = stringArg(args.action) === "set"
         || args.root !== undefined
@@ -840,8 +900,19 @@ const tools = [
         );
       }
 
+      // 配置文件损坏时拒绝一切写入：现在保存会用内存里的残缺内容覆盖原文件，先让用户修复
+      if (config.parseError) {
+        return fail(
+          [
+            `config file ${config.file} is corrupted (failed to parse: ${config.parseError}).`,
+            "Refusing to write: saving would overwrite the broken file and lose the original content.",
+            "Fix or delete the file above, then re-run worktree_set_root.",
+          ].join("\n"),
+        );
+      }
+
       if (scope === "repo") {
-        const key = Object.keys(config.repos).find((k) => path.resolve(k).toLowerCase() === repo.toLowerCase()) || repo;
+        const key = repoKey(config, repo) || repo;
         if (boolArg(args.clearRepoOverride)) {
           delete config.repos[key];
           saveConfig(config);
@@ -849,10 +920,23 @@ const tools = [
         }
         const current = config.repos[key] || {};
         if (args.root !== undefined) current.root = args.root === null || args.root === "" ? null : path.resolve(String(args.root));
-        if (args.baseRef !== undefined) current.baseRef = String(args.baseRef);
-        if (args.branchPrefix !== undefined) current.branchPrefix = String(args.branchPrefix);
-        const staleDays = numArg(args.staleDays);
-        if (staleDays !== null) current.staleDays = staleDays;
+        if (args.baseRef !== undefined) {
+          const v = String(args.baseRef);
+          if (v.trim() !== "") assertSafeRef(v, "baseRef"); // 空串保留原语义（回退 auto）
+          current.baseRef = v;
+        }
+        if (args.branchPrefix !== undefined) {
+          const v = String(args.branchPrefix);
+          if (v.trim() !== "") assertSafeRef(v, "branchPrefix"); // 前缀会拼进分支名，同样不允许前导 "-"
+          current.branchPrefix = v;
+        }
+        if (args.staleDays !== undefined && args.staleDays !== null && args.staleDays !== "") {
+          const staleDays = numArg(args.staleDays);
+          if (staleDays === null || !(staleDays > 0)) {
+            return fail(`invalid staleDays \`${args.staleDays}\`: must be a positive number of days.`);
+          }
+          current.staleDays = staleDays;
+        }
         config.repos[key] = current;
         saveConfig(config);
         return ok(`Per-repo override for ${repo} saved.\n${configSummary(config, repo)}`);
@@ -860,10 +944,23 @@ const tools = [
 
       if (boolArg(args.clearRepoOverride)) return fail("clearRepoOverride only applies to scope=repo.");
       if (args.root !== undefined) config.root = args.root === null || args.root === "" ? null : path.resolve(String(args.root));
-      if (args.baseRef !== undefined) config.baseRef = String(args.baseRef);
-      if (args.branchPrefix !== undefined) config.branchPrefix = String(args.branchPrefix);
-      const staleDaysArg = numArg(args.staleDays);
-      if (staleDaysArg !== null) config.staleDays = staleDaysArg;
+      if (args.baseRef !== undefined) {
+        const v = String(args.baseRef);
+        if (v.trim() !== "") assertSafeRef(v, "baseRef");
+        config.baseRef = v;
+      }
+      if (args.branchPrefix !== undefined) {
+        const v = String(args.branchPrefix);
+        if (v.trim() !== "") assertSafeRef(v, "branchPrefix");
+        config.branchPrefix = v;
+      }
+      if (args.staleDays !== undefined && args.staleDays !== null && args.staleDays !== "") {
+        const staleDaysArg = numArg(args.staleDays);
+        if (staleDaysArg === null || !(staleDaysArg > 0)) {
+          return fail(`invalid staleDays \`${args.staleDays}\`: must be a positive number of days.`);
+        }
+        config.staleDays = staleDaysArg;
+      }
       const file = saveConfig(config);
       return ok(
         [

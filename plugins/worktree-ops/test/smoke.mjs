@@ -10,7 +10,7 @@
 // 退出码非 0 表示有断言失败。
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,10 +37,10 @@ const check = (label, condition, detail = '') => {
 };
 const section = (title) => console.log(`\n${title}`);
 
-/** 起一个 server 子进程，用 JSON-RPC 驱动它。 */
-function openSession(env) {
+/** 起一个 server 子进程，用 JSON-RPC 驱动它。cwd 缺省为主仓库，可传入 worktree 目录模拟会话落在其中。 */
+function openSession(env, cwd = repo) {
   const child = spawn('node', [SERVER], {
-    cwd: repo,
+    cwd,
     env: {
       ...process.env,
       WORKTREE_CONFIG_HOME: cfgHome,
@@ -197,12 +197,63 @@ try {
   check('合并并清理成功', !merged.isError && /merge feat\/login into main: ok/.test(merged.text), merged.text);
   check('已合并时不强制删除', !/forced/.test(merged.text), merged.text);
 
+  section('未合并不强删（merge_back remove 护栏）');
+  await session.tool('worktree_create', { repoPath: repo, name: 'keepme' });
+  const keepDir = path.join(root, 'wt-keepme');
+  git(['config', 'user.email', 'smoke@test.invalid'], keepDir);
+  git(['config', 'user.name', 'smoke'], keepDir);
+  writeFileSync(path.join(keepDir, 'keep.txt'), 'wip\n');
+  git(['add', '.'], keepDir);
+  git(['commit', '-m', 'wip: keepme'], keepDir);
+  const keepBack = await session.tool('worktree_merge_back', { repoPath: repo, name: 'keepme', remove: true });
+  check('未合并时 remove=true 不再强删', !keepBack.isError && /kept worktree/.test(keepBack.text), keepBack.text);
+  check('跳过删除后目录与提交原样保留', existsSync(path.join(keepDir, 'keep.txt')), keepBack.text);
+  const keepGone = await session.tool('worktree_remove', { repoPath: repo, name: 'keepme', force: true, deleteBranch: true });
+  check('确认意图后仍可用 worktree_remove 删除', !keepGone.isError && /Removed worktree/.test(keepGone.text), keepGone.text);
+
+  section('merge_back 受管根外拒绝删除');
+  await session.tool('worktree_create', { repoPath: repo, name: 'outside-mb' });
+  git(['worktree', 'move', path.join(root, 'wt-outside-mb'), path.join(sandbox, 'outside-mb')], repo);
+  const outsideBack = await session.tool('worktree_merge_back', { repoPath: repo, name: 'outside-mb', remove: true });
+  check(
+    'merge_back 对受管根外 worktree 拒绝删除并报告',
+    !outsideBack.isError && /outside the managed root/.test(outsideBack.text) && /kept worktree/.test(outsideBack.text),
+    outsideBack.text,
+  );
+  check('受管根外被拒绝删除的 worktree 原样保留', existsSync(path.join(sandbox, 'outside-mb', 'README.md')), outsideBack.text);
+
+  section('ref 类参数边界校验');
+  const dashTarget = await session.tool('worktree_list', { repoPath: repo, target: '--exec=evil' });
+  check('target 前导 - 被拒', dashTarget.isError && /invalid target/.test(dashTarget.text), dashTarget.text);
+  const dashBase = await session.tool('worktree_create', { repoPath: repo, name: 'dash-base', baseRef: '--upload-pack=evil' });
+  check('baseRef 前导 - 被拒', dashBase.isError && /invalid baseRef/.test(dashBase.text), dashBase.text);
+
   section('清理保护');
   const audit = await session.tool('worktree_audit', { repoPath: repo, includeSize: true });
   check('审计只报主工作树且标 hold', /hold\s+main/.test(audit.text), audit.text);
 
   const staleAudit = await session.tool('worktree_audit', { repoPath: repo, staleDays: '3' });
   check('audit 字符串 staleDays 生效', /idle threshold: 3d/.test(staleAudit.text), staleAudit.text);
+
+  section('零值列不错位');
+  // 刚建的 worktree：ahead=0、behind=0、ageDays=0 全是有效零值，曾被 filter(Boolean) 丢掉导致列错位
+  await session.tool('worktree_create', { repoPath: repo, name: 'zero-one' });
+  const zeroList = await session.tool('worktree_list', { repoPath: repo });
+  const zl = zeroList.text.split('\n');
+  const zHdr = zl.findIndex((l) => l.includes('WORKTREE'));
+  const zRow = zl.find((l) => l.includes('wt-zero-one'));
+  const zHdrCols = zHdr >= 0 ? zl[zHdr].trim().split(/\s{2,}/).length : 0;
+  const zRowCols = zRow ? zRow.trim().split(/\s{2,}/).length : -1;
+  check('list：ahead=0 / ageDays=0 的行与表头列数一致', zHdrCols > 0 && zRowCols === zHdrCols, zeroList.text);
+  check('list：ahead=0 显示为 0 而不是丢列', Boolean(zRow) && zRow.trim().split(/\s{2,}/)[4] === '0', zeroList.text);
+  const zeroAudit = await session.tool('worktree_audit', { repoPath: repo });
+  const za = zeroAudit.text.split('\n');
+  const aHdr = za.findIndex((l) => l.includes('BUCKET'));
+  const aRow = za.find((l) => l.includes('wt-zero-one'));
+  const aHdrCols = aHdr >= 0 ? za[aHdr].trim().split(/\s{2,}/).length : 0;
+  const aRowCols = aRow ? aRow.trim().split(/\s{2,}/).length : -1;
+  check('audit：ageDays=0 的行与表头列数一致', aHdrCols > 0 && aRowCols === aHdrCols, zeroAudit.text);
+  await session.tool('worktree_remove', { repoPath: repo, name: 'zero-one', deleteBranch: true });
 
   section('脏文件归属');
   await session.tool('worktree_create', { repoPath: repo, name: 'pair-a' });
@@ -291,6 +342,45 @@ try {
     check('按环境变量位置清理干净', !envRemoved.isError, envRemoved.text);
   } finally {
     envSession.close();
+  }
+
+  section('配置文件损坏防护');
+  const brokenHome = path.join(sandbox, 'broken-cfg');
+  mkdirSync(brokenHome);
+  const brokenFile = path.join(brokenHome, 'config.json');
+  const brokenBody = '{ 这不是合法 JSON !!';
+  writeFileSync(brokenFile, brokenBody);
+  const brokenSession = openSession({ WORKTREE_CONFIG_HOME: brokenHome });
+  try {
+    await brokenSession.ready;
+    const brokenGet = await brokenSession.tool('worktree_set_root', { action: 'get', repoPath: repo });
+    check('读取时如实报告配置损坏', !brokenGet.isError && /corrupted/.test(brokenGet.text), brokenGet.text);
+    const brokenSet = await brokenSession.tool('worktree_set_root', { action: 'set', scope: 'global', root: path.join(sandbox, 'never-root') });
+    check(
+      'config.json 损坏时 set_root 拒绝写入并指明文件与解析错误',
+      brokenSet.isError && brokenSet.text.includes(brokenFile) && /failed to parse/i.test(brokenSet.text),
+      brokenSet.text,
+    );
+    check('损坏的 config.json 原样保留未被覆盖', readFileSync(brokenFile, 'utf8') === brokenBody, readFileSync(brokenFile, 'utf8'));
+  } finally {
+    brokenSession.close();
+  }
+
+  section('cwdInside 兄弟前缀不误判');
+  const sibACreated = await session.tool('worktree_create', { repoPath: repo, name: 'sib-a' });
+  check('创建 sib-a 成功', !sibACreated.isError, sibACreated.text);
+  const sibABCreated = await session.tool('worktree_create', { repoPath: repo, name: 'sib-ab' });
+  check('创建 sib-ab 成功', !sibABCreated.isError, sibABCreated.text);
+  // 「配置优先级」一节留下的单仓库覆盖 overrideRoot 仍生效，此时 create 实际落在 override-root 下
+  const sibSession = openSession({}, path.join(overrideRoot, 'wt-sib-ab'));
+  try {
+    await sibSession.ready;
+    const stSelf = await sibSession.tool('worktree_status', { repoPath: repo, name: 'sib-ab' });
+    check('cwd 就是该 worktree 时报 yes', /current session cwd inside this worktree: yes/.test(stSelf.text), stSelf.text);
+    const stSibling = await sibSession.tool('worktree_status', { repoPath: repo, name: 'sib-a' });
+    check('wt-sib-ab 里的会话不算在兄弟 wt-sib-a 内（前缀不误判）', /current session cwd inside this worktree: no/.test(stSibling.text), stSibling.text);
+  } finally {
+    sibSession.close();
   }
 } catch (err) {
   failures += 1;

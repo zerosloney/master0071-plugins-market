@@ -14,14 +14,15 @@
     "worktree",
     "mcp",
     "branch",
-    "developer-tools"
+    "code-review",
+    "productivity"
   ],
   "skills": "./skills/",
   "mcpServers": "./mcp.json",
   "interface": {
     "displayName": "Worktree Ops",
     "shortDescription": "Git worktree 操作台：可配置根目录 + 安全清理 + 合并回主干",
-    "longDescription": "把并行分支工作放到仓库之外的可配置目录：创建 worktree 时给出“新会话在该目录开工”的完整交底，列表与审计工具按 safe / review / hold 分桶，合并回主干会在目标分支未检出时拒绝、在冲突时停下交还给你，删除前强制二次确认。",
+    "longDescription": "把并行分支工作放到仓库之外的可配置目录：创建 worktree 时给出“新会话在该目录开工”的完整交底，列表与审计工具按 safe / review / hold 分桶，合并回主干会在目标分支未检出时拒绝、在冲突时停下交还给你；服务端护栏一律拒绝删除脏工作树、未合并提交与受管目录外的 worktree，破坏性操作的二次确认由 worktree-manager skill 引导完成。",
     "developerName": "master0071",
     "category": "Developer Tools",
     "capabilities": [

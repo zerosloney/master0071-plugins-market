@@ -9,7 +9,7 @@
   "homepage": "https://github.com/zerosloney/master0071-plugins-market",
   "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
-  "keywords": ["git", "worktree", "mcp", "branch"],
+  "keywords": ["git", "worktree", "mcp", "branch", "code-review", "productivity"],
   "category": "productivity",
   "mcpServers": {
     "worktree": {

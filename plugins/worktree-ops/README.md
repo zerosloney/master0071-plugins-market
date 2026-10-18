@@ -21,7 +21,7 @@ Git worktree 操作台：**在仓库之外的可配置目录**里创建、查看
 | `worktree_list` | 列出全部 worktree：分支、HEAD、是否干净、领先/落后、是否已合并、闲置天数 |
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中 |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
-| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并/受管目录外一律拒绝，除非 `force` |
+| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（可显式 `force`）；受管目录外一律拒绝，`force` 也不放宽 |
 | `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还 |
 | `worktree_set_root` | 读写根目录等配置，`scope: global` 或单仓库覆盖 |
 | `worktree_handoff` | 生成可粘贴的交接简报（路径、分支、基线、任务、约束） |
@@ -52,7 +52,7 @@ Git worktree 操作台：**在仓库之外的可配置目录**里创建、查看
 
 - 删主工作树：永远拒绝。
 - 删脏工作树 / 有未合并提交的 worktree：拒绝，必须显式 `force`。
-- 删受管根目录之外的 worktree：拒绝，必须显式 `force`。
+- 删受管根目录之外的 worktree：一律拒绝，`force` 只覆盖脏工作树 / 未合并提交，不放宽受管根边界。
 - 合并时主工作树检出的不是目标分支：拒绝，并告知先 `git checkout`。
 - rebase / merge 冲突：停下并列出冲突文件，不自动解决。
 - skill 层面：任何破坏性调用前先向用户确认。
