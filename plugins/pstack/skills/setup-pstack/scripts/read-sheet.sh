@@ -4,6 +4,9 @@
 set -eu
 sheet=$1
 [ -f "$sheet" ] && [ -r "$sheet" ] || exit 1
+# A sheet over 1 MiB is not one of ours; bail like a missing sheet so the
+# caller keeps the injection on instead of slurping the file whole.
+[ "$(wc -c < "$sheet" | tr -d ' ')" -le $((1024 * 1024)) ] || exit 1
 if [ "$(od -An -tx1 -N2 "$sheet" | tr -d ' ')" = fffe ]; then
   text=$(iconv -f UTF-16LE -t UTF-8 "$sheet")
 else

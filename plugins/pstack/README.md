@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。63 个 skill + 13 个子智能体 + 1 条会话启动 hook。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。63 个 skill + 14 个子智能体 + 1 条会话启动 hook。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -41,9 +41,8 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 能力 | 状态 |
 |------|------|
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
-| `.omp-plugin/plugin.json` | 根 `.omp-plugin/marketplace.json` 里的市场条目；omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过） |
+| `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 63 个 skill，无需 prompts 垫片 |
-| `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；omp 不加载 `hooks/`，所以没有会话启动自动路由 |
 | `agents/` + `effort-agents/` | **客户端约定**，仅支持子智能体的宿主生效；Codex 不加载 |
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份 |
 | `models.json` | skill 内多处引用它说明模型分工的出处，改它需要重新生成，本移植未附带生成脚本 |
