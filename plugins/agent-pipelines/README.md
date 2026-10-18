@@ -67,7 +67,7 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 | `.codex-plugin/` | **非标准 Codex 兼容垫片** | Codex 的插件发现（`skills` + `interface`）；Codex 不加载 `commands/` 与 `agents/` |
 | `.omp-plugin/` | **非标准 Oh My Pi 兼容垫片** | Oh My Pi（`omp`）；同时加载 `skills`、`commands`、`agents` |
 
-`commands/` 与 `skills/` 是**两套等价入口**，不是薄封装——刻意保持各自完整，因为无法验证 ZCode 斜杠命令是否会自动加载 skill，让 `commands/` 依赖 skill 加载会把现有用户的唯一入口变成空壳。
+`commands/` 与 `skills/` 是**两套等价入口**，不是薄封装——刻意保持各自完整，因为各宿主加载的组件类型不同（有的只认斜杠命令、有的只认 skill），无法假设命令入口总能唤起 skill；让 `commands/` 依赖 skill 加载会把部分宿主上的唯一入口变成空壳。
 
 > **维护提示**：改动编排判据（`MAX_CYCLES`、`STALL_MAX`、拆分预算、完成标准、停止枚举）时，**必须同步改 4 处**：
 > `commands/<pipeline>.md`、`skills/<pipeline>/SKILL.md`、对应 `agents/<pipeline>-orchestrator.md`、本 README 的「机制」表。
@@ -78,13 +78,13 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 
 **Oh My Pi 兼容垫片**：`.omp-plugin/plugin.json`（配合仓库根 `.omp-plugin/marketplace.json`）。omp 同时加载 `skills`、`commands`、`agents`，是唯一能拿到 6 个编排子智能体的宿主——想用子代理委派就装 omp。
 
-`injectAgentsMd` / `thoughtLevel` 是 ZCode 专属 frontmatter 字段，其他宿主会忽略未知字段，不影响加载。
+`injectAgentsMd` / `thoughtLevel` 等是宿主增强 frontmatter 字段：支持的宿主按其语义生效，不支持的宿主忽略未知字段，不影响加载。
 
 ## 委派机制的宿主差异
 
 两个 orchestrator 只声明语义（委派给哪个子代理、注入哪些 `=== X ===` 段落），参数名按宿主实际 schema 填写：
 
-| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+| 语义 | 宿主子代理工具（如 ZCode `task`） | Claude Code `Task` |
 |------|-----------------------------|---------------------|
 | 目标子代理 | `target` | `subagent_type` |
 | 任务标题（3-5 个词） | `description` | `description` |

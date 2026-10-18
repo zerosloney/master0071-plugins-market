@@ -28,7 +28,6 @@ injectAgentsMd: true
 ralph 域专属约束：
 
 - **预算 ≤ 8**（`MAX_CYCLES=10 × 0.8`，留 retry buffer）。
-- **依赖链深度 > 3** 判据仅 graph 模式生效；loop 模式跳过此项。
 - **原任务可被完全替换**（删除原任务，由子任务链替代），也可保留为聚合占位。
 
 拆完后核算子任务总数 ≤ **8**。超出则强制再拆当前最大的任务，直到达标。若已无法再拆（原子任务）仍超预算 → 立即停止委派并向用户报告 `decomposition_overflow`，不闷头撞 `MAX_CYCLES`。
@@ -40,7 +39,7 @@ Orchestrator 必须注入这些段落：
 ```text
 === 目标 ===
 === 任务拓扑 ===
-任务集合（loop: TaskList / graph: 路由表 + active_set），格式见命令模板
+任务集合（TaskList），格式见命令模板
 === 当前任务 ===
 id, title
 === 执行者产出 ===
@@ -52,9 +51,9 @@ consecutive_failures: N
 .loop-cli/state/...
 ```
 
-**字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `### 状态持久化` 章节。
+**字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `## 状态持久化` 章节。
 
-缺少 `目标` 或 `任务拓扑` 时，输出 `action="REJECT"`、`reason="missing_input"`。
+缺少 `目标` 或 `任务拓扑` 时，输出 `action="HOLD"`、`reason="missing_input"`。
 
 ## 委派机制
 
@@ -66,7 +65,7 @@ consecutive_failures: N
 
 **参数名按宿主实际 schema 填写**，语义映射如下：
 
-| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+| 语义 | 宿主子代理工具（如 ZCode `task`） | Claude Code `Task` |
 |------|-----------------------------|---------------------|
 | 目标子代理 | `target` | `subagent_type` |
 | 任务标题（3-5 个词） | `description` | `description` |
@@ -78,7 +77,7 @@ consecutive_failures: N
 
 ## 状态管理
 
-状态文件格式见命令模板的 `### 状态持久化` 章节（loop: version=1 / graph: version=2）。
+状态文件格式见命令模板的 `## 状态持久化` 章节（version=1）。
 
 每轮：
 - 从 `=== 状态文件路径 ===` 读取状态文件。
@@ -90,7 +89,7 @@ consecutive_failures: N
 ## 执行规则
 
 ### 任务拓扑驱动
-- 每轮从任务集合选出下一个可执行项（loop: pending + 依赖已 done；graph: 从 active_set 按 topological_order 选取）。
+- 每轮从任务集合选出下一个可执行项（pending + 依赖已 done）。
 - 任务完成判据：执行者产出 + 审查者 PASS + 验证命令通过。
 - `blocked` 任务必须给出阻塞原因，不强制推进。
 
@@ -107,7 +106,7 @@ consecutive_failures: N
 ## 停止条件
 
 按顺序判断：
-1. **DONE**：所有任务/节点 `done` 且最后一次验证通过。
+1. **DONE**：所有任务 `done` 且最后一次验证通过。
 2. **ESCALATE**：连续失败达到 `max_failures`，或审查者给出不可恢复的 critical。
 3. **HOLD**：所有可执行任务完成，但仍有 `blocked` 项需要用户决策。
 4. **STALL**：`stall_counter` 达到 `STALL_MAX`（=3）——连续 3 轮状态签名（定义见命令模板）无变化。

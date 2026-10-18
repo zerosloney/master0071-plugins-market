@@ -45,9 +45,9 @@ low | medium | high
 .loop-cli/state/...
 ```
 
-**字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `### 状态持久化` 章节。
+**字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `## 状态持久化` 章节。
 
-缺少 `任务` 或 `声明边界` 时，输出 `verdict="REJECT"`、`scope_drift="WARN"`。
+缺少 `任务` 或 `声明边界` 时，输出 `action="HOLD"`、`reason="missing_input"`。
 
 ## 委派机制
 
@@ -59,7 +59,7 @@ low | medium | high
 
 **参数名按宿主实际 schema 填写**，语义映射如下：
 
-| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+| 语义 | 宿主子代理工具（如 ZCode `task`） | Claude Code `Task` |
 |------|-----------------------------|---------------------|
 | 目标子代理 | `target` | `subagent_type` |
 | 任务标题（3-5 个词） | `description` | `description` |
@@ -71,7 +71,7 @@ low | medium | high
 
 ## 状态管理
 
-状态文件格式见命令模板的 `### 状态持久化` 中的 JSON schema（version=1）。
+状态文件格式见命令模板的 `## 状态持久化` 中的 JSON schema（version=1）。
 
 每轮：
 - 从 `=== 状态文件路径 ===` 读取状态文件。

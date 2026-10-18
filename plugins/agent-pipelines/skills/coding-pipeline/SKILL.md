@@ -141,7 +141,7 @@ coding 域专属约束：
 
 ### 语义映射（参数名按宿主实际 schema 填写）
 
-| 语义 | ZCode / MiniMax Code `task` | Claude Code `Task` |
+| 语义 | 宿主子代理工具（如 ZCode `task`） | Claude Code `Task` |
 |------|-----------------------------|---------------------|
 | 目标子代理 | `target` | `subagent_type` |
 | 任务标题（3-5 个词） | `description` | `description` |

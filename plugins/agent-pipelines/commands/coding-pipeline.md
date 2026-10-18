@@ -239,6 +239,12 @@ value: {baseline_value}
 
 停止时按 JSON schema 写入最终状态，设置 `stop_reason` 为对应枚举值。
 
+### Completion promise 检查
+
+若用户显式传入 `--completion-promise <promise>`（状态文件 `completion_promise` 非空），每轮 JUDGE 阶段检查 coding-builder 输出中是否包含 `<promise>...</promise>` 标签（匹配 `completion_promise` 值）。匹配则立即设置 `stop_reason="DONE"` 并跳过后续任务；未匹配则按正常门禁继续。
+
+注意：promise 匹配是完成标准（coding 铁律）的显式覆盖，**仅当用户显式传入 `--completion-promise` 时生效**，绕过 verdict / scope_drift / 验证 / critical 门禁。
+
 ## 红线
 - 不跳过真实验证。
 - 不让审查者写文件或安装依赖。
