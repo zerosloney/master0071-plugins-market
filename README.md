@@ -1,13 +1,13 @@
 # master0071-plugins
 
-两个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
+四个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.5.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.1.0 | `skills/` + `mcp.json` | Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，破坏性操作强制二次确认 |
+| [worktree-ops](plugins/worktree-ops/) | 0.1.0 | `skills/` + `mcp.json` | Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交与受管目录外一律拒绝删除 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
-| [pstack](plugins/pstack/) | 0.1.0 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 63 个 skill，含 24 条 principle 原则、13 个子智能体与会话启动 hook |
+| [pstack](plugins/pstack/) | 0.1.0 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 63 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
 
 ## 标准包结构
 
@@ -21,7 +21,7 @@ plugins/
 │   ├── skills/systemone-decision/   # 标准 skill
 │   ├── hooks/                # ↓ 以下为客户端约定，非 Agent Plugins 核心
 │   ├── mcp/  test/  endpoint-config.mjs  icon.png
-│   └── .zcode-plugin/        # ↓ ZCode 兼容层，非标准
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 ├── worktree-ops/
 │   ├── plugin.json           # 标准清单
 │   ├── mcp.json              # 标准 MCP 声明：worktree = node ./mcp/server.mjs
@@ -33,13 +33,13 @@ plugins/
 │   ├── plugin.json           # 标准清单
 │   ├── skills/               # 标准 skill：ralph-pipeline / coding-pipeline
 │   ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心
-│   └── .zcode-plugin/        # ↓ ZCode 兼容层，非标准
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 └── pstack/
     ├── plugin.json           # 标准清单
     ├── skills/               # 标准 skill：63 个（poteto-mode / 24 principle-* / 工作流）
     ├── agents/  effort-agents/  hooks/  models.json   # ↓ 客户端约定，非 Agent Plugins 核心
     ├── NOTICE-PORT.md  LICENSE*                       # 第三方 MIT 作品的署名与许可，不可删
-    └── .zcode-plugin/  .codex-plugin/   # ↓ 宿主兼容垫片，非标准
+    └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 ```
 
 根 `plugin.json` 的顶层字段受规范封闭约束，只有：`$schema`、`name`（前两项必填）、`version`、`description`、`author`（`{name, email, url}` 对象）、`homepage`、`repository`、`license`、`keywords`、`extensions`。组件路径不写在这里——放进去会被判为未知字段（报告并忽略，不致命但无意义）。
@@ -135,7 +135,7 @@ Oh My Pi 侧与 Codex 不同：它**会加载 `agents/` 与 `commands/`**（cave
 
 ## 配置
 
-两个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
+四个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
 
 ```
 setx SYSTEMONE_API_KEY "你的Key"
@@ -160,4 +160,4 @@ pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写
   node test/hook.smoke.mjs
   ```
 
-  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完 22 项断言后自动清理，同样不需要真实仓库或凭据。
+  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完全部断言后自动清理，同样不需要真实仓库或凭据。

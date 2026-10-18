@@ -24,7 +24,7 @@
         "zh-CN": "Worktree 操作台"
       },
       "description_i18n": {
-        "zh-CN": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建），删除前强制二次确认。"
+        "zh-CN": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建），脏工作树、未合并提交与受管目录外的 worktree 一律拒绝删除。"
       }
     },
     {
