@@ -1,33 +1,10 @@
-// format.mjs — 决策结果的归一化、派生、模板渲染与 Markdown 摘要。纯函数，零依赖。
+// format.mjs — 决策结果的归一化管线、派生、模板渲染与 Markdown 摘要。
+// 各题型的答案归一化、速览判定、逐题渲染分支收拢在 question-types.mjs，这里只负责迭代与兜底。纯函数，零依赖。
+
+import { extractDecisionByType, fillAnswerByType, renderAnswerLine } from './question-types.mjs';
 
 /**
- * 取出可用的 score 数值，无效时返回 null。
- * 绝不能用 `?? 0` 或直接 `Number()` 兜底：`null ?? 0` 得 0，而 `Number(null) === 0`，
- * 两者都会把「模型没给分值」悄悄变成 0 分，再经 legend[0] 捏造出一个最低等级标签，
- * 产出一条看起来完全正常、confidence 还很高的假判定。所有 score 读取都必须走这里。
- * @param {object} answer - SystemOne 原始答案
- * @returns {number | null}
- */
-function finiteScore(answer) {
-  const raw = answer ? answer.score : undefined;
-  if (raw === null || raw === undefined) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
-}
-
-/**
- * 取出可用的 confidence 数值，无效时返回 null。与 finiteScore 同理：`Number(null) === 0`
- * 会被 isFinite 判真，把「模型没给置信度」渲染成 0.0%，所以先做 typeof 收窄再取值。
- * @param {object} answer - SystemOne 原始答案
- * @returns {number | null}
- */
-function finiteConfidence(answer) {
-  const c = answer ? answer.confidence : undefined;
-  return typeof c === 'number' && Number.isFinite(c) ? c : null;
-}
-
-/**
- * 归一化单个答案为逐题明细（answers[qid]）。
+ * 归一化单个答案为逐题明细（answers[qid]）。题型分支见 question-types.mjs 的 ANSWER_FILLERS。
  * @param {object} question - 问题定义（含 type / criteria）
  * @param {object} answer - SystemOne 原始答案
  * @returns {object} { present, type, value?, level?, probabilities?, probability?, confidence? }
@@ -37,39 +14,13 @@ export function normalizeAnswer(question, answer) {
     return { present: false };
   }
   const out = { present: true, type: answer.type || question.type };
-  if (out.type === 'choice') {
-    out.value = answer.choice ?? null;
-    out.probabilities = answer.probabilities || {};
-    // probabilities 回退值同样只认有限数字：字符串（如 "high"）或 Infinity 会静默绕过阈值比较
-    const fallback = (answer.probabilities || {})[answer.choice];
-    out.confidence = finiteConfidence(answer) ?? (Number.isFinite(fallback) ? fallback : null);
-  } else if (out.type === 'noul') {
-    // noul 无独立 confidence 字段，用概率的决断度 max(p, 1-p) 代替。
-    // typeof Infinity === 'number'（JSON 里 1e999 即是），必须同时 isFinite，否则
-    // Infinity 概率会同时漏过阈值比较与 isBorderline，决策却已显示「无法判断」
-    const p = typeof answer.noul === 'number' && Number.isFinite(answer.noul) ? answer.noul : null;
-    out.probability = p;
-    out.confidence = p === null ? null : Math.max(p, 1 - p);
-  } else if (out.type === 'score') {
-    const score = finiteScore(answer);
-    out.value = score === null ? null : Math.round(score * 1000) / 1000;
-    // 兜底顺序与 normalizeDecision 的 labels 一致（legend → 量表标签），否则响应没带 legend 时
-    // answers.x.level 为 null 而 labels.x 有值，同一份结果两个视图互相矛盾
-    out.level =
-      score === null
-        ? null
-        : (answer.legend || {})[String(Math.round(score))] ??
-          (Array.isArray(question?.criteria) ? question.criteria[Math.round(score)] : undefined) ??
-          null;
-    out.probabilities = answer.probabilities || {};
-    out.confidence = finiteConfidence(answer);
-  }
+  fillAnswerByType(out, answer, question);
   return out;
 }
 
 /**
  * 把原始 answers 归一化为速览结构：decision（归一化判定值）+ labels（可读标签）+ confidences。
- * choice → 选项 key；score → 取整分值；noul → boolean（≥0.5 为真）。
+ * 各题型的判定值/标签/置信度语义见 question-types.mjs 的 DECISION_EXTRACTORS。
  * @param {object} rawAnswers - SystemOne 原始 answers
  * @param {object} questions - 问题定义（提供 criteria 兜底标签）
  */
@@ -82,34 +33,11 @@ export function normalizeDecision(rawAnswers, questions = {}) {
     const raw = rawAnswers?.[qid];
     const type = question?.type || raw?.type;
     if (!raw || typeof raw !== 'object') continue;
-
-    if (type === 'choice') {
-      const key = raw.choice ?? null;
-      decision[qid] = key;
-      labels[qid] = key != null ? (question?.criteria?.[key] ?? raw.choice ?? String(key)) : '无法判断';
-      const c = finiteConfidence(raw);
-      if (c !== null) confidences[qid] = c;
-      continue;
-    }
-    if (type === 'score') {
-      const score = finiteScore(raw);
-      const idx = score === null ? null : Math.round(score);
-      decision[qid] = idx;
-      const legend = raw.legend || {};
-      const scale = Array.isArray(question?.criteria) ? question.criteria : [];
-      labels[qid] = idx != null ? (legend[String(idx)] ?? scale[idx] ?? String(idx)) : '无法判断';
-      const c = finiteConfidence(raw);
-      if (c !== null) confidences[qid] = c;
-      continue;
-    }
-    if (type === 'noul') {
-      const v = Number(raw.noul);
-      const flag = Number.isFinite(v) ? v >= 0.5 : null;
-      decision[qid] = flag;
-      labels[qid] = flag === null ? '无法判断' : flag ? '是' : '否';
-      if (Number.isFinite(v)) confidences[qid] = flag ? v : 1 - v;
-      continue;
-    }
+    const extracted = extractDecisionByType(type, raw, question);
+    if (!extracted) continue;
+    decision[qid] = extracted.decision;
+    labels[qid] = extracted.label;
+    if (extracted.confidence !== undefined) confidences[qid] = extracted.confidence;
   }
   return { decision, labels, confidences };
 }
@@ -216,50 +144,11 @@ export function formatAnswerLines(questions, rawAnswers) {
     // type 回退到问题定义：与 normalizeAnswer / normalizeDecision 保持一致，
     // 否则响应缺 type 时这里会掉进兜底分支打印原始 JSON，与 answers/labels 打架
     const type = raw.type || question?.type;
-    if (type === 'choice') lines.push(choiceLine(label, raw, question));
-    else if (type === 'score') lines.push(scoreLine(label, raw, question));
-    else if (type === 'noul') lines.push(noulLine(label, raw));
-    else lines.push(`- **${label}**：${JSON.stringify(raw)}`);
+    // 各题型渲染分支在 question-types.mjs；未知题型兜底打印原始 JSON
+    const line = renderAnswerLine(type, label, raw, question);
+    lines.push(line ?? `- **${label}**：${JSON.stringify(raw)}`);
   }
   return lines;
-}
-
-function choiceLine(label, answer, question) {
-  const { choice, confidence, probabilities } = answer;
-  const text = choice != null ? (question?.criteria?.[choice] ?? choice) : '无法判断';
-  return `- **${label}**：${text}（置信度 ${fmtPct(confidence)}｜分布 ${topProbs(probabilities, 3)}）`;
-}
-
-function scoreLine(label, answer, question) {
-  const { confidence, legend, probabilities } = answer;
-  const score = finiteScore(answer);
-  const idx = score === null ? null : Math.round(score);
-  const text =
-    idx != null
-      ? (legend?.[String(idx)] ?? (Array.isArray(question?.criteria) ? question.criteria[idx] : undefined) ?? String(idx))
-      : '无法判断';
-  const raw = score === null ? '' : ` ${score.toFixed(2)}`;
-  return `- **${label}**：${text}${raw}（置信度 ${fmtPct(confidence)}｜分布 ${topProbs(probabilities, 3)}）`;
-}
-
-function noulLine(label, answer) {
-  const v = Number(answer.noul);
-  if (!Number.isFinite(v)) return `- **${label}**：无法判断`;
-  return `- **${label}**：${v >= 0.5 ? '是' : '否'}（${(v * 100).toFixed(1)}%）`;
-}
-
-function fmtPct(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : '?';
-}
-
-function topProbs(probabilities, n = 3) {
-  const entries = Object.entries(probabilities || {})
-    .filter(([, p]) => Number.isFinite(Number(p)))
-    .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .slice(0, n);
-  if (!entries.length) return '—';
-  return entries.map(([k, p]) => `${k}=${(Number(p) * 100).toFixed(1)}%`).join(' ');
 }
 
 /** 生成整个决策结果的 Markdown 摘要。 */

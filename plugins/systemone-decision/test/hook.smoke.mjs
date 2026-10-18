@@ -178,6 +178,17 @@ const main = async () => {
     assert.equal(r.stdout, '');
   });
 
+  // 6b. stdin 超过 100K 上限 → 截断：不假装判定、不阻塞，stderr 注明 input too large，不发请求
+  received = [];
+  r = await run('x'.repeat(100_001));
+  check('需求预检 stdin 超限：静默放行、注明 input too large、不发请求', () => {
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(received.length, 0);
+    assert.match(r.stderr, /预检跳过/);
+    assert.match(r.stderr, /input too large/);
+  });
+
   // 7. 端点共享文件优先于环境变量：MCP 服务落盘的 baseUrl/model 生效，
   //    环境变量里的死端点被忽略（这是「设置页切换供应商后 hook 不再静默失效」的机制）
   scenario = 'unclear';
@@ -251,6 +262,11 @@ const main = async () => {
       'ls -la && rm -rf out',
       'cat a.txt > b.txt',
       'find /tmp -exec rm -rf {} +',
+      // -okdir / -fls / -fprintf 曾因 `ok\b` 匹配不到 `-okdir`（k 与 d 之间无词边界）被当只读放行
+      'find . -okdir rm {} +',
+      'find . -fls /tmp/x',
+      'find . -fprintf /tmp/x %p',
+      'find . -ok rm {} \\;',
     ];
     for (const command of destructive) {
       const v = await assess('Bash', { command }, hookEnv);
@@ -265,6 +281,20 @@ const main = async () => {
     assert.equal(await assess('Bash', { command: 'find . -name node_modules -type d' }, hookEnv), null);
     assert.equal(await assess('Bash', { command: 'grep -rn foo src' }, hookEnv), null);
     assert.equal(received.length, 0);
+  });
+
+  // stdin 截断 / 命令超 100K 上限时无法完整分析：不得走只读捷径，也不发判定请求，fail-closed 转 ask
+  await checkA('风险闸内核：超长命令不走只读捷径（fail-closed ask，不发请求）', async () => {
+    const before = received.length;
+    const v = await assess('Bash', { command: 'find . -name ' + 'x'.repeat(100_001) }, hookEnv);
+    assert.equal(v?.decision, 'ask');
+    assert.match(v.reason, /100000 字符上限/);
+    assert.equal(received.length, before, '超长命令不塞给判定模型');
+    assert.equal(
+      await assess('Bash', { command: 'ls -la' }, { ...hookEnv, SYSTEMONE_API_KEY: '', UNISOUND_API_KEY: '' }, { truncated: true }),
+      null,
+      '未配置 Key 的截断输入维持既有静默放行契约'
+    );
   });
 
   gateScenario = 'deny';
@@ -303,6 +333,17 @@ const main = async () => {
   check('风险闸 hook：只读命令静默放行（exit 0 无输出）', () => {
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  // stdin 超过 100K 上限被截断：命令残缺不可信（尾巴里可藏 `; rm -rf /`），即使残内容是
+  // 只读命令也必须 fail-closed 转 ask，绝不按只读捷径放行
+  r = await gateRun({ tool_name: 'Bash', tool_input: { command: 'ls' }, pad: 'x'.repeat(100_001) });
+  check('风险闸 hook：stdin 超限截断时 fail-closed 输出 ask', () => {
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /截断/);
   });
 
   r = await gateRun(

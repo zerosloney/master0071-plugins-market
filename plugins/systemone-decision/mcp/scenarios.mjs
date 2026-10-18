@@ -1,4 +1,4 @@
-// scenarios.mjs — SystemOne 场景库：纯数据 + 查找，零依赖。
+// scenarios.mjs — SystemOne 场景库：纯数据 + 查找；题型规则（校验/规整/派生配对）收拢在 question-types.mjs。
 //
 // 一个"场景"= 一组结构化问题（choice / noul / score）+ 可选派生字段（derive）与建议模板（recommendation）。
 // 字段格式：
@@ -8,6 +8,8 @@
 //   confidenceThreshold = 场景级低置信度默认阈值（0~1，可选），调用参数可覆盖
 //
 // 前四个场景沿用 0.1.x 预设工具的判据（审核违规类型等产品判据更细），其余移植自 dsh-system-one 0.4.0。
+
+import { hasCriteria, isSupportedType, stringifyCriteria, supportsDerive, validateCriteria } from './question-types.mjs';
 
 export const BUILTIN_SCENARIOS = [
   {
@@ -575,8 +577,6 @@ export function findScenario(scenarios, ref) {
 
 // ---------- 自定义场景（设置页 SYSTEMONE_PLUGIN_SCENARIOS / 环境变量 SYSTEMONE_SCENARIOS 注入） ----------
 
-const VALID_TYPES = new Set(['choice', 'noul', 'score']);
-
 /**
  * 校验一个自定义场景定义。
  * @param {unknown} spec - 场景定义
@@ -600,38 +600,16 @@ export function validateScenario(spec) {
       problems.push(`问题 ${qid} 必须是对象`);
       continue;
     }
-    if (!VALID_TYPES.has(q.type)) {
+    if (!isSupportedType(q.type)) {
       problems.push(`问题 ${qid} 的 type 必须是 choice/noul/score`);
       continue;
     }
     if (typeof q.instructions !== 'string' || q.instructions.trim() === '') {
       problems.push(`问题 ${qid} 缺少 instructions`);
     }
-    if (q.type === 'choice') {
-      if (!q.criteria || typeof q.criteria !== 'object' || Array.isArray(q.criteria)) {
-        problems.push(`问题 ${qid}（choice）的 criteria 必须是"选项 key → 说明"对象`);
-      } else if (Object.keys(q.criteria).length < 2) {
-        problems.push(`问题 ${qid}（choice）至少需要 2 个选项`);
-      } else if (Object.keys(q.criteria).length > 26) {
-        problems.push(`问题 ${qid}（choice）选项最多 26 个`);
-      } else {
-        for (const [k, v] of Object.entries(q.criteria)) {
-          if (typeof v !== 'string' || v.trim() === '') {
-            problems.push(`问题 ${qid} 选项 ${k} 的说明必须是非空字符串`);
-          }
-        }
-      }
-    }
-    if (q.type === 'score') {
-      if (!Array.isArray(q.criteria) || q.criteria.length < 2) {
-        problems.push(`问题 ${qid}（score）的 criteria 必须是长度 ≥2 的分级标签数组`);
-      } else {
-        for (const v of q.criteria) {
-          if (typeof v !== 'string' || v.trim() === '') {
-            problems.push(`问题 ${qid} 的分级描述必须是非空字符串`);
-          }
-        }
-      }
+    // criteria 规则与 decide 侧 validateQuestions 同一套口径（question-types 收拢，谁严以谁为准）
+    for (const problem of validateCriteria(q)) {
+      problems.push(`问题 ${qid}（${q.type}）的 criteria ${problem}`);
     }
   }
   if (spec.aliases !== undefined && (!Array.isArray(spec.aliases) || spec.aliases.some((a) => typeof a !== 'string' || a.trim() === ''))) {
@@ -656,7 +634,7 @@ export function validateScenario(spec) {
         // question 必须落到本场景真实存在、题型合法的问题上，否则 deriveFields 取不到值、
         // recommendation 里的 {派生名} 会渲染成空串
         const target = questions[d.question];
-        if (!target || typeof target !== 'object' || !VALID_TYPES.has(target.type)) {
+        if (!target || typeof target !== 'object' || !isSupportedType(target.type)) {
           problems.push(`派生 ${name} 的 question "${d.question}" 不是本场景的有效问题（可用：${ids.join('、')}）`);
           continue;
         }
@@ -668,7 +646,7 @@ export function validateScenario(spec) {
               problems.push(`派生 ${name} 的 values 必须是数组`);
             } else if (d.values.length === 0) {
               problems.push(`派生 ${name} 的 values 不能为空数组`);
-            } else if (target.type !== 'score') {
+            } else if (!supportsDerive(target.type, 'values')) {
               problems.push(`派生 ${name} 的 values 按分值下标取值，只能用于 score 问题（${d.question} 是 ${target.type}）`);
             } else if (Array.isArray(target.criteria) && d.values.length !== target.criteria.length) {
               problems.push(`派生 ${name} 的 values 长度 ${d.values.length} 与问题 ${d.question} 的分级数 ${target.criteria.length} 不一致`);
@@ -677,7 +655,7 @@ export function validateScenario(spec) {
           if (d.map !== undefined) {
             if (d.map === null || typeof d.map !== 'object' || Array.isArray(d.map)) {
               problems.push(`派生 ${name} 的 map 必须是 {键: 值} 对象`);
-            } else if (target.type !== 'choice') {
+            } else if (!supportsDerive(target.type, 'map')) {
               problems.push(`派生 ${name} 的 map 按选项键取值，只能用于 choice 问题（${d.question} 是 ${target.type}）`);
             }
           }
@@ -758,10 +736,8 @@ function normalizeScenario(spec) {
       instructions: String(q.instructions),
       label: typeof q.label === 'string' && q.label.trim() !== '' ? q.label : qid,
     };
-    if (q.type === 'choice') {
-      question.criteria = Object.fromEntries(Object.entries(q.criteria).map(([k, v]) => [String(k), String(v)]));
-    } else if (q.type === 'score') {
-      question.criteria = q.criteria.map((v) => String(v));
+    if (hasCriteria(q.type)) {
+      question.criteria = stringifyCriteria(q.type, q.criteria);
     }
     questions[qid] = question;
   }

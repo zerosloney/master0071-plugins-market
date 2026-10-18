@@ -29,8 +29,6 @@
       "Write"
     ],
     "websiteURL": "https://github.com/zerosloney/master0071-plugins-market",
-    "composerIcon": "./icon.png",
-    "logo": "./icon.png",
     "defaultPrompt": [
       "这个工单应该分给哪个团队？",
       "帮我审一下这条内容是否合规"

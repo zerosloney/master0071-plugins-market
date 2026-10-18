@@ -541,6 +541,59 @@ const main = async () => {
       assert.match(badScore.result.content[0].text, /至少需要 2 个等级/);
     });
 
+    // 边界收紧：criteria/addCriteria 的值为 null/undefined 时直接校验失败（报错指明问题 id 与键名），
+    // 不再被 String 化成字面 "null"/"undefined" 混过非空校验。choice 与 score、applyParams 与
+    // decide / 场景加载各路径对称生效。
+    const nullCriteriaParam = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { department: { criteria: { vip: null, general: '普通通道' } } },
+    });
+    check('params.criteria 值为 null 被拒绝并指明问题 id 与键名', () => {
+      assert.equal(nullCriteriaParam.result.isError, true);
+      assert.match(nullCriteriaParam.result.content[0].text, /params\.department\.criteria/);
+      assert.match(nullCriteriaParam.result.content[0].text, /vip/);
+      assert.match(nullCriteriaParam.result.content[0].text, /null/);
+    });
+
+    const nullAddCriteria = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { department: { addCriteria: { vip: null } } },
+    });
+    check('params.addCriteria 值为 null 被拒绝并指明问题 id 与键名', () => {
+      assert.equal(nullAddCriteria.result.isError, true);
+      assert.match(nullAddCriteria.result.content[0].text, /params\.department\.addCriteria/);
+      assert.match(nullAddCriteria.result.content[0].text, /vip/);
+      assert.match(nullAddCriteria.result.content[0].text, /null/);
+    });
+
+    const nullLevelParam = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { severity: { criteria: ['低', null] } },
+    });
+    check('params 的 score criteria 值为 null 被拒绝并指明问题 id 与等级下标', () => {
+      assert.equal(nullLevelParam.result.isError, true);
+      assert.match(nullLevelParam.result.content[0].text, /params\.severity\.criteria/);
+      assert.match(nullLevelParam.result.content[0].text, /第 1 级/);
+      assert.match(nullLevelParam.result.content[0].text, /null/);
+    });
+
+    const nullCriteriaDecide = await decide(client, {
+      state: '边界收紧探测',
+      questions: { q: { type: 'choice', instructions: '?', criteria: { vip: null, general: '普通通道' } } },
+    });
+    check('decide 的 criteria 值为 null 被拒绝并指明键名', () => {
+      assert.equal(nullCriteriaDecide.result.isError, true);
+      assert.match(nullCriteriaDecide.result.content[0].text, /criteria/);
+      assert.match(nullCriteriaDecide.result.content[0].text, /vip/);
+      assert.match(nullCriteriaDecide.result.content[0].text, /null/);
+    });
+
     const badQid = await runScenario(client, {
       action: 'run',
       scenario: 'customer_service',
@@ -683,6 +736,39 @@ const main = async () => {
       assert.equal(batchMixed.results[2].ok, true);
     });
 
+    // 预算耗尽分支：把整批预算注入成 0ms，所有条目必然走 budget_exhausted 标记路径——
+    // 无需 mock 时钟或长睡眠即可确定性触发；已完成结果照常返回的结构契约一并验证。
+    const budgetClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      SYSTEMONE_PLUGIN_BATCH_BUDGET_MS: '0',
+    });
+    try {
+      const batchExhausted = toolResult(
+        await runScenario(budgetClient, {
+          action: 'batch',
+          scenario: 'customer_service',
+          states: ['预算工单一', '预算工单二', '预算工单三'],
+        })
+      );
+      check('batch 预算耗尽：逐条标 budget_exhausted 并提示分批，整体仍 ok 返回', () => {
+        assert.equal(batchExhausted.ok, true);
+        assert.equal(batchExhausted.count, 3);
+        assert.equal(batchExhausted.failed, 3);
+        assert.equal(batchExhausted.budget_exhausted, true);
+        for (const r of batchExhausted.results) {
+          assert.equal(r.ok, false);
+          assert.equal(r.budget_exhausted, true, 'budget_exhausted 是结构化标记，不依赖 error 文案');
+          assert.match(r.error, /批量总预算/);
+          assert.match(r.error, /分批/);
+        }
+        assert.match(batchExhausted.summary, /3 条失败/);
+        assert.match(batchExhausted.summary, /批量预算/);
+      });
+    } finally {
+      budgetClient.close();
+    }
+
     const statsOff = await runScenario(client, { action: 'stats' });
     check('未启用审计日志时 stats 报错并给配置指引', () => {
       assert.equal(statsOff.result.isError, true);
@@ -815,6 +901,10 @@ const main = async () => {
       },
     },
     { id: 'bad_one', title: '坏场景', questions: { q1: { type: 'essay', instructions: '?' } } },
+    // 边界收紧：criteria 值为 null/undefined 的场景在校验层整条跳过（choice 选项与 score 等级对称），
+    // 不再有机会被字符串化成字面 "null"/"undefined" 的选项或等级
+    { id: 'bad_null_option', title: '空选项值', questions: { q1: { type: 'choice', instructions: '?', criteria: { vip: null, general: '普通通道' } } } },
+    { id: 'bad_null_level', title: '空等级值', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', null] } } },
     // 校验器与规范化器对称：aliases 混入非字符串、derive 缺 values/map，都在校验层拦截整条跳过，
     // 不允许"校验放行、normalizeScenario/deriveFields 运行时静默丢弃"
     { id: 'bad_aliases', title: '坏别名', aliases: ['合规别名', 123], questions: { q1: { type: 'noul', instructions: '?' } } },
@@ -856,7 +946,7 @@ const main = async () => {
       assert.ok(!byId.has('bad_derive'));
       // derive 与 questions 不对应（qid 不存在 / 题型不配 / 长度不符 / 空数组）一律整条跳过，
       // 不允许「校验放行、运行时静默产出空建议或恒真条件」
-      for (const id of ['bad_qid', 'bad_values_type', 'bad_map_type', 'bad_values_len', 'bad_values_empty']) {
+      for (const id of ['bad_qid', 'bad_values_type', 'bad_map_type', 'bad_values_len', 'bad_values_empty', 'bad_null_option', 'bad_null_level']) {
         assert.ok(!byId.has(id), `${id} 应被校验器跳过，实际混进了场景库`);
       }
       assert.ok(customList.summary.includes('（自定义）'));

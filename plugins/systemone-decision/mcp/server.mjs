@@ -17,9 +17,21 @@ import {
   normalizeDecision,
   renderTemplate,
 } from './format.mjs';
+import {
+  SUPPORTED_TYPES,
+  coerceOptionMap,
+  coerceParamsCriteria,
+  describeCriteria,
+  hasCriteria,
+  isBorderlineAnswer,
+  isNonEmptyString,
+  isSupportedType,
+  supportsAddCriteria,
+  toRequestQuestion,
+  validateCriteria,
+} from './question-types.mjs';
 
 const SERVER_INFO = { name: 'systemone-decision', version: '0.5.1' };
-const SUPPORTED_TYPES = ['choice', 'noul', 'score'];
 
 // 场景库 = 内置 15 个 + 自定义场景（场景文件 / 设置页 / 环境变量，同 id 覆盖内置，
 // 靠后的来源覆盖靠前的）。均在进程启动时读取，改动后需重启宿主生效；非法条目跳过并告警到 stderr。
@@ -51,10 +63,6 @@ class RpcError extends Error {
     super(message);
     this.code = code;
   }
-}
-
-function isNonEmptyString(v) {
-  return typeof v === 'string' && v.trim() !== '';
 }
 
 function snippet(s) {
@@ -151,39 +159,16 @@ function validateQuestions(questions) {
     if (!q || typeof q !== 'object' || Array.isArray(q)) {
       throw new ToolError(`questions.${qid} 必须是对象`);
     }
-    if (!SUPPORTED_TYPES.includes(q.type)) {
+    if (!isSupportedType(q.type)) {
       throw new ToolError(`questions.${qid}.type 必须是 ${SUPPORTED_TYPES.join(' / ')}，收到: ${JSON.stringify(q.type)}`);
     }
     if (!isNonEmptyString(q.instructions)) {
       throw new ToolError(`questions.${qid}.instructions 必须是非空字符串`);
     }
-    if (q.type === 'choice') {
-      const c = q.criteria;
-      if (!c || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).length === 0) {
-        throw new ToolError(`questions.${qid}.criteria 必须是非空对象 {选项ID: 选项描述}`);
-      }
-      if (Object.keys(c).length > 255) {
-        throw new ToolError(`questions.${qid}.criteria 选项数超过上限 255`);
-      }
-      for (const [k, v] of Object.entries(c)) {
-        if (!isNonEmptyString(k) || !isNonEmptyString(v)) {
-          throw new ToolError(`questions.${qid}.criteria 每个选项的 ID 和描述必须是非空字符串`);
-        }
-      }
-    }
-    if (q.type === 'score') {
-      const c = q.criteria;
-      if (!Array.isArray(c) || c.length === 0) {
-        throw new ToolError(`questions.${qid}.criteria 必须是非空数组 [等级描述, ...]，索引即分值`);
-      }
-      if (c.length > 255) {
-        throw new ToolError(`questions.${qid}.criteria 等级数超过上限 255`);
-      }
-      for (const v of c) {
-        if (!isNonEmptyString(v)) {
-          throw new ToolError(`questions.${qid}.criteria 的每个等级描述必须是非空字符串`);
-        }
-      }
+    // criteria 规则（choice 选项对象 / score 等级数组 / noul 无判据）收拢在 question-types，
+    // 与场景加载校验同一套口径（谁严以谁为准）；报错取第一条
+    for (const problem of validateCriteria(q)) {
+      throw new ToolError(`questions.${qid}.criteria ${problem}`);
     }
   }
 }
@@ -303,7 +288,7 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
   validateQuestions(questions);
   const request = {};
   for (const [qid, q] of Object.entries(questions)) {
-    request[qid] = q.type === 'noul' ? { type: q.type, instructions: q.instructions } : { type: q.type, instructions: q.instructions, criteria: q.criteria };
+    request[qid] = toRequestQuestion(q); // noul 无判据，剥掉 criteria
   }
   const data = await callSystemone(state, request, timeoutMs);
 
@@ -318,7 +303,7 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
       // confidence 缺失/非法（已在 normalizeAnswer 收敛为 null）与低于阈值同等对待：
       // 无法证明可信的判定不自动放行
       low.push(qid);
-    } else if (isBorderline(a, q, data.answers[qid])) {
+    } else if (isBorderlineAnswer(a, q, data.answers[qid])) {
       low.push(qid);
     }
   }
@@ -388,35 +373,6 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
   };
 }
 
-/**
- * 即使置信度达标也必须转人工复核的情形（question 为该题定义，判据以其为准；raw 为原始答案）：
- *   1. 判定值不可用——任一题型缺失或非法（choice 无选项、noul 无概率、score 无分值）。
- *      模型对结构性坏响应同样会给高 confidence，照单全收等于凭坏数据做决策。
- *   2. choice 返回 uncertain / unknown 哨兵值。
- *   3. noul 概率落在 0.45~0.55 模糊区间（正反两向都说不准）。
- *   4. choice 选中的选项不在判据表内——模型幻觉出的选项，confidence 可能很高，
- *      甚至根本没给（null），不能当作合法判定。
- *   5. score 分值取整后落在分级量表范围外——越界高分会被 deriveFields 钳成最高档，
- *      等于凭一个坏响应把工单升到最高优先级。
- */
-function isBorderline(a, question, raw) {
-  if (a.type === 'choice') {
-    if (a.value === null || a.value === 'uncertain' || a.value === 'unknown') return true;
-    const allowed = question?.criteria;
-    if (allowed && !(a.value in allowed)) return true;
-  }
-  if (a.type === 'noul' && (a.probability === null || (a.probability > 0.45 && a.probability < 0.55))) return true;
-  if (a.type === 'score') {
-    if (a.value === null) return true;
-    const levels = question?.criteria;
-    // 用原始 score 取整，与 normalizeDecision / deriveFields 走同一个下标，
-    // 避免 answers.value（保留 3 位小数）与 decision 取整结果在 .5 边界上不一致
-    const idx = Math.round(Number(raw?.score));
-    if (Array.isArray(levels) && (idx < 0 || idx >= levels.length)) return true;
-  }
-  return false;
-}
-
 // ---------- 场景调度：list / describe / run ----------
 
 function listScenarios(keyword) {
@@ -464,12 +420,7 @@ function describeScenario(ref) {
     `- **场景 id**：${scenario.id}${scenario.aliases.length ? `（别名：${scenario.aliases.join('、')}）` : ''}`,
     `- **说明**：${scenario.description}`,
     ...questions.map((q) => {
-      const criteria =
-        q.type === 'choice'
-          ? Object.entries(q.criteria || {}).map(([k, v]) => `${k}=${v}`).join('；')
-          : q.type === 'score'
-            ? (q.criteria || []).map((v, i) => `${i}=${v}`).join('；')
-            : '（0~1 概率）';
+      const criteria = describeCriteria(q);
       return `- **${q.label}** \`${q.id}\`（${q.type}）：${q.instructions}\n  - 选项：${criteria}`;
     }),
     scenario.recommendation ? `- **建议模板**：${scenario.recommendation}` : null,
@@ -522,28 +473,29 @@ function applyParams(scenario, params) {
       next.label = override.label;
     }
     if (override.criteria !== undefined) {
-      if (question.type === 'choice') {
-        if (typeof override.criteria !== 'object' || Array.isArray(override.criteria) || Object.keys(override.criteria).length === 0) {
-          throw new ToolError(`params.${qid}.criteria（choice）必须是非空对象 {选项ID: 选项描述}`);
-        }
-        next.criteria = Object.fromEntries(Object.entries(override.criteria).map(([k, v]) => [String(k), String(v)]));
-      } else if (question.type === 'score') {
-        if (!Array.isArray(override.criteria) || override.criteria.length < 2) {
-          throw new ToolError(`params.${qid}.criteria（score）至少需要 2 个等级描述`);
-        }
-        next.criteria = override.criteria.map((v) => String(v));
-      } else {
+      if (!hasCriteria(question.type)) {
         throw new ToolError(`params.${qid}.criteria：noul 问题没有 criteria`);
       }
+      // criteria 规则收拢在 question-types：choice 选项映射 String 化（null/undefined 先拦），
+      // score 至少 2 级；数量上下限仍由 executeDecision → validateQuestions 兜底
+      const { criteria, problem } = coerceParamsCriteria(question.type, override.criteria);
+      if (problem) {
+        throw new ToolError(`params.${qid}.criteria（${question.type}）${problem}`);
+      }
+      next.criteria = criteria;
     }
     if (override.addCriteria !== undefined) {
-      if (question.type !== 'choice') {
+      if (!supportsAddCriteria(question.type)) {
         throw new ToolError(`params.${qid}.addCriteria 仅支持 choice 问题`);
       }
-      if (typeof override.addCriteria !== 'object' || Array.isArray(override.addCriteria)) {
-        throw new ToolError(`params.${qid}.addCriteria 必须是 {选项ID: 选项描述} 对象`);
+      // 与 criteria 主路径同一套口径（question-types 的 coerceOptionMap）：键与值 String 化
+      // 容忍 JSON 里的数字键/枚举，null/undefined 先拦；数量不设限（追加单个选项是合法意图），
+      // 合并后的总选项数仍由 executeDecision → validateQuestions 的量表上限兜底。
+      const { criteria: added, problem } = coerceOptionMap(override.addCriteria);
+      if (problem) {
+        throw new ToolError(`params.${qid}.addCriteria ${problem}`);
       }
-      next.criteria = { ...(next.criteria || {}), ...override.addCriteria };
+      next.criteria = { ...(next.criteria || {}), ...added };
     }
     merged[qid] = next;
   }
@@ -578,7 +530,12 @@ const BATCH_MAX = 10;
 // 整批聚合预算：串行判定 10 条若各吃满单条超时（默认 30s）会到 300s，而宿主 MCP 客户端
 // 对单次工具调用的超时通常在 30s 量级，客户端先断则已完成结果全丢。留 25s 收口，
 // 并把剩余预算作为单条上限传下去，保证不会出现「一条把整批拖爆」的长尾。
-const BATCH_BUDGET_MS = 25_000;
+// 预算可用环境变量注入（SYSTEMONE_BATCH_BUDGET_MS，0 = 全部条目直接标记未执行），
+// 供测试真实触发 budget_exhausted 分支，无需 mock 时钟。
+const BATCH_BUDGET_MS = (() => {
+  const raw = Number(process.env.SYSTEMONE_PLUGIN_BATCH_BUDGET_MS || process.env.SYSTEMONE_BATCH_BUDGET_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 25_000;
+})();
 
 async function runBatch(args) {
   if (!isNonEmptyString(args.scenario)) {

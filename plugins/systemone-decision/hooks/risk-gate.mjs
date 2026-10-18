@@ -5,6 +5,7 @@
 // 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与需求预检同一份）。
 
 import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
+import { STDIN_MAX_CHARS } from './hook-io.mjs';
 
 // 门限：拒绝 = 判定为 deny，或（高风险 且 不可逆）；确认 = 判定 confirm，或中风险以上，或不可逆。
 // 低置信度不改门限，只在命中的理由里附注——硬信号归 hook，软怀疑归用户与 Agent。
@@ -21,8 +22,10 @@ const READONLY =
 // 链式/重定向/命令替换：出现任一符号，整条命令就不再「明显只读」。首 token 白名单再准也
 // 不作数——`echo start; rm -rf build`、`ls && rm -rf x`、`cat a > b` 都会绕过白名单直接放行。
 const COMPOUND = /[;&|><`]|\$\(|\n/;
-// find 的副作用开关：-delete / -exec / -execdir / -ok 会删改文件，不算只读。
-const FIND_MUTATES = /\s-(delete|exec|execdir|ok)\b/i;
+// find 的副作用开关：-delete / -exec / -execdir / -ok / -okdir 会删改或执行文件，
+// -fls / -fprintf 会写文件，都不算只读。注意 \b 语义：必须显式列出 okdir 等更长分支——
+// `ok\b` 匹配不到 `-okdir`（k 与 d 之间无词边界），漏列会把确认式删除当成只读放行。
+const FIND_MUTATES = /\s-(delete|exec|execdir|ok|okdir|fls|fprintf)\b/i;
 
 /** 首 token 命中只读白名单、且整条命令无链式副作用时才走捷径（省一次判定请求）。 */
 function isReadonlyShortcut(command) {
@@ -84,11 +87,26 @@ function commandOf(toolInput) {
  * @returns {Promise<{decision: 'ask'|'deny', reason: string} | null>} null = 放行（不拦截）
  */
 export async function assess(toolName, toolInput, env = process.env, opts = {}) {
-  if (!applies(toolName)) return null;
-  const command = commandOf(toolInput);
-  if (isReadonlyShortcut(command)) return null;
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默放行
+  // stdin 被截断（超 100K 上限）时 tool_name / tool_input 都可能不完整——分析不到的尾巴里
+  // 可以藏 `; rm -rf /`。不能走只读捷径，也不把残缺输入交给判定模型：fail-closed 转人工确认。
+  if (opts.truncated === true) {
+    return {
+      decision: 'ask',
+      reason: `[SystemOne 风险闸] hook 输入超过 ${STDIN_MAX_CHARS} 字符上限被截断，无法完整分析命令，默认需先确认：请向用户展示命令并确认后再执行。`,
+    };
+  }
+  if (!applies(toolName)) return null;
+  const command = commandOf(toolInput);
+  // 命令本身超上限同理：无法完整分析（也不把 100K+ 文本塞给判定模型白烧一次请求），fail-closed
+  if (command.length > STDIN_MAX_CHARS) {
+    return {
+      decision: 'ask',
+      reason: `[SystemOne 风险闸] 命令超过 ${STDIN_MAX_CHARS} 字符上限，无法完整分析是否存在隐藏副作用，默认需先确认：请向用户展示命令并确认后再执行。`,
+    };
+  }
+  if (isReadonlyShortcut(command)) return null;
   const answers = await decide(`工具：${toolName}\n命令：${command}`, cfg, QUESTIONS, opts.timeoutMs);
   const verdict = answers ? choiceOf(answers.verdict) : null;
   const risk = answers ? scoreOf(answers.risk) : null;

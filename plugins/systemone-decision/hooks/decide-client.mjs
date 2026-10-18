@@ -13,9 +13,10 @@ export function config(env) {
     apiKey: env.SYSTEMONE_API_KEY || env.UNISOUND_API_KEY || '',
     baseUrl: (shared?.baseUrl || env.SYSTEMONE_BASE_URL || 'https://maas-api.unisound.com/v1').replace(/\/+$/, ''),
     model: shared?.model || env.SYSTEMONE_MODEL || 'u2-decision',
-    // 时间预算：请求默认 8s（用户可配至 12s）；hook 侧以共享 deadline 收缩（见
-    // requirement-clarity.mjs / pretool-risk.mjs），stdin 耗时与请求总和不超过 handler 15s。
-    // 实测真实接口延迟约 0.1s，8s 仍有 80 倍余量；hook 失败绝不阻塞用户输入。
+    // 时间预算：优先用落盘的 timeoutMs（MCP 服务启动写入 .endpoint.json，默认 30000），
+    // 无落盘时用环境变量、再缺省 8000；统一与 12000 硬上限取小。hook 侧再以共享 deadline
+    // 收缩（见 hooks/hook-io.mjs），stdin 耗时与请求总和不超过 handler 15s。
+    // 实测真实接口延迟约 0.1s；hook 失败绝不阻塞用户输入。
     timeoutMs: Math.min(timeoutPreferred, 12000),
   };
 }

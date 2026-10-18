@@ -191,7 +191,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量与 `.endpoint.json` 共享端点，未配置 Key 时自动跳过。
 
-内部时间预算：请求默认 8 秒（可配至 12 秒）< 进程自毁 14 秒 < hooks.json 的 handler 15 秒上限。实测真实接口延迟约 0.1 秒，仍有 80 倍余量。
+内部时间预算：hook 请求超时按优先级取小——先取 `.endpoint.json` 落盘的 `timeoutMs`（MCP 服务启动时写入，来自设置页或 `SYSTEMONE_TIMEOUT_MS`；无落盘文件时直接用环境变量，再缺省 8 秒），再与 12 秒硬上限、共享 deadline 剩余（进程自毁 14 秒 − stdin 耗时 − 1 秒收尾）取最小值。落盘默认值为 30000，因此常态下实际请求超时是 12 秒 < 14 秒 < hooks.json 的 handler 15 秒上限。实测真实接口延迟约 0.1 秒，仍有百倍以上余量。
 
 **隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）；风险闸会把 shell 命令文本发送到决策服务接口（跳过只读命令）。判定为"明确"/"放行"时静默返回，但请求本身已经发出。不需要某个 hook 时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
 
@@ -219,8 +219,9 @@ mcp/
 endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
 hooks/
 ├── decide-client.mjs        配置解析 + 判定请求 + 答案归一化（两个 hook 内核共用）
+├── hook-io.mjs              stdin 读取（100K 字符上限）+ 共享 deadline + stdout 退出协议（两个入口脚本共用）
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
-├── requirement-clarity.mjs  UserPromptSubmit 脚本（hooks.json 各端共享的 stdin/stdout 协议）
+├── requirement-clarity.mjs  UserPromptSubmit 入口脚本（stdin/stdout 协议壳在 hook-io.mjs）
 ├── risk-gate.mjs            shell 命令风险闸内核（放行 / 确认 / 拒绝的门限与理由文案）
 ├── pretool-risk.mjs         PreToolUse 脚本（permissionDecision deny/ask 输出协议）
 └── hooks.json               事件清单（UserPromptSubmit 需求预检 + PreToolUse 风险闸，${CLAUDE_PLUGIN_ROOT}，timeout 15）
