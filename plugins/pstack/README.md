@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。63 个 skill + 14 个子智能体 + 1 条会话启动 hook。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。65 个 skill + 14 个子智能体 + 1 条会话启动 hook。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -26,11 +26,11 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 工程纪律 | 5 | `tdd`、`how`、`why`、`sharpen`、`benchmark-checklist` |
 | PR / CI / 协作 | 8 | `make-pr-easy-to-review`、`fix-ci`、`fix-merge-conflicts`、`get-pr-comments`、`what-did-i-get-done`、`babysit`、`ketchup`、`bro` |
 | 并行 / 复盘 | 2 | `swarm`（覆盖矩阵 / 竞速 / 分区）、`recall` |
-| 验证资产 | 3 | `create-verification-skill`、`maintain-verification-skill`、`teach` |
+| 验证资产 | 5 | `create-verification-skill`、`maintain-verification-skill`、`create-formal-verification-skill`、`maintain-formal-verification-skill`、`teach` |
 | 其他 | 4 | `automate-me`、`reflect`、`show-me-your-work`、`typescript-best-practices` |
 | 原则 | 24 | `principle-laziness-protocol`、`principle-subtract-before-you-add`、`principle-model-the-domain`、`principle-type-system-discipline` 等 |
 
-39 + 24 = 63。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
+41 + 24 = 65。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
 
 ## 原则层
 
@@ -42,7 +42,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 |------|------|
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
-| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 63 个 skill，无需 prompts 垫片 |
+| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 65 个 skill，无需 prompts 垫片 |
 | `agents/` + `effort-agents/` | **客户端约定**，仅支持子智能体的宿主生效；Codex 不加载 |
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份 |
 | `models.json` | skill 内多处引用它说明模型分工的出处，改它需要重新生成，本移植未附带生成脚本 |
@@ -53,7 +53,9 @@ hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONF
 
 ## 与上游的差异
 
-移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`）。skill 正文、子智能体、hook 脚本逐字保留，**剔除了**：
+移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 的全部 skill 级变更（基线为 fork 同步自的 v0.15.25）。fork 基线内 skill 正文、子智能体、hook 脚本逐字保留；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。
+
+**剔除项**（上游有、本移植不随附）：
 
 | 剔除项 | 原因 | 影响 |
 |--------|------|------|
@@ -61,17 +63,18 @@ hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONF
 | `pi/` | Pi 扩展专属，其他宿主用不上 | Pi 上没有自动路由，skill 本身照常手动可用 |
 | `.codex-plugin/` | Codex 命令垫片，由宿主各自的清单机制承担 | 已由本仓库重写为 `.codex-plugin/plugin.json`（见下），不是上游原文 |
 | `.github/`、`tools/` | 上游 CI 与生成脚本 | skill 里提到的 `tools/generate.mjs` 仅是出处说明，不可执行 |
+| `docs/guide/`、`docs/harness/` | 上游指南文档，本 README 已覆盖使用面 | 不影响 skill 行为 |
+| `make-bot-ui` skill | 通过 webhook 唤醒 Grok Bot，Cursor 生态绑定，其他宿主无从使用 | 少一个 Cursor 专属 skill |
 
 完整署名链见 [NOTICE-PORT.md](NOTICE-PORT.md) 与 [NOTICE.md](NOTICE.md)（上游原文）。**再分发须保留 `LICENSE`、`LICENSE-cursor-team-kit`、`LICENSE-thermos` 三份许可证。**
 
 ## 升级上游
 
-本插件版本号只表示本仓库的移植包版本（当前 `0.1.0`），与上游版本解耦。升级步骤：
+本插件版本号只表示本仓库的移植包版本（当前 `0.1.1`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
 
 ```bash
-git clone --depth 1 https://github.com/michael-denyer/pstack-claude <临时目录>
-# 只取 plugins/pstack/{skills,agents,effort-agents,hooks,models.json} 覆盖到本目录
-# 再更新 NOTICE-PORT.md 的「源版本 / 源提交」两行
+gh api "repos/cursor/plugins/compare/<上次同步提交>...HEAD" --jq '.files[] | select(.filename | test("^pstack/skills/")) | .filename'
+# 逐个把上游变更按适配约定落到 skills/ 下，再更新 NOTICE-PORT.md 的「内容同步」一行
 node scripts/release.mjs pstack <新版本>
 ```
 
