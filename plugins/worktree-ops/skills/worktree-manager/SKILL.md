@@ -22,7 +22,7 @@ moved.
 ## Tools
 
 `worktree_create`, `worktree_list`, `worktree_status`, `worktree_audit`, `worktree_remove`,
-`worktree_merge_back`, `worktree_set_root`, `worktree_handoff`.
+`worktree_lock`, `worktree_unlock`, `worktree_merge_back`, `worktree_set_root`, `worktree_handoff`.
 
 All of them run `git` themselves; do not hand-roll `git worktree` shell commands when a tool
 covers the request.
@@ -31,15 +31,19 @@ covers the request.
 
 There is no default location: a root must be configured (WORKTREE_ROOT, or `worktree_set_root`)
 before `worktree_create` runs — it refuses with the configuration options when none is set.
-A root outside the repository keeps `git status` in the main checkout clean and avoids accidentally committing a worktree.
+A root outside the repository keeps `git status` in the main checkout clean and avoids accidentally
+committing a worktree. A root inside the repository is allowed too: `worktree_create` first writes
+it into `.git/info/exclude` (the local-only ignore file, never the tracked `.gitignore`), so the
+main checkout still shows clean; only a root inside the `.git` directory itself is refused.
 
 Change it with `worktree_set_root`:
 
 - `scope: "global"` — every repository, stored in the user config file.
 - `scope: "repo"` — one repository only; pass `repoPath`.
 
-`root: null` clears the root — `worktree_create` refuses until one is set again. Other knobs: `baseRef` (`auto` = repository default
-branch), `branchPrefix` (default `wt/`), `staleDays` (idle threshold for the audit, default 14).
+`root: null` clears the root — `worktree_create` refuses until one is set again. Other knobs: `baseRef`
+(`auto` = the current checked-out branch of the session repository, repository default branch when
+detached), `branchPrefix` (default `wt/`), `staleDays` (idle threshold for the audit, default 14).
 
 Precedence is environment first (`WORKTREE_ROOT`, `WORKTREE_BASE_REF`, `WORKTREE_BRANCH_PREFIX`,
 `WORKTREE_STALE_DAYS`), then the per-repository override, then the global config file. Hosts that
@@ -53,7 +57,8 @@ this conversation. Report the resolved root path in your answer; users care wher
 
 1. Confirm the repo (`repoPath` defaults to the session directory).
 2. `worktree_create` with a `name` — a real branch name (`feat/login`) is used as-is; a short task
-   name gets the prefix and slug applied.
+   name gets the prefix and slug applied. An existing branch is checked out as-is (the way to
+   inspect or verify a PR branch); git refuses when it is already checked out in another worktree.
 3. Give the user the three concrete steps: open a new session, set the printed path as its
    working directory, paste the printed briefing.
 4. Stay in the current session and keep doing current-session work. Creating a worktree is not a
@@ -79,6 +84,9 @@ unless `force: true`. Pass `force` only when the user has explicitly said to dis
 unmerged work, and say in your answer that data was destroyed. After removing, offer
 `deleteBranch: true` when the branch is fully merged.
 
+Lock a worktree someone else is working in with `worktree_lock` (release it with `worktree_unlock`);
+remove and merge-back refuse to touch locked worktrees, and the audit buckets them `hold`.
+
 Never prune or remove the primary worktree.
 
 ## Merging back
@@ -90,7 +98,8 @@ Never prune or remove the primary worktree.
    conflicted file list to the user or fix it in the worktree, then re-run.
 3. `merge: true` — merges into the checked-out target in the main worktree, and refuses when the
    main worktree has a different branch checked out. Check that first; a dirty main checkout turns
-   the merge into a conflict for the user.
+   the merge into a conflict for the user. Pass `ff: true` for a fast-forward-only merge (linear
+   history, no merge commit); it refuses when the branches diverged — rebase first or drop `ff`.
 4. `remove: true` (+ `deleteBranch`) once the merge is verified.
 
 After the merge, run the repository's own checks before telling the user the branch is ready.

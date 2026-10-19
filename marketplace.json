@@ -17,14 +17,14 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.1.0",
-      "description": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具（create / list / status / audit / remove / merge_back / set_root / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析，脏工作树、未合并提交与受管目录外的 worktree 一律拒绝删除。",
+      "version": "0.2.0",
+      "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / set_root / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析，脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。",
       "displayName": "Worktree Ops",
       "displayName_i18n": {
         "zh-CN": "Worktree 操作台"
       },
       "description_i18n": {
-        "zh-CN": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建），脏工作树、未合并提交与受管目录外的 worktree 一律拒绝删除。"
+        "zh-CN": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建），脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。"
       }
     },
     {

@@ -10,7 +10,7 @@
 // 退出码非 0 表示有断言失败。
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,16 +126,18 @@ try {
   const list = await session.rpc('tools/list', {});
   const names = list.result.tools.map((t) => t.name).sort();
   check(
-    'tools/list 暴露全部 8 个工具',
+    'tools/list 暴露全部 10 个工具',
     JSON.stringify(names) === JSON.stringify([
       'worktree_audit',
       'worktree_create',
       'worktree_handoff',
       'worktree_list',
+      'worktree_lock',
       'worktree_merge_back',
       'worktree_remove',
       'worktree_set_root',
       'worktree_status',
+      'worktree_unlock',
     ]),
     names.join(','),
   );
@@ -227,6 +229,45 @@ try {
   check('target 前导 - 被拒', dashTarget.isError && /invalid target/.test(dashTarget.text), dashTarget.text);
   const dashBase = await session.tool('worktree_create', { repoPath: repo, name: 'dash-base', baseRef: '--upload-pack=evil' });
   check('baseRef 前导 - 被拒', dashBase.isError && /invalid baseRef/.test(dashBase.text), dashBase.text);
+
+  section('target 不可解析时护栏不失效');
+  // 回归：target 解析失败曾让 counts() 返回 ahead=null，而删除护栏写成
+  // `if (info.ahead && info.ahead > 0)` 会因 null 短路放行，未 force 就删掉有未合并提交的工作树。
+  const guardDir = path.join(root, 'wt-target-guard');
+  await session.tool('worktree_create', { repoPath: repo, name: 'target-guard' });
+  git(['config', 'user.email', 'smoke@test.invalid'], guardDir);
+  git(['config', 'user.name', 'smoke'], guardDir);
+  writeFileSync(path.join(guardDir, 'wip.txt'), 'unmerged work\n');
+  git(['add', '.'], guardDir);
+  git(['commit', '-m', 'wip: target-guard'], guardDir);
+
+  const bogusStatus = await session.tool('worktree_status', { repoPath: repo, name: 'target-guard', target: 'no-such-ref' });
+  check(
+    'target 解析不到提交时 status 直接报错，不静默降级为 ahead ?',
+    bogusStatus.isError && /does not resolve to a commit/.test(bogusStatus.text),
+    bogusStatus.text,
+  );
+  const bogusRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'target-guard', target: 'no-such-ref' });
+  check(
+    'target 解析不到提交时 remove 被拒',
+    bogusRemove.isError && /does not resolve to a commit/.test(bogusRemove.text),
+    bogusRemove.text,
+  );
+  check('被拒后未合并的提交与文件原样保留', existsSync(path.join(guardDir, 'wip.txt')), bogusRemove.text);
+  const unmergedRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'target-guard' });
+  check(
+    'target 有效时未合并提交仍被拒绝（护栏本身生效）',
+    unmergedRemove.isError && /not merged into/.test(unmergedRemove.text),
+    unmergedRemove.text,
+  );
+  const guardForced = await session.tool('worktree_remove', { repoPath: repo, name: 'target-guard', force: true, deleteBranch: true });
+  check('用户显式 force 仍可清理', !guardForced.isError && /Removed worktree/.test(guardForced.text), guardForced.text);
+
+  // detached 工作树没有分支可与 target 比，不该被上面那条「无法判断是否合并」误拦
+  const detDir = path.join(root, 'wt-detached');
+  git(['worktree', 'add', '--detach', detDir, 'main'], repo);
+  const detRemove = await session.tool('worktree_remove', { repoPath: repo, name: detDir });
+  check('干净的 detached 工作树仍可不带 force 删除', !detRemove.isError && /Removed worktree/.test(detRemove.text), detRemove.text);
 
   section('清理保护');
   const audit = await session.tool('worktree_audit', { repoPath: repo, includeSize: true });
@@ -382,6 +423,223 @@ try {
   } finally {
     sibSession.close();
   }
+
+  section('base 与 target 默认跟随会话分支');
+  // 回归：base（auto）与 target 的默认值曾固定取仓库默认分支（origin/HEAD 优先），
+  // 用户诉求是两者都先跟随会话仓库当前检出的分支。伪造 origin/HEAD→main 再把
+  // 主检出切到非默认分支，才能区分「跟随当前分支」与「取默认分支」两种语义。
+  const mainSha = git(['rev-parse', 'main'], repo).trim();
+  git(['update-ref', 'refs/remotes/origin/main', mainSha], repo);
+  git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], repo);
+  git(['checkout', '-b', 'feature/session-branch'], repo);
+
+  const autoCreated = await session.tool('worktree_create', { repoPath: repo, name: 'auto-base' });
+  check(
+    'auto 基线取会话当前分支而非仓库默认分支',
+    !autoCreated.isError && /base: feature\/session-branch @/.test(autoCreated.text),
+    autoCreated.text,
+  );
+
+  const explicitBase = await session.tool('worktree_create', { repoPath: repo, name: 'explicit-base', baseRef: 'main' });
+  check('显式 baseRef 仍优先于 auto 跟随', !explicitBase.isError && /base: main @/.test(explicitBase.text), explicitBase.text);
+
+  const followList = await session.tool('worktree_list', { repoPath: repo });
+  check('list 默认对比基准取会话当前分支', /Target ref: feature\/session-branch/.test(followList.text), followList.text);
+
+  // merge_back 不传 target：默认合回会话当前分支。旧默认在有 origin 的仓库里是
+  // origin/<默认分支>，与主检出的本地分支名永不相等，不传 target 必然 REFUSED。
+  const mergeDir = path.join(overrideRoot, 'wt-auto-merge');
+  await session.tool('worktree_create', { repoPath: repo, name: 'auto-merge' });
+  writeFileSync(path.join(mergeDir, 'merge.txt'), 'x\n');
+  git(['add', '.'], mergeDir);
+  git(['commit', '-m', 'feat: auto-merge'], mergeDir);
+  const followMerge = await session.tool('worktree_merge_back', { repoPath: repo, name: 'auto-merge', merge: true, remove: true, deleteBranch: true });
+  check(
+    'merge_back 默认合回会话当前分支并清理',
+    !followMerge.isError && /merge wt\/auto-merge into feature\/session-branch: ok/.test(followMerge.text) && /removed worktree/.test(followMerge.text),
+    followMerge.text,
+  );
+
+  git(['checkout', '--detach', mainSha], repo);
+  const detachedBase = await session.tool('worktree_create', { repoPath: repo, name: 'detached-base' });
+  check('detached 时 base 回退仓库默认分支', !detachedBase.isError && /base: main @/.test(detachedBase.text), detachedBase.text);
+  const detachedList = await session.tool('worktree_list', { repoPath: repo });
+  check('detached 时 target 回退 origin/<默认分支>', /Target ref: origin\/main/.test(detachedList.text), detachedList.text);
+  git(['checkout', 'main'], repo);
+
+  section('检出既有分支与 prunable 清理');
+  // A1 回归：分支已存在时曾恒用 -b 重建而必然失败；应改为直接检出（如检出 PR 分支做验证）
+  git(['branch', 'feat/existing', 'main'], repo);
+  const existingCreated = await session.tool('worktree_create', { repoPath: repo, name: 'feat/existing' });
+  check(
+    '既有分支被检出而非 -b 重建',
+    !existingCreated.isError && /existing branch checked out/.test(existingCreated.text) && /base: feat\/existing @/.test(existingCreated.text),
+    existingCreated.text,
+  );
+
+  const conflictBase = await session.tool('worktree_create', { repoPath: repo, name: 'feat/existing', baseRef: 'main', path: path.join(overrideRoot, 'wt-existing2') });
+  check(
+    '既有分支 + 显式 baseRef 的矛盾意图被拒绝',
+    conflictBase.isError && /would be ignored/.test(conflictBase.text),
+    conflictBase.text,
+  );
+
+  const occupied = await session.tool('worktree_create', { repoPath: repo, name: 'feat/existing', path: path.join(overrideRoot, 'wt-existing3') });
+  check(
+    '分支已被其他工作树占用时报清晰错误（不再归咎 baseRef）',
+    occupied.isError && /only one worktree/.test(occupied.text) && !/base ref/.test(occupied.text),
+    occupied.text,
+  );
+
+  const bogusBase = await session.tool('worktree_create', { repoPath: repo, name: 'bogus-ref', baseRef: 'no-such-ref' });
+  check(
+    'baseRef 不存在时才给 base ref 提示',
+    bogusBase.isError && /may not exist/.test(bogusBase.text),
+    bogusBase.text,
+  );
+
+  const exRemoved = await session.tool('worktree_remove', { repoPath: repo, name: 'feat/existing', deleteBranch: true });
+  check('检出型 worktree 可正常删除并清理分支', !exRemoved.isError && /deleted/.test(exRemoved.text), exRemoved.text);
+
+  // A3 回归：目录被移走的 prunable 登记，ahead 应从仓库侧算出——干净分支免 force 可删，未合并的仍被拦
+  await session.tool('worktree_create', { repoPath: repo, name: 'prunable-clean' });
+  renameSync(path.join(overrideRoot, 'wt-prunable-clean'), path.join(overrideRoot, 'wt-prunable-clean-gone'));
+  const prunableRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-clean', deleteBranch: true });
+  check('prunable 干净分支可无 force 删除', !prunableRemove.isError && /Removed worktree/.test(prunableRemove.text), prunableRemove.text);
+
+  await session.tool('worktree_create', { repoPath: repo, name: 'prunable-ahead' });
+  const paDir = path.join(overrideRoot, 'wt-prunable-ahead');
+  writeFileSync(path.join(paDir, 'wip.txt'), 'unmerged\n');
+  git(['add', '.'], paDir);
+  git(['commit', '-m', 'wip: prunable-ahead'], paDir);
+  renameSync(paDir, `${paDir}-gone`);
+  const paRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-ahead' });
+  check(
+    'prunable 未合并分支仍被拒绝（ahead 从仓库侧算出）',
+    paRemove.isError && /not merged into/.test(paRemove.text),
+    paRemove.text,
+  );
+  const paForced = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-ahead', force: true, deleteBranch: true });
+  check('确认意图后 force 可清理', !paForced.isError && /Removed worktree/.test(paForced.text), paForced.text);
+
+  section('仓库内 root 自动写入本地忽略');
+  // A4 回归：受管根允许设在仓库工作树内，但 create 必须先把该目录幂等写进
+  // .git/info/exclude（本地忽略，不动被跟踪的 .gitignore），否则新建 worktree
+  // 以未跟踪目录污染主检出 git status（实测 ?? .wts/）。
+  const inSet = await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, root: path.join(repo, '.wts') });
+  check('仓库内 root 可设置', !inSet.isError, inSet.text);
+
+  const inCreated = await session.tool('worktree_create', { repoPath: repo, name: 'inside-one' });
+  const excludeFile = path.join(repo, '.git', 'info', 'exclude');
+  check(
+    'create 输出注明已写入本地忽略',
+    !inCreated.isError && /info\/exclude/.test(inCreated.text) && inCreated.text.includes('/.wts/'),
+    inCreated.text,
+  );
+  const st1 = git(['status', '--porcelain'], repo).trim();
+  check('主检出 git status 保持干净', st1 === '', st1);
+  const excludeBody1 = readFileSync(excludeFile, 'utf8');
+  check('exclude 含 /.wts/ 条目', excludeBody1.includes('/.wts/'), excludeBody1);
+
+  await session.tool('worktree_create', { repoPath: repo, name: 'inside-two' });
+  const excludeBody2 = readFileSync(excludeFile, 'utf8');
+  check('同 root 再次创建不重复写条目（幂等）', excludeBody2 === excludeBody1, `${excludeBody1}\n---\n${excludeBody2}`);
+
+  const inRemoved = await session.tool('worktree_remove', { repoPath: repo, name: 'inside-one', deleteBranch: true });
+  check('仓库内 worktree 可正常删除', !inRemoved.isError, inRemoved.text);
+  const st2 = git(['status', '--porcelain'], repo).trim();
+  check('删除后 status 仍干净', st2 === '', st2);
+
+  // .git 内部不是合法落点：git 会照建（实测），但 checkout 混进对象库，必须拒绝
+  await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, root: path.join(repo, '.git', 'wts') });
+  const gitWt = await session.tool('worktree_create', { repoPath: repo, name: 'meta-one' });
+  check('.git 内 root 的创建被拒绝', gitWt.isError && /git directory/.test(gitWt.text), gitWt.text);
+  await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, clearRepoOverride: true });
+
+  section('会话在 link worktree 内的主检出判定');
+  // A5 回归：会话 repoRoot 解析到 link worktree 时，isMain 曾把会话 worktree 标成
+  // main、真主检出标成 wt，且 remove 的主工作树防线对真主检出失效。
+  const lwPath = path.join(overrideRoot, 'wt-sib-ab');
+  const lwSession = openSession({}, lwPath);
+  try {
+    await lwSession.ready;
+    const lwSet = await lwSession.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: lwPath, root: overrideRoot });
+    check('link worktree 会话可设单仓库覆盖', !lwSet.isError && lwSet.text.includes(overrideRoot), lwSet.text);
+    const mainGet = await session.tool('worktree_set_root', { action: 'get', repoPath: repo });
+    check('覆盖键归一到主仓库（主检出会话读得到）', mainGet.text.includes(overrideRoot), mainGet.text);
+
+    const lwList = await lwSession.tool('worktree_list', { repoPath: lwPath });
+    const listLines = lwList.text.split('\n');
+    check(
+      '真主检出标 main、会话 worktree 标 wt',
+      listLines.some((l) => /^main\s/.test(l) && l.includes(repo)) && listLines.some((l) => /^wt\s/.test(l) && l.includes('wt-sib-ab')),
+      lwList.text,
+    );
+
+    const lwRemove = await lwSession.tool('worktree_remove', { repoPath: lwPath, name: repo });
+    check('link worktree 会话不能删除真主检出', lwRemove.isError && /primary worktree/.test(lwRemove.text), lwRemove.text);
+  } finally {
+    lwSession.close();
+  }
+  await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, clearRepoOverride: true });
+
+  section('大小写撞名提示');
+  // A6 回归：slug() 折叠大小写，两条仅大小写不同的分支共用目录，撞名时报错要点名根因
+  await session.tool('worktree_create', { repoPath: repo, name: 'Case/Clash' });
+  const clashCreate = await session.tool('worktree_create', { repoPath: repo, name: 'case/clash' });
+  check(
+    '仅大小写不同的分支撞目录时点名根因',
+    clashCreate.isError && /slugifies to the same directory/.test(clashCreate.text) && clashCreate.text.includes('Case/Clash'),
+    clashCreate.text,
+  );
+  await session.tool('worktree_remove', { repoPath: repo, name: 'Case/Clash', deleteBranch: true });
+
+  section('ff 快进合并');
+  // A7① 回归：线性历史场景需要 --ff-only；分叉时明确拒绝并建议 rebase，而不是留下 merge commit
+  await session.tool('worktree_create', { repoPath: repo, name: 'ff-ok' });
+  const ffDir = path.join(root, 'wt-ff-ok');
+  writeFileSync(path.join(ffDir, 'ff.txt'), 'x\n');
+  git(['add', '.'], ffDir);
+  git(['commit', '-m', 'feat: ff-ok'], ffDir);
+  const ffMerge = await session.tool('worktree_merge_back', { repoPath: repo, name: 'ff-ok', merge: true, remove: true, deleteBranch: true, ff: true });
+  check('ff:true 快进合并成功', !ffMerge.isError && /ok \(fast-forward\)/.test(ffMerge.text), ffMerge.text);
+  check('快进不留 merge 提交', !git(['log', '--format=%s', '-3'], repo).includes('Merge wt/ff-ok'), git(['log', '--format=%s', '-3'], repo));
+
+  await session.tool('worktree_create', { repoPath: repo, name: 'ff-div' });
+  const divDir = path.join(root, 'wt-ff-div');
+  writeFileSync(path.join(divDir, 'div.txt'), 'x\n');
+  git(['add', '.'], divDir);
+  git(['commit', '-m', 'feat: ff-div'], divDir);
+  writeFileSync(path.join(repo, 'main-side.txt'), 'm\n');
+  git(['add', '.'], repo);
+  git(['commit', '-m', 'chore: main moves on'], repo);
+  const divMerge = await session.tool('worktree_merge_back', { repoPath: repo, name: 'ff-div', merge: true, ff: true });
+  check('分叉时 ff 被拒并建议 rebase', divMerge.isError && /diverged/.test(divMerge.text) && /rebase: true/.test(divMerge.text), divMerge.text);
+  const divMerged = await session.tool('worktree_merge_back', { repoPath: repo, name: 'ff-div', merge: true, remove: true, deleteBranch: true });
+  check('默认 --no-ff 仍可合并分叉分支', !divMerged.isError && /merge wt\/ff-div into main: ok/.test(divMerged.text), divMerged.text);
+
+  section('--no-checkout 创建');
+  // A7② 回归：大仓库场景的 --no-checkout；实测其 status 读作整树删除，remove 需 force
+  const ncCreated = await session.tool('worktree_create', { repoPath: repo, name: 'no-checkout-one', noCheckout: true });
+  const ncDir = path.join(root, 'wt-no-checkout-one');
+  check('noCheckout 创建成功', !ncCreated.isError, ncCreated.text);
+  check('工作树未检出文件', !existsSync(path.join(ncDir, 'README.md')), ncCreated.text);
+  const ncRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'no-checkout-one', force: true, deleteBranch: true });
+  check('no-checkout worktree 以 force 删除', !ncRemove.isError && /Removed worktree/.test(ncRemove.text), ncRemove.text);
+
+  section('lock / unlock 工具');
+  // A7③ 回归：SKILL 要求不手搓 git worktree 命令，锁定的生杀大权也应有工具承载
+  await session.tool('worktree_create', { repoPath: repo, name: 'lockable' });
+  const locked = await session.tool('worktree_lock', { repoPath: repo, name: 'lockable', reason: 'agent session working' });
+  check('lock 成功并带 reason', !locked.isError && /agent session working/.test(locked.text), locked.text);
+  const lockRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'lockable', force: true, deleteBranch: true });
+  check('锁定后 remove 被拒', lockRemove.isError && /locked worktree/.test(lockRemove.text), lockRemove.text);
+  const mainLock = await session.tool('worktree_lock', { repoPath: repo, name: repo });
+  check('主检出不可加锁', mainLock.isError && /primary worktree/.test(mainLock.text), mainLock.text);
+  const unlocked = await session.tool('worktree_unlock', { repoPath: repo, name: 'lockable' });
+  check('unlock 成功', !unlocked.isError, unlocked.text);
+  const lockGone = await session.tool('worktree_remove', { repoPath: repo, name: 'lockable', deleteBranch: true });
+  check('解锁后可正常删除', !lockGone.isError && /Removed worktree/.test(lockGone.text), lockGone.text);
 } catch (err) {
   failures += 1;
   console.error(`\n未捕获异常: ${err.message}`);

@@ -5,7 +5,7 @@
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.5.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.1.0 | `skills/` + `mcp.json` | Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，8 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交与受管目录外一律拒绝删除 |
+| [worktree-ops](plugins/worktree-ops/) | 0.1.0 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.0 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 63 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
 
@@ -25,7 +25,7 @@ plugins/
 ├── worktree-ops/
 │   ├── plugin.json           # 标准清单
 │   ├── mcp.json              # 标准 MCP 声明：worktree = node ./mcp/server.mjs
-│   ├── mcp/server.mjs        # 零依赖 Node 实现，8 个 worktree 工具
+│   ├── mcp/server.mjs        # 零依赖 Node 实现，10 个 worktree 工具
 │   ├── skills/worktree-manager/    # 标准 skill：何时建、怎么交接、何时能删
 │   ├── test/smoke.mjs        # ↓ 一次性 git 仓库上的端到端冒烟测试
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准

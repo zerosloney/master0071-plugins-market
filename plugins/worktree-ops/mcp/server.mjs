@@ -33,7 +33,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 // 版本位与 plugins/worktree-ops/plugin.json 同步，由 `node scripts/release.mjs worktree-ops <x.y.z>` 统一改
-const SERVER_INFO = { name: 'worktree-ops', version: '0.1.0' };
+const SERVER_INFO = { name: 'worktree-ops', version: '0.2.0' };
 
 const DEFAULT_CONFIG = {
   root: null,
@@ -140,12 +140,26 @@ function samePath(a, b) {
   return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 
+/** 主检出路径 = --git-common-dir 的父目录：link worktree 会话里 common dir 仍指向主仓库，
+ *  据此区分「真主检出」与「会话所在的 worktree」。会话 repoRoot 解析到 link worktree 时，
+ *  旧判定（entry.path === repo）会把两者标反。按 repo 路径记忆化（单进程内稳定）。 */
+const MAIN_WT_CACHE = new Map();
+function mainWorktreePath(repo) {
+  const key = path.resolve(repo);
+  if (MAIN_WT_CACHE.has(key)) return MAIN_WT_CACHE.get(key);
+  const common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"], key, { allowFail: true });
+  const main = common && common.trim() ? path.dirname(common.trim()) : key;
+  MAIN_WT_CACHE.set(key, main);
+  return main;
+}
+
 function repoKey(config, repo) {
   return Object.keys(config.repos).find((k) => samePath(k, repo));
 }
 
 function repoOverrides(config, repo) {
-  const key = repoKey(config, repo);
+  // 覆盖键按主仓库路径归一：从 link worktree 发起的会话也能命中主检出上存的覆盖
+  const key = repoKey(config, mainWorktreePath(repo)) || repoKey(config, repo);
   return key ? config.repos[key] : null;
 }
 
@@ -167,12 +181,43 @@ function managedRoot(config, repo) {
   return e.root ? path.resolve(e.root) : null;
 }
 
+/** 受管根落在仓库工作树内时，把该目录幂等写入 .git/info/exclude（本地忽略，不改被跟踪的
+ *  .gitignore），否则新建的 worktree 会以未跟踪目录污染主检出 git status。
+ *  返回 { entry, wrote }（wrote=false 表示条目已存在，同样视为已覆盖）；目录不在仓库
+ *  内、或拿不到 gitDir 时返回 null。gitDir 是主仓库的 --git-common-dir
+ *  （exclude 属于主仓库，link worktree 共享它）。 */
+function ensureInsideRepoIgnore(repo, ignoredDir, gitDir) {
+  const rel = path.relative(repo, path.resolve(ignoredDir));
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  if (!gitDir) return null;
+  const excludePath = path.join(gitDir, "info", "exclude");
+  const entry = `/${rel.split(path.sep).join("/")}/`;
+  let existing = "";
+  try {
+    existing = fs.readFileSync(excludePath, "utf8");
+  } catch {
+    /* 首次运行还没有 info/exclude */
+  }
+  if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return { entry, wrote: false };
+  fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+  fs.appendFileSync(excludePath, `${existing && !existing.endsWith("\n") ? "\n" : ""}${entry}\n`, "utf8");
+  return { entry, wrote: true };
+}
+
 function defaultBranch(repo) {
   const sym = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo, { allowFail: true });
   if (sym && sym.trim()) return sym.trim().replace(/^origin\//, "");
   const head = git(["rev-parse", "--abbrev-ref", "HEAD"], repo, { allowFail: true });
   if (head && head.trim() && head.trim() !== "HEAD") return head.trim();
   return null;
+}
+
+/** 会话仓库当前检出的分支名；detached HEAD / 解析不出时返回 null。
+ *  resolveBase 与 resolveTarget 的默认值共用它，避免两处各写一份而漂移。 */
+function currentBranch(repo) {
+  const out = git(["rev-parse", "--abbrev-ref", "HEAD"], repo, { allowFail: true });
+  const cur = out && out.trim();
+  return cur && cur !== "HEAD" ? cur : null;
 }
 
 /** ref 类参数（target/baseRef 等）进 git argv 前的边界校验：
@@ -191,17 +236,52 @@ function resolveBase(config, repo, explicit) {
   const e = effective(config, repo);
   // 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
   if (e.baseRef && e.baseRef !== "auto") return assertSafeRef(e.baseRef, "baseRef");
+  // auto：先跟随会话仓库当前检出的分支（在创建那一刻求值），detached / 解析不出分支时
+  // 才回退仓库默认分支。与 resolveTarget 的默认顺序一致，只是回退值不同。
+  const cur = currentBranch(repo);
+  if (cur) return cur;
   const d = defaultBranch(repo);
   return d || "HEAD";
 }
 
+/** 显式传入的 target 必须真的解析得到提交，否则直接报错。
+ *  解析不了时 counts() 会拿到 ahead=null，而删除路径上的「未合并提交」护栏
+ *  （ahead && ahead > 0）会因 null 短路而静默放行，把有未合并提交的工作树删掉。 */
 function resolveTarget(repo, explicit) {
   const raw = explicit === undefined || explicit === null ? "" : String(explicit);
-  if (raw.trim()) return assertSafeRef(raw, "target");
+  if (raw.trim()) {
+    const ref = assertSafeRef(raw, "target");
+    const resolved = git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo, { allowFail: true });
+    if (!resolved || !resolved.trim()) {
+      throw new Error(`target ref \`${ref}\` does not resolve to a commit in ${repo}.\nPass a branch or tag that exists, or omit target to use the current checked-out branch.`);
+    }
+    return ref;
+  }
+  // 默认先跟随会话仓库当前检出的分支：merge_back 要求 target 已在主检出上，
+  // 跟随当前分支让默认值天然满足该前提（旧默认 origin/<默认分支> 永远对不上本地检出而 REFUSED）。
+  // detached / 解析不出分支时回退仓库默认分支（origin/<默认分支> 优先）。
+  const cur = currentBranch(repo);
+  if (cur) return cur;
   const d = defaultBranch(repo);
   if (!d) return "HEAD";
   const remote = git(["rev-parse", "--verify", "--quiet", `origin/${d}`], repo, { allowFail: true });
   return remote ? `origin/${d}` : d;
+}
+
+/** worktree add 失败按 stderr 分类给提示：baseRef 的 hint 只留给 ref 类错误，
+ *  「分支已被其他工作树占用」等场景各有明确指引，不再一律归咎 baseRef。 */
+function classifyAddFailure(err, branch, baseRef) {
+  const msg = String((err && err.message) || err);
+  if (/is already used by worktree|is already checked out/.test(msg)) {
+    return `${msg}\nBranch \`${branch}\` is checked out in another worktree; git allows a branch in only one worktree. Free that worktree first (worktree_remove), or pass a different \`name\`.`;
+  }
+  if (/a branch named .+ already exists/.test(msg)) {
+    return `${msg}\nBranch \`${branch}\` was created concurrently — re-run to check it out, or pass a different \`name\`.`;
+  }
+  if (/invalid reference|unknown revision|ambiguous argument|not a valid ref|failed to resolve/.test(msg)) {
+    return `${msg}\nHint: base ref \`${baseRef}\` may not exist. Check with \`git branch -a\` and pass \`baseRef\` explicitly.`;
+  }
+  return msg;
 }
 
 /* ---------------------------------------------------------------- worktrees */
@@ -245,7 +325,8 @@ function listWorktrees(repo) {
 function pickWorktree(repo, nameOrPath) {
   const entries = listWorktrees(repo);
   if (!nameOrPath || !String(nameOrPath).trim()) {
-    const main = entries.find((e) => path.resolve(e.path) === repo);
+    const mainPath = mainWorktreePath(repo);
+    const main = entries.find((e) => path.resolve(e.path) === mainPath);
     if (main) return main;
     throw new Error(`worktree not found: (empty name). Known: ${entries.map((e) => e.branch || e.path).join(", ")}`);
   }
@@ -272,17 +353,20 @@ function statusOf(dir) {
   return { clean: lines.length === 0, dirtyFiles: lines.slice(0, 20), dirtyCount: lines.length, lines };
 }
 
-function counts(dir, target, branch) {
-  const out = git(["rev-list", "--left-right", "--count", `${target}...${branch}`], dir, { allowFail: true });
+/** ahead/behind 与祖先判定只读仓库级 refs，cwd 必须用仓库根而非工作树目录：
+ *  prunable（目录被手动删/移走）的工作树目录做 cwd 会 ENOENT → null，
+ *  曾让删除护栏把「无法计算」误判成「已合并」或反过来误拒干净分支。 */
+function counts(repo, target, branch) {
+  const out = git(["rev-list", "--left-right", "--count", `${target}...${branch}`], repo, { allowFail: true });
   if (!out) return { behind: null, ahead: null };
   const [behind, ahead] = out.trim().split(/\s+/).map((n) => Number(n));
   return { behind: Number.isFinite(behind) ? behind : null, ahead: Number.isFinite(ahead) ? ahead : null };
 }
 
-function isAncestor(dir, branch, target) {
+function isAncestor(repo, branch, target) {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", branch, target], {
-      cwd: dir,
+      cwd: repo,
       stdio: "ignore",
       windowsHide: true,
     });
@@ -352,12 +436,12 @@ function human(bytes) {
 
 function describe(repo, entry, target, { includeSize = false } = {}) {
   const dir = entry.path;
-  const isMain = path.resolve(dir) === path.resolve(repo);
+  const isMain = samePath(path.resolve(dir), mainWorktreePath(repo));
   const status = statusOf(dir);
   const commit = lastCommit(dir);
   const branch = entry.branch || (entry.detached ? `detached@${(entry.head || "").slice(0, 7)}` : null);
-  const counter = branch && !isMain ? counts(dir, target, branch) : { ahead: null, behind: null };
-  const merged = branch && !isMain ? isAncestor(dir, branch, target) : null;
+  const counter = branch && !isMain ? counts(repo, target, branch) : { ahead: null, behind: null };
+  const merged = branch && !isMain ? isAncestor(repo, branch, target) : null;
   const age = commit && commit.ageDays !== null ? commit.ageDays : dirAgeDays(dir);
   return {
     repo,
@@ -448,14 +532,15 @@ const tools = [
   {
     name: "worktree_create",
     description:
-      "Create a git worktree for a branch in the configured root directory outside the repository. Requires a configured root (WORKTREE_ROOT, or worktree_set_root) — there is no implicit default location, and the call is refused without one. Returns the absolute worktree path plus the exact steps to open a session that works inside it.",
+      "Create a git worktree for a branch in the configured root directory. If the branch already exists (and is not checked out elsewhere) it is checked out as-is — the common way to inspect or verify someone's PR branch; otherwise a new branch is created from the base ref. Requires a configured root (WORKTREE_ROOT, or worktree_set_root) — there is no implicit default location, and the call is refused without one. A root inside the repository is allowed: the create call first writes it into the local .git/info/exclude (never the tracked .gitignore) so the main checkout stays clean; only a root inside the .git directory itself is refused. Returns the absolute worktree path plus the exact steps to open a session that works inside it.",
     inputSchema: {
       type: "object",
       properties: {
         repoPath: { type: "string", description: "Absolute path inside the repository. Defaults to the current session directory." },
-        name: { type: "string", description: "Branch name, or a short task name that gets the configured prefix and slug applied." },
-        baseRef: { type: "string", description: "Base commit/ref to branch from. Defaults to the configured baseRef, then the repository default branch." },
+        name: { type: "string", description: "Branch name, or a short task name that gets the configured prefix and slug applied. An existing branch is checked out as-is instead of being recreated." },
+        baseRef: { type: "string", description: "Base commit/ref to branch from. Defaults to the configured baseRef; `auto` follows the current checked-out branch of the session repository, falling back to the repository default branch when detached." },
         path: { type: "string", description: "Explicit absolute worktree directory. Defaults to <configured root>/<branch-slug>." },
+        noCheckout: { type: "boolean", description: "Create with --no-checkout: HEAD is set but no working-tree files (git status there reads as deletions, so removal needs force). Useful for huge repositories. Default false." },
       },
       required: ["name"],
     },
@@ -485,6 +570,16 @@ const tools = [
         return fail(`invalid branch name \`${branch}\`: must not start with "-" or contain surrounding whitespace.`);
       }
       const baseRef = resolveBase(config, repo, args.baseRef);
+      // 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
+      // 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
+      const branchExists = Boolean(
+        (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
+      );
+      if (branchExists && stringArg(args.baseRef).trim()) {
+        return fail(
+          `branch \`${branch}\` already exists, so \`baseRef\` would be ignored (it only seeds new branches).\nOmit \`baseRef\` to check the existing branch out, or pass a different \`name\`.`,
+        );
+      }
       const rootDir = managedRoot(config, repo);
       // README 承诺 worktree 建在配置根目录下：显式 path 也必须落在受管根内
       const dir = args.path ? path.resolve(String(args.path)) : path.join(rootDir, slug(branch));
@@ -492,30 +587,50 @@ const tools = [
         return fail(`explicit \`path\` resolves to ${dir}, outside the managed root ${rootDir}.\nChoose a directory inside the managed root, or drop \`path\` to use <root>/<branch-slug>.`);
       }
 
+      // 落点在仓库工作树内：git 会照建（实测），但 checkout 混进 .git 对象库是病态配置且
+      // exclude 无法表达，直接拒绝；否则先把受管根写进本地忽略，保证主检出 status 干净
+      let ignoreEntry = null;
+      if (isInside(dir, repo)) {
+        const gitDir = (git(["rev-parse", "--path-format=absolute", "--git-common-dir"], repo, { allowFail: true }) || "").trim();
+        if (gitDir && isInside(dir, gitDir)) {
+          return fail(`target directory ${dir} is inside the repository's git directory ${gitDir}.\nMove the configured root outside the git directory (worktree_set_root), or pass \`path\` outside it.`);
+        }
+        // 优先忽略整个受管根（一条覆盖后续所有 worktree）；root==repo 时退化为按本次目录忽略
+        ignoreEntry = ensureInsideRepoIgnore(repo, rootDir, gitDir) ?? ensureInsideRepoIgnore(repo, dir, gitDir);      }
+
+      const registered = listWorktrees(repo);
+      // slug() 把仅大小写 / 非 ASCII 不同的分支折叠到同一目录：撞名时点名根因，而不是只报目录非空
+      const slugClash = registered.find((w) => w.branch && w.branch !== branch && slug(w.branch) === slug(branch));
+      const clashHint = slugClash
+        ? `\nNote: branch \`${slugClash.branch}\` (worktree ${slugClash.path}) is a different branch but slugifies to the same directory \`${slug(branch)}\` — letter case and non-ASCII differences do not survive directory naming.`
+        : "";
       if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
-        return fail(`target directory is not empty: ${dir}\nChoose another \`path\`, or remove the leftover directory first.`);
+        return fail(`target directory is not empty: ${dir}\nChoose another \`path\`, or remove the leftover directory first.${clashHint}`);
       }
-      const existing = listWorktrees(repo).find((w) => samePath(w.path, dir));
-      if (existing) return fail(`git already registers this worktree: ${dir} (branch ${existing.branch || "detached"}).`);
+      const existing = registered.find((w) => samePath(w.path, dir));
+      if (existing) return fail(`git already registers this worktree: ${dir} (branch ${existing.branch || "detached"}).${clashHint}`);
 
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      let baseRefResolved = baseRef;
+      const noCheckout = boolArg(args.noCheckout);
+      const addArgs = ["worktree", "add", ...(noCheckout ? ["--no-checkout"] : [])];
       try {
-        git(["worktree", "add", dir, "-b", branch, baseRefResolved], repo);
+        git(branchExists ? [...addArgs, dir, branch] : [...addArgs, dir, "-b", branch, baseRef], repo);
       } catch (err) {
-        return fail(
-          `${err.message}\nHint: base ref \`${baseRefResolved}\` may not exist. Check with \`git branch -a\` and pass \`baseRef\` explicitly.`,
-        );
+        return fail(classifyAddFailure(err, branch, baseRef));
       }
 
+      const baseLabel = branchExists ? branch : baseRef;
       const info = describe(repo, pickWorktree(repo, branch), resolveTarget(repo), { includeSize: false });
       return ok(
         [
-          `Created worktree for branch \`${branch}\`.`,
+          `Created worktree for branch \`${branch}\`${branchExists ? " (existing branch checked out)" : ""}.`,
           ``,
           `- path: ${dir}`,
           `- branch: ${branch}`,
-          `- base: ${baseRefResolved} @ ${info.head}`,
+          `- base: ${baseLabel} @ ${info.head}`,
+          ...(ignoreEntry?.wrote
+            ? [`- note: root is inside the repository; added \`${ignoreEntry.entry}\` to .git/info/exclude (local-only ignore) so the worktree does not pollute \`git status\`.`]
+            : []),
           `- config: ${configSummary(config, repo)}`,
           ``,
           `The running session keeps its own working directory, so it cannot start working in the new one. To move the work into this worktree:`,
@@ -525,7 +640,7 @@ const tools = [
           `3. Paste the briefing below as the first message.`,
           ``,
           "--- briefing ---",
-          handoffText(repo, branch, `Work on the task in worktree ${dir} (branch ${branch}, based on ${baseRefResolved}).`),
+          handoffText(repo, branch, `Work on the task in worktree ${dir} (branch ${branch}, based on ${baseLabel}).`),
           "--- end briefing ---",
         ].join("\n"),
       );
@@ -541,7 +656,7 @@ const tools = [
         repoPath: { type: "string" },
         name: { type: "string", description: "Optional: only this worktree (branch name, slug, or absolute path)." },
         includeSize: { type: "boolean", description: "Compute on-disk size. Slower; default false." },
-        target: { type: "string", description: "Comparison ref. Defaults to origin/<default branch> when available." },
+        target: { type: "string", description: "Comparison ref. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
       },
     },
     handler: (args) => {
@@ -706,7 +821,7 @@ const tools = [
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
       const entry = pickWorktree(repo, args.name);
-      if (samePath(entry.path, repo)) {
+      if (samePath(entry.path, mainWorktreePath(repo))) {
         return fail("refusing to remove the primary worktree.");
       }
       const target = resolveTarget(repo, args.target);
@@ -725,7 +840,13 @@ const tools = [
         if (info.clean === false) {
           return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force=true if the user explicitly asked to discard them.`);
         }
-        if (info.ahead && info.ahead > 0) {
+        // 有真实分支却数不出 ahead：合并没有验证成，不能因为 null 而当成「已合并」放行。
+        // 判据用 entry.branch 而非 info.branch：detached 的 info.branch 是 "detached@<sha>" 合成串，
+        // 它本就没有分支可与 target 比，不该被这条护栏拦下。
+        if (entry.branch && info.ahead === null) {
+          return fail(`refusing to remove: cannot determine whether branch \`${entry.branch}\` is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force=true if the user accepts losing unmerged commits.`);
+        }
+        if (info.ahead > 0) {
           return fail(`refusing to remove: ${info.ahead} commit(s) are not merged into ${target}.\nMerge first (worktree_merge_back), or call again with force=true if the user accepts losing them.`);
         }
       }
@@ -748,6 +869,50 @@ const tools = [
     },
   },
   {
+    name: "worktree_lock",
+    description:
+      "Lock a worktree (git worktree lock). worktree_remove and worktree_merge_back refuse to touch locked worktrees — use this while another agent session or person is working in it, so cleanup passes leave it alone.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repoPath: { type: "string" },
+        name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
+        reason: { type: "string", description: "Optional reason recorded with the lock (shown by git worktree list -v)." },
+      },
+      required: ["name"],
+    },
+    handler: (args) => {
+      const repo = repoRoot(args.repoPath);
+      const entry = pickWorktree(repo, args.name);
+      if (samePath(entry.path, mainWorktreePath(repo))) {
+        return fail("refusing to lock the primary worktree.");
+      }
+      const reason = stringArg(args.reason).trim();
+      git(["worktree", "lock", ...(reason ? ["--reason", reason] : []), entry.path], repo);
+      return ok(
+        `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove and worktree_merge_back now refuse to touch it; unlock with worktree_unlock.`,
+      );
+    },
+  },
+  {
+    name: "worktree_unlock",
+    description: "Unlock a worktree locked by worktree_lock or git worktree lock, re-allowing removal and merge-back.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repoPath: { type: "string" },
+        name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
+      },
+      required: ["name"],
+    },
+    handler: (args) => {
+      const repo = repoRoot(args.repoPath);
+      const entry = pickWorktree(repo, args.name);
+      git(["worktree", "unlock", entry.path], repo);
+      return ok(`Unlocked worktree ${entry.path}. Removal and merge-back are allowed again.`);
+    },
+  },
+  {
     name: "worktree_merge_back",
     description:
       "Report-only by default. With rebase/merge/remove enabled it rebases the worktree branch onto the target, merges it into the repository's target branch, and cleans up. Stops and reports on any conflict instead of resolving it.",
@@ -756,8 +921,9 @@ const tools = [
       properties: {
         repoPath: { type: "string" },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
-        target: { type: "string", description: "Branch to land on. Defaults to origin/<default branch> when available." },
+        target: { type: "string", description: "Branch to land on. Defaults to the current checked-out branch, falling back to origin/<default branch> when detached." },
         rebase: { type: "boolean", description: "Run `git -C <worktree> rebase <target>`. Default false." },
+        ff: { type: "boolean", description: "With merge: fast-forward only (linear history, no merge commit); refuses when the branches diverged. Default false (--no-ff merge commit)." },
         merge: { type: "boolean", description: "Run `git merge` in the main worktree. Default false." },
         remove: { type: "boolean", description: "Remove the worktree (and optionally the branch) after a clean merge. Default false." },
         deleteBranch: { type: "boolean" },
@@ -768,7 +934,7 @@ const tools = [
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
       const entry = pickWorktree(repo, args.name);
-      if (samePath(entry.path, repo)) {
+      if (samePath(entry.path, mainWorktreePath(repo))) {
         return fail("this is the primary worktree; nothing to merge back from it.");
       }
       if (boolArg(args.remove) && entry.locked) {
@@ -801,18 +967,25 @@ const tools = [
       if (doMerge) {
         const branch = info.branch;
         if (!branch) return fail(`${steps.join("\n")}\n- merge: skipped, worktree is detached.`);
-        const checkedOut = (git(["rev-parse", "--abbrev-ref", "HEAD"], repo, { allowFail: true }) || "").trim();
+        const checkedOut = currentBranch(repo) || "HEAD";
         if (checkedOut !== target) {
           return fail(`${steps.join("\n")}\n- merge: REFUSED. The main worktree has \`${checkedOut}\` checked out, but the target is \`${target}\`.\nCheck out \`${target}\` in ${repo} first, then re-run.`);
         }
         if (info.ahead === 0 && info.mergedIntoTarget) {
           steps.push(`- merge: skipped, ${target} already contains ${branch}`);
         } else {
+          const useFf = boolArg(args.ff);
+          const mergeArgs = useFf
+            ? ["merge", "--ff-only", branch]
+            : ["merge", "--no-ff", "-m", `Merge ${branch} into ${target}`, branch];
           try {
-            git(["merge", "--no-ff", "-m", `Merge ${branch} into ${target}`, branch], repo);
-            steps.push(`- merge ${branch} into ${target}: ok`);
+            git(mergeArgs, repo);
+            steps.push(`- merge ${branch} into ${target}: ${useFf ? "ok (fast-forward)" : "ok"}`);
           } catch (err) {
-            // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因
+            if (useFf && /fast-forward/i.test(String((err && err.message) || err))) {
+              return fail(`${steps.join("\n")}\n- merge: REFUSED. ${branch} and ${target} have diverged, so a fast-forward is impossible.\nRebase first (rebase: true), or drop \`ff\` to merge with a merge commit.`);
+            }
+            // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因（如无效 ref、仓库不可用）
             const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], repo, { allowFail: true }) || "").trim();
             if (conflicts) {
               return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${repo}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}`);
@@ -866,7 +1039,7 @@ const tools = [
         scope: { type: "string", enum: ["global", "repo"], description: "Default global." },
         repoPath: { type: "string", description: "Required for scope=repo." },
         root: { type: "string", description: "Absolute worktree root. Omit or pass null to reset." },
-        baseRef: { type: "string", description: "Default base ref, or `auto` for the repository default branch." },
+        baseRef: { type: "string", description: "Default base ref, or `auto` to follow the current checked-out branch (repository default branch when detached)." },
         branchPrefix: { type: "string" },
         staleDays: { type: "number" },
         clearRepoOverride: { type: "boolean" },
@@ -912,7 +1085,9 @@ const tools = [
       }
 
       if (scope === "repo") {
-        const key = repoKey(config, repo) || repo;
+        // 键按主仓库路径归一：从 link worktree 里 set 的覆盖，主检出会话同样读得到
+        const canonical = mainWorktreePath(repo);
+        const key = repoKey(config, canonical) || repoKey(config, repo) || canonical;
         if (boolArg(args.clearRepoOverride)) {
           delete config.repos[key];
           saveConfig(config);
