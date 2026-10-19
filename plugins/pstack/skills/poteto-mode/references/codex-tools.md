@@ -55,7 +55,7 @@ Skills name Claude defaults (a single-role default for code/prose/judgment plus 
 
 ## Session routing hook
 
-The native pstack plugin bundles the same `SessionStart` routing instruction as the Claude Code plugin, through `session-start.sh` on macOS and Linux and `session-start.ps1` on Windows. Codex runs the hook on startup, resume, clear, and compact after the user trusts the hook through `/hooks`. The hook reads `session hook` from the Codex sheet, at the path in [setup-pstack's runtime table](../../setup-pstack/SKILL.md#other-runtimes); `session hook: off` disables injection.
+The native pstack plugin bundles the same `SessionStart` routing instruction as the Claude Code plugin; in this port every hook registration runs `hooks/session-start.mjs` with node (upstream ships session-start.sh / .ps1 instead). Codex runs the hook on startup, resume, clear, and compact after the user trusts the hook through `/hooks`. The hook reads `session hook` from the Codex sheet, at the path in [setup-pstack's runtime table](../../setup-pstack/SKILL.md#other-runtimes); `session hook: off` disables injection.
 
 A skills-only installation does not include plugin hooks. Request `poteto-mode` explicitly or add a standing instruction to `AGENTS.md` in that case.
 
