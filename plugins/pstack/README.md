@@ -52,9 +52,9 @@ Codex 侧未验证项：垫片里的 hook 沿用上游的 `command` 类型与 `$
 
 hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONFIG_DIR` 可改）。若文件里含 `session hook: off` 一行，则不注入路由令——**关掉自动路由的方式就是这个**，比删 hook 干净。
 
-ZCode 侧 hook：ZCode 的 hook stdout 按严格 JSON 解析且 `command` 型在 Windows 上无法执行裸 `.sh`，故本移植为 ZCode 单独提供 `hooks/zcode/hooks.json`（`process` 型）指向 node 入口：读 `~/.zcode/pstack-models.md`，同一张 `session hook: off` 开关语义，注入时输出 `hookSpecificOutput.additionalContext` JSON。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
+ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理会垫片里的 hooks 指针**（实测面板与日志证实），因此同一份注册要同时服务 Claude Code 与 ZCode——`session-start.mjs` 靠环境自检切换：检测到 `ZCODE_PLUGIN_ROOT` 或插件根在 `.zcode` 下即走 zcode 分支，读 `~/.zcode/pstack-models.md`、沿用 `session hook: off` 开关，输出 ZCode 要求的 `hookSpecificOutput.additionalContext` JSON；否则按参数走 claude/codex/copilot 分支。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
 
-**全部 hook 已 node 化（0.1.3）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。四份 hook 注册（`hooks/hooks.json`、`hooks/copilot-hooks.json`、`.codex-plugin` 内联、`hooks/zcode/hooks.json`）全部改为 `node` 调用，测试见 `hooks/run-hook-tests.mjs`（28 断言）。原 `.sh`/`.ps1`/`.awk` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
+**全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。三份 hook 注册（`hooks/hooks.json`、`hooks/copilot-hooks.json`、`.codex-plugin` 内联）全部改为 `node` 调用，测试见 `hooks/run-hook-tests.mjs`。原 `.sh`/`.ps1`/`.awk` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
 
 ## 与上游的差异
 
@@ -76,7 +76,7 @@ ZCode 侧 hook：ZCode 的 hook stdout 按严格 JSON 解析且 `command` 型在
 
 ## 升级上游
 
-本插件版本号只表示本仓库的移植包版本（当前 `0.1.3`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
+本插件版本号只表示本仓库的移植包版本（当前 `0.1.4`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
 
 ```bash
 gh api "repos/cursor/plugins/compare/<上次同步提交>...HEAD" --jq '.files[] | select(.filename | test("^pstack/skills/")) | .filename'

@@ -15,7 +15,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseSheet, readSheet, ROLES } from './sheet.mjs';
 
-const runtime = process.argv[2];
+const root = process.env.COPILOT_PLUGIN_ROOT ?? process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT;
+
+// ZCode registers hooks/hooks.json by convention and ignores a manifest hooks
+// pointer, so the one registration file serves both hosts and arrives here
+// with the claude argument on ZCode too. Detect the host instead of trusting
+// it: ZCODE_PLUGIN_ROOT set, or the expanded plugin root living under .zcode.
+const detected = process.env.ZCODE_PLUGIN_ROOT || (root ?? '').includes('.zcode') ? 'zcode' : null;
+const runtime = detected ?? process.argv[2];
 const sheets = {
   claude: () => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'pstack-models.md'),
   codex: () => join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'pstack-models.md'),
@@ -27,7 +34,6 @@ if (!(runtime in sheets)) {
   process.exit(2);
 }
 
-const root = process.env.COPILOT_PLUGIN_ROOT ?? process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT;
 if (!root) {
   console.error('session-start.mjs: no plugin root variable (CLAUDE_PLUGIN_ROOT / ZCODE_PLUGIN_ROOT / COPILOT_PLUGIN_ROOT) is set');
   process.exit(1);

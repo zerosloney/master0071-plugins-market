@@ -34,7 +34,7 @@ Skills name Claude families (`opus`, `fable`, `sonnet`, `haiku`). These do not r
 
 ## Session routing hook
 
-The plugin's ZCode shim points at `hooks/zcode/hooks.json`, whose `SessionStart` hook runs `hooks/session-start.mjs zcode` as a node process on startup, resume, clear, and compact. It reads `session hook` from `~/.zcode/pstack-models.md`; `session hook: off` disables injection, and with no sheet the mandate injects. Plugin hooks run without a trust gate. Every hook registration in this port runs node scripts; the `.sh` entries upstream ships are not executed on any host, so Windows is covered everywhere.
+ZCode registers the plugin's `hooks/hooks.json` by convention and ignores a manifest hooks pointer, so the one registration every host shares runs `hooks/session-start.mjs` with node; the script detects ZCode itself (`ZCODE_PLUGIN_ROOT` set, or the plugin root under `.zcode`) and switches to the ZCode branch on startup, resume, clear, and compact. It reads `session hook` from `~/.zcode/pstack-models.md`; `session hook: off` disables injection, and with no sheet the mandate injects as `hookSpecificOutput.additionalContext` JSON. Plugin hooks run without a trust gate. Every hook registration in this port runs node scripts, so Windows is covered everywhere.
 
 ## Driver and bundled skills pstack references
 

@@ -66,6 +66,7 @@ ok('zcode no sheet: JSON mandate', r.code === 0 && j.hookSpecificOutput.hookEven
 writeFileSync(path.join(zcodeHome, 'pstack-models.md'), 'session hook: off\n');
 r = run('session-start.mjs', ['zcode'], { ...envBase, USERPROFILE: home });
 ok('zcode off: silent', r.code === 0 && r.out === '');
+rmSync(path.join(zcodeHome, 'pstack-models.md'));
 
 r = run('session-start.mjs', ['copilot'], { ...envBase, COPILOT_HOME: copilotHome });
 j = JSON.parse(r.out);
@@ -85,6 +86,25 @@ ok('copilot invalid sheet: names problems + setup note', j.additionalContext.inc
   && j.additionalContext.includes('no valid pstack model sheet'));
 r = run('session-start.mjs', ['nonsense']);
 ok('unknown runtime: exit 2 + stderr', r.code === 2 && r.err.includes('unknown runtime'));
+
+// ── host auto-detection: ZCode registers hooks/hooks.json by convention, so
+// the claude-arg registration must switch to the zcode branch on ZCode ──────
+const zRoot = mkdtempSync(path.join(tmpdir(), 'pstack-hook-test-.zcode-'));
+mkdirSync(path.join(zRoot, 'hooks'), { recursive: true });
+writeFileSync(path.join(zRoot, 'hooks', 'session-start-context.md'), mandate);
+r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, USERPROFILE: home });
+j = JSON.parse(r.out);
+ok('detect via ZCODE_PLUGIN_ROOT: zcode JSON despite claude arg', j.hookSpecificOutput.hookEventName === 'SessionStart'
+  && j.hookSpecificOutput.additionalContext.includes('pstack:poteto-mode'));
+r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_PLUGIN_ROOT: zRoot, USERPROFILE: home });
+j = JSON.parse(r.out);
+ok('detect via .zcode root path: zcode JSON despite claude arg', j.hookSpecificOutput.hookEventName === 'SessionStart');
+writeFileSync(path.join(zcodeHome, 'pstack-models.md'), 'session hook: off\n');
+r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, USERPROFILE: home });
+ok('detect zcode + off: silent', r.code === 0 && r.out === '');
+r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_CONFIG_DIR: path.join(home, 'missing') });
+ok('no detection signals: claude arg stays claude (plain mandate)', r.code === 0 && r.out === mandate);
+rmSync(zRoot, { recursive: true, force: true });
 
 // ── pre-tool-use.mjs ─────────────────────────────────────────────────────────
 writeFileSync(path.join(copilotHome, 'pstack-models.md'), VALID_SHEET);
