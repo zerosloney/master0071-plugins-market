@@ -43,13 +43,16 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 65 个 skill，无需 prompts 垫片 |
-| `agents/` + `effort-agents/` | **客户端约定**，仅支持子智能体的宿主生效；Codex 不加载 |
-| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份 |
+| `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；`hooks` 指向 `hooks/zcode/`——独立于 Claude 版 `.sh` 的 node 进程入口，Windows 实测可注入（见下） |
+| `agents/` + `effort-agents/` | **客户端约定**，仅支持子智能体的宿主生效；ZCode 只加载 `agents/`（4 个子智能体已实证注册，effort 分级派发不可用）；Codex 不加载 |
+| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 走 `hooks/zcode/hooks.json` 的 node 入口 |
 | `models.json` | skill 内多处引用它说明模型分工的出处，改它需要重新生成，本移植未附带生成脚本 |
 
 Codex 侧未验证项：垫片里的 hook 沿用上游的 `command` 类型与 `${CLAUDE_PLUGIN_ROOT}` 写法，本机 Codex 插件样本只出现过 `mcp_tool` 类型的 hook（Stop / SubagentStop / Interrupt），因此**会话启动是否真的注入路由令未实测**。若没生效，手动 `/poteto-mode` 即可，或在 `.codex-plugin/plugin.json` 里删掉 `hooks` 字段。
 
 hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONFIG_DIR` 可改）。若文件里含 `session hook: off` 一行，则不注入路由令——**关掉自动路由的方式就是这个**，比删 hook 干净。
+
+ZCode 侧 hook：ZCode 的 hook stdout 按严格 JSON 解析且 `command` 型在 Windows 上无法执行裸 `.sh`，故本移植为 ZCode 单独提供 `hooks/zcode/hooks.json`（`process` 型）+ `hooks/session-start-zcode.mjs`（node）：读 `~/.zcode/pstack-models.md`，同一张 `session hook: off` 开关语义，注入时输出 `hookSpecificOutput.additionalContext` JSON。Claude 版 `hooks/hooks.json` 与 `.sh` 保持原样，互不影响。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
 
 ## 与上游的差异
 
@@ -70,7 +73,7 @@ hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONF
 
 ## 升级上游
 
-本插件版本号只表示本仓库的移植包版本（当前 `0.1.1`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
+本插件版本号只表示本仓库的移植包版本（当前 `0.1.2`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
 
 ```bash
 gh api "repos/cursor/plugins/compare/<上次同步提交>...HEAD" --jq '.files[] | select(.filename | test("^pstack/skills/")) | .filename'
