@@ -48,7 +48,10 @@ detached), `branchPrefix` (default `wt/`), `staleDays` (idle threshold for the a
 Precedence is environment first (`WORKTREE_ROOT`, `WORKTREE_BASE_REF`, `WORKTREE_BRANCH_PREFIX`,
 `WORKTREE_STALE_DAYS`), then the per-repository override, then the global config file. Hosts that
 offer a settings page usually map their fields onto those environment variables, so a value the
-user typed in the UI wins over anything you configured earlier.
+user typed in the UI wins over anything you configured earlier. Every tool's `Config:` line marks
+each value's source (`env` / `repo` / `global` / `default`) — read it before concluding that a
+setting "did not apply". Passing `null` to `root` / `baseRef` / `branchPrefix` resets to the
+default; an empty string is rejected, so never send `""` to mean "leave unchanged".
 
 Read the current setting before the first operation of a session if the user has not pinned it in
 this conversation. Report the resolved root path in your answer; users care where worktrees land.
@@ -64,8 +67,14 @@ this conversation. Report the resolved root path in your answer; users care wher
 4. Stay in the current session and keep doing current-session work. Creating a worktree is not a
    hand-off, and pretending otherwise strands the task.
 
+When the output contains a `base lag:` line, the session branch is behind the repository default
+branch, so this worktree starts without those commits. Say so instead of calling the result
+complete, and offer to re-create with `baseRef: "<the default branch it names>"`.
+
 Failures worth handling yourself: a non-empty target directory (leftover from a removed worktree),
 a `baseRef` that does not exist, or an unset root (configure it with `worktree_set_root`, then retry).
+An `ambiguous worktree name` error means several worktrees match what you passed — re-issue the call
+with the absolute path of the one you mean; never guess between the candidates.
 Fix the path or the ref and retry; do not escalate to the user
 before you have tried the obvious correction.
 

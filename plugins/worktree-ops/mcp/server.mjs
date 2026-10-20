@@ -20,7 +20,7 @@
 // Override the whole directory with WORKTREE_CONFIG_HOME.
 
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +33,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 // 版本位与 plugins/worktree-ops/plugin.json 同步，由 `node scripts/release.mjs worktree-ops <x.y.z>` 统一改
-const SERVER_INFO = { name: 'worktree-ops', version: '0.2.0' };
+const SERVER_INFO = { name: 'worktree-ops', version: '0.3.0' };
 
 const DEFAULT_CONFIG = {
   root: null,
@@ -102,11 +102,31 @@ function saveConfig(config) {
     staleDays: config.staleDays,
     repos: config.repos,
   };
-  // 原子写：先落临时文件再 rename 覆盖，避免写一半进程退出留下截断的 config.json
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
-  fs.renameSync(tmp, file);
-  return file;
+ // 原子写：先落临时文件再 rename 覆盖，避免写一半进程退出留下截断的 config.json。
+ // 临时名带 pid + 随机后缀：固定的 config.json.tmp 会让并发写者互相截断对方的写入。
+ const tmp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+ fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+ try {
+ // Windows 上目标文件正被其他进程读取时，rename 覆盖会抛 EPERM（POSIX 不会）。
+ // 有界重试即可：并发写者都是「整份覆盖」，最后一次成功写入即最终值。
+ for (let attempt = 0; ; attempt += 1) {
+ try {
+ fs.renameSync(tmp, file);
+ break;
+ } catch (err) {
+ if (attempt >= 5 || (err && err.code !== "EPERM" && err.code !== "EBUSY")) throw err;
+ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+ }
+ }
+ } catch (err) {
+ try {
+ fs.unlinkSync(tmp);
+ } catch {
+ /* 临时文件可能已被 rename 或根本没写成功 */
+ }
+ throw err;
+ }
+ return file;
 }
 
 /* --------------------------------------------------------------------- git */
@@ -140,15 +160,25 @@ function samePath(a, b) {
   return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 
-/** 主检出路径 = --git-common-dir 的父目录：link worktree 会话里 common dir 仍指向主仓库，
- *  据此区分「真主检出」与「会话所在的 worktree」。会话 repoRoot 解析到 link worktree 时，
- *  旧判定（entry.path === repo）会把两者标反。按 repo 路径记忆化（单进程内稳定）。 */
+/** 主检出路径 = `git worktree list --porcelain` 的首条。git 文档保证主检出列在首位，
+ *  且从 link worktree 会话里运行同样先列出主检出，据此区分「真主检出」与「会话所在的
+ *  worktree」：会话 repoRoot 解析到 link worktree 时，旧判定（entry.path === repo）会把两者标反。
+ *  不能用 dirname(--git-common-dir)：submodule 的 common-dir 指向 <super>/.git/modules/<name>，
+ *  dirname 得到 <super>/.git/modules，与 porcelain 里的任何 entry.path 都不相等，
+ *  isMain 恒为假 → 删/锁/合并三道主工作树保护同时失效。
+ *  取 porcelain 首条还保证与 listWorktrees() 自洽：判定用的路径就是代码其余部分在操作的那一条。
+ *  按 repo 路径记忆化（单进程内稳定）；仓库临时读不到时不缓存，退回入参让调用方 fail-closed。 */
 const MAIN_WT_CACHE = new Map();
 function mainWorktreePath(repo) {
   const key = path.resolve(repo);
   if (MAIN_WT_CACHE.has(key)) return MAIN_WT_CACHE.get(key);
-  const common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"], key, { allowFail: true });
-  const main = common && common.trim() ? path.dirname(common.trim()) : key;
+  let entries = [];
+  try {
+    entries = listWorktrees(key);
+  } catch {
+    return key;
+  }
+  const main = entries.length > 0 ? path.resolve(entries[0].path) : key;
   MAIN_WT_CACHE.set(key, main);
   return main;
 }
@@ -163,15 +193,34 @@ function repoOverrides(config, repo) {
   return key ? config.repos[key] : null;
 }
 
+const SOURCES = ["env", "repo", "global", "default"];
+/** 逐键判定生效值与来源：同一个 root 可能是环境变量注入的、单仓库覆盖的或全局配置的，
+ * 用户只看最终值无法判断「为什么我在设置页改的不生效」。 */
+function effectiveWithSources(config, repo) {
+ const o = repoOverrides(config, repo) || {};
+ const env = envOverrides();
+ const pick = (envKey, repoKey, globalKey, fallback) => {
+ if (env[envKey] !== undefined) return { value: env[envKey], source: "env" };
+ if (o[repoKey] !== undefined && o[repoKey] !== null) return { value: o[repoKey], source: "repo" };
+ if (config[globalKey] !== undefined && config[globalKey] !== null) return { value: config[globalKey], source: "global" };
+ return { value: fallback, source: "default" };
+ };
+ return {
+ root: pick("root", "root", "root", null),
+ baseRef: pick("baseRef", "baseRef", "baseRef", DEFAULT_CONFIG.baseRef),
+ branchPrefix: pick("branchPrefix", "branchPrefix", "branchPrefix", DEFAULT_CONFIG.branchPrefix),
+ staleDays: pick("staleDays", "staleDays", "staleDays", DEFAULT_CONFIG.staleDays),
+ };
+}
+
 function effective(config, repo) {
-  const o = repoOverrides(config, repo) || {};
-  const env = envOverrides();
-  return {
-    root: env.root ?? o.root ?? config.root,
-    baseRef: env.baseRef ?? o.baseRef ?? config.baseRef,
-    branchPrefix: env.branchPrefix ?? o.branchPrefix ?? config.branchPrefix,
-    staleDays: env.staleDays ?? o.staleDays ?? config.staleDays,
-  };
+ const s = effectiveWithSources(config, repo);
+ return {
+ root: s.root.value,
+ baseRef: s.baseRef.value,
+ branchPrefix: s.branchPrefix.value,
+ staleDays: s.staleDays.value,
+ };
 }
 
 /** Managed root: explicit config only; null means unset — create refuses, remove
@@ -205,11 +254,18 @@ function ensureInsideRepoIgnore(repo, ignoredDir, gitDir) {
 }
 
 function defaultBranch(repo) {
-  const sym = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo, { allowFail: true });
-  if (sym && sym.trim()) return sym.trim().replace(/^origin\//, "");
-  const head = git(["rev-parse", "--abbrev-ref", "HEAD"], repo, { allowFail: true });
-  if (head && head.trim() && head.trim() !== "HEAD") return head.trim();
-  return null;
+ const sym = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo, { allowFail: true });
+ if (sym && sym.trim()) return sym.trim().replace(/^origin\//, "");
+ // 无 origin/HEAD 时不能回退「当前检出分支」：那是会话所在分支，不是仓库默认分支，
+  // 会让 auto 的落后判定永远为 0。依次试本地 main / master，最后才用 symbolic-ref HEAD。
+ for (const name of ["main", "master"]) {
+ if ((git(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`], repo, { allowFail: true }) || "").trim()) {
+ return name;
+ }
+ }
+ const head = git(["symbolic-ref", "--quiet", "--short", "HEAD"], repo, { allowFail: true });
+ if (head && head.trim() && head.trim() !== "HEAD") return head.trim();
+ return null;
 }
 
 /** 会话仓库当前检出的分支名；detached HEAD / 解析不出时返回 null。
@@ -223,25 +279,40 @@ function currentBranch(repo) {
 /** ref 类参数（target/baseRef 等）进 git argv 前的边界校验：
  *  非空、不以 "-" 开头、首尾无空白、无控制字符，防止被解析成 git 选项。 */
 function assertSafeRef(value, label) {
-  const s = String(value);
-  if (!s || s.trim() !== s || s.startsWith("-") || /[\u0000-\u001f\u007f]/.test(s)) {
-    throw new Error(`invalid ${label} \`${s}\`: ref-like arguments must not be empty, start with "-", or contain surrounding whitespace / control characters.`);
-  }
-  return s;
+ const s = String(value);
+ if (!s || s.trim() !== s || s.startsWith("-") || /[\u0000-\u001f\u007f]/.test(s)) {
+ throw new Error(`invalid ${label} \`${s}\`: ref-like arguments must not be empty, start with "-", or contain surrounding whitespace / control characters.`);
+ }
+ return s;
+}
+
+/** 显式传入的字符串参数：undefined/null 表示「未传」，空串表示调用方传了空值——必须报错，
+ * 不能静默等同未传（否则 baseRef:"" 会悄悄走 auto，用户以为指定了基线）。 */
+function assertNonEmptyArg(value, label) {
+ const s = String(value);
+ if (!s.trim()) throw new Error(`invalid ${label}: pass a non-empty value, or omit the field entirely.`);
+ return s;
 }
 
 function resolveBase(config, repo, explicit) {
-  const raw = explicit === undefined || explicit === null ? "" : String(explicit);
-  if (raw.trim()) return assertSafeRef(raw, "baseRef");
-  const e = effective(config, repo);
-  // 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
-  if (e.baseRef && e.baseRef !== "auto") return assertSafeRef(e.baseRef, "baseRef");
-  // auto：先跟随会话仓库当前检出的分支（在创建那一刻求值），detached / 解析不出分支时
-  // 才回退仓库默认分支。与 resolveTarget 的默认顺序一致，只是回退值不同。
-  const cur = currentBranch(repo);
-  if (cur) return cur;
-  const d = defaultBranch(repo);
-  return d || "HEAD";
+ if (explicit !== undefined && explicit !== null) return { ref: assertSafeRef(assertNonEmptyArg(explicit, "baseRef"), "baseRef"), auto: "explicit" };
+ const e = effective(config, repo);
+ // 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
+ if (e.baseRef && e.baseRef !== "auto") return { ref: assertSafeRef(e.baseRef, "baseRef"), auto: "configured" };
+ // auto：先跟随会话仓库当前检出的分支（在创建那一刻求值），detached / 解析不出分支时
+ // 才回退仓库默认分支。与 resolveTarget 的默认顺序一致，只是回退值不同。
+ const cur = currentBranch(repo);
+ return { ref: cur || defaultBranch(repo) || "HEAD", auto: !cur ? "fallback" : "follow" };
+}
+
+/** auto 基线的落后量：会话当前分支不是默认分支、且落后默认分支时，新 worktree 会缺
+ * 默认分支上的提交（git worktree add 只检出 baseRef 的树）。返回 null 表示无需提示。
+ * 只在 auto 下调用；显式 baseRef 是用户的明确选择，不打扰。 */
+function autoBaseLag(repo, baseRef) {
+ const d = defaultBranch(repo);
+ if (!d || d === baseRef) return null;
+ const behind = counts(repo, baseRef, d).ahead;
+ return behind && behind > 0 ? { defaultBranch: d, behind } : null;
 }
 
 /** 显式传入的 target 必须真的解析得到提交，否则直接报错。
@@ -330,20 +401,34 @@ function pickWorktree(repo, nameOrPath) {
     if (main) return main;
     throw new Error(`worktree not found: (empty name). Known: ${entries.map((e) => e.branch || e.path).join(", ")}`);
   }
-  const needle = String(nameOrPath).trim();
-  const lower = needle.toLowerCase();
-  const direct = entries.find((e) => samePath(e.path, needle));
-  if (direct) return direct;
-  const byBranch = entries.find((e) => e.branch === needle);
-  if (byBranch) return byBranch;
-  const bySlug = entries.find((e) => e.branch && slug(e.branch) === slug(needle));
-  if (bySlug) return bySlug;
-  // "dirty-one" should find branch "wt/dirty-one" when the slug only differs by the prefix.
-  const bySuffix = entries.find((e) => e.branch && slug(e.branch).endsWith(`-${slug(needle)}`));
-  if (bySuffix) return bySuffix;
-  const byDir = entries.find((e) => path.basename(e.path).toLowerCase() === lower);
-  if (byDir) return byDir;
-  throw new Error(`worktree not found: ${needle}. Known: ${entries.map((e) => e.branch || e.path).join(", ")}`);
+ const needle = String(nameOrPath).trim();
+ const lower = needle.toLowerCase();
+ // 每一级都取「全部候选」而非第一个命中：remove/lock 是破坏性操作，
+ // 多个 worktree 同时匹配时必须让调用方给出精确路径，而不是由遍历顺序决定删谁。
+ const unique = (list) => {
+ const seen = new Map();
+ for (const e of list) seen.set(path.resolve(e.path), e);
+ return [...seen.values()];
+ };
+ const pick = (list, how) => {
+ const found = unique(list);
+ if (found.length > 1) {
+ throw new Error(`ambiguous worktree name \`${needle}\` (matched by ${how}):\n${found.map((e) => ` - ${e.branch || "(detached)"} → ${e.path}`).join("\n")}\nPass the absolute path instead.`);
+ }
+ return found[0];
+ };
+ // 顺序求值（不能用 || 串联短路：上一级命中后仍需保证本级无歧义——命中即返回，语义等价）
+ const tiers = [
+ pick(entries.filter((e) => samePath(e.path, needle)), "absolute path"),
+ pick(entries.filter((e) => e.branch === needle), "branch name"),
+ // "dirty-one" should find branch "wt/dirty-one" when the slug only differs by the prefix.
+ pick(entries.filter((e) => e.branch && slug(e.branch) === slug(needle)), "branch slug"),
+ pick(entries.filter((e) => e.branch && slug(e.branch).endsWith(`-${slug(needle)}`)), "branch slug suffix"),
+ pick(entries.filter((e) => path.basename(e.path).toLowerCase() === lower), "directory name"),
+ ];
+ const hit = tiers.find(Boolean);
+ if (hit) return hit;
+ throw new Error(`worktree not found: ${needle}. Known: ${entries.map((e) => e.branch || e.path).join(", ")}`);
 }
 
 function statusOf(dir) {
@@ -440,8 +525,12 @@ function describe(repo, entry, target, { includeSize = false } = {}) {
   const status = statusOf(dir);
   const commit = lastCommit(dir);
   const branch = entry.branch || (entry.detached ? `detached@${(entry.head || "").slice(0, 7)}` : null);
-  const counter = branch && !isMain ? counts(repo, target, branch) : { ahead: null, behind: null };
-  const merged = branch && !isMain ? isAncestor(repo, branch, target) : null;
+  // 与 target 比较用的 rev 必须是真的可解析 rev：detached 工作树没有分支名，但 entry.head
+  // 是完整 sha。旧代码把展示用合成串 "detached@<sha>" 当 rev 传给 rev-list，必然 fatal
+  // （unknown revision）→ ahead/behind/merged 全变未知，删除护栏被静默绕过。
+  const rev = entry.branch || entry.head || null;
+  const counter = rev && !isMain ? counts(repo, target, rev) : { ahead: null, behind: null };
+  const merged = rev && !isMain ? isAncestor(repo, rev, target) : null;
   const age = commit && commit.ageDays !== null ? commit.ageDays : dirAgeDays(dir);
   return {
     repo,
@@ -487,12 +576,12 @@ function bucketOf(info, staleDays) {
 }
 
 function configSummary(config, repo) {
-  const e = effective(config, repo);
-  return [
-    `root: ${managedRoot(config, repo) ?? "(unset)"}`,
-    `baseRef: ${e.baseRef}`,
-    `branchPrefix: ${e.branchPrefix}`,
-    `staleDays: ${e.staleDays}`,
+ const e = effectiveWithSources(config, repo);
+ return [
+ `root: ${managedRoot(config, repo) ?? "(unset)"} (${e.root.value ? e.root.source : "-"})`,
+ `baseRef: ${e.baseRef.value} (${e.baseRef.source})`,
+ `branchPrefix: ${e.branchPrefix.value} (${e.branchPrefix.source})`,
+ `staleDays: ${e.staleDays.value} (${e.staleDays.source})`,
     ...(config.parseError
       ? [`config: ${config.file} (corrupted, failed to parse: ${config.parseError} — defaults in effect)`]
       : [`config: ${config.file}`]),
@@ -569,18 +658,21 @@ const tools = [
       if (branch.startsWith("-") || branch.trim() !== branch) {
         return fail(`invalid branch name \`${branch}\`: must not start with "-" or contain surrounding whitespace.`);
       }
-      const baseRef = resolveBase(config, repo, args.baseRef);
-      // 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
-      // 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
-      const branchExists = Boolean(
-        (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
-      );
-      if (branchExists && stringArg(args.baseRef).trim()) {
-        return fail(
-          `branch \`${branch}\` already exists, so \`baseRef\` would be ignored (it only seeds new branches).\nOmit \`baseRef\` to check the existing branch out, or pass a different \`name\`.`,
-        );
-      }
-      const rootDir = managedRoot(config, repo);
+ // 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
+ // 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
+ const branchExists = Boolean(
+ (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
+ );
+ // 分支已存在时 baseRef 只用于新建分支，传了就是矛盾意图
+ const explicitBase = args.baseRef !== undefined && args.baseRef !== null;
+ if (branchExists && explicitBase && String(args.baseRef).trim() !== "") {
+ return fail(
+ `branch \`${branch}\` already exists, so \`baseRef\` would be ignored (it only seeds new branches).\nOmit \`baseRef\` to check the existing branch out, or pass a different \`name\`.`,
+ );
+ }
+ const base = resolveBase(config, repo, args.baseRef);
+ const baseRef = base.ref;
+ const rootDir = managedRoot(config, repo);
       // README 承诺 worktree 建在配置根目录下：显式 path 也必须落在受管根内
       const dir = args.path ? path.resolve(String(args.path)) : path.join(rootDir, slug(branch));
       if (args.path && !isInside(dir, rootDir)) {
@@ -620,17 +712,25 @@ const tools = [
       }
 
       const baseLabel = branchExists ? branch : baseRef;
-      const info = describe(repo, pickWorktree(repo, branch), resolveTarget(repo), { includeSize: false });
-      return ok(
-        [
-          `Created worktree for branch \`${branch}\`${branchExists ? " (existing branch checked out)" : ""}.`,
-          ``,
-          `- path: ${dir}`,
-          `- branch: ${branch}`,
-          `- base: ${baseLabel} @ ${info.head}`,
-          ...(ignoreEntry?.wrote
-            ? [`- note: root is inside the repository; added \`${ignoreEntry.entry}\` to .git/info/exclude (local-only ignore) so the worktree does not pollute \`git status\`.`]
-            : []),
+      // 简报与统计都对准本次真正的基线 baseRef，而不是「跟随会话当前分支」的默认值：
+      // 显式传了 baseRef 时两者可能不同，旧实现会让简报里的 Base target 和 `- base:` 互相矛盾。
+ const info = describe(repo, pickWorktree(repo, branch), baseRef, { includeSize: false });
+ // auto 跟随的分支落后默认分支时，新 worktree 会缺默认分支上的文件。这是 auto 语义的结果
+ // 而非错误，所以照常创建，但必须在返回里点名，否则用户会拿到一个「看着完整、实际缺文件」的工作区。
+ const lag = base.auto === "follow" && !branchExists ? autoBaseLag(repo, baseRef) : null;
+ return ok(
+ [
+ `Created worktree for branch \`${branch}\`${branchExists ? " (existing branch checked out)" : ""}.`,
+ ``,
+ `- path: ${dir}`,
+ `- branch: ${branch}`,
+ `- base: ${baseLabel} @ ${info.head}`,
+ ...(lag
+ ? [`- base lag: \`${baseRef}\` is ${lag.behind} commit(s) behind \`${lag.defaultBranch}\`; this worktree starts without those changes. To branch off the up-to-date base instead, re-create with baseRef: "${lag.defaultBranch}".`]
+ : []),
+ ...(ignoreEntry?.wrote
+ ? [`- note: root is inside the repository; added \`${ignoreEntry.entry}\` to .git/info/exclude (local-only ignore) so the worktree does not pollute \`git status\`.`]
+ : []),
           `- config: ${configSummary(config, repo)}`,
           ``,
           `The running session keeps its own working directory, so it cannot start working in the new one. To move the work into this worktree:`,
@@ -640,7 +740,7 @@ const tools = [
           `3. Paste the briefing below as the first message.`,
           ``,
           "--- briefing ---",
-          handoffText(repo, branch, `Work on the task in worktree ${dir} (branch ${branch}, based on ${baseLabel}).`),
+          handoffText(repo, branch, `Work on the task in worktree ${dir} (branch ${branch}, based on ${baseLabel}).`, info, config, baseRef),
           "--- end briefing ---",
         ].join("\n"),
       );
@@ -840,11 +940,13 @@ const tools = [
         if (info.clean === false) {
           return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force=true if the user explicitly asked to discard them.`);
         }
-        // 有真实分支却数不出 ahead：合并没有验证成，不能因为 null 而当成「已合并」放行。
-        // 判据用 entry.branch 而非 info.branch：detached 的 info.branch 是 "detached@<sha>" 合成串，
-        // 它本就没有分支可与 target 比，不该被这条护栏拦下。
-        if (entry.branch && info.ahead === null) {
-          return fail(`refusing to remove: cannot determine whether branch \`${entry.branch}\` is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force=true if the user accepts losing unmerged commits.`);
+        // 数不出 ahead 就拒绝：合并没有验证成，不能因为 null 而当成「已合并」放行。
+        // 这里不再要求 entry.branch——detached 工作树同样可能带未合并提交，而 describe()
+        // 已改用 entry.head 做 rev，ahead 对 detached 也是真实值。旧实现写成
+        // `entry.branch && info.ahead === null`，detached 时 entry.branch 为 null 导致本句永假，
+        // 叠加 `null > 0` 亦为假，两道护栏同时失效，未合并提交被静默删除。
+        if (info.ahead === null) {
+          return fail(`refusing to remove: cannot determine whether ${info.branch || entry.path} is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force=true if the user accepts losing unmerged commits.`);
         }
         if (info.ahead > 0) {
           return fail(`refusing to remove: ${info.ahead} commit(s) are not merged into ${target}.\nMerge first (worktree_merge_back), or call again with force=true if the user accepts losing them.`);
@@ -941,7 +1043,7 @@ const tools = [
         return fail(`this worktree is locked (${entry.locked}), so it cannot be removed after merge.\nUnlock it with \`git worktree unlock ${entry.path}\`, or re-run without remove=true.`);
       }
       const target = resolveTarget(repo, args.target);
-      const info = describe(repo, entry, target, {});
+      let info = describe(repo, entry, target, {});
       const steps = [`Plan for ${info.branch || info.path} → ${target}:`, `- clean: ${info.clean ? "yes" : `no (${info.dirtyCount} uncommitted)`}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`];
       if (info.clean === false) return fail(`${steps.join("\n")}\nUncommitted changes block merge-back. Commit, stash, or discard them first.`);
 
@@ -954,6 +1056,9 @@ const tools = [
         try {
           git(["rebase", target], info.path);
           steps.push(`- rebase onto ${target}: ok`);
+          // rebase 改写了提交：后续 merge/remove 的 ahead/merged 判断必须基于新快照，
+          // 否则会按 rebase 前的数据决定跳过 merge 或拒绝删除。
+          info = describe(repo, pickWorktree(repo, info.path), target, {});
         } catch (err) {
           // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因（如无效 ref、仓库不可用）
           const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], info.path, { allowFail: true }) || "").trim();
@@ -981,6 +1086,8 @@ const tools = [
           try {
             git(mergeArgs, repo);
             steps.push(`- merge ${branch} into ${target}: ${useFf ? "ok (fast-forward)" : "ok"}`);
+            // merge 落在 target 上之后，worktree 侧相对 target 已是「已合并」，刷新供 remove 判定
+            info = describe(repo, pickWorktree(repo, info.path), target, {});
           } catch (err) {
             if (useFf && /fast-forward/i.test(String((err && err.message) || err))) {
               return fail(`${steps.join("\n")}\n- merge: REFUSED. ${branch} and ${target} have diverged, so a fast-forward is impossible.\nRebase first (rebase: true), or drop \`ff\` to merge with a merge commit.`);
@@ -1035,12 +1142,12 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["get", "set"], description: "Default: set when any value is supplied, otherwise get." },
+        action: { type: "string", enum: ["get", "set"], description: "Omit to infer (set when any value is supplied, otherwise get). When given explicitly, `get` is strictly read-only even if other fields are present." },
         scope: { type: "string", enum: ["global", "repo"], description: "Default global." },
         repoPath: { type: "string", description: "Required for scope=repo." },
-        root: { type: "string", description: "Absolute worktree root. Omit or pass null to reset." },
-        baseRef: { type: "string", description: "Default base ref, or `auto` to follow the current checked-out branch (repository default branch when detached)." },
-        branchPrefix: { type: "string" },
+root: { type: ["string", "null"], description: "Absolute worktree root. Omit or pass null to reset; an empty string is rejected." },
+ baseRef: { type: ["string", "null"], description: "Default base ref, or `auto` to follow the current checked-out branch (repository default branch when detached). Pass null to reset to `auto`; an empty string is rejected." },
+ branchPrefix: { type: ["string", "null"], description: "Branch prefix for short task names. Pass null to reset to the built-in default; an empty string is rejected." },
         staleDays: { type: "number" },
         clearRepoOverride: { type: "boolean" },
       },
@@ -1054,12 +1161,20 @@ const tools = [
       }
       if (scope === "repo" && !repo) return fail("scope=repo requires `repoPath`.");
 
-      const isSet = stringArg(args.action) === "set"
-        || args.root !== undefined
-        || args.baseRef !== undefined
-        || args.branchPrefix !== undefined
-        || args.staleDays !== undefined
-        || boolArg(args.clearRepoOverride);
+      const action = stringArg(args.action);
+      if (action && action !== "get" && action !== "set") {
+        return fail(`invalid action \`${action}\`: use "get" or "set".`);
+      }
+      // 显式 action 一律优先：`get` 是只读语义，不能因为同时带了值就落盘。
+      // 旧实现把 action:'get' 和 root:'...' 一起传也会改写 config.json——
+      // 「带值即 set」只在 action 缺省时才成立（与 schema 描述一致）。
+      const isSet = action
+        ? action === "set"
+        : args.root !== undefined
+          || args.baseRef !== undefined
+          || args.branchPrefix !== undefined
+          || args.staleDays !== undefined
+          || boolArg(args.clearRepoOverride);
 
       if (!isSet) {
         return ok(
@@ -1094,16 +1209,14 @@ const tools = [
           return ok(`Removed the per-repo override for ${repo}. Effective: ${configSummary(config, repo)}`);
         }
         const current = config.repos[key] || {};
-        if (args.root !== undefined) current.root = args.root === null || args.root === "" ? null : path.resolve(String(args.root));
+        if (args.root !== undefined) current.root = args.root === null ? null : path.resolve(assertNonEmptyArg(args.root, "root"));
         if (args.baseRef !== undefined) {
-          const v = String(args.baseRef);
-          if (v.trim() !== "") assertSafeRef(v, "baseRef"); // 空串保留原语义（回退 auto）
-          current.baseRef = v;
+          if (args.baseRef !== null) assertSafeRef(assertNonEmptyArg(args.baseRef, "baseRef"), "baseRef");
+          current.baseRef = args.baseRef === null ? "auto" : String(args.baseRef);
         }
         if (args.branchPrefix !== undefined) {
-          const v = String(args.branchPrefix);
-          if (v.trim() !== "") assertSafeRef(v, "branchPrefix"); // 前缀会拼进分支名，同样不允许前导 "-"
-          current.branchPrefix = v;
+          if (args.branchPrefix !== null) assertSafeRef(assertNonEmptyArg(args.branchPrefix, "branchPrefix"), "branchPrefix");
+          current.branchPrefix = args.branchPrefix === null ? DEFAULT_CONFIG.branchPrefix : String(args.branchPrefix);
         }
         if (args.staleDays !== undefined && args.staleDays !== null && args.staleDays !== "") {
           const staleDays = numArg(args.staleDays);
@@ -1118,16 +1231,16 @@ const tools = [
       }
 
       if (boolArg(args.clearRepoOverride)) return fail("clearRepoOverride only applies to scope=repo.");
-      if (args.root !== undefined) config.root = args.root === null || args.root === "" ? null : path.resolve(String(args.root));
+      // root/baseRef/branchPrefix 的 null 是「清空」（回退默认），空串是无效输入；
+      // staleDays 本来就是数字，"" 保留旧的「不改」语义，避免设置页回传空串时炸掉整次写入。
+      if (args.root !== undefined) config.root = args.root === null ? null : path.resolve(assertNonEmptyArg(args.root, "root"));
       if (args.baseRef !== undefined) {
-        const v = String(args.baseRef);
-        if (v.trim() !== "") assertSafeRef(v, "baseRef");
-        config.baseRef = v;
+        if (args.baseRef !== null) assertSafeRef(assertNonEmptyArg(args.baseRef, "baseRef"), "baseRef");
+        config.baseRef = args.baseRef === null ? DEFAULT_CONFIG.baseRef : String(args.baseRef);
       }
       if (args.branchPrefix !== undefined) {
-        const v = String(args.branchPrefix);
-        if (v.trim() !== "") assertSafeRef(v, "branchPrefix");
-        config.branchPrefix = v;
+        if (args.branchPrefix !== null) assertSafeRef(assertNonEmptyArg(args.branchPrefix, "branchPrefix"), "branchPrefix");
+        config.branchPrefix = args.branchPrefix === null ? DEFAULT_CONFIG.branchPrefix : String(args.branchPrefix);
       }
       if (args.staleDays !== undefined && args.staleDays !== null && args.staleDays !== "") {
         const staleDaysArg = numArg(args.staleDays);
@@ -1166,27 +1279,32 @@ const tools = [
       const entry = pickWorktree(repo, args.name);
       const target = resolveTarget(repo, args.target);
       const info = describe(repo, entry, target, {});
-      return ok(handoffText(repo, info.branch || info.path, stringArg(args.task).trim(), info, config));
+      return ok(handoffText(repo, info.branch || info.path, stringArg(args.task).trim(), info, config, target));
     },
   },
 ];
 
-function handoffText(repo, branch, task, info = null, config = null) {
+function handoffText(repo, branch, task, info = null, config = null, target = null) {
   const { config: cfg } = config ? { config } : loadConfig();
-  const entry = info || describe(repo, pickWorktree(repo, branch), resolveTarget(repo), {});
+  // target 必须由调用方穿透进来：handoff/create 各自解出的 target 可能来自显式参数或配置的
+  // baseRef，与「跟随会话当前分支」的默认值不是一回事。旧实现在这里重新调 resolveTarget(repo)，
+  // 简报里的 Base target 于是和上面的 `- base:` 自相矛盾，而简报是下一个 agent 的执行指令，
+  // 基线错会把它导到错误的分支上 rebase。
+  const resolved = target || resolveTarget(repo);
+  const entry = info || describe(repo, pickWorktree(repo, branch), resolved, {});
   const lines = [
     `Run location (work in this directory, and nowhere else):`,
     `${entry.path}`,
     ``,
     `Branch: ${entry.branch || "(detached)"}`,
     `HEAD: ${entry.head}${entry.lastCommit ? ` — ${entry.lastCommit.subject}` : ""}`,
-    `Base target: ${resolveTarget(repo)}`,
+    `Base target: ${resolved}`,
     ...(task ? ["", `Task:`, task] : []),
     ``,
     `Constraints:`,
     `- This session already runs in the worktree; do not create another one for this task.`,
     `- Most hosts give subagents the session's working directory, so parallel writers here share one worktree — give each writer its own branch and worktree if they must not collide.`,
-    `- Keep commits small; finish with ${entry.branch || "the branch"} rebased on ${resolveTarget(repo)}.`,
+    `- Keep commits small; finish with ${entry.branch || "the branch"} rebased on ${resolved}.`,
     ``,
     `Config: ${configSummary(cfg, repo)}`,
   ];

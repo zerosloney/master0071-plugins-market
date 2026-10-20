@@ -39,6 +39,12 @@ Git worktree 操作台：**在仓库之外的可配置目录**里创建、查看
 3. 配置文件里的全局值（`scope: "global"`）
 4. 内置默认：`baseRef=auto`（跟随会话仓库当前检出分支，detached 时回退仓库默认分支）、`branchPrefix=wt/`、`staleDays=14`——注意 `root` 没有默认值，必须显式配置
 
+每个工具输出里的 `Config:` 行会在值后面标出来源（`env` / `repo` / `global` / `default`），用来解释"设置页里改的为什么没生效"。
+
+`auto` 基线跟随会话当前分支，所以当该分支落后于仓库默认分支时，新 worktree 会缺少默认分支上的提交——`worktree_create` 会输出 `base lag:` 提示，并给出改用 `baseRef: "<默认分支>"` 的建议；显式传 `baseRef` 时不提示。
+
+`worktree_set_root` 里 `root` / `baseRef` / `branchPrefix` 传 `null` 表示清空并回退默认；传空字符串属于无效输入，直接报错，不会被静默当作"未传"。
+
 配置文件位置：
 
 | 平台 | 路径 |
@@ -47,6 +53,17 @@ Git worktree 操作台：**在仓库之外的可配置目录**里创建、查看
 | macOS / Linux | `$XDG_CONFIG_HOME/worktree-ops/config.json`（默认 `~/.config`） |
 
 用 `WORKTREE_CONFIG_HOME` 可以整体改掉这个目录。支持设置页的宿主（ZCode）会把设置项映射成上面那组环境变量，用户在界面里填的值优先级最高。
+
+## 版本变更
+
+**0.3.0（含破坏性变更）**
+
+- `worktree_set_root` 的 `root` / `baseRef` / `branchPrefix` 传入空字符串现在直接报错。此前空串被静默当作"未传"，`baseRef: ""` 会悄悄退回 `auto`。要用"清空并回退默认"，改传 `null`。宿主设置页回传空串时需改传 `null` 或省略该字段。
+- `worktree_create` 在 `auto` 基线落后仓库默认分支时输出 `base lag:` 提示。根因是 `defaultBranch()` 曾回退"当前检出分支"，导致落后量恒为 0；现在按 `origin/HEAD` → 本地 `main` → `master` → `symbolic-ref HEAD` 的顺序判定。
+- 所有工具的 `Config:` 行标出每项配置的来源（`env` / `repo` / `global` / `default`）。
+- `worktree_remove` / `lock` / `merge_back` 在名字同时匹配多个 worktree 时报 `ambiguous worktree name` 并列出候选，不再任选其一；改传绝对路径。
+- `worktree_merge_back` 在 rebase / merge 之后重新计算 ahead 与合并状态，修复后续步骤按旧快照判断的问题。
+- 配置文件写入的临时名带进程号与随机后缀，并对 Windows 上 `rename` 覆盖时偶发的 `EPERM` 做有界重试。
 
 ## 安全边界
 

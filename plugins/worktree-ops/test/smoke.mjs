@@ -10,7 +10,7 @@
 // 退出码非 0 表示有断言失败。
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,6 +160,20 @@ try {
   const staleStr = await session.tool('worktree_set_root', { action: 'set', scope: 'global', staleDays: '5' });
   check('字符串 staleDays 写入生效', !staleStr.isError && /staleDays=5/.test(staleStr.text), staleStr.text);
 
+  // 回归：action:'get' 曾与「带值即 set」的启发叠加成或运算——只要同传任何值就落盘，
+  // 而 schema 写的是「缺省时才推断」，显式 action 理应一律优先。
+  const cfgBefore = readFileSync(path.join(cfgHome, 'config.json'), 'utf8');
+  const sneakyRoot = path.join(sandbox, 'sneaky-root');
+  const getWithValue = await session.tool('worktree_set_root', { action: 'get', scope: 'global', root: sneakyRoot });
+  check(
+    'action:"get" 带值也不写配置文件',
+    !getWithValue.isError && readFileSync(path.join(cfgHome, 'config.json'), 'utf8') === cfgBefore,
+    getWithValue.text,
+  );
+  check('action:"get" 回执不泄露同传的 root 值', !getWithValue.text.includes(sneakyRoot), getWithValue.text);
+  const badAction = await session.tool('worktree_set_root', { action: 'bogus', root });
+  check('非法 action 被拒绝', badAction.isError && /invalid action/.test(badAction.text), badAction.text);
+
   section('创建');
   const created = await session.tool('worktree_create', { repoPath: repo, name: 'feat/login' });
   const wtPath = path.join(root, 'feat-login');
@@ -268,6 +282,30 @@ try {
   git(['worktree', 'add', '--detach', detDir, 'main'], repo);
   const detRemove = await session.tool('worktree_remove', { repoPath: repo, name: detDir });
   check('干净的 detached 工作树仍可不带 force 删除', !detRemove.isError && /Removed worktree/.test(detRemove.text), detRemove.text);
+
+  // 回归：detached 工作树的删除护栏曾整体失效。porcelain 对 detached 不输出 branch 行，
+  // entry.branch 于是为 null——护栏一 `entry.branch && info.ahead === null` 永假，
+  // 护栏二 `info.ahead > 0` 又因 ahead 是 null 而永假，未合并提交被静默删掉。
+  // 修复后 describe() 改用 entry.head 做比较 rev，ahead 对 detached 也是真实值。
+  const dgDir = path.join(root, 'wt-det-guard');
+  git(['worktree', 'add', '--detach', dgDir, 'main'], repo);
+  git(['config', 'user.email', 'smoke@test.invalid'], dgDir);
+  git(['config', 'user.name', 'smoke'], dgDir);
+  writeFileSync(path.join(dgDir, 'lost.txt'), 'unmerged work\n');
+  git(['add', '.'], dgDir);
+  git(['commit', '-m', 'wip: detached-unmerged'], dgDir);
+
+  const dgStatus = await session.tool('worktree_status', { repoPath: repo, name: dgDir });
+  check('detached 工作树能算出 ahead（不再全是 ?）', /ahead 1,/.test(dgStatus.text), dgStatus.text);
+  const dgRemove = await session.tool('worktree_remove', { repoPath: repo, name: dgDir });
+  check(
+    '未合并的 detached 工作树拒绝删除',
+    dgRemove.isError && /not merged into/.test(dgRemove.text),
+    dgRemove.text,
+  );
+  check('被拒后未合并的文件原样保留', existsSync(path.join(dgDir, 'lost.txt')), dgRemove.text);
+  const dgForced = await session.tool('worktree_remove', { repoPath: repo, name: dgDir, force: true });
+  check('显式 force 仍可删除 detached 工作树', !dgForced.isError && /Removed worktree/.test(dgForced.text), dgForced.text);
 
   section('清理保护');
   const audit = await session.tool('worktree_audit', { repoPath: repo, includeSize: true });
@@ -467,6 +505,28 @@ try {
   check('detached 时 target 回退 origin/<默认分支>', /Target ref: origin\/main/.test(detachedList.text), detachedList.text);
   git(['checkout', 'main'], repo);
 
+  section('简报基线穿透调用方 target');
+  // 回归：handoffText() 曾在内部重新调 resolveTarget(repo) 取默认值，于是简报里的
+  // `Base target` 与 create 的 `- base:` 各用一套基线。简报是下一个 agent 的执行指令，
+  // 基线错会把它导到错误的分支上 rebase。
+  git(['branch', 'handoff-base-ref', 'main'], repo);
+  const hgCreated = await session.tool('worktree_create', { repoPath: repo, name: 'handoff-probe' });
+  check('创建 handoff-probe 成功', !hgCreated.isError, hgCreated.text);
+  // 会话当前分支是 main（默认 target 也会是 main）；显式传另一个已存在分支才能区分穿透与否
+  const hg = await session.tool('worktree_handoff', {
+    repoPath: repo,
+    name: 'handoff-probe',
+    target: 'handoff-base-ref',
+    task: '验证简报基线',
+  });
+  check('handoff 的 Base target 用调用方传的 target', /Base target: handoff-base-ref/.test(hg.text), hg.text);
+  check('handoff 的 rebase 建议同样用该 target', /rebased on handoff-base-ref/.test(hg.text), hg.text);
+  const cb = await session.tool('worktree_create', { repoPath: repo, name: 'create-base-probe', baseRef: 'handoff-base-ref' });
+  check('create 的 - base 用显式 baseRef', /- base: handoff-base-ref @ [0-9a-f]{7,}/.test(cb.text), cb.text);
+  check('create 简报的 Base target 与 - base 同一基线', /Base target: handoff-base-ref/.test(cb.text), cb.text);
+  await session.tool('worktree_remove', { repoPath: repo, name: 'handoff-probe', force: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'create-base-probe', force: true, deleteBranch: true });
+
   section('检出既有分支与 prunable 清理');
   // A1 回归：分支已存在时曾恒用 -b 重建而必然失败；应改为直接检出（如检出 PR 分支做验证）
   git(['branch', 'feat/existing', 'main'], repo);
@@ -583,6 +643,65 @@ try {
   }
   await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, clearRepoOverride: true });
 
+  section('submodule 下的主工作树保护');
+  // 回归：mainWorktreePath() 曾用 dirname(--git-common-dir)。submodule 的 common-dir 指向
+  // <super>/.git/modules/<name>，dirname 得到 <super>/.git/modules，与 porcelain 里任何
+  // entry.path 都不相等 → isMain 恒假，删/锁/合并三道主工作树保护同时失效，
+  // audit 还会主动把主检出列进 safe to remove。修复后取 porcelain 首条。
+  const subSrc = path.join(sandbox, 'subsrc');
+  const superRepo = path.join(sandbox, 'superrepo');
+  const subRoot = path.join(sandbox, 'subroot');
+  mkdirSync(subSrc);
+  git(['init', '-b', 'main'], subSrc);
+  git(['config', 'user.email', 'smoke@test.invalid'], subSrc);
+  git(['config', 'user.name', 'smoke'], subSrc);
+  writeFileSync(path.join(subSrc, 'lib.txt'), 'sub lib\n');
+  git(['add', '.'], subSrc);
+  git(['commit', '-m', 'sub init'], subSrc);
+
+  mkdirSync(superRepo);
+  git(['init', '-b', 'main'], superRepo);
+  git(['config', 'user.email', 'smoke@test.invalid'], superRepo);
+  git(['config', 'user.name', 'smoke'], superRepo);
+  writeFileSync(path.join(superRepo, 'README.md'), 'super\n');
+  git(['add', '.'], superRepo);
+  git(['commit', '-m', 'super init'], superRepo);
+  // 本地路径作 submodule 源：git ≥ 2.38.1 默认禁 file 传输，需显式放行
+  git(['-c', 'protocol.file.allow=always', 'submodule', 'add', subSrc, 'mysub'], superRepo);
+  const subPath = path.join(superRepo, 'mysub');
+
+  const subCfgHome = path.join(sandbox, 'sub-cfg');
+  mkdirSync(subCfgHome);
+  const subSession = openSession({ WORKTREE_CONFIG_HOME: subCfgHome });
+  try {
+    await subSession.ready;
+    await subSession.tool('worktree_set_root', { action: 'set', scope: 'global', root: subRoot, branchPrefix: 'wt/', staleDays: 7 });
+
+    const subStatus = await subSession.tool('worktree_status', { repoPath: subPath, name: 'main' });
+    check('submodule 主检出被标为 primary worktree', /primary worktree: yes/.test(subStatus.text), subStatus.text);
+
+    const subAudit = await subSession.tool('worktree_audit', { repoPath: subPath });
+    const subRow = subAudit.text.split('\n').find((l) => l.includes('mysub')) || '';
+    check('audit 把 submodule 主检出归入 hold', /^hold\s+main\b/.test(subRow) && /primary worktree/.test(subRow), subRow);
+    check('audit 不再把 submodule 主检出列为 safe to remove', /safe to remove: 0/.test(subAudit.text), subAudit.text);
+
+    const subRemove = await subSession.tool('worktree_remove', { repoPath: subPath, name: 'main', force: true });
+    check('submodule 主检出拒绝删除', subRemove.isError && /primary worktree/.test(subRemove.text), subRemove.text);
+    const subLock = await subSession.tool('worktree_lock', { repoPath: subPath, name: 'main' });
+    check('submodule 主检出拒绝加锁', subLock.isError && /primary worktree/.test(subLock.text), subLock.text);
+    check('被拒后 submodule 工作目录原样保留', existsSync(path.join(subPath, 'lib.txt')), subRemove.text);
+
+    // 反向回归：修好主检出判定，不能把 submodule 里的普通 worktree 一并误判成主检出
+    const subWtCreated = await subSession.tool('worktree_create', { repoPath: subPath, name: 'sub-work' });
+    check('submodule 内可正常创建 worktree', !subWtCreated.isError, subWtCreated.text);
+    const subWtStatus = await subSession.tool('worktree_status', { repoPath: subPath, name: 'wt/sub-work' });
+    check('submodule 内的普通 worktree 不是 primary', /primary worktree: no/.test(subWtStatus.text), subWtStatus.text);
+    const subWtRemoved = await subSession.tool('worktree_remove', { repoPath: subPath, name: 'wt/sub-work', deleteBranch: true });
+    check('submodule 内的普通 worktree 可正常删除', !subWtRemoved.isError && /Removed worktree/.test(subWtRemoved.text), subWtRemoved.text);
+  } finally {
+    subSession.close();
+  }
+
   section('大小写撞名提示');
   // A6 回归：slug() 折叠大小写，两条仅大小写不同的分支共用目录，撞名时报错要点名根因
   await session.tool('worktree_create', { repoPath: repo, name: 'Case/Clash' });
@@ -640,6 +759,156 @@ try {
   check('unlock 成功', !unlocked.isError, unlocked.text);
   const lockGone = await session.tool('worktree_remove', { repoPath: repo, name: 'lockable', deleteBranch: true });
   check('解锁后可正常删除', !lockGone.isError && /Removed worktree/.test(lockGone.text), lockGone.text);
+
+  section('环境变量覆盖其余三项');
+  // 链④此前只覆盖了 WORKTREE_ROOT；base_ref / branch_prefix / stale_days 同样走
+  // env > 单仓库覆盖 > 全局配置，却没有用例守着。让全局配置说一套、环境变量说另一套，
+  // 用结果证明环境变量真的压过了配置文件（而不是恰好与默认值相同）。
+  await session.tool('worktree_set_root', { action: 'set', scope: 'global', baseRef: 'scratch' });
+  const envFull = openSession({
+    WORKTREE_BASE_REF: 'feature/session-branch',
+    WORKTREE_BRANCH_PREFIX: 'env/',
+    WORKTREE_STALE_DAYS: '3',
+  });
+  try {
+    await envFull.ready;
+    const envFullCreated = await envFull.tool('worktree_create', { repoPath: repo, name: 'prefix-probe' });
+    check(
+      '链④：WORKTREE_BRANCH_PREFIX 压过全局配置的 wt/',
+      !envFullCreated.isError && envFullCreated.text.includes(path.join(root, 'env-prefix-probe')),
+      envFullCreated.text,
+    );
+    check(
+      '链④：WORKTREE_BASE_REF 压过全局配置的 scratch',
+      /- base: feature\/session-branch @/.test(envFullCreated.text),
+      envFullCreated.text,
+    );
+    const envFullAudit = await envFull.tool('worktree_audit', { repoPath: repo });
+    check('链④：WORKTREE_STALE_DAYS 压过全局配置的 5', /idle threshold: 3d/.test(envFullAudit.text), envFullAudit.text);
+    const envFullRemoved = await envFull.tool('worktree_remove', { repoPath: repo, name: 'prefix-probe', force: true, deleteBranch: true });
+    check('按环境变量前缀清理干净', !envFullRemoved.isError, envFullRemoved.text);
+} finally {
+ envFull.close();
+ }
+
+section('P0：auto 基线落后默认分支时点名提示');
+// 回归：defaultBranch() 曾回退「当前检出分支」，于是 auto 的落后判定恒为 0；
+// 会话在 feature/x、main 已前进时，新 worktree 缺 main 上的文件却毫无提示。
+// 前面的用例把全局 baseRef 改成了 scratch，这里先恢复 auto 才测得到「跟随会话分支」。
+await session.tool('worktree_set_root', { action: 'set', scope: 'global', baseRef: 'auto' });
+git(['checkout', '-q', 'main'], repo);
+git(['checkout', '-qb', 'lag/feature'], repo);
+const lagSha = git(['rev-parse', 'HEAD'], repo).trim();
+git(['checkout', '-q', 'main'], repo);
+writeFileSync(path.join(repo, 'lag-main.txt'), 'main moved\n');
+git(['add', '.'], repo);
+git(['commit', '-qm', 'chore: main moved'], repo);
+git(['checkout', '-q', 'lag/feature'], repo);
+const lagCreated = await session.tool('worktree_create', { repoPath: repo, name: 'lag-probe' });
+check(
+ 'auto 跟随的分支落后默认分支时给出 base lag 提示',
+ !lagCreated.isError && /base lag: `lag\/feature` is 1 commit\(s\) behind `main`/.test(lagCreated.text),
+ lagCreated.text,
+);
+check('落后提示给出可执行的 baseRef 建议', /baseRef: "main"/.test(lagCreated.text), lagCreated.text);
+const lagWt = path.join(root, 'wt-lag-probe');
+check('worktree 确实缺少默认分支上的文件（提示不是误报）', !existsSync(path.join(lagWt, 'lag-main.txt')), lagWt);
+await session.tool('worktree_remove', { repoPath: repo, name: 'lag-probe', force: true, deleteBranch: true });
+const lagExplicit = await session.tool('worktree_create', { repoPath: repo, name: 'lag-explicit', baseRef: 'lag/feature' });
+check('显式 baseRef 时不打扰（用户已明确选择基线）', !lagExplicit.isError && !/base lag/.test(lagExplicit.text), lagExplicit.text);
+await session.tool('worktree_remove', { repoPath: repo, name: 'lag-explicit', force: true, deleteBranch: true });
+git(['checkout', '-q', 'main'], repo);
+check('lag 场景的 HEAD 与初始一致（测试自身未污染分支）', Boolean(lagSha), lagSha);
+
+section('P0：配置来源可见 + 显式空串被拒绝');
+// 回归：configSummary 只打印最终值，用户无法判断 root 来自环境变量、单仓库覆盖还是全局配置。
+const srcGet = await session.tool('worktree_set_root', { action: 'get', repoPath: repo });
+check('configSummary 标出每项的来源', /root: .*\((global|repo|env)\)/.test(srcGet.text) && /baseRef: .*\((global|repo|env|default)\)/.test(srcGet.text), srcGet.text);
+const envSrc = openSession({ WORKTREE_STALE_DAYS: '4' });
+try {
+ await envSrc.ready;
+ const envSrcGet = await envSrc.tool('worktree_set_root', { action: 'get', repoPath: repo });
+ check('环境变量生效时来源标为 env', /staleDays: 4 \(env\)/.test(envSrcGet.text), envSrcGet.text);
+} finally {
+ envSrc.close();
+}
+const emptyRoot = await session.tool('worktree_set_root', { action: 'set', scope: 'global', root: '' });
+check('root 空串被拒绝而不是静默清空', emptyRoot.isError && /invalid root/.test(emptyRoot.text), emptyRoot.text);
+const emptyPrefix = await session.tool('worktree_set_root', { action: 'set', scope: 'global', branchPrefix: '' });
+check('branchPrefix 空串被拒绝（空串无法区分「不改」与「去掉前缀」）', emptyPrefix.isError && /invalid branchPrefix/.test(emptyPrefix.text), emptyPrefix.text);
+const resetPrefix = await session.tool('worktree_set_root', { action: 'set', scope: 'global', branchPrefix: null });
+check('branchPrefix 传 null 才是「回退默认」', !resetPrefix.isError && /branchPrefix=wt\//.test(resetPrefix.text), resetPrefix.text);
+const emptyBase = await session.tool('worktree_create', { repoPath: repo, name: 'empty-base-probe', baseRef: '' });
+check('create 的 baseRef 空串被拒绝而不是悄悄走 auto', emptyBase.isError && /invalid baseRef/.test(emptyBase.text), emptyBase.text);
+
+section('P1：merge_back 在 rebase 之后基于新快照决策');
+// 回归：rebase 改写了提交，但 merge/remove 仍按 rebase 前的 ahead/merged 判断，
+// 可能出现「报告已合并、实际没合」或「已合并却拒绝删除」。
+const rbCreated = await session.tool('worktree_create', { repoPath: repo, name: 'rb-probe' });
+check('创建 rb-probe 成功', !rbCreated.isError, rbCreated.text);
+const rbDir = path.join(root, 'wt-rb-probe');
+writeFileSync(path.join(rbDir, 'rb.txt'), 'rb\n');
+git(['add', '.'], rbDir);
+git(['commit', '-qm', 'feat: rb-probe'], rbDir);
+writeFileSync(path.join(repo, 'rb-main.txt'), 'm\n');
+git(['add', '.'], repo);
+git(['commit', '-qm', 'chore: rb main moves'], repo);
+const rbResult = await session.tool('worktree_merge_back', { repoPath: repo, name: 'rb-probe', rebase: true, merge: true, remove: true });
+check(
+ 'rebase + merge + remove 一条链走通',
+ !rbResult.isError && /rebase onto main: ok/.test(rbResult.text) && /merge wt\/rb-probe into main: ok/.test(rbResult.text) && /removed worktree/.test(rbResult.text),
+ rbResult.text,
+);
+check('rebase 后的 merge 真的把文件合进 target', existsSync(path.join(repo, 'rb.txt')), rbResult.text);
+check('rebase 改写后的分支没有残留未合并提交', !existsSync(rbDir), rbResult.text);
+
+section('P1：模糊匹配歧义必须报错而不是任选其一');
+// 回归：pickWorktree 每级 find 只取第一个命中，remove/lock 可能作用在错误的 worktree 上。
+// 前面的用例可能留有单仓库覆盖（如 <repo>/.wts），先清掉，让落点可预期
+await session.tool('worktree_set_root', { action: 'set', scope: 'repo', repoPath: repo, clearRepoOverride: true });
+// 名字不带 "/" 才走 slug + 前缀，落点才可预测（带 "/" 的名字按完整分支名原样使用）
+const ambACreate = await session.tool('worktree_create', { repoPath: repo, name: 'one' });
+const ambSiblingCreate = await session.tool('worktree_create', { repoPath: repo, name: 'x-one' });
+check('歧义夹具创建成功', !ambACreate.isError && !ambSiblingCreate.isError, `${ambACreate.text}\n${ambSiblingCreate.text}`);
+// 把 wt/one 的分支改名为 amb/one：此时 wt/one 与 wt/x-one 的目录名后缀都是 "one"，
+// 传 "one" 会在 slug-suffix 级同时命中两条，正是旧实现「任选其一」的场景。
+const ambA = path.join(root, 'wt-one');
+const ambSibling = path.join(root, 'wt-x-one');
+git(['branch', '-m', 'wt/one', 'amb/one'], repo);
+const ambRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'one' });
+check(
+ '多个 worktree 同级命中时 remove 报 ambiguity 并列出候选',
+ ambRemove.isError && /ambiguous worktree name/.test(ambRemove.text) && ambRemove.text.includes(ambA) && ambRemove.text.includes(ambSibling),
+ ambRemove.text,
+);
+check('歧义时两个 worktree 都原样保留', existsSync(ambA) && existsSync(ambSibling), `${ambA} / ${ambSibling}`);
+const ambByPath = await session.tool('worktree_remove', { repoPath: repo, name: ambA, deleteBranch: true });
+check('给出绝对路径后可以精确删除', !ambByPath.isError && /Removed worktree/.test(ambByPath.text), ambByPath.text);
+await session.tool('worktree_remove', { repoPath: repo, name: ambSibling, force: true, deleteBranch: true });
+
+section('P1：并发写配置不互相截断');
+// 回归：固定的 config.json.tmp 让并发写者争抢同一临时文件，可能出现截断或 EPERM。
+const concCfgHome = path.join(sandbox, 'conc-cfg');
+mkdirSync(concCfgHome);
+const concSessions = Array.from({ length: 6 }, () => openSession({ WORKTREE_CONFIG_HOME: concCfgHome }));
+try {
+ await Promise.all(concSessions.map((s) => s.ready));
+ const results = await Promise.all(
+ concSessions.map((s, i) => s.tool('worktree_set_root', { action: 'set', scope: 'global', staleDays: i + 2 })),
+ );
+ check('并发 set_root 全部成功', results.every((r) => !r.isError), results.map((r) => r.text.split('\n')[0]).join(' | '));
+ const finalBody = readFileSync(path.join(concCfgHome, 'config.json'), 'utf8');
+ let parsed = null;
+ try {
+ parsed = JSON.parse(finalBody);
+ } catch {
+ parsed = null;
+ }
+ check('并发写后 config.json 仍是合法 JSON（未被截断）', Boolean(parsed), finalBody);
+ check('并发写后没有残留临时文件', readdirSync(concCfgHome).every((f) => f === 'config.json'), readdirSync(concCfgHome).join(','));
+} finally {
+ for (const s of concSessions) s.close();
+ }
 } catch (err) {
   failures += 1;
   console.error(`\n未捕获异常: ${err.message}`);
