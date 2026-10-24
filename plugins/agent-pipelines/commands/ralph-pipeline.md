@@ -85,7 +85,7 @@ DONE 必须同时满足：
 4. **复杂度评估与再拆分**：按 Ralph Orchestrator agent 模板「## 任务复杂度评估与拆分」的判据（accept_criteria > 3 / 跨文件 > 5 或跨模块 > 2）逐项评估，对过大任务原地拆成子任务，`subtask_of` 标注溯源，新 `depends_on` 接入拓扑。核算子任务总数 ≤ 8（`= MAX_CYCLES × 0.8`），超限且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 初始化 `consecutive_failures = 0`、`stall_counter = 0`、`round = 0`、`stop_reason = null`。
 6. 设置 `MAX_CYCLES = 10`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step（DELEGATE + WAIT_REVIEW + JUDGE）。
-7. 确定背压验证命令（默认沿用领域 backpressure 配置）。
+7. 确定背压验证命令。优先沿用仓库已有的测试或检查命令（package.json 的 test 脚本、Makefile 的 test 目标或 CI 验证步骤）；仓库没有可用的验证命令时询问用户，不要自行臆造。
 
 ## 委派机制
 

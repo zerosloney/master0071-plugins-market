@@ -1,6 +1,8 @@
 ---
 name: ralph-pipeline
 description: 通用多代理编排管道（Ralph-Pipeline），线性 TaskList 驱动「Orchestrator → 执行者 → 审查者」循环，带状态持久化与背压熔断。当用户要求把一个复杂目标拆成多个任务、逐项执行并逐项审查、需要断点恢复或需要防止无限循环撞轮次上限时使用。适用于任意领域（写文档、跑数据迁移、批量重构），不局限于编码。
+license: MIT
+compatibility: Requires a host that can dispatch subagents (Task or task tool) and keep a state file across rounds.
 ---
 
 # Ralph Pipeline
@@ -108,7 +110,7 @@ ralph 域专属约束：
 4. 按上节「任务复杂度评估与拆分」逐项评估，对过大任务原地拆成子任务，`subtask_of` 标注溯源，新 `depends_on` 接入拓扑。子任务总数超预算且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 初始化 `consecutive_failures = 0`、`stall_counter = 0`、`round = 0`、`stop_reason = null`。
 6. 设置 `MAX_CYCLES = 10`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step。
-7. 确定背压验证命令（默认沿用领域 backpressure 配置）。
+7. 确定背压验证命令。优先沿用仓库已有的测试或检查命令（package.json 的 test 脚本、Makefile 的 test 目标或 CI 验证步骤）；仓库没有可用的验证命令时询问用户，不要自行臆造。
 
 ## 委派机制
 

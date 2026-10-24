@@ -23,6 +23,8 @@ coding 管道额外约束：
 - **零证据禁令**：detected_stack 非空且验证脚本 MISSING 时禁止 PASS。
 - **完成铁律**：动态检查无 FAIL + 审查 PASS + 零 critical/major + scope_drift PASS。
 
+这些机制全部由 Markdown 指令驱动，插件没有运行时脚本强制执行。状态文件、熔断计数与 scope 判定都依赖 orchestrator 与 reviewer 按协议执行；`test/contract.mjs` 只静态校验文件结构、四份拷贝的参数一致性与 skill 自足性，不能证明管道在某个宿主上跑通。
+
 ## 使用
 
 两种入口，机制完全一致：
@@ -71,6 +73,7 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 
 > **维护提示**：改动编排判据（`MAX_CYCLES`、`STALL_MAX`、拆分预算、完成标准、停止枚举）时，**必须同步改 4 处**：
 > `commands/<pipeline>.md`、`skills/<pipeline>/SKILL.md`、对应 `agents/<pipeline>-orchestrator.md`、本 README 的「机制」表。
+> 改完运行 `node test/contract.mjs`，它会拦截参数漂移、缺失的角色文件、垫片漏声明 skills 与版本不一致。
 
 **ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`node scripts/release.mjs --check` 校验）。代价：规范要求包内有且仅有一个根 `plugin.json`。
 
@@ -93,3 +96,11 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 宿主若不支持子代理委派，命令正文会退化为主会话直接扮演 orchestrator，不会静默失败。
 
 状态文件写在**项目工作区**的 `.loop-cli/state/` 下，不写入插件目录。
+
+## 测试
+
+```
+node test/contract.mjs
+```
+
+零依赖，检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致。它不执行管道，也不替代真实宿主上的端到端验证。
