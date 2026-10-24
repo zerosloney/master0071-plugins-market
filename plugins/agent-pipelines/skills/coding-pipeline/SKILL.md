@@ -1,6 +1,8 @@
 ---
 name: coding-pipeline
 description: 受控编码多代理管道（Coding-Pipeline），用「Orchestrator → Builder → Reviewer」循环改代码，核心承诺是 scope 零容忍、根因分组修复、真实验证与零证据禁令。当用户要求在限定范围内改代码、修复一组相关缺陷、需要审查者拦截越界改动、需要防止逐条打补丁式修复、或需要状态持久化断点恢复时使用。
+license: MIT
+compatibility: Requires a host that can dispatch subagents (Task or task tool) and keep a state file across rounds.
 ---
 
 # Coding Pipeline
