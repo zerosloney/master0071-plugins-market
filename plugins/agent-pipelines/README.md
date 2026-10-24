@@ -43,7 +43,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 加锁与事件日志：`init` / `write` / `gate --apply` 会取 `<state>.lock`（30 秒陈旧锁自动清理，最多等 2 秒），并向 `<state>.events.jsonl` 追加事件。事件日志用于断点恢复和事后审计，写失败不影响主流程。
 
-宿主加载矩阵：contract 会检查三个垫片声明的 skills / commands / agents 路径真实存在；Codex / ZCode / Oh My Pi 的真实端到端尚未自动跑。
+宿主加载矩阵（0.1.3 实测）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
 `test/contract.mjs` 校验静态契约（69 断言），`test/pipeline.mjs` 跑状态机、scope、锁与事件日志（40 断言）。两者都不替代真实宿主上的端到端运行。
 
@@ -99,7 +99,7 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 
 **ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`node scripts/release.mjs --check` 校验）。代价：规范要求包内有且仅有一个根 `plugin.json`。
 
-**Codex 兼容垫片**：`.codex-plugin/plugin.json`（配合仓库根 `.agents/plugins/marketplace.json`）。Codex 只声明 `skills`，不加载 `commands/` 与 `agents/`，所以在 Codex 上用 skill 入口而不是斜杠命令；skill 本身是自足的（角色契约内联在 `references/`），不会因缺 agents 而退化。
+**Codex 兼容垫片**：`.codex-plugin/plugin.json`（配合仓库根 `.agents/plugins/marketplace.json`）。Codex 只声明 `skills`，不加载 `commands/` 与 `agents/`，所以在 Codex 上用 skill 入口而不是斜杠命令；skill 以 `agent-pipelines:` 命名空间出现（如 `agent-pipelines:ralph-pipeline`）。skill 本身是自足的（角色契约内联在 `references/`），不会因缺 agents 而退化。
 
 **Oh My Pi 兼容垫片**：`.omp-plugin/plugin.json`（配合仓库根 `.omp-plugin/marketplace.json`）。omp 同时加载 `skills`、`commands`、`agents`，是唯一能拿到 6 个编排子智能体的宿主——想用子代理委派就装 omp。
 
