@@ -67,6 +67,7 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算「任务状态签名」（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
+- 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline ralph` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；脚本不可用时按本节规则手写。
 
 ### 读取规则
 

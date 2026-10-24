@@ -23,7 +23,24 @@ coding 管道额外约束：
 - **零证据禁令**：detected_stack 非空且验证脚本 MISSING 时禁止 PASS。
 - **完成铁律**：动态检查无 FAIL + 审查 PASS + 零 critical/major + scope_drift PASS。
 
-这些机制全部由 Markdown 指令驱动，插件没有运行时脚本强制执行。状态文件、熔断计数与 scope 判定都依赖 orchestrator 与 reviewer 按协议执行；`test/contract.mjs` 只静态校验文件结构、四份拷贝的参数一致性与 skill 自足性，不能证明管道在某个宿主上跑通。
+这些机制默认由 Markdown 指令驱动；插件另附零依赖脚本，宿主能执行 shell 时优先使用，不能执行时按文本规则继续，行为不变。
+
+## 可选脚本
+
+| 脚本 | 作用 |
+|---|---|
+| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift` 计算 `stop_reason`，`--apply` 写回） |
+| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；默认排除 `.loop-cli/**` |
+
+```bash
+node scripts/state.mjs init --pipeline coding --prompt "修复登录问题"
+node scripts/state.mjs gate --pipeline coding --file .loop-cli/state/coding-pipeline.json --json
+node scripts/scope.mjs --base <base-commit> --file .loop-cli/state/coding-pipeline.json --json
+```
+
+scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
+
+`test/contract.mjs` 校验静态契约（61 断言），`test/pipeline.mjs` 跑状态机与 scope（30 断言）。两者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
