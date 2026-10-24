@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // 副本会污染工作区，也让「写文件的用例」与「依赖环境变量的用例」互相串扰端点。
 const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-hook-smoke-'));
 cpSync(path.join(here, '..'), runRoot, { recursive: true });
+// 源目录里若留有端点共享文件（本地跑过 MCP 服务的痕迹），它会被一起复制进沙箱，
+// 于是「靠环境变量指端点」的用例全被这份陈旧配置顶掉——共享文件优先于环境变量。
+// 沙箱必须从干净状态起步。
+rmSync(path.join(runRoot, '.endpoint.json'), { force: true });
 const hookPath = path.join(runRoot, 'hooks', 'requirement-clarity.mjs');
 
 const LEVELS = ['模糊：目标都不清楚', '偏低：目标清楚但范围或关键约束不明', '较高：目标范围清楚，细节可自行决策', '明确：目标、范围、验收都清楚'];
@@ -76,6 +80,9 @@ const run = (prompt, envExtra = {}) =>
         ...process.env,
         SYSTEMONE_API_KEY: 'test-key',
         UNISOUND_API_KEY: '',
+        // 端点共享文件位置由 PLUGIN_DATA 决定；用例默认走插件根旧路径，
+        // 需要时由 envExtra 显式覆盖，避免继承开发机环境导致结果漂移。
+        PLUGIN_DATA: '',
         SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
         ...envExtra,
       },
@@ -218,6 +225,32 @@ const main = async () => {
     assert.equal(received[0].model, 'u2-decision');
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
   });
+
+  // 8b. PLUGIN_DATA 目录里的共享文件优先于插件根旧文件
+  // （Agent Plugins 规范：PLUGIN_DATA 是跨插件更新保留的可写数据目录，
+  //   运行时状态应落在这里；插件根 .endpoint.json 只是没有该变量时的兼容回退）
+  const dataDir = path.join(runRoot, 'plugin-data');
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(
+    path.join(dataDir, 'endpoint.json'),
+    JSON.stringify({ baseUrl: `http://127.0.0.1:${port}/v1`, model: 'data-decision', timeoutMs: 9000 })
+  );
+  // 插件根旧文件指向一个死端点：若 PLUGIN_DATA 不生效，请求会打到这里（received 为 0）
+  writeFileSync(
+    path.join(runRoot, '.endpoint.json'),
+    JSON.stringify({ baseUrl: 'http://127.0.0.1:1/wrong', model: 'legacy-decision', timeoutMs: 9000 })
+  );
+  scenario = 'unclear';
+  received = [];
+  r = await run('帮我把这个项目优化一下，尽快弄好', { PLUGIN_DATA: dataDir });
+  check('PLUGIN_DATA 里的共享端点优先于插件根旧文件', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '应打到 PLUGIN_DATA 里的端点');
+    assert.equal(received[0].model, 'data-decision');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+  // 复位：后续用例继续走插件根旧路径
+  rmSync(path.join(runRoot, '.endpoint.json'), { force: true });
 
   // ---------- 风险闸（PreToolUse）：内核直接调用 + 协议包装子进程 ----------
 

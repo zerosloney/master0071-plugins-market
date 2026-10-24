@@ -14,6 +14,9 @@ const pluginRoot = path.join(here, '..');
 // 直接跑仓库副本会污染工作区，并与 hook 冒烟测试互相串扰端点。
 const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-smoke-'));
 cpSync(pluginRoot, runRoot, { recursive: true });
+// 源目录里若留有端点共享文件（本地跑过 MCP 服务的痕迹），它会被一起复制进沙箱，
+// 让「靠环境变量指端点」的用例读到陈旧端点。沙箱必须从干净状态起步。
+rmSync(path.join(runRoot, '.endpoint.json'), { force: true });
 const serverPath = path.join(runRoot, 'mcp', 'server.mjs');
 
 // 宿主产品名词表：仓库已移除市场概念，只剩 .zcode-plugin 垫片一个清单目录，
@@ -193,7 +196,12 @@ const mock = http.createServer((req, res) => {
 
 class McpClient {
   constructor(env) {
-    this.child = spawn(process.execPath, [serverPath], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
+    this.child = spawn(process.execPath, [serverPath], {
+      // PLUGIN_DATA 决定端点共享文件落在哪；默认为空即走插件根旧路径，
+      // 避免继承开发机环境导致结果漂移（需要时由调用方显式传入）。
+      env: { ...process.env, PLUGIN_DATA: '', ...env },
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
     this.nextId = 1;
     this.pending = new Map();
     this.seen = []; // 收到的全部响应，供「不该收到响应」类断言使用
@@ -1118,6 +1126,27 @@ const main = async () => {
     });
   } finally {
     uiClient.close();
+  }
+
+  // PLUGIN_DATA 存在时（Agent Plugins 规范提供的跨插件更新可写数据目录），
+  // 端点共享文件应落在那里而不是插件根——插件更新后状态不丢，也不污染包目录。
+  const dataDir = path.join(runRoot, 'plugin-data');
+  const dataClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    PLUGIN_DATA: dataDir,
+  });
+  try {
+    await dataClient.call('tools/call', {
+      name: 'systemone_scenario',
+      arguments: { action: 'run', scenario: 'customer_service', state: 'data-dir' },
+    });
+    check('PLUGIN_DATA 存在时端点共享文件落在该目录', () => {
+      assert.ok(existsSync(path.join(dataDir, 'endpoint.json')), 'PLUGIN_DATA 下应有 endpoint.json');
+      assert.ok(!existsSync(path.join(runRoot, '.endpoint.json')), '插件根不应再有 .endpoint.json');
+    });
+  } finally {
+    dataClient.close();
     mock.close();
   }
 

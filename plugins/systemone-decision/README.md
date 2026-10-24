@@ -7,6 +7,22 @@
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
+## 前置条件
+
+| 依赖 | 要求 | 说明 |
+|------|------|------|
+| Node.js | ≥ 18，且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里 | `mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许），解释器由宿主按平台搜索规则解析。宿主若用受限环境启动子进程、PATH 里没有 node，服务会起不来——这是宿主侧的事，插件无法兜底 |
+| 网络 | 能访问所配置的 SystemOne 端点 | 默认 `unisound u2-decision`，可用 `SYSTEMONE_BASE_URL` 换供应商 |
+| API Key | `SYSTEMONE_API_KEY` | 缺失时工具返回 `isError` 与配置指引，不会静默失败 |
+
+一条命令自检环境：
+
+```bash
+node --version
+```
+
+版本过低时服务启动即报可读错误（而不是在半路抛出难懂的异常）。
+
 ## 内置场景（15 个）
 
 每个场景 = 3 个结构化问题，判据可通过 `params` 覆盖为实际业务选项。
@@ -150,7 +166,9 @@ systemone_scenario(action: "run",
 
 **API Key 例外**：ZCode 目前没有安全凭据存储，插件设置页不支持保存敏感值，Key 仍只能走环境变量 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）。
 
-**hook 端点共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）落盘到插件根目录 `.endpoint.json`，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商后，预检自动跟随同一端点，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
+**hook 端点共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）落盘到共享文件，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商后，预检自动跟随同一端点，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
+
+**共享文件位置**：Agent Plugins 规范的客户端会提供 `PLUGIN_DATA`（跨插件更新保留的可写数据目录），此时文件落在 `$PLUGIN_DATA/endpoint.json`——插件更新后端点配置不丢，也不会把运行时产物留在包目录里。没有 `PLUGIN_DATA` 的宿主（Claude Code / ZCode 等）沿用插件根的 `.endpoint.json`。读时两处都看、`PLUGIN_DATA` 优先；写时只写 `PLUGIN_DATA`（存在时）并清掉插件根的旧文件，避免同一份配置留两个副本、日后回退旧文件时读到过期端点。
 
 ## 配置（环境变量）
 

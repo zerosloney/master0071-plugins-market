@@ -1,6 +1,8 @@
 ---
 name: systemone-decision
 description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 15 个内置场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
+license: MIT
+compatibility: Needs network access to the SystemOne endpoint, an API key in SYSTEMONE_API_KEY, and Node.js 18+ on the PATH the host uses to launch the plugin MCP server.
 ---
 
 # SystemOne 决策
@@ -125,7 +127,7 @@ systemone_decide(
 两个通用注意点：
 
 - **改配置后需重启宿主**才生效——MCP 是启动时拉起的 stdio 子进程，持有一份启动瞬间的环境变量快照；ZCode 的设置页也是改完要重启。
-- **宿主配置对预检 hook 同样生效**：MCP 服务启动时把已解析端点（Base URL / Model / Timeout，不含 API Key）落盘到插件根 `.endpoint.json`，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——设置页切换供应商后预检自动跟随同一端点。API Key 仍只走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
+- **宿主配置对预检 hook 同样生效**：MCP 服务启动时把已解析端点（Base URL / Model / Timeout，不含 API Key）落盘到共享文件（客户端提供 `PLUGIN_DATA` 时落 `$PLUGIN_DATA/endpoint.json`，否则落插件根 `.endpoint.json`），需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——设置页切换供应商后预检自动跟随同一端点。API Key 仍只走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
 
 ## 边界与限额
 
