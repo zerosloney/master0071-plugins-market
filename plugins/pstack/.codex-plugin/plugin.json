@@ -21,17 +21,19 @@
   ],
   "skills": "./skills/",
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\" codex"
-          }
-        ]
-      }
-    ]
+    "hooks": {
+      "SessionStart": [
+        {
+          "matcher": "startup|resume|clear|compact",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\" codex"
+            }
+          ]
+        }
+      ]
+    }
   },
   "interface": {
     "displayName": "pstack",
@@ -44,7 +46,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/michael-denyer/pstack-claude",
+    "websiteURL": "https://github.com/zerosloney/master0071-plugins-market",
     "defaultPrompt": [
       "Work on this in poteto-mode.",
       "Interrogate this diff with multiple models."

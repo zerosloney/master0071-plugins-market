@@ -1,6 +1,7 @@
 ---
 name: what-did-i-get-done
 description: Summarize authored commits over a user-specified time period into a concise update
+license: MIT
 ---
 
 # What did I get done

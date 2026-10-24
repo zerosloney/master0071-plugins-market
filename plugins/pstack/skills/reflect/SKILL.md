@@ -1,6 +1,8 @@
 ---
 name: reflect
 description: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.
+license: MIT
+compatibility: Requires Node.js 18+ to run scripts/find-transcript.mjs.
 ---
 
 # Reflect
@@ -15,12 +17,12 @@ Invoke when the user says "reflect" or "/reflect". Skip when the conversation is
 
 ## 1. Locate the active transcript
 
-Before fanning out, find this conversation's transcript in Claude Code's per-project transcripts directory at `~/.claude/projects/<encoded-cwd>/`. Do not glob across `~/.claude/projects/`. That crosses workspace boundaries and reads private chats from unrelated projects.
+Before fanning out, find this conversation's transcript in the host's per-project transcripts directory for this workspace (Claude Code: `~/.claude/projects/<encoded-cwd>/`; other hosts: see your platform mapping). Do not glob across the host's whole transcript tree. That crosses workspace boundaries and reads private chats from unrelated projects.
 
-Run the finder at `skills/reflect/scripts/find-transcript.mjs` under the installed plugin with the projects directory and a fragment of the conversation's opening user prompt:
+Run the finder at `skills/reflect/scripts/find-transcript.mjs` under the installed plugin with the host's per-project transcripts directory and a fragment of the conversation's opening user prompt:
 
 ```bash
-node <plugin>/skills/reflect/scripts/find-transcript.mjs ~/.claude/projects/<encoded-cwd> "<opening prompt fragment>"
+node <plugin>/skills/reflect/scripts/find-transcript.mjs <transcripts-dir> "<opening prompt fragment>"
 ```
 
 It covers the three layouts (flat `<id>.jsonl`, nested `<id>/<id>.jsonl`, subagent `<parent>/subagents/<child>.jsonl`), newest first, and prints the first path whose opening typed prompt carries the fragment. Do not reimplement the scan by hand: the first line of a transcript is session metadata, not a message, a session that starts with `/clear` or a `!` shell command records that command's wrapper and output as `user` records before the prompt, and files run to several megabytes, so the finder streams each candidate and stops at its first typed `user` record. If it exits 1, write a tight digest of the session and pass that instead. It lists, one line each in turn order, the user's prompts and corrections, the tool calls and their results, and the files touched. It states no diagnosis, verdict, or cause. The reviewers judge the session, not your conclusions about it.
@@ -73,7 +75,7 @@ Short list, no preamble:
 
 ## Models
 
-Role defaults, stamped from `plugins/pstack/models.json` (edit there, rerun `tools/generate.mjs`). A matching role line in the `pstack-models.md` override sheet overrides each at runtime; `/setup-pstack` writes it and lists its path per runtime.
+Role defaults, stamped from `plugins/pstack/models.json` (edit there and mirror the change below; this port ships no generator). A matching role line in the `pstack-models.md` override sheet overrides each at runtime; `/setup-pstack` writes it and lists its path per runtime.
 
 - reflect tooling: `opus`
 - reflect judgment, divergent, synthesizer: `opus`

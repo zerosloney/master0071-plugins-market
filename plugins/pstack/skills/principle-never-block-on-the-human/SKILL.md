@@ -1,7 +1,7 @@
 ---
 name: principle-never-block-on-the-human
 description: "Apply when tempted to ask 'should I do X?' on reversible work."
-user-invocable: false
+license: MIT
 ---
 
 # Never Block on the Human

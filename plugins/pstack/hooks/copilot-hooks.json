@@ -13,7 +13,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "view|task|bash",
+        "matcher": "view|task|bash|Read|Task|Bash",
         "hooks": [
           {
             "type": "command",

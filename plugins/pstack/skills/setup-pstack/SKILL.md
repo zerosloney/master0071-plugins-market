@@ -1,6 +1,8 @@
 ---
 name: setup-pstack
 description: Configure which models pstack uses per role. Detects available models and writes the current runtime's override sheet. Use for /setup-pstack, "configure pstack models", changing pstack's model choices, or turning the SessionStart hook on or off.
+license: MIT
+compatibility: Requires a POSIX shell (sh) with awk for scripts/check-sheet.sh and scripts/read-sheet.sh.
 ---
 
 # Setup pstack
@@ -102,13 +104,13 @@ Check whether the project already has a formal verification skill (a project ski
 
 ## Other runtimes
 
-The role lines are the same everywhere. What differs is the sheet path, how the runtime loads it, and how you list models. Detect models with the runtime's own tool and never write a slug you have not seen listed. A runtime whose subagent call has no model parameter still gets the sheet, as the record of the user's choice, and applies it where it can. The `session hook` line applies to the Claude Code, Codex, ZCode, and GitHub Copilot plugins and to the pstack Pi extension.
+The role lines are the same everywhere. What differs is the sheet path, how the runtime loads it, and how you list models. Detect models with the runtime's own tool and never write a slug you have not seen listed. A runtime whose subagent call has no model parameter still gets the sheet, as the record of the user's choice, and applies it where it can. The `session hook` line applies to the Claude Code, Codex, ZCode, and GitHub Copilot plugins in this port.
 
 | Runtime | Sheet | Load | List models | Status |
 | --- | --- | --- | --- | --- |
 | Claude Code | `<config>/pstack-models.md` | `@<config>/pstack-models.md` in `<config>/CLAUDE.md` | the `Agent` tool's model parameter | verified live |
 | Codex | `<codex-home>/pstack-models.md` | model rows: paste into `<codex-home>/AGENTS.md`; hook setting: read by the plugin | your configured Codex models, see [codex-tools.md](../poteto-mode/references/codex-tools.md#model-names) | hook contract tested; discovery verified |
-| Pi | `pstack-models.md` in the Pi agent directory, `$PI_CODING_AGENT_DIR` or `~/.pi/agent` | read by the pstack Pi extension, model rows and hook setting both; no include line | `pi --list-models`, see [pi-tools.md](../poteto-mode/references/pi-tools.md#model-names) and its `setup-pstack` note | extension contract tested offline; live results in the repository's `docs/pi-equivalence.md` |
+| Pi | `pstack-models.md` in the Pi agent directory, `$PI_CODING_AGENT_DIR` or `~/.pi/agent` | read by the pstack Pi extension, model rows and hook setting both; no include line | `pi --list-models` | no Pi extension ships in this port; the row is upstream reference only |
 | GitHub Copilot (CLI and app) | `${COPILOT_HOME:-~/.copilot}/pstack-models.md` | the plugin hook checks it and injects its role lines at session start; skills-only installs read it with `view` | the `task` tool's `model` enum, see [copilot-tools.md](../poteto-mode/references/copilot-tools.md#model-names) | hook contract tested; CLI install smoke-tested |
 | ZCode | `~/.zcode/pstack-models.md` | read by the plugin's node SessionStart hook, which injects the routing mandate; the `Agent` call has no `model` parameter, so the rows are the record of the user's choice | the host's model list (its model-listing tool or settings), see [zcode-tools.md](../poteto-mode/references/zcode-tools.md#model-names) | plugin install, skills, agents, and session hook verified live; per-call model and effort dispatch unavailable |
 | opencode | `~/.config/opencode/pstack-models.md` | add the path to the `instructions` array in `opencode.json` | the `models` slash command in the session | from published docs, no live session |
@@ -117,7 +119,7 @@ The role lines are the same everywhere. What differs is the sheet path, how the 
 
 ## Models
 
-Stamped from `plugins/pstack/models.json` (edit there, rerun `tools/generate.mjs`).
+Stamped from `plugins/pstack/models.json` (edit there and mirror the change in this list; this port ships no generator).
 
 - Available Claude models: `opus`, `fable`, `sonnet`, `haiku`
 - Default panel: `opus`, `fable`, `sonnet`, `haiku`

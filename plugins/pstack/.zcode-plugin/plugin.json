@@ -20,6 +20,5 @@
     "tdd"
   ],
   "skills": "./skills",
-  "agents": "./agents",
-  "hooks": "hooks"
+  "agents": "./agents"
 }

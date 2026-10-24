@@ -1,6 +1,7 @@
 ---
 name: get-pr-comments
 description: Fetch and summarize review comments from the active pull request
+license: MIT
 ---
 
 # Get PR comments

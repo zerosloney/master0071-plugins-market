@@ -10,12 +10,16 @@
 import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseSheet, readSheet } from './sheet.mjs';
 
-const root = process.env.COPILOT_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT ?? process.env.ZCODE_PLUGIN_ROOT;
+// 插件根：脚本自身位于 <plugin>/hooks/pre-tool-use.mjs，据此定位比读宿主环境变量可靠
+// （各宿主变量名不统一，少一个就拿不到插件根）。环境变量只用来识别宿主。
+// 保持 POSIX 形式（斜杠分隔）——下面比较的路径都来自宿主，以 `pwd -P` 风格给出。
+const toPosix = (p) => p.replaceAll('\\', '/');
+const root = toPosix(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 // Node's realpathSync returns backslash-separated paths on Windows while the
 // gate compares forward-slash segments, like `pwd -P` output on POSIX.
-const toPosix = (p) => p.replaceAll('\\', '/');
 const real = (() => {
   try {
     return toPosix(realpathSync(root));
@@ -193,30 +197,37 @@ const CONTRACT = new Map([
 
 // resume.mjs: operation first, then named paths. Only publication accepts
 // note/artifact inputs. Both --option=value and --option value are supported.
-function resumeContract(T, first, n) {
+function resumeContract(T, first, n, w) {
   const op = T[first];
   if (op !== 'begin' && op !== 'read' && op !== 'publish') return false;
   const seen = new Set();
   for (let i = first + 1; i <= n; i++) {
     const arg = T[i];
-    const eq = arg.indexOf('=');
-    const key = eq ? arg.slice(0, eq) : arg;
+    // indexOf('=') returns -1 when absent — truthy in JS but falsy in the awk
+    // this was ported from (index() yields 0). Compare against >= 0, or every
+    // bare `--project .` flag truncates to an unknown key and the gate goes
+    // silent on exactly the forms the contract exists to approve.
+    const eq = arg.indexOf('=') >= 0 ? arg.indexOf('=') : -1;
+    const key = eq >= 0 ? arg.slice(0, eq) : arg;
     if (key !== '--project' && key !== '--note' && key !== '--artifact') return false;
     if (op !== 'publish' && key !== '--project') return false;
     if (key !== '--artifact' && seen.has(key)) return false;
     seen.add(key);
     let value;
-    if (eq) value = arg.slice(eq + 1);
+    if (eq >= 0) value = arg.slice(eq + 1);
     else {
       if (++i > n || T[i].startsWith('--')) return false;
       value = T[i];
     }
-    if (!safePath(value)) return false;
+    if (!safePath(value, w)) return false;
   }
-  return op === 'publish' || seen.has('--note');
+  // begin/read approve on their own; publication requires a --note destination
+  // (mirrors script-contracts.awk:54 — the ported short-circuit inverted the
+  // two sides).
+  return op !== 'publish' || seen.has('--note');
 }
 
-function scriptContract(script, runner, T, first, n) {
+function scriptContract(script, runner, T, first, n, w) {
   const kind = CONTRACT.get(script);
   if (!kind) return false;
   if (runner !== '') {
@@ -227,16 +238,16 @@ function scriptContract(script, runner, T, first, n) {
     } else if (runner !== 'node') return false;
   }
   const count = n - first + 1;
-  if (kind === 'log') return count === 6 && safePath(T[first]);
+  if (kind === 'log') return count === 6 && safePath(T[first], w);
   if (kind === 'transcript') {
     return (
-      (count === 2 || count === 3) && safePath(T[first]) && T[first + 1] !== '' && (count === 2 || safePath(T[first + 2]))
+      (count === 2 || count === 3) && safePath(T[first], w) && T[first + 1] !== '' && (count === 2 || safePath(T[first + 2], w))
     );
   }
-  if (kind === 'resume') return resumeContract(T, first, n);
+  if (kind === 'resume') return resumeContract(T, first, n, w);
   if (kind === 'one-path' && count !== 1) return false;
   if (kind === 'optional-path' && count > 1) return false;
-  for (let i = first; i <= n; i++) if (!safePath(T[i])) return false;
+  for (let i = first; i <= n; i++) if (!safePath(T[i], w)) return false;
   return true;
 }
 
@@ -245,9 +256,15 @@ function scriptContract(script, runner, T, first, n) {
 function scriptRule(P) {
   const cmd = jget(`${P}/command`);
   if (/[;|&$`<>()\\"]/.test(cmd) || control(cmd)) return;
-  cwd = resolve(cwd);
+  if (cwd === '') {
+    console.error('pre-tool-use.mjs: hook input carries no cwd; the pstack script gate stays silent for this call');
+    return;
+  }
+  // The workspace is resolved per call and threaded down as `w` — no
+  // module-level mutable path state.
+  const w = resolve(cwd);
   // A workspace that holds the plugin, or sits in it, could rewrite its files.
-  if (!root || !cwd || root === cwd || under(root, cwd) || under(cwd, root) || real === cwd || under(real, cwd) || under(cwd, real)) return;
+  if (!root || !w || root === w || under(root, w) || under(w, root) || real === w || under(real, w) || under(w, real)) return;
   const tokenized = words(cmd);
   if (!tokenized) return;
   const { T, Q } = tokenized;
@@ -264,34 +281,48 @@ function scriptRule(P) {
   if (under(script, root)) rel = script.slice(root.length + 1);
   else if (under(script, real)) rel = script.slice(real.length + 1);
   else return;
-  if (scriptContract(rel, runner, T, first + 1, n - 1)) allow();
+  if (scriptContract(rel, runner, T, first + 1, n - 1, w)) allow();
 }
 
-// Called only for path operands identified by a script contract.
-function safePath(p) {
+// Called only for path operands identified by a script contract. The absolute
+// test is path.isAbsolute, not `startsWith('/')`: on Windows a drive operand
+// like `C:/etc/passwd` is absolute, and prefixing it would manufacture a
+// nonexistent in-workspace path the resolver can still classify as inside —
+// approving an operand the script never receives.
+function safePath(p, w) {
   if (p === '') return false;
   if (p.split('/').includes('..')) return false;
-  if (!p.startsWith('/')) {
-    if (cwd === '') return false;
-    p = `${cwd}/${p}`;
+  if (!path.isAbsolute(p)) {
+    if (w === '') return false;
+    p = `${w}/${p}`;
   }
-  return inside(resolve(p));
+  // normalize absorbs literal `.` segments (`ws/.`, `ws/./x`) the way a
+  // shell's `cd` does — upstream awk relied on that. Left in place they make
+  // under() reject an operand that actually lands inside the workspace, and
+  // on Windows lstatSync('ws/.') fails outright. `..` was rejected above, so
+  // normalization cannot smuggle traversal in.
+  p = path.normalize(p).replaceAll('\\', '/');
+  return inside(resolve(p), w);
 }
 
 // Path operands stay in the workspace: one in the plugin could rewrite the
 // context every later session loads.
-function inside(p) {
-  return p !== '' && (p === cwd || under(p, cwd));
+function inside(p, w) {
+  return p !== '' && (p === w || under(p, w));
 }
 
 // Resolves the longest existing directory prefix of p, like `cd <dir> && pwd
-// -P`. A dangling symlink, or a symlink to a file, fails; missing prefixes
-// keep climbing.
+// -P`. Symlinks — dangling, or pointing at a file — fail; an existing regular
+// file keeps climbing, like awk's `cd` probe, which fails on files; missing
+// prefixes keep climbing. On Windows the climb stops at the drive root (`C:`):
+// lstatSync('C:') would report this process's per-drive working directory, not
+// the operand's, so an unresolved drive-absolute path stays unresolved and
+// fails closed.
 function resolve(p) {
   if (p === '' || p.includes("'") || control(p)) return '';
   let d = p;
   let rest = '';
-  while (d !== '' && d !== '/') {
+  while (d !== '' && d !== '/' && !/^[A-Za-z]:$/.test(d)) {
     let lst = null;
     try {
       lst = lstatSync(d);
@@ -312,7 +343,20 @@ function resolve(p) {
           return '';
         }
       }
-      return '';
+      // A symlink to a file (statSync followed it) or a dangling symlink
+      // (statSync threw) takes the normal permission flow, like awk's
+      // `[ -L ]` probe. An existing regular file keeps climbing: the longest
+      // existing directory prefix is its parent.
+      if (lst.isSymbolicLink()) return '';
+      const i = d.lastIndexOf('/');
+      if (i <= 0) {
+        rest = d + rest;
+        d = '';
+      } else {
+        rest = d.slice(i) + rest;
+        d = d.slice(0, i);
+      }
+      continue;
     }
     const i = d.lastIndexOf('/');
     if (i <= 0) {
@@ -369,7 +413,7 @@ parse(input);
 const tool = JT.has('/tool_name') ? jget('/tool_name') : jget('/toolName');
 const P = JT.has('/tool_name') ? '/tool_input' : '/toolArgs';
 if (JT.get(P) !== 'object') process.exit(0);
-let cwd = jget('/cwd').replaceAll('\\', '/');
+const cwd = jget('/cwd').replaceAll('\\', '/');
 
 if (tool === 'Read' || tool === 'view') viewRule(P);
 else if (tool === 'Agent' || tool === 'Task' || tool === 'task') taskRule(P);

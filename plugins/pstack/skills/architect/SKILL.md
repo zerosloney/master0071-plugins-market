@@ -1,6 +1,7 @@
 ---
 name: architect
 description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
+license: MIT
 ---
 
 # Architect
@@ -87,7 +88,7 @@ The caller's usage is written first and the type sketch derived from it. One fil
 
 ## Models
 
-Role defaults, stamped from `plugins/pstack/models.json` (edit there, rerun `tools/generate.mjs`). A matching role line in the `pstack-models.md` override sheet overrides each at runtime; `/setup-pstack` writes it and lists its path per runtime.
+Role defaults, stamped from `plugins/pstack/models.json` (edit there and mirror the change below; this port ships no generator). A matching role line in the `pstack-models.md` override sheet overrides each at runtime; `/setup-pstack` writes it and lists its path per runtime.
 
 - architect runners: `opus`, `fable`, `sonnet`, `haiku`
 

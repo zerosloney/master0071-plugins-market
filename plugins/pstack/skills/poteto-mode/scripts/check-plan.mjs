@@ -34,6 +34,29 @@ if (!file) {
 	process.exit(2);
 }
 
+// The literals above are quoted from playbooks/multi-phase-plan.md. If a pstack
+// upgrade rewrites the playbook's wording, this checker would silently demand
+// sentences the current playbook no longer teaches. Fail loudly on drift:
+// update the literals beside the playbook change.
+const playbookPath = new URL("../playbooks/multi-phase-plan.md", import.meta.url);
+const playbook = fs.readFileSync(playbookPath, "utf8").replace(/\s+/g, " ");
+const playbookText = playbook;
+const drifted = [
+	["RULE", RULE],
+	["LANES", LANES],
+	...SUB_BLOCKS.map((text) => ["SUB_BLOCKS", text]),
+	...PROGRAM_H3.map((text) => ["PROGRAM_H3", text]),
+	...PROGRAM_MARKERS.filter((m) => typeof m === "string").map((text) => ["PROGRAM_MARKERS", text]),
+	...HOW_TO_READ_MARKERS.filter((m) => typeof m === "string").map((text) => ["HOW_TO_READ", text]),
+	...PERF_ITEMS.map((text) => ["PERF_ITEMS", text]),
+].filter(([, text]) => !playbookText.includes(text.replace(/\s+/g, " ")));
+if (drifted.length) {
+	for (const [name, text] of drifted) {
+		console.error(`check-plan.mjs: constant ${name} no longer appears in playbooks/multi-phase-plan.md: "${text}". Update this checker beside the playbook change.`);
+	}
+	process.exit(2);
+}
+
 const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/);
 const problems = [];
 const fail = (line, message) => problems.push(`${file}:${line}: ${message}`);

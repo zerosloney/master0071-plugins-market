@@ -90,7 +90,7 @@ Claude Code keeps one directory per project under `~/.claude/projects/<encoded-c
 - `workspace.yaml` names the session's `cwd`. Scope every transcript search to the current workspace: keep only session directories whose `cwd` is the workspace path (or a worktree of it), then read their `events.jsonl`. Never read other projects' sessions.
 - When a skill says "this session's transcript", it is the newest matching session directory whose `events.jsonl` contains the opening prompt.
 
-In poteto-mode's playbooks, `eval` reads candidate transcripts from Copilot session state, and `session-pickup` and `worktree-cleanup` search it scoped to the workspace. `orchestrate` and `multi-phase-plan` keep their store under `${COPILOT_HOME:-~/.copilot}/orchestrate/` instead of `~/.claude/orchestrate/`.
+In poteto-mode's playbooks, `eval` reads candidate transcripts from Copilot session state, and `session-pickup` and `worktree-cleanup` search it scoped to the workspace. `orchestrate` and `multi-phase-plan` keep their store under `${COPILOT_HOME:-~/.copilot}/orchestrate/` instead of the Claude Code agent store.
 
 ## Driver and bundled skills pstack references
 
@@ -138,3 +138,12 @@ Where a pstack skill says "your instructions file" or `CLAUDE.md`, on Copilot th
 ## Skill locations
 
 Where a pstack skill names `.claude/skills/`, on Copilot project skills live under `.github/skills/` (Copilot also reads `.claude/skills/` and `.agents/skills/`), and personal skills under `~/.copilot/skills/` or `~/.agents/skills/`.
+
+The same file names the host's per-project transcripts directory and the host's agent store in neutral terms. On Copilot they resolve to:
+
+| Neutral term in a pstack skill | On Copilot |
+|-------------------------------|-----------|
+| the host's project-skill directory | `.github/skills/` (Copilot also reads `.claude/skills/` and `.agents/skills/`). |
+| the host's user-level skill directory | `~/.copilot/skills/` or `~/.agents/skills/`. |
+| the host's per-project transcripts directory | The workspace's Copilot session directories (see [Transcripts](#transcripts)). The transcript finder reads Claude Code's layout, so on Copilot pass the session digest step 1 allows instead of a directory. |
+| the host's agent store (`<agent-store>/`) | `${COPILOT_HOME:-~/.copilot}/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |

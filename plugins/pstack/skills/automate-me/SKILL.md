@@ -1,6 +1,7 @@
 ---
 name: automate-me
 description: "Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill via plugin-dev:skill-development + unslop, optionally pulling fresh evidence from recent transcripts."
+license: MIT
 ---
 
 # Automate me
@@ -17,7 +18,7 @@ This skill orchestrates three others: an inline mining pass (see step 1), the **
 
 ### 0. Check for an existing skill
 
-Look recursively for `.claude/skills/**/*-mode/SKILL.md` and `~/.claude/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.claude/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `AskUserQuestion` (unless they already said "update my skill" or similar):
+Look recursively for `*-mode/SKILL.md` matching the user's handle, in the host's project-skill directory and in the host's user-level skill directory. Mode skills can live in a personal category directory (a `<handle>/` subdirectory), not only at the top level. If one exists, confirm intent with `AskUserQuestion` (unless they already said "update my skill" or similar):
 
 - Update the existing skill (default for repeat runs)
 - Start fresh (rare, ask why before doing it)
@@ -29,7 +30,7 @@ Update mode changes the rest of the flow:
 
 ### 1. Mine their history
 
-Locate the active workspace's transcripts before fanning out. Claude Code stores them at `~/.claude/projects/<encoded-cwd>/*.jsonl`, where `<encoded-cwd>` is the workspace's working directory with `/` → `-`. Use only that path. Don't glob across `~/.claude/projects/`. That crosses workspace boundaries and reads private chats from unrelated projects.
+Locate the active workspace's transcripts before fanning out. The host keeps them in its per-project transcript directory for this workspace (Claude Code: `~/.claude/projects/<encoded-cwd>/*.jsonl`, where `<encoded-cwd>` is the workspace's working directory with `/` → `-`; other hosts: see your platform mapping). Use only that directory. Don't glob across the host's whole transcript tree. That crosses workspace boundaries and reads private chats from unrelated projects.
 
 Survey recent agent conversations within that scope for recurring patterns. Run multiple parallel subagents across slices of history (e.g. last 2-4 weeks, split into 3 slices so each has enough material). Pick each subagent's reasoning level for the job, per the Subagents section of the **poteto-mode** skill. Each slice mining subagent reads transcripts from the workspace-scoped path the parent provides, looks for the signals below, and returns a short structured list of patterns it saw with evidence pointers. Default signals worth hunting:
 
@@ -69,11 +70,11 @@ The **poteto-mode** skill shows the shape. Read it for granularity. Don't copy i
 
 Use the **plugin-dev:skill-development** skill to author the skill. Placement:
 
-- Path: preserve an existing mode skill's category. For a new mode, use `.claude/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.claude/skills/<handle>-mode/SKILL.md` in the project (or `~/.claude/skills/<handle>-mode/` if the user prefers a personal skill).
+- Path: preserve an existing mode skill's category. For a new mode, use `<handle>/<handle>-mode/SKILL.md` under the host's project-skill directory when the repo has an established personal category for that handle. Otherwise default to `<handle>-mode/SKILL.md` in the project (or the same path under the host's user-level skill directory if the user prefers a personal skill).
 - Handle: the user's first name or chosen identifier.
 - Frontmatter `description`: trigger on their name + `/<handle>-mode` + "work in their style", not on generic keywords like "write code" or "review PR".
-- Frontmatter formatting: follow `plugin-dev:skill-development`'s YAML rules. Keep `description` as one YAML scalar. Quote it or use `description: >-` with indented continuation lines when punctuation or wrapping requires it.
-- Frontmatter `disable-model-invocation: true` by default. Opt out only if the user explicitly wants their mode to apply on every turn.
+- Frontmatter formatting: follow `plugin-dev:skill-development`'s YAML rules. Keep `description` as one YAML scalar. Quote it or use `description: >-` with indented continuation lines when punctuation or wrapping requires it. Use only the standard frontmatter fields (`name`, `description`, and optionally `license`, `compatibility`, `metadata`, `allowed-tools`).
+- Model invocation: the mode should trigger on the user's name and `/<handle>-mode`, not on every turn. The standard frontmatter has no field for that; a host that exposes a per-skill model-invocation switch (see your platform mapping) can use its own.
 
 ### 5. Iterate on prose
 

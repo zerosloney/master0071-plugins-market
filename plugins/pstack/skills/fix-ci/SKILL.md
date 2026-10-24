@@ -1,6 +1,8 @@
 ---
 name: fix-ci
 description: Find failing PR checks, inspect logs or external check links, and apply focused fixes
+license: MIT
+compatibility: Requires the gh CLI and a GitHub repository.
 ---
 
 # Fix CI

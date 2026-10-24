@@ -12,33 +12,44 @@
 // checked here and spliced into the mandate (ports copilot-context.awk).
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseSheet, readSheet, ROLES } from './sheet.mjs';
 
-const root = process.env.COPILOT_PLUGIN_ROOT ?? process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT;
+// 插件内的 hooks 目录：脚本自身位于 <plugin>/hooks/session-start.mjs，据此定位比读宿主
+// 环境变量可靠。各宿主给的变量名并不统一（CLAUDE_ / ZCODE_ / COPILOT_ / CODEX_），
+// 少一个就拿不到插件根；环境变量只用来识别宿主，不用来定位路径。
+const HOOKS_DIR = dirname(fileURLToPath(import.meta.url));
+// 宿主声明的插件根：只用于识别宿主（ZCode 的注册会带 claude 参数，靠这个切分支）。
+const hostRoot = process.env.COPILOT_PLUGIN_ROOT
+  ?? process.env.ZCODE_PLUGIN_ROOT
+  ?? process.env.CLAUDE_PLUGIN_ROOT
+  ?? process.env.CODEX_PLUGIN_ROOT;
 
 // ZCode registers hooks/hooks.json by convention and ignores a manifest hooks
 // pointer, so the one registration file serves both hosts and arrives here
 // with the claude argument on ZCode too. Detect the host instead of trusting
-// it: ZCODE_PLUGIN_ROOT set, or the expanded plugin root living under .zcode.
-const detected = process.env.ZCODE_PLUGIN_ROOT || (root ?? '').includes('.zcode') ? 'zcode' : null;
+// it: ZCODE_PLUGIN_ROOT set, or the expanded plugin root living under a
+// `.zcode` directory segment. The segment comparison is case-insensitive and
+// exact per segment, so a sibling like `.zcodebackup` or a name that merely
+// contains `.zcode` cannot trigger it.
+const isZcodeSegment = (p) => p.split(/[\\/]/).some((seg) => seg.toLowerCase() === '.zcode');
+const detected = (process.env.ZCODE_PLUGIN_ROOT || isZcodeSegment(hostRoot ?? '')) ? 'zcode' : null;
 const runtime = detected ?? process.argv[2];
 const sheets = {
   claude: () => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'pstack-models.md'),
   codex: () => join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'pstack-models.md'),
   copilot: () => join(process.env.COPILOT_HOME ?? join(homedir(), '.copilot'), 'pstack-models.md'),
-  zcode: () => join(homedir(), '.zcode', 'pstack-models.md'),
+  // ZCODE_HOME mirrors CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME: an
+  // override for tests and relocated installs.
+  zcode: () => join(process.env.ZCODE_HOME ?? join(homedir(), '.zcode'), 'pstack-models.md'),
 };
 if (!(runtime in sheets)) {
   console.error(`session-start.mjs: unknown runtime '${runtime ?? ''}' (expected claude, codex, copilot, or zcode)`);
   process.exit(2);
 }
 
-if (!root) {
-  console.error('session-start.mjs: no plugin root variable (CLAUDE_PLUGIN_ROOT / ZCODE_PLUGIN_ROOT / COPILOT_PLUGIN_ROOT) is set');
-  process.exit(1);
-}
-const hooksDir = join(root, 'hooks');
+const hooksDir = HOOKS_DIR;
 
 // A file's text without its trailing newline, like the awk text() helper.
 const text = (name) => readFileSync(join(hooksDir, name), 'utf8').replace(/\n$/, '');

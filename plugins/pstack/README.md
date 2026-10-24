@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。65 个 skill + 14 个子智能体 + 1 条会话启动 hook。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。65 个 skill + 14 个子智能体（`agents/` 4 个基础 + `effort-agents/` 10 个 effort 分级变体）+ 1 条会话启动 hook。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -9,7 +9,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 入口 | 说明 |
 |------|------|
 | `poteto-mode` | **唯一总入口**。告诉它你的目标，它挑该走哪条工作流：复现并定位 bug、用 `architect` 起草设计、`arena` 竞速方案、`interrogate` 审 diff、`unslop` 削文案 |
-| `setup-pstack` | 选模型分工、关闭会话 hook，写 `pstack-models.md`（默认路径 `~/.claude/`） |
+| `setup-pstack` | 选模型分工、关闭会话 hook，写 `pstack-models.md`（路径按运行时而定，见该 skill 的 Other runtimes 表） |
 | `poteto-help` | 自助问答：这个仓库里有什么、我该用哪个 skill |
 | 其余 skill | 情境触发，由 `poteto-mode` 路由过去，或直接手动 `/<name>` 调用 |
 
@@ -43,29 +43,29 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 65 个 skill，无需 prompts 垫片 |
-| `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；`hooks` 指向 `hooks/zcode/`——独立于 Claude 版 `.sh` 的 node 进程入口，Windows 实测可注入（见下） |
-| `agents/` + `effort-agents/` | **客户端约定**，仅支持子智能体的宿主生效；ZCode 只加载 `agents/`（4 个子智能体已实证注册，effort 分级派发不可用）；Codex 不加载 |
-| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 走 `hooks/zcode/hooks.json` 的 node 入口 |
-| `models.json` | skill 内多处引用它说明模型分工的出处，改它需要重新生成，本移植未附带生成脚本 |
+| `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
+| `agents/` + `effort-agents/` | **客户端约定**；`agents/` 4 个基础子智能体（ZCode 实证注册）；`effort-agents/` 10 个 effort 分级变体（frontmatter 带客户端约定键 `effort:`）当前无宿主加载，按上游原样保留——Agent Plugins 1.0.0 的 `extensions` 命名空间尚无客户端实现（Claude Code 用自有目录约定且只认 `agents/`），ZCode 只注册 `agents/` 的 4 个，effort 语义不可用；Codex 不加载 |
+| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口） |
+| `models.json` | skill 内多处引用它说明模型分工的出处；改它需要同步更新各 skill 的 Models 列表（各文件已注明，本移植未附带生成脚本） |
 
-Codex 侧未验证项：垫片里的 hook 沿用上游的 `command` 类型与 `${CLAUDE_PLUGIN_ROOT}` 写法，本机 Codex 插件样本只出现过 `mcp_tool` 类型的 hook（Stop / SubagentStop / Interrupt），因此**会话启动是否真的注入路由令未实测**。若没生效，手动 `/poteto-mode` 即可，或在 `.codex-plugin/plugin.json` 里删掉 `hooks` 字段。
+Codex 侧实测结论（codex-cli 0.163.0，2026-10-23）：`.codex-plugin` 里修正为 `hooks.hooks.SessionStart` 的嵌套结构后，用 `--dangerously-bypass-hook-trust` 运行 `codex exec` 仍未在系统上下文看到 `You have pstack.`，说明本机 Codex **没有执行插件的 SessionStart hook**，自动路由未生效。同一轮实测中 MCP 的 `${PLUGIN_ROOT}` 可以正常展开（systemone 的 `systemone_scenario` 已注册并可发起调用），所以问题不在变量展开，而在 Codex 对插件 hook 的加载/注入契约。结论：Codex 上请手动调用 `/poteto-mode`；`hooks` 字段保留为正确的嵌套声明，等宿主支持后无需再改插件。hook 脚本自身不依赖插件根环境变量（插件根由脚本路径推出），可零变量手工运行验证。
 
-hook 行为：会话开始时读取 `~/.claude/pstack-models.md`（`$CLAUDE_CONFIG_DIR` 可改）。若文件里含 `session hook: off` 一行，则不注入路由令——**关掉自动路由的方式就是这个**，比删 hook 干净。
+hook 行为：会话开始时读取运行时的模型表（Claude Code `~/.claude/pstack-models.md`，`$CLAUDE_CONFIG_DIR` 可改；ZCode `~/.zcode/`，`$ZCODE_HOME` 可改；Codex `~/.codex/`；Copilot `~/.copilot/`）。若文件里含 `session hook: off` 一行，则不注入路由令——**关掉自动路由的方式就是这个**，比删 hook 干净。
 
 ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理会垫片里的 hooks 指针**（实测面板与日志证实），因此同一份注册要同时服务 Claude Code 与 ZCode——`session-start.mjs` 靠环境自检切换：检测到 `ZCODE_PLUGIN_ROOT` 或插件根在 `.zcode` 下即走 zcode 分支，读 `~/.zcode/pstack-models.md`、沿用 `session hook: off` 开关，输出 ZCode 要求的 `hookSpecificOutput.additionalContext` JSON；否则按参数走 claude/codex/copilot 分支。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
 
-**全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。三份 hook 注册（`hooks/hooks.json`、`hooks/copilot-hooks.json`、`.codex-plugin` 内联）全部改为 `node` 调用，测试见 `hooks/run-hook-tests.mjs`。原 `.sh`/`.ps1`/`.awk` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
+**全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。三份 hook 注册（`hooks/hooks.json`、`hooks/copilot-hooks.json`、`.codex-plugin` 内联）全部改为 `node` 调用。测试见 `test/run-hook-tests.mjs`（hook 契约与表解码，在插件根执行）与 `test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。原 `session-start.sh`、`pre-tool-use.sh`、`session-start.ps1` 与四个 `hooks/*.awk` 共 7 个文件移入 `hooks/upstream-reference/` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
 
 ## 与上游的差异
 
-移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 的全部 skill 级变更（基线为 fork 同步自的 v0.15.25）。fork 基线内 skill 正文、子智能体、hook 脚本逐字保留；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。
+移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 的全部 skill 级变更（基线为 fork 同步自的 v0.15.25）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。
 
 **剔除项**（上游有、本移植不随附）：
 
 | 剔除项 | 原因 | 影响 |
 |--------|------|------|
 | `assets/`、`.claude-plugin/icon.png` | 约 1.9 MB 图片，本仓库不打包二进制资源 | 仅少个图标 |
-| `pi/` | Pi 扩展专属，其他宿主用不上 | Pi 上没有自动路由，skill 本身照常手动可用 |
+| `pi/` | Pi 扩展专属，其他宿主用不上 | Pi 上没有自动路由，skill 照常手动可用；`pi-tools.md` 映射文档已一并剔除（上游原文仍在 michael-denyer/pstack-claude） |
 | `.codex-plugin/` | Codex 命令垫片，由宿主各自的清单机制承担 | 已由本仓库重写为 `.codex-plugin/plugin.json`（见下），不是上游原文 |
 | `.github/`、`tools/` | 上游 CI 与生成脚本 | skill 里提到的 `tools/generate.mjs` 仅是出处说明，不可执行 |
 | `docs/guide/`、`docs/harness/` | 上游指南文档，本 README 已覆盖使用面 | 不影响 skill 行为 |

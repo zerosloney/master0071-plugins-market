@@ -86,8 +86,8 @@ export function parseSheet(text) {
   const lines = text.replace(/\n+$/, '').split('\n');
   for (const line of lines) {
     const k = key(line);
-    const v = trim(line.slice(line.indexOf(':') + (k ? 1 : 0)));
     if (!k) continue;
+    const v = trim(line.slice(line.indexOf(':') + 1));
     if (ROLES.includes(k) || k === 'default effort') value[k] = v;
     else if (k === 'panel vendors' && v === 'any') anyVendor = true;
   }

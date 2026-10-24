@@ -47,6 +47,19 @@ The [driver policy](../SKILL.md#non-negotiables) selects the app driver. For ski
 | `plugin-dev:skill-development` (Claude's SKILL.md authoring guidance) | The host's skill-authoring guidance, such as the bundled `plugin-creator` skill if installed. Keep `name` + `description` frontmatter and progressive disclosure. |
 | `loop` (recurring/self-paced re-invocation, used by `babysit`) | ZCode has no `loop` skill. Re-run the step yourself on a cadence, or use the host's scheduled automations if available. |
 
+## Paths the skills refer to
+
+pstack skills name the paths they need in host-neutral terms ("the host's project-skill directory", "the host's per-project transcripts directory", "the host's agent store"). On ZCode they resolve to:
+
+| Neutral term in a pstack skill | On ZCode |
+|-------------------------------|----------|
+| the host's project-skill directory | The directory your ZCode install scans for project-local skills. The plugin's own skills live under the plugin root's `skills/`. |
+| the host's user-level skill directory | `~/.zcode/skills/`. |
+| the host's per-project transcripts directory | `~/.zcode/cli/`. The transcript finder reads Claude Code's layout, so on ZCode pass the session digest step 1 allows instead of a directory. |
+| the host's agent store (`<agent-store>/`) | `~/.zcode/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
+
+A runtime with no mapping file of its own uses its own agent directory for the store and its own skill directory for skills.
+
 ## Per-skill notes
 
 Most skills need only the tables above. These need one more mapping:

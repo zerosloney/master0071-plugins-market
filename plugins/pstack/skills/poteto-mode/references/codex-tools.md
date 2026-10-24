@@ -70,6 +70,19 @@ The [driver policy](../SKILL.md#non-negotiables) selects the app driver. For ski
 | `plugin-dev:skill-development` (Claude's SKILL.md authoring guidance) | Follow your platform's skill-authoring guidance; the `writing-skills` skill if present. Keep `name` + `description` frontmatter and progressive disclosure. |
 | `loop` (recurring/self-paced re-invocation, used by `babysit`) | Codex has no `loop` skill. Re-run the step yourself on a cadence, or use a Codex scheduled task if available. |
 
+## Paths the skills refer to
+
+pstack skills name the paths they need in host-neutral terms ("the host's project-skill directory", "the host's per-project transcripts directory", "the host's agent store"). On Codex they resolve to:
+
+| Neutral term in a pstack skill | On Codex |
+|-------------------------------|----------|
+| the host's project-skill directory | The directory your Codex install scans for project-local skills. When your Codex has none, add the skill to a plugin package instead of a loose directory. |
+| the host's user-level skill directory | `$CODEX_HOME/skills/` (default `~/.codex/skills/`). |
+| the host's per-project transcripts directory | `$CODEX_HOME/sessions` (default `~/.codex/sessions`). The transcript finder reads Claude Code's layout, so on Codex pass the session digest step 1 allows instead of a directory. |
+| the host's agent store (`<agent-store>/`) | `~/.codex/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
+
+A runtime with no mapping file of its own uses its own agent directory for the store and its own skill directory for skills.
+
 ## Per-skill notes
 
 Affected skill entry points and the optional Codex slash stubs point here. Most skills need only the tables above. These need one more mapping:

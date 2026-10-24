@@ -1,6 +1,8 @@
 // One-shot test suite for the node hook port: session-start.mjs (all four
-// runtimes x sheet states) and pre-tool-use.mjs (view/task/bash rules, parser
-// strictness). Run: node hooks/run-hook-tests.mjs (from the plugin root).
+// runtimes x sheet states), pre-tool-use.mjs (view/task/bash rules, parser
+// strictness, resume/log/transcript script contracts). Run: node
+// test/run-hook-tests.mjs (from the plugin root). Sheet-format parity with the
+// awk engine lives in test/sheet-parity.mjs.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -88,23 +90,35 @@ r = run('session-start.mjs', ['nonsense']);
 ok('unknown runtime: exit 2 + stderr', r.code === 2 && r.err.includes('unknown runtime'));
 
 // ── host auto-detection: ZCode registers hooks/hooks.json by convention, so
-// the claude-arg registration must switch to the zcode branch on ZCode ──────
-const zRoot = mkdtempSync(path.join(tmpdir(), 'pstack-hook-test-.zcode-'));
-mkdirSync(path.join(zRoot, 'hooks'), { recursive: true });
-writeFileSync(path.join(zRoot, 'hooks', 'session-start-context.md'), mandate);
-r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, USERPROFILE: home });
+// the claude-arg registration must switch to the zcode branch on ZCode. The
+// `.zcode` signal is a case-insensitive path-segment match: a sibling segment
+// like `.zcodebackup` must not trigger it. USERPROFILE/HOME point at a temp
+// home so the suite never reads the tester's real model sheets. ──────────────
+const zTmp = mkdtempSync(path.join(tmpdir(), 'pstack-hook-test-'));
+const zRoot = path.join(zTmp, '.zcode', 'plugins', 'pstack');
+const fbRoot = path.join(zTmp, '.zcodebackup', 'plugins', 'pstack');
+for (const root of [zRoot, fbRoot]) mkdirSync(path.join(root, 'hooks'), { recursive: true });
+const tempHomeEnv = { USERPROFILE: home, HOME: home };
+r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, ...tempHomeEnv });
 j = JSON.parse(r.out);
 ok('detect via ZCODE_PLUGIN_ROOT: zcode JSON despite claude arg', j.hookSpecificOutput.hookEventName === 'SessionStart'
   && j.hookSpecificOutput.additionalContext.includes('pstack:poteto-mode'));
-r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_PLUGIN_ROOT: zRoot, USERPROFILE: home });
+r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_PLUGIN_ROOT: zRoot, ...tempHomeEnv });
 j = JSON.parse(r.out);
-ok('detect via .zcode root path: zcode JSON despite claude arg', j.hookSpecificOutput.hookEventName === 'SessionStart');
+ok('detect via .zcode path segment: zcode JSON despite claude arg', j.hookSpecificOutput.hookEventName === 'SessionStart');
+r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_PLUGIN_ROOT: fbRoot, CLAUDE_CONFIG_DIR: path.join(home, 'missing'), ...tempHomeEnv });
+ok('`.zcodebackup` segment does not trigger detection: plain mandate', r.code === 0 && r.out === mandate);
 writeFileSync(path.join(zcodeHome, 'pstack-models.md'), 'session hook: off\n');
-r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, USERPROFILE: home });
+r = run('session-start.mjs', ['claude'], { ...envBase, ZCODE_PLUGIN_ROOT: P, ...tempHomeEnv });
 ok('detect zcode + off: silent', r.code === 0 && r.out === '');
-r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_CONFIG_DIR: path.join(home, 'missing') });
+const zcodeHomeOverride = path.join(home, 'zcode-override');
+mkdirSync(zcodeHomeOverride);
+r = run('session-start.mjs', ['zcode'], { ...envBase, ZCODE_HOME: zcodeHomeOverride, ...tempHomeEnv });
+j = JSON.parse(r.out);
+ok('ZCODE_HOME overrides the sheet path (default home sheet is off, override is empty: JSON mandate)', j.hookSpecificOutput.hookEventName === 'SessionStart');
+r = run('session-start.mjs', ['claude'], { ...envBase, CLAUDE_CONFIG_DIR: path.join(home, 'missing'), ...tempHomeEnv });
 ok('no detection signals: claude arg stays claude (plain mandate)', r.code === 0 && r.out === mandate);
-rmSync(zRoot, { recursive: true, force: true });
+rmSync(zTmp, { recursive: true, force: true });
 
 // ── pre-tool-use.mjs ─────────────────────────────────────────────────────────
 writeFileSync(path.join(copilotHome, 'pstack-models.md'), VALID_SHEET);
@@ -139,6 +153,9 @@ ok('task without model: silent', r.out === '');
 
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }));
 ok('bash contracted script: allow', r.out.trim() === ALLOW);
+writeFileSync(path.join(ws, 'plan.md'), '# plan\n');
+r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }));
+ok('bash operand is an existing file in cwd: allow (resolve climbs to the parent)', r.out.trim() === ALLOW);
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/a; rm x` }, cwd: wsPosix }));
 ok('bash metacharacter: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/orch/orch.ts ${wsPosix}/x` }, cwd: wsPosix }));
@@ -147,6 +164,27 @@ r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/po
 ok('bash absolute operand outside cwd: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ../plan.md` }, cwd: wsPosix }));
 ok('bash dotdot operand: silent', r.out === '');
+
+// resume.mjs contract (ported from script-contracts.awk:54): begin/read
+// approve on their own; publish requires a --note destination; duplicate
+// publish-only flags and publish-only flags on begin/read stay silent.
+const resume = (args) => ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/resume.mjs ${args}` }, cwd: wsPosix }));
+r = resume('begin --project .');
+ok('resume begin: allow', r.out.trim() === ALLOW);
+r = resume('read');
+ok('resume read (default --project): allow', r.out.trim() === ALLOW);
+r = resume('publish --project .');
+ok('resume publish without --note: silent', r.out === '');
+r = resume('publish --project . --note ./notes/resume.md --artifact ./x.zip');
+ok('resume publish with note+artifact: allow', r.out.trim() === ALLOW);
+r = resume('publish --note ./n.md --note ./n2.md');
+ok('resume duplicate --note: silent', r.out === '');
+r = resume('begin --note ./n.md');
+ok('resume begin with publish-only --note: silent', r.out === '');
+r = resume('deploy --project .');
+ok('resume unknown operation: silent', r.out === '');
+r = resume('begin --project=.');
+ok('resume begin with --project=.: allow (equals form keeps bare flags working)', r.out.trim() === ALLOW);
 
 r = ptu('{"tool_name":"Read","tool_name":"Bash","tool_input":{},"cwd":"/tmp"}');
 ok('duplicate keys: silent', r.out === '' && r.code === 0);

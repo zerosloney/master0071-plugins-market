@@ -41,6 +41,20 @@ export function ensureDependenciesInstalled(): void {
     return;
   }
 
+  // The install is in place (bun resolves bare imports like commander by
+  // walking up from this script, so a cache directory outside the plugin tree
+  // would not be found). State why a failure happens instead of bubbling an
+  // opaque spawn error: a read-only plugin checkout surfaces in the probe
+  // write below, a machine with no network access in the spawn failure.
+  try {
+    writeFileSync(installKeyPath, "");
+  } catch (error) {
+    console.error(
+      `pstack poteto-mode tooling cannot write its install key in ${nodeModulesDirectory}: the plugin directory looks read-only or blocked. Make ${scriptsDirectory} writable (or pre-run "bun install --frozen-lockfile --production" there), then re-run.`,
+    );
+    throw error;
+  }
+
   const result = Bun.spawnSync(
     [process.execPath, "install", "--frozen-lockfile", "--production"],
     { cwd: scriptsDirectory }
@@ -48,6 +62,9 @@ export function ensureDependenciesInstalled(): void {
   if (result.exitCode !== 0) {
     process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
+    console.error(
+      `pstack poteto-mode tooling could not install its dependencies in ${scriptsDirectory}. This needs network access on first use (or a warm bun cache); after a offline failure, re-run once online.`,
+    );
     throw new Error(
       `bun install --frozen-lockfile exited with status ${result.exitCode}`
     );
