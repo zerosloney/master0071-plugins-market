@@ -4,8 +4,8 @@
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.5.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.3.0 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
+| [systemone-decision](plugins/systemone-decision/) | 0.5.2 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [worktree-ops](plugins/worktree-ops/) | 0.4.1 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.4 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
 
@@ -25,7 +25,10 @@ plugins/
 ├── worktree-ops/
 │   ├── plugin.json           # 标准清单
 │   ├── mcp.json              # 标准 MCP 声明：worktree = node ./mcp/server.mjs
-│   ├── mcp/server.mjs        # 零依赖 Node 实现，10 个 worktree 工具
+│   ├── mcp/server.mjs        # 零依赖 Node 实现：装配入口
+│   ├── mcp/core.mjs          # 配置层、git 封装、路径与 worktree 检查
+│   ├── mcp/tools.mjs         # 10 个 worktree 工具的定义、描述、schema 与处理函数
+│   ├── mcp/protocol.mjs      # JSON-RPC 收发与 stdio 循环
 │   ├── skills/worktree-manager/    # 标准 skill：何时建、怎么交接、何时能删
 │   ├── test/smoke.mjs        # ↓ 一次性 git 仓库上的端到端冒烟测试
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
@@ -40,9 +43,14 @@ plugins/
     ├── agents/  effort-agents/  hooks/  models.json   # ↓ 客户端约定，非 Agent Plugins 核心
     ├── NOTICE-PORT.md  LICENSE*                       # 第三方 MIT 作品的署名与许可，不可删
     └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
+LICENSE                     # 本仓库自身作品的 MIT 许可（pstack 的第三方许可另见其目录内文件）
 ```
 
 根 `plugin.json` 的顶层字段受规范封闭约束，只有：`$schema`、`name`（前两项必填）、`version`、`description`、`author`（`{name, email, url}` 对象）、`homepage`、`repository`、`license`、`keywords`、`extensions`。组件路径不写在这里——放进去会被判为未知字段（报告并忽略，不致命但无意义）。
+
+`skills/<name>/SKILL.md` 的 frontmatter 按 [Agent Skills 规范](https://agentskills.io/specification) 写：只出现规范字段——`name`（必填，与目录名一致）、`description`（必填）、`license`、`compatibility`、`metadata`、`allowed-tools`。`compatibility` 只在确有环境依赖时写（外部命令、运行时、凭据、网络），没有就不写。客户端专有的 frontmatter 键（`user-invocable`、`paths` 等）一律不写。
+
+skill 正文同样不写死某一家的路径与清单名：需要项目级 skill 目录、用户级 skill 目录、按项目 transcript 目录或 agent store 时，正文用宿主中立表述（"the host's project-skill directory" 等），具体路径由各宿主的映射文件 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表给出。
 
 规范还强制**路径隔离**：插件内所有相对路径必须解析在插件根目录内。
 
@@ -145,14 +153,16 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
-worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_set_root`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
+带 MCP 服务的两个插件（systemone-decision / worktree-ops）要求 **Node.js ≥ 18**，且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。自检：`node --version && git --version`（worktree-ops 另需 git）。
 
-pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写入 `~/.claude/pstack-models.md`，会话 hook 读它决定是否注入路由令。pstack 是第三方 MIT 作品的移植（原作者 Lauren Tan / poteto，移植版 Michael Denyer），署名链见 [pstack/NOTICE-PORT.md](plugins/pstack/NOTICE-PORT.md)，再分发时那几份 LICENSE 不可删。
+worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_config`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
+
+pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写入运行时的模型表（路径按运行时而定，见该 skill 的 Other runtimes 表），会话 hook 读它决定是否注入路由令。pstack 是第三方 MIT 作品的移植（原作者 Lauren Tan / poteto，移植版 Michael Denyer），署名链见 [pstack/NOTICE-PORT.md](plugins/pstack/NOTICE-PORT.md)，再分发时那几份 LICENSE 不可删。
 
 ## 维护
 
-- **发版**：`node scripts/release.mjs <plugin> <x.y.z>`，同步该插件的各版本位（根 `plugin.json`、ZCode 垫片两处、市场条目，systemone-decision 还含 `mcp/server.mjs` 的 `SERVER_INFO`）；`node scripts/release.mjs --check` 校验全部一致。
-- **新增插件**：在 `plugins/` 下建目录，至少写一份根 `plugin.json`（含 `$schema` 与 `name`），按需加 `skills/` 与 `mcp.json`，并在 `scripts/release.mjs` 的 `PLUGINS` 中登记；若需要在 ZCode 可装，再补 `.zcode-plugin/plugin.json` 与根 `marketplace.json` 条目。
+- **发版**：`node scripts/release.mjs <plugin> <x.y.z>`，同步该插件的各版本位（根 `plugin.json`、ZCode 垫片两处、市场条目，systemone-decision 的 `mcp/server.mjs`、worktree-ops 的 `mcp/protocol.mjs` 里还有 `SERVER_INFO`）；`node scripts/release.mjs --check` 校验全部一致。
+- **新增插件**：在 `plugins/` 下建目录，至少写一份根 `plugin.json`（含 `$schema` 与 `name`），按需加 `skills/` 与 `mcp.json`，并在 `scripts/release.mjs` 的 `PLUGINS` 中登记；若需要在 ZCode 可装，再补 `.zcode-plugin/plugin.json` 与根 `marketplace.json` 条目。skill 的 `SKILL.md` frontmatter 只写 Agent Skills 规范字段（`name` / `description` / `license` / `compatibility` / `metadata` / `allowed-tools`），不写客户端专有键。
 - **测试**（插件目录下执行，不需要真实 API Key）：
 
   ```
@@ -160,4 +170,4 @@ pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写
   node test/hook.smoke.mjs
   ```
 
-  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完全部断言后自动清理，同样不需要真实仓库或凭据。
+  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完全部断言后自动清理，同样不需要真实仓库或凭据。pstack 的测试也在插件目录下执行：`node test/run-hook-tests.mjs`（hook 契约与表解码）与 `node test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。

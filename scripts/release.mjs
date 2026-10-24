@@ -17,9 +17,9 @@
 //                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
-//     mcp/server.mjs 的 SERVER_INFO.version ×1
+//     mcp/protocol.mjs 的 SERVER_INFO.version ×1（服务端身份在协议层）
 //
-//   agent-pipelines（5 处）：
+//   agent-pipelines（6 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
@@ -27,7 +27,7 @@
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
 //
-//   pstack（5 处）：
+//   pstack（6 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
@@ -81,7 +81,7 @@ const PLUGINS = {
     currentFrom: inPlugin('worktree-ops', 'plugin.json'),
     jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('worktree-ops', f)),
     markets: MARKETS,
-    serverInfo: inPlugin('worktree-ops', 'mcp/server.mjs'),
+    serverInfo: inPlugin('worktree-ops', 'mcp/protocol.mjs'),
   },
   'agent-pipelines': {
     currentFrom: inPlugin('agent-pipelines', 'plugin.json'),

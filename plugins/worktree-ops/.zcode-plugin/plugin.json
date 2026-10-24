@@ -1,6 +1,6 @@
 {
   "name": "worktree-ops",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "Git worktree 操作台：在仓库之外的可配置目录里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree，根目录、分支前缀、基线策略与闲置阈值均可配置。",
   "author": { "name": "master0071", "url": "https://github.com/zerosloney/master0071-plugins-market" },
   "keywords": ["git", "worktree", "mcp", "branch", "code-review", "productivity"],
@@ -22,7 +22,7 @@
       "type": "string",
       "title": "Worktree Root",
       "default": "",
-      "description": "worktree 统一存放目录的绝对路径，如 E:\\Demo\\worktrees。留空即未配置，worktree_create 会拒绝创建并提示先配置。也可在会话里用 worktree_set_root 工具改，或设环境变量 WORKTREE_ROOT。改动后重启 ZCode 生效"
+      "description": "worktree 统一存放目录的绝对路径，如 E:\\Demo\\worktrees。留空即未配置，worktree_create 会拒绝创建并提示先配置。也可在会话里用 worktree_config 工具改，或设环境变量 WORKTREE_ROOT。改动后重启 ZCode 生效"
     },
     "base_ref": {
       "type": "string",
@@ -34,7 +34,7 @@
       "type": "string",
       "title": "Branch Prefix",
       "default": "wt/",
-      "description": "用短任务名建 worktree 时自动加的分支前缀，默认 wt/。留空回退默认 wt/；要彻底去掉前缀，用会话里的 worktree_set_root 把 branchPrefix 设为空字符串写入配置文件。也可设环境变量 WORKTREE_BRANCH_PREFIX。改动后重启 ZCode 生效"
+      "description": "用短任务名建 worktree 时自动加的分支前缀，默认 wt/。留空回退默认 wt/。要彻底去掉前缀，在会话里用 worktree_config 把 branchPrefix 设为 null（0.3.0 起空字符串会被拒绝）。也可设环境变量 WORKTREE_BRANCH_PREFIX。改动后重启 ZCode 生效"
     },
     "stale_days": {
       "type": "string",

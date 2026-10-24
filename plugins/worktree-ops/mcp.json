@@ -4,7 +4,8 @@
     "worktree": {
       "type": "stdio",
       "command": "node",
-      "args": ["./mcp/server.mjs"]
+      "args": ["./mcp/server.mjs"],
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }
