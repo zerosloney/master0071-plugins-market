@@ -46,6 +46,11 @@ diff 或文件清单
 - 若 verification 为 FAIL，verdict 必须 `NEEDS_FIX`。
 - 不替 Orchestrator 判定熔断（熔断由 Orchestrator 按 `consecutive_failures` 决定）。
 
+## 证据要求
+
+- 每个 PASS 必须给出可复核证据：涉及文件用 `file:line`，验证用命令与输出摘要，accept_criteria 逐条对照。
+- 没有证据的 PASS 按 NEEDS_FIX 处理。
+
 ## Verdict
 
 - **PASS**：accept_criteria 全部满足，verification 通过，无 critical/major。
@@ -58,6 +63,7 @@ diff 或文件清单
 {
   "task_id": "<任务 id>",
   "verdict": "PASS | NEEDS_FIX | REJECT",
+  "evidence": ["<file:line>", "<command> → <result>"],
   "issues": [
     { "severity": "critical | major | minor | info", "criterion": "<对应 accept_criteria>", "message": "<说明>" }
   ],

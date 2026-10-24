@@ -57,6 +57,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
+- budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
 - `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 
@@ -217,6 +218,7 @@ value: {baseline_value}
 3. 获取 builder 结果后，**调用 coding-reviewer 工具**审查产出。
 4. 根据审查者 verdict 与验证结果更新任务状态：
    - PASS → 任务 `done`，`consecutive_failures = 0`。
+- PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照）；无 evidence 的 PASS 按 NEEDS_FIX 处理。
    - NEEDS_FIX → 任务回 `pending`，`consecutive_failures += 1`，附 failure note。
    - REJECT → 任务 `blocked` 或回 `pending`，`consecutive_failures += 1`。
 5. 按 JSON schema 格式写入状态文件（遵循 `### 写入规则` 的原子写入流程）。
@@ -233,10 +235,11 @@ value: {baseline_value}
 按顺序判断：
 1. DONE
 2. ESCALATE（含 scope_drift FAIL）
-3. HOLD
-4. STALL（`stall_counter >= STALL_MAX`，默认 2，连续 2 轮任务状态签名无变化）
-5. MAX_CYCLES（=8，超过 8 轮仍未 DONE）
-6. STOPPED
+3. BUDGET（token 或费用预算耗尽）
+4. HOLD
+5. STALL（`stall_counter >= STALL_MAX`，默认 2，连续 2 轮任务状态签名无变化）
+6. MAX_CYCLES（=8，超过 8 轮仍未 DONE）
+7. STOPPED
 
 停止时按 JSON schema 写入最终状态，设置 `stop_reason` 为对应枚举值。
 

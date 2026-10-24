@@ -163,6 +163,16 @@ for (const shim of [".codex-plugin/plugin.json", ".zcode-plugin/plugin.json", ".
   check(`${shim} 版本与根清单一致 (${version})`, JSON.parse(read(shim)).version === version);
 }
 
+// Reviewer 必须要求可复核证据，否则 PASS 只是口头结论
+for (const rel of [
+  "agents/ralph-reviewer.md",
+  "agents/coding-reviewer.md",
+  "skills/ralph-pipeline/references/reviewer-role.md",
+  "skills/coding-pipeline/references/reviewer-role.md",
+]) {
+  check(`${rel} 要求审查证据`, /evidence|证据/.test(read(rel)));
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const name of failures) console.log(`  - ${name}`);

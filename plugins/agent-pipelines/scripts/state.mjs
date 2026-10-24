@@ -9,7 +9,7 @@ const PIPELINES = {
   coding: { maxCycles: 8, stallMax: 2 },
 };
 const TASK_STATUS = new Set(["pending", "in_progress", "done", "blocked"]);
-const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "HOLD", "STALL", "MAX_CYCLES", "STOPPED"]);
+const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL", "MAX_CYCLES", "STOPPED"]);
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -166,6 +166,20 @@ function validateState(state, pipeline) {
   if (!STOP_REASONS.has(state.stop_reason ?? null)) {
     errors.push(`stop_reason must be one of: ${[...STOP_REASONS].filter(Boolean).join(", ")} or null`);
   }
+  if (state.budget !== undefined) {
+    if (!isObject(state.budget)) errors.push("budget must be an object when present");
+    else {
+      if (state.budget.max_tokens === undefined && state.budget.max_cost_usd === undefined) {
+        errors.push("budget requires max_tokens or max_cost_usd");
+      }
+      for (const key of ["max_tokens", "max_cost_usd", "spent_tokens", "spent_cost_usd"]) {
+        const value = state.budget[key];
+        if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+          errors.push(`budget.${key} must be a number >= 0`);
+        }
+      }
+    }
+  }
   if (!Array.isArray(state.fail_history)) errors.push("fail_history must be an array");
   else if (state.fail_history.length > 10) warnings.push("fail_history has more than 10 entries; the orchestrator should keep the latest 10");
   if (!Array.isArray(state.tasks)) errors.push("tasks must be an array");
@@ -248,6 +262,14 @@ function gateFor(state, pipeline) {
   }
   if (pipeline === "coding" && state.scope_drift === "FAIL") {
     return { stop_reason: "ESCALATE", reason: "scope_drift is FAIL" };
+  }
+  if (state.budget) {
+    const budget = state.budget;
+    const tokensSpent = budget.spent_tokens ?? 0;
+    const costSpent = budget.spent_cost_usd ?? 0;
+    if ((budget.max_tokens !== undefined && tokensSpent >= budget.max_tokens) || (budget.max_cost_usd !== undefined && costSpent >= budget.max_cost_usd)) {
+      return { stop_reason: "BUDGET", reason: `budget exhausted (tokens ${tokensSpent}/${budget.max_tokens ?? "-"}, cost ${costSpent}/${budget.max_cost_usd ?? "-"})` };
+    }
   }
   if (tasks.some((t) => t.status === "blocked") && tasks.every((t) => t.status === "done" || t.status === "blocked")) {
     return { stop_reason: "HOLD", reason: "only blocked tasks remain" };

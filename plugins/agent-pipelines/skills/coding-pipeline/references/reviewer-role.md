@@ -47,11 +47,17 @@ low | medium | high
 - 对每个 modified 文件做调用链影响分析。
 - 对每个新增 dependency 显式标注风险。
 
+## 证据要求
+
+- 每个 PASS 必须给出可复核证据：涉及文件用 `file:line`，验证用命令与输出摘要，accept_criteria 逐条对照。
+- 没有证据的 PASS 按 NEEDS_FIX 处理。
+
 ## 输出格式
 
 ```json
 {
   "verdict": "PASS | NEEDS_FIX | REJECT",
+  "evidence": ["<file:line>", "<command> → <result>"],
   "scope_drift": "PASS | WARN | FAIL",
   "issues": [
     {

@@ -223,6 +223,58 @@ try {
 check("并发 write 后状态仍是完整 JSON", finalState && [2, 3].includes(finalState.round), JSON.stringify(finalState));
 check("并发 write 事件全部落盘", readEvents().filter((event) => event.event === "write").length >= 3);
 
+console.log("\n== 预算与依赖图 ==");
+const budgetFile = path.join(sandbox, "budget.json");
+const budgetState = initState("ralph", budgetFile);
+budgetState.budget = { max_tokens: 100, spent_tokens: 100 };
+writeFileSync(budgetFile, JSON.stringify(budgetState));
+check("token 预算耗尽判 BUDGET", gate(budgetFile).stop_reason === "BUDGET");
+budgetState.budget = { max_tokens: 100, spent_tokens: 1, max_cost_usd: 2, spent_cost_usd: 2 };
+writeFileSync(budgetFile, JSON.stringify(budgetState));
+check("费用预算耗尽判 BUDGET", gate(budgetFile).stop_reason === "BUDGET");
+budgetState.tasks = [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }];
+budgetState.budget = { max_tokens: 0, spent_tokens: 0 };
+writeFileSync(budgetFile, JSON.stringify(budgetState));
+check("DONE 优先于 BUDGET", gate(budgetFile).stop_reason === "DONE");
+
+const graphFile = path.join(sandbox, "graph.json");
+const graphState = (tasks, maxIterations = 0) =>
+  writeFileSync(graphFile, JSON.stringify({ max_iterations: maxIterations, tasks }));
+graphState([
+  { id: "t1", depends_on: [] },
+  { id: "t2", depends_on: ["t1"] },
+]);
+let graphResult = run("graph.mjs", ["--pipeline", "ralph", "--file", graphFile, "--json"]);
+check(
+  "依赖图给出拓扑顺序",
+  graphResult.status === 0 && JSON.parse(graphResult.stdout).order.join(",") === "t1,t2",
+  graphResult.stdout + graphResult.stderr,
+);
+graphState([
+  { id: "t1", depends_on: ["t2"] },
+  { id: "t2", depends_on: ["t1"] },
+]);
+graphResult = run("graph.mjs", ["--pipeline", "ralph", "--file", graphFile, "--json"]);
+check(
+  "依赖环被 graph 拒绝",
+  graphResult.status === 1 && JSON.parse(graphResult.stdout).cycles.length === 2,
+  graphResult.stdout + graphResult.stderr,
+);
+graphState([{ id: "t1", depends_on: ["nope"] }]);
+graphResult = run("graph.mjs", ["--pipeline", "ralph", "--file", graphFile, "--json"]);
+check(
+  "未知依赖被 graph 拒绝",
+  graphResult.status === 1 && JSON.parse(graphResult.stdout).errors.length > 0,
+  graphResult.stdout + graphResult.stderr,
+);
+graphState(Array.from({ length: 9 }, (_, index) => ({ id: `t${index + 1}`, depends_on: [] })));
+graphResult = run("graph.mjs", ["--pipeline", "ralph", "--file", graphFile, "--json"]);
+check(
+  "子任务超预算被 graph 拒绝",
+  graphResult.status === 1 && JSON.parse(graphResult.stdout).budget.overflow === true,
+  graphResult.stdout + graphResult.stderr,
+);
+
 rmSync(sandbox, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
