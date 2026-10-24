@@ -6,7 +6,7 @@
 |------|------|-----------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.5.2 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
 | [worktree-ops](plugins/worktree-ops/) | 0.4.1 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
-| [agent-pipelines](plugins/agent-pipelines/) | 0.1.0 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
+| [agent-pipelines](plugins/agent-pipelines/) | 0.1.1 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.4 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
 
 ## 标准包结构
@@ -170,4 +170,4 @@ pstack 无需配置也不需要凭据：模型分工由 `setup-pstack` skill 写
   node test/hook.smoke.mjs
   ```
 
-  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完全部断言后自动清理，同样不需要真实仓库或凭据。pstack 的测试也在插件目录下执行：`node test/run-hook-tests.mjs`（hook 契约与表解码）与 `node test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。
+  worktree-ops 的 `node test/smoke.mjs` 在系统临时目录里造一次性 git 仓库，跑完全部断言后自动清理，同样不需要真实仓库或凭据。pstack 的测试也在插件目录下执行：`node test/run-hook-tests.mjs`（hook 契约与表解码）与 `node test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。agent-pipelines 在插件目录执行 `node test/contract.mjs`，校验角色文件齐全、关键参数一致与 skill 自足。

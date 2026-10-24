@@ -2,12 +2,23 @@
 // agent-pipelines 契约检查：文件齐全、四份拷贝的关键参数一致、skill 自足、垫片声明完整。
 // 这些管道由提示词驱动，没有运行时可以断言行为；这里只守住静态契约，避免四份拷贝悄悄漂移。
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let passed = 0;
 const failures = [];
+
+// Node 18 的 readdirSync 没有 recursive 选项；手写遍历，避免测试工具反向要求 Node 20+。
+function walkFiles(dir, base = dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(abs, base));
+    else out.push(relative(base, abs));
+  }
+  return out;
+}
 
 function check(name, ok) {
   if (ok) {
@@ -118,8 +129,8 @@ for (const [pipeline, spec] of Object.entries(pipelines)) {
 // skill 自足：标准入口不引用非标准目录
 for (const name of ["ralph-pipeline", "coding-pipeline"]) {
   const dir = join(root, "skills", name);
-  const files = readdirSync(dir, { recursive: true })
-    .filter((f) => typeof f === "string" && f.endsWith(".md"))
+  const files = walkFiles(dir)
+    .filter((f) => f.endsWith(".md"))
     .map((f) => join(name, f));
   for (const rel of files) {
     const source = read(join("skills", rel));
