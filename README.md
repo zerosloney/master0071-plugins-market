@@ -74,6 +74,8 @@ Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标�
 
 ## 安装
 
+> **同名 skill 冲突**：pstack 的 `tdd`、`teach` 与常见的用户级 skill 同名。宿主的用户级 skill 目录若已有同名项，`dim plugin install` 会拒绝安装；先移开或禁用用户级版本，或只安装需要的 skill。ZCode / Codex 的同名处理由宿主决定。
+
 ### Agent Plugins 兼容客户端（VS Code / Cursor / Copilot / Kiro / OpenClaw 等）
 
 直接加载插件目录：

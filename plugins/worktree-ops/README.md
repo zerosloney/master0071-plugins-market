@@ -115,6 +115,14 @@ node --version && git --version
 - `worktree_merge_back` 的 target 是 `origin/*` 这类 remote-tracking ref 时（detached 回退会落到这里），拒绝语从"先 checkout 该 target"改为"先建本地分支（`git checkout -b <branch> origin/x`）再传分支名"——旧指引照做会进 detached HEAD。
 - `worktree_config` 的 `repoPath` 在 `scope: "global"` 下的语义写入 schema 描述：可选，仅用于回执附上该仓库的生效值；传了就必须指向 git 仓库。
 
+**0.4.1**
+
+- **`root` 必须是绝对路径**。环境变量、全局设置、单仓库覆盖三条路径行为一致：写入时拒绝相对路径，读取配置文件时忽略并报告 issue，避免按宿主 cwd 解析到插件目录。
+- **`worktree_status` 新增 `sessionCwd`**。标准 Agent Plugins 客户端把服务起在插件根，服务端看不到会话目录；传 `sessionCwd`（绝对路径）即可判断会话是否在 worktree 内，优先级高于服务进程 cwd。
+- **`merge_back` 的删除判定使用最新 HEAD**。rebase 改写提交后重新读取 HEAD，不再用调用开始时的旧快照做合并判定。
+- **非 ASCII 短任务名提示哈希来源**。纯中文等不含 ASCII 字母数字的名字仍用稳定哈希后缀，返回里说明原因。
+- 冒烟断言增至 211 条。
+
 **0.3.0（含破坏性变更）**
 
 - `worktree_config` 的 `root` / `baseRef` / `branchPrefix` 传入空字符串现在直接报错。此前空串被静默当作"未传"，`baseRef: ""` 会悄悄退回 `auto`。要用"清空并回退默认"，改传 `null`。宿主设置页回传空串时需改传 `null` 或省略该字段。
