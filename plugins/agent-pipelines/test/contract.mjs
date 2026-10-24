@@ -146,6 +146,15 @@ for (const shim of [".codex-plugin/plugin.json", ".zcode-plugin/plugin.json", ".
     (typeof manifest.skills === "string" && manifest.skills.length > 0) ||
       (Array.isArray(manifest.skills) && manifest.skills.length > 0),
   );
+  // 宿主加载矩阵的静态部分：声明了路径就必须真实存在，避免垫片指向空目录。
+  for (const field of ["skills", "commands", "agents"]) {
+    const value = manifest[field];
+    const paths = Array.isArray(value) ? value : value ? [value] : [];
+    for (const declared of paths) {
+      const rel = String(declared).replace(/^\.\//, "");
+      check(`${shim} ${field} 路径存在: ${declared}`, existsSync(join(root, rel)));
+    }
+  }
 }
 
 // 版本一致

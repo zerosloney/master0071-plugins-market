@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // agent-pipelines 的运行时辅助脚本测试：状态机与 scope 检查。
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,18 @@ function run(script, args, input = undefined, cwd = sandbox) {
     encoding: "utf8",
   });
   return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+}
+
+function runAsync(script, args, input, cwd = sandbox) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(root, "scripts", script), ...args], { cwd });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() }));
+    child.stdin.end(input);
+  });
 }
 
 function initState(pipeline, file) {
@@ -172,6 +184,44 @@ writeFileSync(
 );
 result = run("scope.mjs", ["--base", base, "--file", ".loop-cli/state.json", "--json"], undefined, repo);
 check("从状态文件读取 scope 生效", result.status === 0 && JSON.parse(result.stdout).verdict === "PASS", result.stdout + result.stderr);
+
+console.log("\n== 锁与事件日志 ==");
+const lockFile = path.join(sandbox, "locked.json");
+initState("ralph", lockFile);
+const lockPath = `${lockFile}.lock`;
+writeFileSync(lockPath, "other\n");
+const blocked = run("state.mjs", ["init", "--pipeline", "ralph", "--file", lockFile, "--prompt", "blocked"]);
+check("锁存在时 init 被拒绝", blocked.status === 2 && /locked/.test(blocked.stderr), blocked.stderr);
+check("锁被拒绝时状态未被覆盖", JSON.parse(readFileSync(lockFile, "utf8")).prompt === "test prompt");
+const old = new Date(Date.now() - 40000);
+utimesSync(lockPath, old, old);
+const stale = run("state.mjs", ["init", "--pipeline", "ralph", "--file", lockFile, "--prompt", "stale"]);
+check("陈旧锁被清理后 init 成功", stale.status === 0 && !existsSync(lockPath), stale.stderr);
+
+const readEvents = () => JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", lockFile, "--json"]).stdout).events;
+check("init 写入事件日志", readEvents().some((event) => event.event === "init"));
+const stateForWrites = JSON.parse(readFileSync(lockFile, "utf8"));
+stateForWrites.round = 1;
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(stateForWrites));
+check("write 写入事件日志", readEvents().some((event) => event.event === "write"));
+run("state.mjs", ["gate", "--pipeline", "ralph", "--file", lockFile, "--apply"]);
+check("gate --apply 写入事件日志", readEvents().some((event) => event.event === "gate"));
+
+const writerA = JSON.parse(JSON.stringify(stateForWrites));
+writerA.round = 2;
+const writerB = JSON.parse(JSON.stringify(stateForWrites));
+writerB.round = 3;
+const concurrent = await Promise.all([
+  runAsync("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(writerA)),
+  runAsync("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(writerB)),
+]);
+check("并发 write 都成功", concurrent.every((item) => item.status === 0), concurrent.map((item) => item.stderr).join("\n"));
+let finalState = null;
+try {
+  finalState = JSON.parse(readFileSync(lockFile, "utf8"));
+} catch {}
+check("并发 write 后状态仍是完整 JSON", finalState && [2, 3].includes(finalState.round), JSON.stringify(finalState));
+check("并发 write 事件全部落盘", readEvents().filter((event) => event.event === "write").length >= 3);
 
 rmSync(sandbox, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failures.length} failed`);

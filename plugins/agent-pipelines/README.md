@@ -29,18 +29,23 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift` 计算 `stop_reason`，`--apply` 写回） |
+| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
 | `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；默认排除 `.loop-cli/**` |
 
 ```bash
 node scripts/state.mjs init --pipeline coding --prompt "修复登录问题"
 node scripts/state.mjs gate --pipeline coding --file .loop-cli/state/coding-pipeline.json --json
 node scripts/scope.mjs --base <base-commit> --file .loop-cli/state/coding-pipeline.json --json
+node scripts/state.mjs events --pipeline coding --tail 20
 ```
 
 scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
 
-`test/contract.mjs` 校验静态契约（61 断言），`test/pipeline.mjs` 跑状态机与 scope（30 断言）。两者都不替代真实宿主上的端到端运行。
+加锁与事件日志：`init` / `write` / `gate --apply` 会取 `<state>.lock`（30 秒陈旧锁自动清理，最多等 2 秒），并向 `<state>.events.jsonl` 追加事件。事件日志用于断点恢复和事后审计，写失败不影响主流程。
+
+宿主加载矩阵：contract 会检查三个垫片声明的 skills / commands / agents 路径真实存在；Codex / ZCode / Oh My Pi 的真实端到端尚未自动跑。
+
+`test/contract.mjs` 校验静态契约（69 断言），`test/pipeline.mjs` 跑状态机、scope、锁与事件日志（40 断言）。两者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
