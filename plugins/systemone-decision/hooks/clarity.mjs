@@ -7,6 +7,7 @@
 // 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与风险闸同一份）。
 
 import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
+import { bumpQuota } from './precheck-quota.mjs';
 
 export const GATE = { clarityMax: 1, proceedMin: 0.6 };
 const CASUAL = /^(好的?|好吧|可以|是的?|对滴?|行|嗯+|哦+|不了|不用了?|再见|收到|继续|谢谢|多谢|麻烦了|辛苦了|ok|okay|yes|thanks?|thank you)[!。.，,～~！?\s]*$/i;
@@ -57,7 +58,9 @@ function verdictLine(clarity, missing, proceed) {
 /**
  * @param {unknown} text - 用户提交的原始输入
  * @param {Record<string, string|undefined>} [env] - 供应商配置来源，默认进程环境
- * @param {object} [opts] - { timeoutMs } 共享 deadline 的剩余预算，透传给 decide
+ * @param {object} [opts] - { timeoutMs } 共享 deadline 的剩余预算，透传给 decide；
+ *   { sessionId } 会话 id（first:N 配额分桶用，缺省入 default 桶）；
+ *   { mode } precheckMode() 的解析结果（on/off 下计数为 no-op，可缺省）
  * @returns {Promise<string|null>} 结论文本；无需提醒时返回 null
  */
 export async function precheck(text, env = process.env, opts = {}) {
@@ -66,6 +69,8 @@ export async function precheck(text, env = process.env, opts = {}) {
   if (prompt.length < 10 || CASUAL.test(prompt)) return null; // 空输入 / 寒暄捷径
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默跳过
+  // 走到这里必然发出判定请求：计一次被判定输入（仅 first:N 模式写盘，on/off 为 no-op）
+  bumpQuota(opts.mode, opts.sessionId);
   const answers = await decide(prompt, cfg, QUESTIONS, opts.timeoutMs);
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;

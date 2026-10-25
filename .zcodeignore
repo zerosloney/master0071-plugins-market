@@ -5,6 +5,7 @@ node_modules/
 .plugins-cache.json
 plugins/*/.endpoint.json*
 plugins/*/decision-cache.json
+plugins/*/precheck-quota.json
 
 # ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
 .git/

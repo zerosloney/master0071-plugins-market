@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -73,7 +73,7 @@ const mock = http.createServer((req, res) => {
   });
 });
 
-const run = (prompt, envExtra = {}) =>
+const run = (prompt, envExtra = {}, payloadExtra = {}) =>
   new Promise((resolve) => {
     const child = spawn(process.execPath, [hookPath], {
       env: {
@@ -94,7 +94,9 @@ const run = (prompt, envExtra = {}) =>
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (c) => (stdout += c));
     child.stderr.on('data', (c) => (stderr += c));
-    child.stdin.end(prompt === null ? 'not-json' : JSON.stringify({ prompt, hook_event_name: 'UserPromptSubmit' }));
+    child.stdin.end(
+      prompt === null ? 'not-json' : JSON.stringify({ prompt, hook_event_name: 'UserPromptSubmit', ...payloadExtra }),
+    );
     child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
 
@@ -480,6 +482,72 @@ const main = async () => {
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
   });
   rmSync(path.join(runRoot, 'decision-cache.json'), { force: true });
+
+  // ---------- 预检开关与会话配额：off / first:N / 裸数字 / 非法值 / 配额文件损坏 ----------
+
+  const quotaFile = path.join(runRoot, 'precheck-quota.json');
+  const quotaPrompt = '配额开关验证：把 precheck-quota 的会话桶上限从 100 调到 200 并补测试';
+  rmSync(quotaFile, { force: true });
+
+  scenario = 'unclear';
+  received = [];
+  r = await run(quotaPrompt, { SYSTEMONE_HOOK_PRECHECK: 'off' });
+  check('预检开关 off：静默跳过且不发请求', () => {
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(received.length, 0);
+    assert.match(r.stderr, /预检跳过/);
+  });
+
+  received = [];
+  r = await run(quotaPrompt, { SYSTEMONE_HOOK_PRECHECK: 'first:1' }, { session_id: 's1' });
+  check('配额 first:1：会话 s1 首条输入正常判定并计数', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+    assert.ok(JSON.parse(readFileSync(quotaFile, 'utf8')).sessions.s1.count === 1, '配额文件应记 s1=1');
+  });
+  r = await run(quotaPrompt, { SYSTEMONE_HOOK_PRECHECK: 'first:1' }, { session_id: 's1' });
+  check('配额 first:1：同会话第二条静默跳过、不发请求', () => {
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(received.length, 1, '配额用尽后不再发请求');
+    assert.match(r.stderr, /配额已用尽/);
+  });
+  r = await run(quotaPrompt, { SYSTEMONE_HOOK_PRECHECK: 'first:1' }, { session_id: 's2' });
+  check('配额 first:1：不同会话独立计数', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 2, '会话 s2 有自己的配额');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  rmSync(quotaFile, { force: true });
+  received = [];
+  r = await run(quotaPrompt + ' 裸数字', { SYSTEMONE_HOOK_PRECHECK: '1' }, { session_id: 's3' });
+  await run(quotaPrompt + ' 裸数字', { SYSTEMONE_HOOK_PRECHECK: '1' }, { session_id: 's3' });
+  check('配额裸数字 N 等同 first:N', () => {
+    assert.equal(received.length, 1, '首条判定、第二条跳过');
+  });
+
+  rmSync(quotaFile, { force: true });
+  received = [];
+  r = await run(quotaPrompt + ' 非法值', { SYSTEMONE_HOOK_PRECHECK: 'banana' });
+  check('非法开关值：告警并按默认 on 判定', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1);
+    assert.match(r.stderr, /无法识别/);
+  });
+
+  rmSync(quotaFile, { force: true });
+  writeFileSync(quotaFile, '{"sessions": [broken');
+  received = [];
+  r = await run(quotaPrompt + ' 损坏', { SYSTEMONE_HOOK_PRECHECK: 'first:1' }, { session_id: 's4' });
+  check('配额文件损坏：当未限额处理（fail-open）', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '损坏的配额文件应被当作空表');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+  rmSync(quotaFile, { force: true });
 
   rmSync(runRoot, { recursive: true, force: true });
   mock.close();

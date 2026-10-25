@@ -5,3 +5,4 @@ node_modules/
 .plugins-cache.json
 plugins/*/.endpoint.json*
 plugins/*/decision-cache.json
+plugins/*/precheck-quota.json
