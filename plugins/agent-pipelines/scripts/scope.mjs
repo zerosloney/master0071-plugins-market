@@ -2,6 +2,7 @@
 // agent-pipelines scope 检查：把 coding-pipeline 的 hard/soft/forbidden scope 从提示词约定变成可执行检查。
 // 用法：node scripts/scope.mjs --base <ref> --hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**,*.lock"
 // 也可从状态文件的可选 scope 对象读取：--file .loop-cli/state/coding-pipeline.json
+// 通配语法：* 单段、** 跨段、? 单字符；不支持 brace 展开与字符类——*.{js,ts} 不匹配，多后缀逐条列出。
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";

@@ -14,6 +14,8 @@ subtask: false
 
 状态文件路径：`.loop-cli/state/coding-pipeline.json`
 
+**并发限制**：路径按仓库固定，同一仓库同时跑两条同类管道会共用此文件并互相覆盖状态（文件锁只防写撕裂，不防逻辑覆盖）。需要并发时，把其中一条会话的此路径与全部 `--file` 调用同步改成会话专属路径（如 `.loop-cli/state/coding-pipeline-<slug>.json`）。
+
 JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 
 ```json
@@ -95,7 +97,7 @@ DONE 必须同时满足：
 ## 初始化
 1. 读取当前请求；为空则询问用户。
 2. 若状态文件存在，按 `### 读取规则` 处理恢复或新建；新建时删除旧文件。
-3. 建立边界声明（hard/soft/forbidden scope）。**检查 `depends_on` 是否存在循环依赖**，存在则报错。
+3. 建立边界声明（hard/soft/forbidden scope）。**检查 `depends_on` 是否存在循环依赖**，存在则报错。scope 通配语法支持 `*`（单段）、`**`（跨段）、`?`（单字符）；不支持 brace 展开与字符类——`*.{js,ts}` 不会匹配，多后缀逐条列出（`*.js`、`*.ts`）。
 4. **复杂度评估与再拆分**：按 Coding Orchestrator agent 模板「## 任务复杂度评估与拆分」的判据（accept_criteria > 3 / 跨文件 > 5 或跨模块 > 2）评估当前请求，对过大请求拆成多个 task 并建立依赖，`subtask_of` 标注溯源。**拆分边界不得跨越 forbidden_scope**——任一子任务 hard_scope 触及 forbidden_scope 立即停止拆分并询问用户。核算子任务总数 ≤ 6（`= MAX_CYCLES × 0.75`），超限且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 建立 Baseline（git_ref / git_status_snapshot / fingerprint / none）。
 6. 探测项目脚本（lint/typecheck/build/test）。

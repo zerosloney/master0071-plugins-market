@@ -14,6 +14,8 @@ subtask: false
 
 状态文件路径：`.loop-cli/state/ralph-pipeline.json`
 
+**并发限制**：路径按仓库固定，同一仓库同时跑两条同类管道会共用此文件并互相覆盖状态（文件锁只防写撕裂，不防逻辑覆盖）。需要并发时，把其中一条会话的此路径与全部 `--file` 调用同步改成会话专属路径（如 `.loop-cli/state/ralph-pipeline-<slug>.json`）。
+
 JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 
 ```json
