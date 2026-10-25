@@ -173,6 +173,14 @@ for (const rel of [
   check(`${rel} 要求审查证据`, /evidence|证据/.test(read(rel)));
 }
 
+// 可视化渲染：render.mjs 存在，且命令模板声明了可视化入口
+check("scripts/render.mjs 存在", existsSync(join(root, "scripts", "render.mjs")));
+for (const rel of ["commands/ralph-pipeline.md", "commands/coding-pipeline.md"]) {
+  const source = read(rel);
+  check(`${rel} 声明可视化命令`, /render\.mjs/.test(source));
+  check(`${rel} 可视化支持 .html 输出`, /\.html/.test(source));
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const name of failures) console.log(`  - ${name}`);

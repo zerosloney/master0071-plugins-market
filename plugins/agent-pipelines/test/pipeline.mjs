@@ -223,6 +223,63 @@ try {
 check("并发 write 后状态仍是完整 JSON", finalState && [2, 3].includes(finalState.round), JSON.stringify(finalState));
 check("并发 write 事件全部落盘", readEvents().filter((event) => event.event === "write").length >= 3);
 
+console.log("\n== 可视化渲染 ==");
+const renderDir = path.join(sandbox, "render");
+mkdirSync(renderDir, { recursive: true });
+const renderStateFile = path.join(renderDir, "render.json");
+const renderState = {
+  version: 1,
+  prompt: "render test",
+  max_iterations: 0,
+  max_failures: 3,
+  retry_on_failure: false,
+  completion_promise: null,
+  outer_iteration: 0,
+  tasks: [
+    { id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 },
+    { id: "t2", title: "b", status: "in_progress", depends_on: ["t1"], accept_criteria: ["ok"], failures: 1 },
+  ],
+  consecutive_failures: 1,
+  stall_counter: 0,
+  fail_history: [],
+  round: 2,
+  stop_reason: null,
+  budget: { max_tokens: 1000, spent_tokens: 100 },
+};
+writeFileSync(renderStateFile, JSON.stringify(renderState));
+for (const event of [
+  { ts: "2026-01-01T00:00:00.000Z", event: "init", round: 0, stop_reason: null, tasks: { done: 0, total: 2 } },
+  { ts: "2026-01-01T00:01:00.000Z", event: "write", round: 1, stop_reason: null, tasks: { done: 1, total: 2 } },
+]) {
+  writeFileSync(`${renderStateFile}.events.jsonl`, `${JSON.stringify(event)}\n`, { flag: "a" });
+}
+const renderHtmlFile = path.join(renderDir, "render.html");
+let renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", renderStateFile, "--out", renderHtmlFile]);
+check("render 生成 HTML", renderResult.status === 0 && existsSync(renderHtmlFile), renderResult.stderr);
+const html = readFileSync(renderHtmlFile, "utf8");
+check("HTML 含任务卡片", /class="task"/.test(html) && /t1/.test(html) && /t2/.test(html));
+check("HTML 含状态徽标", /badge-done/.test(html) && /badge-in_progress/.test(html));
+check("HTML 含事件日志", /执行轨迹/.test(html) && /init/.test(html) && /write/.test(html));
+check("HTML 含预算", /100\/1000/.test(html));
+check("HTML 依赖图无环", !/存在环/.test(html));
+check("HTML 自包含无外链", !/src="http|href="http/.test(html));
+
+// 只读性：render 不写状态、不追加事件、不创建锁
+const stateBefore = readFileSync(renderStateFile, "utf8");
+const eventsBefore = readFileSync(`${renderStateFile}.events.jsonl`, "utf8");
+renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", renderStateFile, "--out", renderHtmlFile]);
+const stateAfter = readFileSync(renderStateFile, "utf8");
+const eventsAfter = readFileSync(`${renderStateFile}.events.jsonl`, "utf8");
+check("render 不修改状态文件", stateBefore === stateAfter);
+check("render 不修改事件日志", eventsBefore === eventsAfter);
+check("render 不创建锁", !existsSync(`${renderStateFile}.lock`));
+
+// 非法状态文件仍应给出可读错误
+const brokenRender = path.join(renderDir, "broken.json");
+writeFileSync(brokenRender, "{not json");
+renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", brokenRender]);
+check("render 拒绝非法 JSON", renderResult.status === 2 && /not valid JSON/.test(renderResult.stderr), renderResult.stderr);
+
 console.log("\n== 预算与依赖图 ==");
 const budgetFile = path.join(sandbox, "budget.json");
 const budgetState = initState("ralph", budgetFile);

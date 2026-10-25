@@ -67,6 +67,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算"任务状态签名"（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
 - 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json` 得到 scope_drift；脚本不可用时按本节规则手写。
+- 可视化：`node <插件根>/scripts/render.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json --out .loop-cli/state/coding-pipeline.html`，生成只读的依赖图 + 执行轨迹单文件 HTML（不写状态、不追加事件）。
 
 ### 读取规则
 1. 解析 JSON，校验 `version === 1` 且所有必填字段存在。
