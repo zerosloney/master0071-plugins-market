@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+// agent-pipelines 实时看板：HTTP + SSE 监听状态文件与事件日志，浏览器自动刷新。
+// 用法：node scripts/serve.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json [--port 8787] [--interval 1000]
+// 只读：不写状态、不追加事件、不取锁。默认只绑 127.0.0.1。
+import { createServer } from "node:http";
+import { statSync, watch } from "node:fs";
+import path from "node:path";
+import { buildHtml, layoutGraph, loadEvents, loadState, pipelineOf, stateFile } from "./render.mjs";
+
+function parseArgs(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith("--")) {
+      out._.push(arg);
+      continue;
+    }
+    const key = arg.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith("--")) out[key] = true;
+    else {
+      out[key] = next;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+const args = parseArgs(process.argv.slice(2));
+const pipeline = pipelineOf(args);
+const file = stateFile(args, pipeline);
+const eventsFile = file.replace(/\.json$/, ".events.jsonl");
+const port = Number(args.port) > 0 ? Number(args.port) : 8787;
+const interval = Number(args.interval) > 0 ? Number(args.interval) : 1000;
+
+let clients = new Set();
+let lastHtml = "";
+let lastStateMtime = 0;
+let lastEventsMtime = 0;
+
+function renderHtml() {
+  const state = loadState(file);
+  const events = loadEvents(file);
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const graph = layoutGraph(tasks);
+  return buildHtml({ pipeline, file, state, events, graph });
+}
+
+function broadcast() {
+  const html = renderHtml();
+  const changed = html !== lastHtml;
+  lastHtml = html;
+  for (const res of clients) {
+    res.write(`event: render\ndata: ${JSON.stringify({ changed, ts: new Date().toISOString() })}\n\n`);
+  }
+}
+
+function handleRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  if (url.pathname === "/") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(lastHtml);
+    return;
+  }
+  if (url.pathname === "/events") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write("retry: 2000\n\n");
+    clients.add(res);
+    req.on("close", () => clients.delete(res));
+    return;
+  }
+  if (url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: true, pipeline, file, port, clients: clients.size }));
+    return;
+  }
+  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end("not found");
+}
+
+// 轮询兜底：watch 在部分平台（含文件被原子替换时）可能失效，轮询保证最终一致。
+setInterval(() => {
+  try {
+    const stateMtime = statSync(file).mtimeMs;
+    const eventsMtime = statSync(eventsFile).mtimeMs;
+    if (stateMtime !== lastStateMtime || eventsMtime !== lastEventsMtime) {
+      lastStateMtime = stateMtime;
+      lastEventsMtime = eventsMtime;
+      lastHtml = renderHtml();
+      broadcast();
+    }
+  } catch {
+    // 文件暂不可读（被替换的瞬间），等待下一轮
+  }
+}, interval);
+
+// watch 立即推送：文件一变化就触发，减少轮询延迟。
+try {
+  watch(file, () => {
+    try {
+      lastHtml = renderHtml();
+      broadcast();
+    } catch {}
+  });
+} catch {}
+try {
+  watch(eventsFile, () => {
+    try {
+      lastHtml = renderHtml();
+      broadcast();
+    } catch {}
+  });
+} catch {}
+
+lastHtml = renderHtml();
+
+const server = createServer(handleRequest);
+server.listen(port, "127.0.0.1", () => {
+  console.log(`agent-pipelines live board: http://127.0.0.1:${port}`);
+  console.log(`state: ${file}`);
+  console.log(`events: ${eventsFile}`);
+  console.log("SSE: /events · health: /health · Ctrl+C 停止");
+});

@@ -175,10 +175,12 @@ for (const rel of [
 
 // 可视化渲染：render.mjs 存在，且命令模板声明了可视化入口
 check("scripts/render.mjs 存在", existsSync(join(root, "scripts", "render.mjs")));
+check("scripts/serve.mjs 存在", existsSync(join(root, "scripts", "serve.mjs")));
 for (const rel of ["commands/ralph-pipeline.md", "commands/coding-pipeline.md"]) {
   const source = read(rel);
   check(`${rel} 声明可视化命令`, /render\.mjs/.test(source));
   check(`${rel} 可视化支持 .html 输出`, /\.html/.test(source));
+  check(`${rel} 声明实时看板命令`, /serve\.mjs/.test(source));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

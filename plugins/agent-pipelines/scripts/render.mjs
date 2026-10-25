@@ -4,6 +4,7 @@
 // 数据只读：不写状态文件，不取锁，不追加事件。
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const PIPELINES = {
   ralph: { label: "Ralph Pipeline", color: "#6366f1" },
@@ -36,18 +37,18 @@ function parseArgs(argv) {
   return out;
 }
 
-function pipelineOf(args) {
+export function pipelineOf(args) {
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
-  if (!PIPELINES[pipeline]) fail(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);
+  if (!PIPELINES[pipeline]) throw new Error(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);
   return pipeline;
 }
 
-function stateFile(args, pipeline) {
+export function stateFile(args, pipeline) {
   if (args.file) return path.resolve(String(args.file));
   return path.resolve(".loop-cli", "state", `${pipeline}.json`);
 }
 
-function htmlEscape(value) {
+export function htmlEscape(value) {
   return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -60,7 +61,7 @@ function jsonBlock(value) {
 }
 
 // 依赖图：拓扑排序 + 分层列（复用 graph.mjs 的算法，只读不落盘）
-function layoutGraph(tasks) {
+export function layoutGraph(tasks) {
   const ids = tasks.map((task) => task && task.id).filter((id) => typeof id === "string");
   const idSet = new Set(ids);
   const indegree = new Map(ids.map((id) => [id, 0]));
@@ -175,7 +176,34 @@ function renderSummaryCards(state, graph) {
   );
 }
 
-function buildHtml({ pipeline, file, state, events, graph, warnings }) {
+export function loadState(file) {
+  if (!existsSync(file)) throw new Error(`state file not found: ${file}`);
+  let state;
+  try {
+    state = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    throw new Error(`state file is not valid JSON: ${err.message}`);
+  }
+  if (!state || typeof state !== "object" || Array.isArray(state)) throw new Error("state must be a JSON object");
+  return state;
+}
+
+export function loadEvents(file) {
+  const events = [];
+  const eventsPath = file.replace(/\.json$/, ".events.jsonl");
+  if (existsSync(eventsPath)) {
+    for (const line of readFileSync(eventsPath, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event && typeof event === "object") events.push(event);
+      } catch {}
+    }
+  }
+  return events;
+}
+
+export function buildHtml({ pipeline, file, state, events, graph, warnings }) {
   const spec = PIPELINES[pipeline];
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const graphOk = graph.cycles.length === 0 && graph.errors.length === 0;
@@ -251,14 +279,12 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const pipeline = pipelineOf(args);
   const file = stateFile(args, pipeline);
-  if (!existsSync(file)) fail(`state file not found: ${file}`);
   let state;
   try {
-    state = JSON.parse(readFileSync(file, "utf8"));
+    state = loadState(file);
   } catch (err) {
-    fail(`state file is not valid JSON: ${err.message}`);
+    fail(err.message);
   }
-  if (!state || typeof state !== "object" || Array.isArray(state)) fail("state must be a JSON object");
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const warnings = [];
   for (const task of tasks) {
@@ -270,18 +296,7 @@ function main() {
   }
 
   const graph = layoutGraph(tasks);
-
-  const events = [];
-  const eventsPath = file.replace(/\.json$/, ".events.jsonl");
-  if (existsSync(eventsPath)) {
-    for (const line of readFileSync(eventsPath, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line);
-        if (event && typeof event === "object") events.push(event);
-      } catch {}
-    }
-  }
+  const events = loadEvents(file);
 
   const out = args.out ? path.resolve(String(args.out)) : file.replace(/\.json$/, ".html");
   mkdirSync(path.dirname(out), { recursive: true });

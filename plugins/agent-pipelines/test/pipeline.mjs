@@ -2,6 +2,7 @@
 // agent-pipelines 的运行时辅助脚本测试：状态机与 scope 检查。
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,32 @@ function runAsync(script, args, input, cwd = sandbox) {
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() }));
     child.stdin.end(input);
+  });
+}
+
+// 打开 SSE 连接，等待出现指定 event 后返回已收到的文本（用于验证实时推送）。
+function fetchSseEvent(url, needle, timeoutMs = 4000) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let buf = "";
+      const timer = setTimeout(() => {
+        req.destroy();
+        resolve(buf);
+      }, timeoutMs);
+      res.on("data", (chunk) => {
+        buf += chunk.toString();
+        if (buf.includes(needle)) {
+          clearTimeout(timer);
+          req.destroy();
+          resolve(buf);
+        }
+      });
+      res.on("error", () => {
+        clearTimeout(timer);
+        resolve(buf);
+      });
+    });
+    req.on("error", reject);
   });
 }
 
@@ -327,6 +354,100 @@ const brokenRender = path.join(renderDir, "broken.json");
 writeFileSync(brokenRender, "{not json");
 renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", brokenRender]);
 check("render 拒绝非法 JSON", renderResult.status === 2 && /not valid JSON/.test(renderResult.stderr), renderResult.stderr);
+
+console.log("\n== 实时看板（SSE） ==");
+const serveDir = path.join(sandbox, "serve");
+mkdirSync(serveDir, { recursive: true });
+const serveStateFile = path.join(serveDir, "coding.json");
+writeFileSync(
+  serveStateFile,
+  JSON.stringify({
+    version: 1,
+    prompt: "serve test",
+    max_iterations: 0,
+    max_failures: 3,
+    retry_on_failure: false,
+    completion_promise: null,
+    outer_iteration: 0,
+    tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    consecutive_failures: 0,
+    stall_counter: 0,
+    fail_history: [],
+    round: 0,
+    stop_reason: null,
+  }),
+);
+writeFileSync(`${serveStateFile}.events.jsonl`, `${JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", event: "init", round: 0, stop_reason: null, tasks: { done: 0, total: 1 } })}\n`);
+const servePort = 8917;
+const serveProc = spawn(process.execPath, [path.join(root, "scripts", "serve.mjs"), "--pipeline", "coding", "--file", serveStateFile, "--port", String(servePort), "--interval", "200"], {
+  cwd: sandbox,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let serveOut = "";
+serveProc.stdout.on("data", (chunk) => (serveOut += chunk));
+serveProc.stderr.on("data", (chunk) => (serveOut += chunk));
+const waitForServe = async () => {
+  for (let i = 0; i < 50; i++) {
+    try {
+      const res = await new Promise((resolve, reject) => {
+        http
+          .get(`http://127.0.0.1:${servePort}/health`, (r) => {
+            let body = "";
+            r.on("data", (c) => (body += c));
+            r.on("end", () => resolve(body));
+          })
+          .on("error", reject);
+      });
+      if (res.includes("ok")) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+};
+check("serve 启动并监听", await waitForServe(), serveOut);
+
+// 页面是完整 HTML
+const page = await new Promise((resolve, reject) => {
+  http
+    .get(`http://127.0.0.1:${servePort}/`, (r) => {
+      let body = "";
+      r.on("data", (c) => (body += c));
+      r.on("end", () => resolve(body));
+    })
+    .on("error", reject);
+});
+check("serve 返回看板 HTML", page.includes('class="task"') && page.includes("t1"), serveOut);
+
+// SSE 连接 + 写入新状态 → 收到 render 事件
+const ssePromise = fetchSseEvent(`http://127.0.0.1:${servePort}/events`, "event: render", 5000);
+const updated = JSON.parse(readFileSync(serveStateFile, "utf8"));
+updated.round = 1;
+updated.tasks[0].status = "done";
+writeFileSync(serveStateFile, JSON.stringify(updated));
+const sseData = await ssePromise;
+check("SSE 推送 render 事件", /event: render/.test(sseData), sseData);
+
+// 页面刷新后显示新状态
+await new Promise((r) => setTimeout(r, 600));
+const page2 = await new Promise((resolve, reject) => {
+  http
+    .get(`http://127.0.0.1:${servePort}/`, (r) => {
+      let body = "";
+      r.on("data", (c) => (body += c));
+      r.on("end", () => resolve(body));
+    })
+    .on("error", reject);
+});
+check("SSE 后页面反映新状态", /badge-done/.test(page2), serveOut);
+
+serveProc.kill();
+
+// 只读性：serve 不修改状态文件、不追加事件、不创建锁
+const serveStateBefore = readFileSync(serveStateFile, "utf8");
+const serveEventsBefore = readFileSync(`${serveStateFile}.events.jsonl`, "utf8");
+check("serve 不修改状态文件", serveStateBefore === readFileSync(serveStateFile, "utf8"));
+check("serve 不修改事件日志", serveEventsBefore === readFileSync(`${serveStateFile}.events.jsonl`, "utf8"));
+check("serve 不创建锁", !existsSync(`${serveStateFile}.lock`));
 
 console.log("\n== 预算与依赖图 ==");
 const budgetFile = path.join(sandbox, "budget.json");
