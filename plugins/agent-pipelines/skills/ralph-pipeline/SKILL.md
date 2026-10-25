@@ -40,7 +40,8 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
       "depends_on": ["<前置任务 id>"],
       "accept_criteria": ["<验收标准>"],
       "subtask_of": "<被拆分来源任务 id，仅子任务填写，用于追溯>",
-      "failures": 0
+      "failures": 0,
+      "max_attempts": 4
     }
   ],
   "consecutive_failures": 0,
@@ -61,11 +62,12 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
+- `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
 
 ### 写入规则
 
 - 每轮结束时写入，先写 `.loop-cli/state/ralph-pipeline.json.tmp`，再重命名为 `.loop-cli/state/ralph-pipeline.json`（防止写入中断导致文件损坏）。
-- `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
+- `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"BUDGET"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算「任务状态签名」（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
 - 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline ralph` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；脚本不可用时按本节规则手写。
@@ -207,6 +209,7 @@ accept_criteria:
 ## 背压熔断
 
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
+- 任一任务 `failures` 达到状态文件里的 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
 - 任务被标 `blocked` 时必须给出阻塞原因，不强制推进。
 

@@ -134,11 +134,12 @@ coding 域专属约束：
 
 按顺序判断：
 1. DONE：全部完成标准满足（含零 critical/major + scope 无漂移）。
-2. ESCALATE：审查者 REJECT、边界漂移、manual review required。
-3. HOLD：需求或方案需要用户选择。
-4. STALL：`stall_counter` 达到 `STALL_MAX`（=2）——连续 2 轮任务状态签名（所有任务 `id:status` 有序串）无变化。
-5. **MAX_CYCLES (=8 或 max_iterations)**：达到上限仍未 DONE。初始化时设置的硬上限，不被 `fail_history` 或 `round` 覆盖。
-6. STOPPED：用户要求停止。
+2. ESCALATE：审查者 REJECT、边界漂移、manual review required、连续失败达 `max_failures` 或任一任务 `failures` 达 `max_attempts`（默认 4）。
+3. BUDGET：`budget.spent_tokens` / `budget.spent_cost_usd` 达到对应上限。
+4. HOLD：需求或方案需要用户选择。
+5. STALL：`stall_counter` 达到 `STALL_MAX`（=2）——连续 2 轮任务状态签名（所有任务 `id:status` 有序串）无变化。
+6. **MAX_CYCLES (=8 或 max_iterations)**：达到上限仍未 DONE。初始化时设置的硬上限，不被 `fail_history` 或 `round` 覆盖。
+7. STOPPED：用户要求停止。
 
 早停优先；满足 DONE 立即停止。
 

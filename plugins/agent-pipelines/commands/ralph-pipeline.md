@@ -59,7 +59,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 
 ### 写入规则
 - 每轮结束时写入，先写 `.loop-cli/state/ralph-pipeline.json.tmp`，再重命名为 `.loop-cli/state/ralph-pipeline.json`（防止写入中断导致文件损坏）。
-- `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
+- `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"BUDGET"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算"任务状态签名"（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
 - 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline ralph` 从 stdin 原子落盘（写入时自动对比旧状态，在事件日志里记录任务状态迁移），并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；脚本不可用时按本节规则手写。

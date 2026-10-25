@@ -15,7 +15,7 @@
 - **背压熔断**：连续失败达阈值 ESCALATE；**单任务失败达 `max_attempts`（默认 4）立即 ESCALATE**；任务状态签名连续无变化判 STALL；轮次达 MAX_CYCLES 强制停止（ralph=10 / coding=8，`max_iterations > 0` 可覆盖）。
 - **失败教训回填**：每轮委派执行者时，把 `fail_history` 聚合为"失败教训"注入 worker/builder 上下文，避免重复踩坑。
 - **并行委派就绪任务**：每轮把全部 `pending` 且依赖已 `done` 的任务按拓扑顺序委派，多个就绪任务并行执行，不串行等待。
-- **停止枚举**：`DONE | ESCALATE | HOLD | STALL | MAX_CYCLES | STOPPED`。
+- **停止枚举**：`DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED`。
 - **任务拆分预算**：子任务数 ≤ MAX_CYCLES × 系数（ralph 0.8 / coding 0.75），超限报 `decomposition_overflow` 交用户。
 
 coding 管道额外约束：
@@ -60,7 +60,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 实测）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（89 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（81 断言）。两者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（89 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（81 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
@@ -138,6 +138,8 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 
 ```
 node test/contract.mjs
+node test/pipeline.mjs
+node test/equivalence.mjs
 ```
 
-零依赖，检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致。它不执行管道，也不替代真实宿主上的端到端验证。
+零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。它们不执行管道，也不替代真实宿主上的端到端验证。

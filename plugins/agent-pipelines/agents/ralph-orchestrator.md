@@ -108,11 +108,12 @@ consecutive_failures: N
 
 按顺序判断：
 1. **DONE**：所有任务 `done` 且最后一次验证通过。
-2. **ESCALATE**：连续失败达到 `max_failures`，或审查者给出不可恢复的 critical。
-3. **HOLD**：所有可执行任务完成，但仍有 `blocked` 项需要用户决策。
-4. **STALL**：`stall_counter` 达到 `STALL_MAX`（=3）——连续 3 轮状态签名（定义见命令模板）无变化。
-5. **MAX_CYCLES (=10 或 max_iterations)**：达到上限仍未 DONE。初始化时设置的硬上限，不被 `fail_history` 或 `round` 覆盖。
-6. **STOPPED**：用户要求停止。
+2. **ESCALATE**：连续失败达到 `max_failures`，任一任务 `failures` 达到 `max_attempts`（默认 4），或审查者给出不可恢复的 critical。
+3. **BUDGET**：`budget.spent_tokens` / `budget.spent_cost_usd` 达到对应上限。
+4. **HOLD**：所有可执行任务完成，但仍有 `blocked` 项需要用户决策。
+5. **STALL**：`stall_counter` 达到 `STALL_MAX`（=3）——连续 3 轮状态签名（定义见命令模板）无变化。
+6. **MAX_CYCLES (=10 或 max_iterations)**：达到上限仍未 DONE。初始化时设置的硬上限，不被 `fail_history` 或 `round` 覆盖。
+7. **STOPPED**：用户要求停止。
 
 早停优先；满足 DONE 立即停止。
 
