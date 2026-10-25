@@ -7,6 +7,8 @@
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
+> **⚠ 数据外流提示（装前必读）**：一切判定都发生在你配置的 SystemOne 端点上。MCP 工具按调用把 `state` 发往端点；**配置 API Key 后，两个预检 hook 还会自动把每次用户输入（≥10 字符、非寒暄）与每条非只读 shell 命令的全文发往同一端点**——编码会话里的提示与命令常含私有路径、分支名或凭据引用，请只在你信任的端点上启用 hook，不需要时按[「预检 hook」](#预检-hook随插件自动安装)一节的说明关闭。hook 判定带 5 分钟本地缓存：TTL 内重复的相同输入不再重复外发（`SYSTEMONE_CACHE_TTL_MS=0` 关闭）。
+
 ## 前置条件
 
 | 依赖 | 要求 | 说明 |
@@ -181,7 +183,7 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_SCENARIOS` | 否 | — | 自定义场景 JSON 数组（与设置页同源，优先级低于设置页） |
 | `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件） |
 | `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费 |
-| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭 |
+| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭；**同时作用于 MCP 工具缓存与 hook 判定缓存** |
 
 Windows 设置示例（设置后重启 ZCode）：
 
@@ -213,6 +215,8 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）；风险闸会把 shell 命令文本发送到决策服务接口（跳过只读命令）。判定为"明确"/"放行"时静默返回，但请求本身已经发出。不需要某个 hook 时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
 
+**hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
+
 ## 结果解读
 
 - `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时，`needs_human_review = true` 并列出 `low_confidence_questions`。判定值缺失或越界时**即便 confidence 很高也会转人工**——模型对结构性坏响应同样会给高分。
@@ -236,7 +240,8 @@ mcp/
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
 hooks/
-├── decide-client.mjs        配置解析 + 判定请求 + 答案归一化（两个 hook 内核共用）
+├── decide-client.mjs        配置解析 + 判定请求（含跨进程缓存）+ 答案归一化（两个 hook 内核共用）
+├── decision-cache.mjs       hook 判定的跨进程文件缓存（TTL 同 MCP 侧，损坏当未命中）
 ├── hook-io.mjs              stdin 读取（100K 字符上限）+ 共享 deadline + stdout 退出协议（两个入口脚本共用）
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
 ├── requirement-clarity.mjs  UserPromptSubmit 入口脚本（stdin/stdout 协议壳在 hook-io.mjs）

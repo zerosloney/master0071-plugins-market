@@ -122,6 +122,9 @@ let received = [];
 let port;
 
 const main = async () => {
+  // 本套件默认关闭 hook 判定缓存：既有用例逐一断言「发出请求的次数」，缓存命中会让计数漂移；
+  // run() 用 ...process.env 展开传给子进程，这里改一处两边同时生效。缓存行为在文末专门小节显式开启验证。
+  process.env.SYSTEMONE_CACHE_TTL_MS = '0';
   await new Promise((r) => mock.listen(0, '127.0.0.1', r));
   port = mock.address().port;
 
@@ -412,6 +415,71 @@ const main = async () => {
       slow.close();
     }
   });
+
+  // ---------- hook 判定缓存：相同输入 TTL 内免远端往返，过期/损坏/TTL=0 退化为直连 ----------
+
+  await checkA('判定缓存：相同输入第二次不发请求，不同输入照常发', async () => {
+    process.env.SYSTEMONE_CACHE_TTL_MS = '300000';
+    try {
+      gateScenario = 'deny';
+      received = [];
+      const first = await assess('Bash', { command: 'rm -rf ./cache-probe' }, hookEnv);
+      assert.equal(first.decision, 'deny');
+      assert.equal(received.length, 1, '首次判定应发出请求');
+      const second = await assess('Bash', { command: 'rm -rf ./cache-probe' }, hookEnv);
+      assert.equal(second.decision, 'deny', '缓存命中应返回同一判定');
+      assert.equal(received.length, 1, '相同输入第二次应命中缓存、不再发请求');
+      await assess('Bash', { command: 'rm -rf ./cache-probe-2' }, hookEnv);
+      assert.equal(received.length, 2, '不同输入不共享缓存');
+    } finally {
+      process.env.SYSTEMONE_CACHE_TTL_MS = '0';
+    }
+  });
+
+  await checkA('判定缓存：TTL 过期后重新发请求', async () => {
+    process.env.SYSTEMONE_CACHE_TTL_MS = '1';
+    try {
+      received = [];
+      await assess('Bash', { command: 'rm -rf ./cache-ttl' }, hookEnv);
+      assert.equal(received.length, 1);
+      await new Promise((r) => setTimeout(r, 5)); // 等 1ms TTL 过期
+      await assess('Bash', { command: 'rm -rf ./cache-ttl' }, hookEnv);
+      assert.equal(received.length, 2, '过期条目应视为未命中');
+    } finally {
+      process.env.SYSTEMONE_CACHE_TTL_MS = '0';
+    }
+  });
+
+  await checkA('判定缓存：缓存文件损坏时当未命中（fail-open）', async () => {
+    process.env.SYSTEMONE_CACHE_TTL_MS = '300000';
+    try {
+      writeFileSync(path.join(runRoot, 'decision-cache.json'), '{"entries": [broken');
+      received = [];
+      const v = await assess('Bash', { command: 'rm -rf ./cache-corrupt' }, hookEnv);
+      assert.equal(v.decision, 'deny');
+      assert.equal(received.length, 1, '损坏的缓存文件应被当作空缓存');
+    } finally {
+      process.env.SYSTEMONE_CACHE_TTL_MS = '0';
+    }
+  });
+
+  // 子进程端到端：同一提示第二次提交命中缓存——行为不变（仍注入预检结论）且不再发请求
+  scenario = 'unclear';
+  received = [];
+  const cachePrompt = '缓存端到端验证：把 decision-cache 的上限从 100 调到 200 并补齐测试';
+  r = await run(cachePrompt, { SYSTEMONE_CACHE_TTL_MS: '300000' });
+  check('判定缓存端到端：首次提交发出请求并写入缓存', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+  r = await run(cachePrompt, { SYSTEMONE_CACHE_TTL_MS: '300000' });
+  check('判定缓存端到端：重发同一提示命中缓存且结论一致', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '第二次应命中缓存、不再发请求');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+  rmSync(path.join(runRoot, 'decision-cache.json'), { force: true });
 
   rmSync(runRoot, { recursive: true, force: true });
   mock.close();

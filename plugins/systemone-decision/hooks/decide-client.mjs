@@ -4,6 +4,7 @@
 // fail-open 契约在调用方：decide 抛错时调用方必须放行，绝不阻塞用户输入或工具调用。
 
 import { readEndpointConfig } from '../endpoint-config.mjs';
+import { cacheGet, cacheKey, cachePut } from './decision-cache.mjs';
 
 export function config(env) {
   const timeoutRaw = Number(env.SYSTEMONE_TIMEOUT_MS);
@@ -25,6 +26,11 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   // 调用方传入共享 deadline 的剩余预算时取二者较小值，请求不会越过 hook 的 handler 超时
   const timeoutMs =
     Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;
+  // 跨进程判定缓存（decision-cache.mjs）：相同「端点+模型+state+问题」在 TTL 内直接复用本地答案，
+  // 免掉代理循环里反复执行的同一批命令、重发提示的远端往返；TTL=0 关闭，缓存不可用时退化为直连。
+  const key = cacheKey(cfg, state, questions);
+  const cached = cacheGet(key);
+  if (cached) return cached;
   const res = await fetch(`${cfg.baseUrl}/systemone`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
@@ -33,7 +39,9 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
-  return data && typeof data === 'object' && data.answers && typeof data.answers === 'object' ? data.answers : null;
+  const answers = data && typeof data === 'object' && data.answers && typeof data.answers === 'object' ? data.answers : null;
+  if (answers) cachePut(key, answers);
+  return answers;
 }
 
 // 归一化：字段缺失或题型不符一律返回 null，由调用方 fail-open
