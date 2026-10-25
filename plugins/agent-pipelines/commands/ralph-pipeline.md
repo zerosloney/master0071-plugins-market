@@ -33,7 +33,8 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
       "depends_on": ["<前置任务 id>"],
       "accept_criteria": ["<验收标准>"],
       "subtask_of": "<被拆分来源任务 id，仅子任务填写，用于追溯>",
-      "failures": 0
+      "failures": 0,
+      "max_attempts": 4
     }
   ],
   "consecutive_failures": 0,
@@ -54,6 +55,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
+- `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
 
 ### 写入规则
 - 每轮结束时写入，先写 `.loop-cli/state/ralph-pipeline.json.tmp`，再重命名为 `.loop-cli/state/ralph-pipeline.json`（防止写入中断导致文件损坏）。
@@ -116,11 +118,11 @@ DONE 必须同时满足：
 每轮必须按以下流程执行：
 
 ```
-1. Orchestrator 选择下一个可执行任务
-2. 调用 ralph-worker 执行任务
-3. 等待 worker 完成并获取结果
-4. 调用 ralph-reviewer 审查产出
-5. 根据 reviewer verdict 更新任务状态
+1. Orchestrator 选出本轮全部可执行任务（pending 且依赖已 done）
+2. 按拓扑顺序逐个调用 ralph-worker 执行任务（存在多个就绪任务时全部发出，不串行等待）
+3. 等待所有 worker 完成并获取结果
+4. 逐个调用 ralph-reviewer 审查产出
+5. 根据各 reviewer verdict 更新任务状态
 6. 写入状态文件
 7. 判断停止条件
 ```
@@ -146,6 +148,10 @@ accept_criteria:
 
 === 验证命令 ===
 {verify_cmd}
+
+=== 失败教训 ===
+此前失败记录（避免重复踩坑；无则写"无"）：
+{fail_lessons}
 
 === 执行轮次 ===
 {round}
@@ -189,13 +195,14 @@ accept_criteria:
 ## 背压熔断
 
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
+- 任一任务 `failures` 达到 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
 
 ## 停止
 
 按顺序判断：
 1. DONE
-2. ESCALATE（熔断触发或不可恢复 critical）
+2. ESCALATE（熔断触发（含单任务达 `max_attempts`）或不可恢复 critical）
 3. BUDGET（token 或费用预算耗尽）
 4. HOLD（仅剩 blocked 任务，需用户决策）
 5. STALL（`stall_counter >= STALL_MAX`，默认 3，连续 3 轮任务状态签名无变化）

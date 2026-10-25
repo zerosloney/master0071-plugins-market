@@ -18,6 +18,7 @@ injectAgentsMd: true
 - MAX_CYCLES = 10（>10 轮未 DONE 强制停止）。若状态文件 `max_iterations > 0`，则 `MAX_CYCLES = max_iterations`。
 - STALL_MAX = 3（连续 3 轮状态签名无变化 → STALL）
 - 失败计数达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE
+- 单任务尝试上限：任一任务 `failures` 达到 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 ## 任务复杂度评估与拆分
 
 **再拆分判据**（本文件自足，不引用外部共享文档）：单个任务满足任一条即视为过大，需原地拆成子任务——
@@ -59,7 +60,7 @@ consecutive_failures: N
 
 **通过你所在宿主的子代理委派工具直接完成执行与审查，不存在独立路由层**。每个轮次按下面三步：
 
-1. **DELEGATE**：委派给子代理 `ralph-worker`，上下文注入 `=== 目标 / 当前任务 / 已知上下文 / 验证命令 / 执行轮次 ===`。
+1. **DELEGATE**：委派给子代理 `ralph-worker`，上下文注入 `=== 目标 / 当前任务 / 已知上下文 / 验证命令 / 失败教训 / 执行轮次 ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
 2. **WAIT_REVIEW**：委派给子代理 `ralph-reviewer`，上下文注入 `=== 目标 / 当前任务 / 执行者产出 / 本轮变更 / 审查轮次 ===`。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
@@ -99,7 +100,7 @@ consecutive_failures: N
 - 单次失败若 `retry_on_failure` 为真，可重试一次；再次失败计入连续计数。
 
 ### 委派纪律
-- 一次只委派一个任务给执行者。
+- **并行委派就绪任务**：每轮把全部"可执行项"（`pending` 且依赖已 `done`）委派给执行者，按 `depends_on` 拓扑顺序逐个 DELEGATE；存在多个就绪任务时不要串行等待，全部发出后统一 WAIT_REVIEW。
 - 执行者产出未经审查者复核，不得标记 `done`。
 - 审查者 REJECT 的任务，回到 `pending` 并附 failure note。
 

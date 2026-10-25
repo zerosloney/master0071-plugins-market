@@ -53,7 +53,7 @@ low | medium | high
 
 **通过你所在宿主的子代理委派工具直接完成执行与审查，不存在独立路由层**。每个轮次按下面三步：
 
-1. **DELEGATE**：委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / Risk Level / Detected Stack / Scripts Gap ===`。
+1. **DELEGATE**：委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
 2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者产出 / Risk Level / Detected Stack / Scripts Gap ===`。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
@@ -92,6 +92,10 @@ low | medium | high
 - 一组一次性修，禁止逐条打补丁式修复。
 - 一次委派只解决一个根因组，避免多根因混合改动。
 
+### 并行委派（coding 域）
+- 每轮把全部"可执行项"（`pending` 且依赖已 `done`）委派给 coding-builder，按拓扑顺序逐个 DELEGATE，存在多个就绪任务时不要串行等待，全部发出后统一 WAIT_REVIEW。
+- 根因分组不变：每个 DELEGATE 只对应一个根因组。
+
 ### 动态验证
 - 优先复核执行者的 check_results。
 - 执行者报 MISSING 时，按项目结构做低成本确认；确实不存在就保留 MISSING。
@@ -107,6 +111,7 @@ low | medium | high
 - MAX_CYCLES = 8（>8 轮未 DONE 强制停止）。若状态文件 `max_iterations > 0`，则 `MAX_CYCLES = max_iterations`。
 - STALL_MAX = 2（连续 2 轮任务状态签名无变化 → STALL）
 - 失败计数达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE
+- 单任务尝试上限：任一任务 `failures` 达到 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - 风险评估默认 medium；用户描述含"生产 / 安全 / 数据迁移"→ high
 
 ## 任务复杂度评估与拆分

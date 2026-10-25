@@ -115,6 +115,35 @@ ralph.round = 10;
 writeFileSync(ralphFile, JSON.stringify(ralph));
 check("round 达上限判 MAX_CYCLES", gate(ralphFile).stop_reason === "MAX_CYCLES");
 
+// 单任务尝试上限：failures 达 max_attempts 判 ESCALATE
+const attemptState = JSON.parse(JSON.stringify(ralph));
+attemptState.consecutive_failures = 0;
+attemptState.stall_counter = 0;
+attemptState.round = 0;
+attemptState.tasks = [
+  { id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 4, max_attempts: 4 },
+];
+writeFileSync(ralphFile, JSON.stringify(attemptState));
+check("单任务达 max_attempts 判 ESCALATE", gate(ralphFile).stop_reason === "ESCALATE");
+
+// 未达 max_attempts 不触发
+attemptState.tasks[0].failures = 3;
+writeFileSync(ralphFile, JSON.stringify(attemptState));
+check("未达 max_attempts 不判 ESCALATE", gate(ralphFile).stop_reason === null);
+
+// max_attempts 缺省时用默认上限 4
+const defaultAttempt = JSON.parse(JSON.stringify(attemptState));
+defaultAttempt.tasks[0].failures = 4;
+delete defaultAttempt.tasks[0].max_attempts;
+writeFileSync(ralphFile, JSON.stringify(defaultAttempt));
+check("缺省 max_attempts 用默认上限 4", gate(ralphFile).stop_reason === "ESCALATE");
+
+// 非法 max_attempts 被校验拒绝
+const badAttempt = JSON.parse(JSON.stringify(attemptState));
+badAttempt.tasks[0].max_attempts = 0;
+writeFileSync(ralphFile, JSON.stringify(badAttempt));
+check("非法 max_attempts 被拒绝", run("state.mjs", ["validate", "--pipeline", "ralph", "--file", ralphFile]).status === 1);
+
 const codingGate = gate(codingFile, "coding");
 check("coding 初始不停止", codingGate.stop_reason === null);
 coding.scope_drift = "FAIL";

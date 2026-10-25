@@ -33,6 +33,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
       "depends_on": ["<前置任务 id>"],
       "accept_criteria": ["<验收标准>"],
       "failures": 0,
+      "max_attempts": 4,
       "root_cause_group": "<根因组 id，仅编程领域>",
       "subtask_of": "<被拆分来源任务 id，仅子任务填写，用于追溯>"
     }
@@ -60,6 +61,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
 - `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
+- `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
 
 ### 写入规则
 - 每轮结束时写入，先写 `.loop-cli/state/coding-pipeline.json.tmp`，再重命名为 `.loop-cli/state/coding-pipeline.json`。
@@ -127,11 +129,11 @@ DONE 必须同时满足：
 每轮必须按以下流程执行：
 
 ```
-1. Orchestrator 选择下一个可执行任务
-2. 调用 coding-builder 执行任务
-3. 等待 builder 完成并获取结果
-4. 调用 coding-reviewer 审查产出
-5. 根据 reviewer verdict 更新任务状态
+1. Orchestrator 选出本轮全部可执行任务（pending 且依赖已 done）
+2. 按拓扑顺序逐个调用 coding-builder 执行任务（存在多个就绪任务时全部发出，不串行等待）
+3. 等待所有 builder 完成并获取结果
+4. 逐个调用 coding-reviewer 审查产出
+5. 根据各 reviewer verdict 更新任务状态
 6. 写入状态文件
 7. 判断停止条件
 ```
@@ -162,6 +164,10 @@ lint: {lint_cmd}
 typecheck: {typecheck_cmd}
 build: {build_cmd}
 test: {test_cmd}
+
+=== 失败教训 ===
+此前失败记录（避免重复踩坑；无则写"无"）：
+{fail_lessons}
 
 === Risk Level ===
 {risk_level}
@@ -229,6 +235,7 @@ value: {baseline_value}
 ## 背压熔断
 
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
+- 任一任务 `failures` 达到 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
 - `scope_drift == "FAIL"` 与 reviewer 的 REJECT 同样触发 ESCALATE，不等重试计数。
 
@@ -236,7 +243,7 @@ value: {baseline_value}
 
 按顺序判断：
 1. DONE
-2. ESCALATE（含 scope_drift FAIL）
+2. ESCALATE（含 scope_drift FAIL、单任务达 `max_attempts`）
 3. BUDGET（token 或费用预算耗尽）
 4. HOLD
 5. STALL（`stall_counter >= STALL_MAX`，默认 2，连续 2 轮任务状态签名无变化）

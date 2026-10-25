@@ -173,6 +173,28 @@ for (const rel of [
   check(`${rel} 要求审查证据`, /evidence|证据/.test(read(rel)));
 }
 
+// A2：失败教训回填——委派执行者时必须注入 fail_history 摘要
+for (const rel of [
+  "commands/ralph-pipeline.md",
+  "commands/coding-pipeline.md",
+  "agents/ralph-orchestrator.md",
+  "agents/coding-orchestrator.md",
+]) {
+  const source = read(rel);
+  check(`${rel} 注入失败教训`, /失败教训/.test(source) || /fail_lessons/.test(source));
+}
+
+// A3：并行执行就绪任务——命令模板与 orchestrator 都声明"全部可执行项"委派
+for (const rel of [
+  "commands/ralph-pipeline.md",
+  "commands/coding-pipeline.md",
+  "agents/ralph-orchestrator.md",
+  "agents/coding-orchestrator.md",
+]) {
+  const source = read(rel);
+  check(`${rel} 并行委派就绪任务`, /并行|全部可执行任务|全部发出/.test(source));
+}
+
 // 可视化渲染：render.mjs 存在，且命令模板声明了可视化入口
 check("scripts/render.mjs 存在", existsSync(join(root, "scripts", "render.mjs")));
 check("scripts/serve.mjs 存在", existsSync(join(root, "scripts", "serve.mjs")));

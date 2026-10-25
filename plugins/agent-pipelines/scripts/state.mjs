@@ -230,6 +230,9 @@ function validateState(state, pipeline) {
         errors.push(`task ${task.id}: accept_criteria must be an array of strings`);
       }
       if (!Number.isInteger(task.failures) || task.failures < 0) errors.push(`task ${task.id}: failures must be an integer >= 0`);
+      if (task.max_attempts !== undefined && (!Number.isInteger(task.max_attempts) || task.max_attempts < 1)) {
+        errors.push(`task ${task.id}: max_attempts must be an integer >= 1 when present`);
+      }
     }
     for (const task of state.tasks) {
       if (!isObject(task) || !Array.isArray(task.depends_on)) continue;
@@ -287,6 +290,15 @@ function gateFor(state, pipeline) {
   }
   if (state.consecutive_failures >= state.max_failures) {
     return { stop_reason: "ESCALATE", reason: `consecutive_failures ${state.consecutive_failures} >= max_failures ${state.max_failures}` };
+  }
+  // 单任务尝试上限：任一任务的 failures 达到自身 max_attempts（或默认上限），立即 ESCALATE，避免单任务无限重试。
+  const attemptLimit = 4; // 默认单任务尝试上限
+  for (const task of tasks) {
+    if (!task || typeof task.failures !== "number") continue;
+    const limit = Number.isInteger(task.max_attempts) && task.max_attempts > 0 ? task.max_attempts : attemptLimit;
+    if (task.failures >= limit) {
+      return { stop_reason: "ESCALATE", reason: `task ${task.id} failures ${task.failures} >= max_attempts ${limit}` };
+    }
   }
   if (pipeline === "coding" && state.scope_drift === "FAIL") {
     return { stop_reason: "ESCALATE", reason: "scope_drift is FAIL" };
