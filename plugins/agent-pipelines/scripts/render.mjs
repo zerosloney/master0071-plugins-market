@@ -143,7 +143,15 @@ function renderTaskGraph(tasks, graph) {
 function renderEventRow(event) {
   const tasks = event.tasks ? ` · tasks ${event.tasks.done}/${event.tasks.total}` : "";
   const applied = event.applied ? " · applied" : "";
-  return `<li><code class="ts">${htmlEscape(event.ts)}</code> ${badge(event.event, "event")}<span class="ev-meta">round=${event.round ?? "-"} · stop=${htmlEscape(String(event.stop_reason ?? "null"))}${tasks}${applied}</span></li>`;
+  const transitions = Array.isArray(event.transitions) && event.transitions.length
+    ? ` · ${event.transitions
+        .map(
+          (t) =>
+            `${htmlEscape(t.id)}:${htmlEscape(t.from)}→${htmlEscape(t.to)}`,
+        )
+        .join(", ")}`
+    : "";
+  return `<li><code class="ts">${htmlEscape(event.ts)}</code> ${badge(event.event, "event")}<span class="ev-meta">round=${event.round ?? "-"} · stop=${htmlEscape(String(event.stop_reason ?? "null"))}${tasks}${applied}${transitions}</span></li>`;
 }
 
 function renderSummaryCards(state, graph) {

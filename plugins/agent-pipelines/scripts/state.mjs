@@ -110,6 +110,34 @@ function readEvents(file, tail) {
   return tail > 0 ? events.slice(-tail) : events;
 }
 
+// 对比旧状态与新状态，输出任务状态迁移列表 [{ id, from, to }]。
+// - 已有任务：状态变化时记录 from（旧状态）→ to（新状态）。
+// - 新任务：from 为 null，表示本轮注册。
+// - 旧状态不存在、解析失败或字段缺失时返回空数组，不影响主写入流程。
+function diffTaskStatus(file, nextState) {
+  if (!existsSync(file)) return [];
+  let prev;
+  try {
+    prev = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(prev.tasks) || !Array.isArray(nextState.tasks)) return [];
+  const prevById = new Map(prev.tasks.filter(isObject).map((task) => [task.id, task]));
+  const transitions = [];
+  for (const task of nextState.tasks) {
+    if (!isObject(task) || typeof task.id !== "string") continue;
+    const prevTask = prevById.get(task.id);
+    if (!prevTask) {
+      transitions.push({ id: task.id, from: null, to: task.status });
+      continue;
+    }
+    if (prevTask.status === task.status) continue;
+    transitions.push({ id: task.id, from: prevTask.status, to: task.status });
+  }
+  return transitions;
+}
+
 // 写状态与 gate --apply 共用一把锁：同一仓库两个会话同时写时串行化，避免整份覆盖。
 function withLock(file, fn) {
   const lock = `${file}.lock`;
@@ -342,8 +370,9 @@ function main() {
     const { errors, warnings } = validateState(state, pipeline);
     if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
     withLock(file, () => {
+      const transitions = diffTaskStatus(file, state);
       writeAtomic(file, state);
-      logEvent(file, pipeline, "write", state);
+      logEvent(file, pipeline, "write", state, { transitions });
     });
     if (args.json) console.log(JSON.stringify({ file, warnings }));
     else console.log(`Wrote ${file}${warnings.length ? `\nWarnings:\n- ${warnings.join("\n- ")}` : ""}`);
@@ -358,7 +387,10 @@ function main() {
     else {
       for (const event of events) {
         const tasks = event.tasks ? ` tasks ${event.tasks.done}/${event.tasks.total}` : "";
-        console.log(`${event.ts} ${event.event} round=${event.round ?? "-"} stop=${event.stop_reason ?? "null"}${tasks}`);
+        const transitions = Array.isArray(event.transitions) && event.transitions.length
+          ? ` [${event.transitions.map((t) => `${t.id}:${t.from}->${t.to}`).join(", ")}]`
+          : "";
+        console.log(`${event.ts} ${event.event} round=${event.round ?? "-"} stop=${event.stop_reason ?? "null"}${tasks}${transitions}`);
       }
     }
     return;

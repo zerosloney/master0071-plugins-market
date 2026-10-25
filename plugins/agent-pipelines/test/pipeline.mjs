@@ -207,6 +207,31 @@ check("write 写入事件日志", readEvents().some((event) => event.event === "
 run("state.mjs", ["gate", "--pipeline", "ralph", "--file", lockFile, "--apply"]);
 check("gate --apply 写入事件日志", readEvents().some((event) => event.event === "gate"));
 
+// 任务状态迁移：write 自动对比旧状态，记录每轮任务状态变化
+// 先建立基线：状态里已有 t1(done)/t2(in_progress)
+const baseline = JSON.parse(JSON.stringify(stateForWrites));
+baseline.tasks = [
+  { id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 },
+  { id: "t2", title: "b", status: "in_progress", depends_on: ["t1"], accept_criteria: ["ok"], failures: 0 },
+];
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(baseline));
+// 下一轮：t2 变 done，新增 t3(pending)，t1 不变
+const migrated = JSON.parse(JSON.stringify(baseline));
+migrated.round = 3;
+migrated.tasks = [
+  { id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 },
+  { id: "t2", title: "b", status: "done", depends_on: ["t1"], accept_criteria: ["ok"], failures: 0 },
+  { id: "t3", title: "c", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 },
+];
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(migrated));
+const migratedEvents = readEvents();
+const writeWithTransition = [...migratedEvents].reverse().find((event) => event.event === "write");
+check("write 事件记录任务状态迁移", Array.isArray(writeWithTransition.transitions) && writeWithTransition.transitions.length > 0, JSON.stringify(writeWithTransition));
+const transitionText = JSON.stringify(writeWithTransition.transitions);
+check("迁移包含 t2 到 done", /"id":"t2".*"to":"done"/.test(transitionText), transitionText);
+check("迁移包含新任务 t3 注册", /"id":"t3".*"to":"pending"/.test(transitionText), transitionText);
+check("无变化的 t1 不在迁移中", !/"t1"/.test(transitionText), transitionText);
+
 const writerA = JSON.parse(JSON.stringify(stateForWrites));
 writerA.round = 2;
 const writerB = JSON.parse(JSON.stringify(stateForWrites));
@@ -263,6 +288,29 @@ check("HTML 含事件日志", /执行轨迹/.test(html) && /init/.test(html) && 
 check("HTML 含预算", /100\/1000/.test(html));
 check("HTML 依赖图无环", !/存在环/.test(html));
 check("HTML 自包含无外链", !/src="http|href="http/.test(html));
+
+// 渲染必须把 write 事件里的任务迁移显示出来
+const migratedJson = JSON.stringify({
+  version: 1,
+  prompt: "render test",
+  max_iterations: 0,
+  max_failures: 3,
+  retry_on_failure: false,
+  completion_promise: null,
+  outer_iteration: 0,
+  tasks: [
+    { id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 },
+    { id: "t2", title: "b", status: "done", depends_on: ["t1"], accept_criteria: ["ok"], failures: 0 },
+  ],
+  consecutive_failures: 0,
+  stall_counter: 0,
+  fail_history: [],
+  round: 3,
+  stop_reason: null,
+});
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", renderStateFile], migratedJson);
+renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", renderStateFile, "--out", renderHtmlFile]);
+check("HTML 显示任务状态迁移", /t2:in_progress→done|t2:in_progress→done/.test(readFileSync(renderHtmlFile, "utf8")), renderHtmlFile);
 
 // 只读性：render 不写状态、不追加事件、不创建锁
 const stateBefore = readFileSync(renderStateFile, "utf8");

@@ -29,7 +29,7 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
+| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
 | `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；默认排除 `.loop-cli/**` |
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
 
@@ -42,7 +42,7 @@ node scripts/state.mjs events --pipeline coding --tail 20
 node scripts/render.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json --out .loop-cli/state/coding-pipeline.html
 ```
 
-`render.mjs` 是只读可视化：读取状态文件与事件日志，生成**自包含单文件 HTML**（内联 CSS、无外链），含摘要卡片、按依赖分层布局的任务 DAG（状态着色）、事件时间线、预算与 `stop_reason`。输出默认是状态文件同名 `.html`；不写状态、不追加事件、不取锁。
+`render.mjs` 是只读可视化：读取状态文件与事件日志，生成**自包含单文件 HTML**（内联 CSS、无外链），含摘要卡片、按依赖分层布局的任务 DAG（状态着色）、事件时间线、预算与 `stop_reason`。`state.mjs write` 每次会对比旧状态，把任务状态变化（含新任务注册）作为 `transitions` 记录到事件日志，渲染时在事件行内联展示（如 `t2:pending→done`）。输出默认是状态文件同名 `.html`；不写状态、不追加事件、不取锁。
 
 scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
 
@@ -52,7 +52,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 实测）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（78 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、预算、依赖图与可视化渲染（62 断言）。两者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（78 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染（67 断言）。两者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
