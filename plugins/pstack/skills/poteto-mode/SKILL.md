@@ -2,7 +2,7 @@
 name: poteto-mode
 description: poteto's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. Use for poteto, /poteto-mode, or requests to work in this style.
 license: MIT
-compatibility: Vendored scripts under scripts/ need bun and Node.js; PR operations need the gh CLI (or origin when the forge is Origin).
+compatibility: scripts/ helpers need Node.js; the bun-gated watch-pr/orch CLIs live under extras/poteto-mode-scripts/ and need bun; PR operations need the gh CLI (or origin when the forge is Origin).
 ---
 
 # Poteto mode

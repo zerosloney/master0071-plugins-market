@@ -158,7 +158,7 @@ r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/po
 ok('bash operand is an existing file in cwd: allow (resolve climbs to the parent)', r.out.trim() === ALLOW);
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/a; rm x` }, cwd: wsPosix }));
 ok('bash metacharacter: silent', r.out === '');
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/orch/orch.ts ${wsPosix}/x` }, cwd: wsPosix }));
+r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/extras/poteto-mode-scripts/orch/orch.ts ${wsPosix}/x` }, cwd: wsPosix }));
 ok('bash unregistered script: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs /etc/passwd` }, cwd: wsPosix }));
 ok('bash absolute operand outside cwd: silent', r.out === '');

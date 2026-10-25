@@ -40,7 +40,8 @@ plugins/
 └── pstack/
     ├── plugin.json           # 标准清单
     ├── skills/               # 标准 skill：65 个（poteto-mode / 24 principle-* / 工作流）
-    ├── agents/  effort-agents/  hooks/  models.json   # ↓ 客户端约定，非 Agent Plugins 核心
+    ├── agents/  hooks/  models.json                    # ↓ 客户端约定，非 Agent Plugins 核心
+    ├── extras/              # 按需启用：bun 专属 vendored 脚本 / effort-agents / 上游参考，见 extras/README.md
     ├── NOTICE-PORT.md  LICENSE*                       # 第三方 MIT 作品的署名与许可，不可删
     └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 LICENSE                     # 本仓库自身作品的 MIT 许可（pstack 的第三方许可另见其目录内文件）
@@ -62,7 +63,7 @@ Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标�
 |------|------|--------|
 | `plugins/*/hooks/hooks.json` | 客户端约定（非标准） | Claude Code / ZCode 等支持 Claude 式 hook 的宿主，用 `${CLAUDE_PLUGIN_ROOT}` 定位插件根 |
 | `plugins/agent-pipelines/commands/`、`agents/` | 客户端约定（非标准） | 支持斜杠命令与子智能体的宿主 |
-| `plugins/pstack/agents/`、`effort-agents/`、`hooks/` | 客户端约定（非标准） | 支持子智能体 / Claude 式 hook 的宿主；session hook 读 `~/.claude/pstack-models.md`，含 `session hook: off` 即不注入路由令；ZCode 按约定路径注册同一份 `hooks/hooks.json`，`session-start.mjs` 宿主自检后走 zcode 分支读 `~/.zcode/pstack-models.md`，映射见 `skills/poteto-mode/references/zcode-tools.md` |
+| `plugins/pstack/agents/`、`hooks/` | 客户端约定（非标准） | 支持子智能体 / Claude 式 hook 的宿主；session hook 读 `~/.claude/pstack-models.md`，含 `session hook: off` 即不注入路由令；ZCode 按约定路径注册同一份 `hooks/hooks.json`，`session-start.mjs` 宿主自检后走 zcode 分支读 `~/.zcode/pstack-models.md`，映射见 `skills/poteto-mode/references/zcode-tools.md`。effort 分级子智能体与 bun 专属脚本在 `plugins/pstack/extras/`（默认不加载） |
 | `plugins/*/.zcode-plugin/plugin.json` | **非标准 ZCode 兼容垫片** | ZCode；提供内联 `mcpServers` 与 `userConfig` 设置页 |
 | `plugins/*/.codex-plugin/plugin.json` | **非标准 Codex 兼容垫片** | Codex；声明 `skills` / `mcpServers` / `hooks` 与 `interface` 展示信息 |
 | `plugins/*/.omp-plugin/plugin.json` | **非标准 Oh My Pi 兼容垫片** | Oh My Pi（`omp`）；声明 `skills` / `agents` / `commands` 与内联 `mcpServers` |
@@ -123,7 +124,7 @@ codex plugin add agent-pipelines@master0071-plugins
 codex plugin add pstack@master0071-plugins
 ```
 
-Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/`、`effort-agents/` 是 Claude 式宿主的约定，Codex 不加载。
+Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/` 是 Claude 式宿主的约定，Codex 不加载（effort 分级变体在 `extras/`，任何宿主都不加载）。
 
 ### Oh My Pi（omp）
 

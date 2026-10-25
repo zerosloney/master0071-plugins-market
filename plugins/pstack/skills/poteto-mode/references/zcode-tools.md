@@ -77,7 +77,7 @@ Most skills need only the tables above. These need one more mapping:
 
 ## Vendored scripts
 
-`skills/poteto-mode/scripts/` ships the `watch-pr` PR watcher, the `orch` store CLI, and `worktree-audit.mjs`. They use bun and Node.js and run the same on ZCode; invoke them through `Bash`. They need `bun` and `gh`, or `origin` when the forge is Origin.
+`skills/poteto-mode/scripts/` ships the node-only helpers: `check-plan.mjs`, `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs` — invoke them through `Bash` with `node`. The bun-gated `watch-pr` PR watcher and `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`); they need `bun` and `gh`, or `origin` when the forge is Origin.
 
 ## Instructions file
 
