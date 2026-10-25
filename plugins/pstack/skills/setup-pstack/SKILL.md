@@ -2,7 +2,7 @@
 name: setup-pstack
 description: Configure which models pstack uses per role. Detects available models and writes the current runtime's override sheet. Use for /setup-pstack, "configure pstack models", changing pstack's model choices, or turning the SessionStart hook on or off.
 license: MIT
-compatibility: Requires a POSIX shell (sh) with awk for scripts/check-sheet.sh and scripts/read-sheet.sh.
+compatibility: Node.js >= 18 for the session-start hook. A POSIX shell (sh) with awk is needed only for scripts/check-sheet.sh and scripts/read-sheet.sh, which the Copilot pre-tool-use contract and the awk-parity test use; model-sheet setup itself runs without them.
 ---
 
 # Setup pstack
