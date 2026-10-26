@@ -97,7 +97,7 @@ DONE 必须同时满足：
 ## 初始化
 1. 读取当前请求；为空则询问用户。
 2. 若状态文件存在，按 `### 读取规则` 处理恢复或新建；新建时删除旧文件。
-3. 建立边界声明（hard/soft/forbidden scope）。**检查 `depends_on` 是否存在循环依赖**，存在则报错。scope 通配语法支持 `*`（单段）、`**`（跨段）、`?`（单字符）；不支持 brace 展开与字符类——`*.{js,ts}` 不会匹配，多后缀逐条列出（`*.js`、`*.ts`）。
+3. 建立边界声明（hard/soft/forbidden scope）。**检查 `depends_on` 是否存在循环依赖**，存在则报错。scope 通配语法支持 `*`（单段）、`**`（跨段）、`?`（单字符）；不支持 brace 展开与字符类——`*.{js,ts}` 不会匹配，多后缀逐条列出（`*.js`、`*.ts`）；也不支持 `!` 否定——传入会被 `scope.mjs` 直接报错而不是静默不匹配；前导 `**/` 不匹配零目录段，匹配目录根下内容写 `dir/**` 而不是 `**/dir/**`。
 4. **复杂度评估与再拆分**：按 Coding Orchestrator agent 模板「## 任务复杂度评估与拆分」的判据（accept_criteria > 3 / 跨文件 > 5 或跨模块 > 2）评估当前请求，对过大请求拆成多个 task 并建立依赖，`subtask_of` 标注溯源。**拆分边界不得跨越 forbidden_scope**——任一子任务 hard_scope 触及 forbidden_scope 立即停止拆分并询问用户。核算子任务总数 ≤ 6（`= MAX_CYCLES × 0.75`），超限且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 建立 Baseline（git_ref / git_status_snapshot / fingerprint / none）。
 6. 探测项目脚本（lint/typecheck/build/test）。
@@ -228,7 +228,7 @@ value: {baseline_value}
 3. 获取 builder 结果后，**调用 coding-reviewer 工具**审查产出。
 4. 根据审查者 verdict 与验证结果更新任务状态：
    - PASS → 任务 `done`，`consecutive_failures = 0`。
-- PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照）；无 evidence 的 PASS 按 NEEDS_FIX 处理。
+   - PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照）；无 evidence 的 PASS 按 NEEDS_FIX 处理。
    - NEEDS_FIX → 任务回 `pending`，`consecutive_failures += 1`，附 failure note。
    - REJECT → 任务 `blocked` 或回 `pending`，`consecutive_failures += 1`。
 5. 按 JSON schema 格式写入状态文件（遵循 `### 写入规则` 的原子写入流程）。

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // agent-pipelines 的运行时辅助脚本测试：状态机与 scope 检查。
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -177,7 +177,10 @@ valid.round = 1;
 valid.tasks[0].status = "done";
 valid.tasks[1].status = "in_progress";
 const written = run("state.mjs", ["write", "--pipeline", "ralph", "--file", writeFile], JSON.stringify(valid));
-check("write 接受合法状态并原子落盘", written.status === 0 && existsSync(writeFile) && !existsSync(`${writeFile}.tmp`), written.stderr);
+const tmpLeftovers = readdirSync(path.dirname(writeFile)).filter(
+  (name) => name.startsWith(path.basename(writeFile) + ".") && name.endsWith(".tmp"),
+);
+check("write 接受合法状态并原子落盘", written.status === 0 && existsSync(writeFile) && tmpLeftovers.length === 0, written.stderr);
 
 console.log("\n== scope ==");
 const repo = path.join(sandbox, "repo");
@@ -192,6 +195,8 @@ git("commit", "-m", "base");
 const base = git("rev-parse", "HEAD").trim();
 const scope = (extra = []) =>
   run("scope.mjs", ["--base", base, "--hard", "src/**", "--soft", "docs/**", "--forbidden", "dist/**", "--json"], undefined, repo);
+const negated = run("scope.mjs", ["--base", base, "--forbidden", "!dist/**", "--json"], undefined, repo);
+check("scope 的 ! 否定模式显式报错而非静默不匹配", negated.status === 2 && /not supported/.test(negated.stderr), negated.stderr);
 
 mkdirSync(path.join(repo, "src"));
 writeFileSync(path.join(repo, "src", "a.js"), "a\n");
@@ -256,6 +261,15 @@ check("陈旧锁被清理后 init 成功", stale.status === 0 && !existsSync(loc
 
 const readEvents = () => JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", lockFile, "--json"]).stdout).events;
 check("init 写入事件日志", readEvents().some((event) => event.event === "init"));
+
+// 防误覆盖：已有非空任务列表的状态是带进度的管道，init 必须拒绝，--force 才放行
+const guardFile = path.join(sandbox, "guard.json");
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", guardFile], JSON.stringify(valid));
+const refusedInit = run("state.mjs", ["init", "--pipeline", "ralph", "--file", guardFile, "--prompt", "again"]);
+check("init 拒绝覆盖非空状态", refusedInit.status === 2 && /--force/.test(refusedInit.stderr), refusedInit.stderr);
+check("被拒绝的 init 未破坏原状态", JSON.parse(readFileSync(guardFile, "utf8")).tasks.length === 2);
+const forcedInit = run("state.mjs", ["init", "--pipeline", "ralph", "--file", guardFile, "--prompt", "again", "--force"]);
+check("init --force 才允许覆盖", forcedInit.status === 0 && JSON.parse(readFileSync(guardFile, "utf8")).tasks.length === 0, forcedInit.stderr);
 const stateForWrites = JSON.parse(readFileSync(lockFile, "utf8"));
 stateForWrites.round = 1;
 run("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stringify(stateForWrites));
@@ -319,6 +333,7 @@ const renderState = {
   tasks: [
     { id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 },
     { id: "t2", title: "b", status: "in_progress", depends_on: ["t1"], accept_criteria: ["ok"], failures: 1 },
+    { id: "t3", title: "c", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 },
   ],
   consecutive_failures: 1,
   stall_counter: 0,
@@ -344,6 +359,15 @@ check("HTML 含事件日志", /执行轨迹/.test(html) && /init/.test(html) && 
 check("HTML 含预算", /100\/1000/.test(html));
 check("HTML 依赖图无环", !/存在环/.test(html));
 check("HTML 自包含无外链", !/src="http|href="http/.test(html));
+// .task 绝对定位必须显式设 top：t1/t3 同层（第 0 层两行），t3 应在第 1 行（18 + 110px）
+check("HTML 同层任务按行堆叠（显式 top）", /top:18px/.test(html) && /top:128px/.test(html), html.match(/top:\d+px/g)?.join(","));
+
+// 数值字段同样不能裸内插：render/serve 路径不跑 validateState，被篡改的状态文件不能把 HTML 注进看板
+const xssFile = path.join(renderDir, "xss.json");
+writeFileSync(xssFile, JSON.stringify({ ...renderState, round: "<img src=x onerror=alert(1)>" }));
+const xssResult = run("render.mjs", ["--pipeline", "ralph", "--file", xssFile, "--out", path.join(renderDir, "xss.html")]);
+const xssHtml = existsSync(path.join(renderDir, "xss.html")) ? readFileSync(path.join(renderDir, "xss.html"), "utf8") : "";
+check("概览卡数值字段转义，状态文件不可注入 HTML", xssResult.status === 0 && /&lt;img/.test(xssHtml) && !/<img src=x/.test(xssHtml), xssResult.stderr);
 
 // 渲染必须把 write 事件里的任务迁移显示出来
 const migratedJson = JSON.stringify({
@@ -527,6 +551,13 @@ graphState(Array.from({ length: 9 }, (_, index) => ({ id: `t${index + 1}`, depen
 graphResult = run("graph.mjs", ["--pipeline", "ralph", "--file", graphFile, "--json"]);
 check(
   "子任务超预算被 graph 拒绝",
+  graphResult.status === 1 && JSON.parse(graphResult.stdout).budget.overflow === true,
+  graphResult.stdout + graphResult.stderr,
+);
+graphState(Array.from({ length: 7 }, (_, index) => ({ id: `t${index + 1}`, depends_on: [] })));
+graphResult = run("graph.mjs", ["--pipeline", "coding", "--file", graphFile, "--json"]);
+check(
+  "coding 拆分预算为 6（7 个任务即超预算）",
   graphResult.status === 1 && JSON.parse(graphResult.stdout).budget.overflow === true,
   graphResult.stdout + graphResult.stderr,
 );

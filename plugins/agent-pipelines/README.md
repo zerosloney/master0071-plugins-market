@@ -31,10 +31,9 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init` / `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
+| `scripts/state.mjs` | `init`（非空状态需 `--force` 覆盖）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
 | `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；默认排除 `.loop-cli/**` |
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
-
 | `scripts/render.mjs` | 只读渲染：状态文件 + 事件日志 → 自包含单文件 HTML（依赖图 DAG、事件轨迹、预算） |
 | `scripts/serve.mjs` | 本地实时看板：HTTP + SSE 监听状态文件与事件日志，浏览器自动刷新（默认只绑 127.0.0.1） |
 
@@ -60,7 +59,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 实测）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（104 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（82 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（104 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（89 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
 
 ## 使用
 

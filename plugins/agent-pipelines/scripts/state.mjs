@@ -365,10 +365,24 @@ function main() {
     }
     const { errors } = validateState(base, pipeline);
     if (errors.length) fail(errors.join("\n"));
+    // 防误覆盖：已有非空任务列表的状态是带进度的管道，直接 init 会静默销毁它。
+    // 检测在锁内完成（避免 TOCTOU），fail 放在锁外——process.exit 不会跑 withLock 的 finally，锁内 fail 会把锁留在盘上
+    let existingTasks = 0;
     withLock(file, () => {
-      writeAtomic(file, base);
-      logEvent(file, pipeline, "init", base);
+      if (!args.force && existsSync(file)) {
+        try {
+          const existing = JSON.parse(readFileSync(file, "utf8"));
+          existingTasks = existing && Array.isArray(existing.tasks) ? existing.tasks.length : 0;
+        } catch {}
+      }
+      if (existingTasks === 0) {
+        writeAtomic(file, base);
+        logEvent(file, pipeline, "init", base);
+      }
     });
+    if (existingTasks > 0) {
+      fail(`refusing to overwrite existing state (${existingTasks} task(s)): pass --force to start over, or use write to update it`);
+    }
     if (args.json) console.log(JSON.stringify({ file, state: base }));
     else console.log(`Initialized ${file}`);
     return;

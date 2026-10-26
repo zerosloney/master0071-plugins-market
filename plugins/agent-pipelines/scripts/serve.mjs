@@ -51,7 +51,12 @@ function broadcast() {
   const changed = html !== lastHtml;
   lastHtml = html;
   for (const res of clients) {
-    res.write(`event: render\ndata: ${JSON.stringify({ changed, ts: new Date().toISOString() })}\n\n`);
+    try {
+      res.write(`event: render\ndata: ${JSON.stringify({ changed, ts: new Date().toISOString() })}\n\n`);
+    } catch {
+      // 客户端在 close 事件到达前断开：写失败直接摘除，别让广播循环中断或抛未捕获异常
+      clients.delete(res);
+    }
   }
 }
 
@@ -70,6 +75,8 @@ function handleRequest(req, res) {
     });
     res.write("retry: 2000\n\n");
     clients.add(res);
+    // write 到已销毁的流会触发 error 事件（先于 close）：不接住就是未捕获异常，直接打崩看板进程
+    res.on("error", () => clients.delete(res));
     req.on("close", () => clients.delete(res));
     return;
   }
@@ -119,6 +126,11 @@ try {
 lastHtml = renderHtml();
 
 const server = createServer(handleRequest);
+// 端口被占（常见于上一个看板没退干净）时给可读报错并以退出码 2 结束，而不是抛未监听的 error 事件
+server.on("error", (err) => {
+  console.error(`agent-pipelines live board could not listen on 127.0.0.1:${port}: ${err.message}`);
+  process.exit(2);
+});
 server.listen(port, "127.0.0.1", () => {
   console.log(`agent-pipelines live board: http://127.0.0.1:${port}`);
   console.log(`state: ${file}`);

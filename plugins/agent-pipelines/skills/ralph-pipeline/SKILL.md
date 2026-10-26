@@ -206,7 +206,7 @@ accept_criteria:
 3. 获取执行者结果后，委派审查者审查产出。
 4. 根据审查者 verdict 与验证结果更新任务状态：
    - PASS → 任务 `done`，`consecutive_failures = 0`。
-- PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照）；无 evidence 的 PASS 按 NEEDS_FIX 处理。
+   - PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照）；无 evidence 的 PASS 按 NEEDS_FIX 处理。
    - NEEDS_FIX → 任务回 `pending`，`consecutive_failures += 1`，附 failure note。
    - REJECT → 任务 `blocked` 或回 `pending`，`consecutive_failures += 1`。
 5. 按 JSON schema 格式写入状态文件（遵循「写入规则」的原子写入流程）。

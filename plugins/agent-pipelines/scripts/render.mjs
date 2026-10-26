@@ -113,9 +113,15 @@ function renderTaskGraph(tasks, graph) {
   const byId = new Map(tasks.map((task) => [task.id, task]));
   const rows = [];
   const maxLayer = Math.max(0, ...tasks.map((task) => graph.layer.get(task.id) ?? 0));
+  // .task 是绝对定位、脱离文档流：不显式设 top 时同层卡片按 CSS 静态位置规则会全部叠在容器顶部。
+  // 同层任务按行堆叠，行高 110px 与 .graph 的 min-height 口径一致
+  const rowOfLayer = new Map();
   for (const task of tasks) {
     const layer = graph.layer.get(task.id) ?? 0;
+    const row = rowOfLayer.get(layer) ?? 0;
+    rowOfLayer.set(layer, row + 1);
     const left = `${(layer / Math.max(1, maxLayer)) * 80}%`;
+    const top = 18 + row * 110; // 18px 容器内边距 + 行号 × 110px
     const status = task.status;
     const depLines = (Array.isArray(task.depends_on) ? task.depends_on : [])
       .map((dep) => {
@@ -126,10 +132,10 @@ function renderTaskGraph(tasks, graph) {
       })
       .join("");
     rows.push(
-      `<div class="task" style="left:${left}">` +
+      `<div class="task" style="left:${left};top:${top}px">` +
         `<div class="task-head"><span class="task-id">${htmlEscape(task.id)}</span>${badge(status, status)}</div>` +
         `<div class="task-title">${htmlEscape(task.title)}</div>` +
-        (task.failures > 0 ? `<div class="task-failures">failures: ${task.failures}</div>` : "") +
+        (task.failures > 0 ? `<div class="task-failures">failures: ${htmlEscape(String(task.failures))}</div>` : "") +
         (task.subtask_of ? `<div class="task-sub">⊂ ${htmlEscape(task.subtask_of)}</div>` : "") +
         (depLines ? `<div class="deps">${depLines}</div>` : "") +
         (Array.isArray(task.accept_criteria) && task.accept_criteria.length
@@ -166,11 +172,11 @@ function renderSummaryCards(state, graph) {
     : "未设置";
   return (
     `<div class="cards">` +
-    `<div class="card"><div class="card-label">round</div><div class="card-value">${state.round ?? 0}</div></div>` +
+    `<div class="card"><div class="card-label">round</div><div class="card-value">${htmlEscape(String(state.round ?? 0))}</div></div>` +
     `<div class="card"><div class="card-label">tasks</div><div class="card-value">${tasks.length}</div><div class="card-sub">${done} done · ${inProgress} in_progress · ${pending} pending · ${blocked} blocked</div></div>` +
     `<div class="card"><div class="card-label">stop_reason</div><div class="card-value">${htmlEscape(String(state.stop_reason ?? "null"))}</div></div>` +
-    `<div class="card"><div class="card-label">连续失败</div><div class="card-value">${state.consecutive_failures ?? 0}</div><div class="card-sub">max ${state.max_failures ?? "-"}</div></div>` +
-    `<div class="card"><div class="card-label">stall</div><div class="card-value">${state.stall_counter ?? 0}</div></div>` +
+    `<div class="card"><div class="card-label">连续失败</div><div class="card-value">${htmlEscape(String(state.consecutive_failures ?? 0))}</div><div class="card-sub">max ${htmlEscape(String(state.max_failures ?? "-"))}</div></div>` +
+    `<div class="card"><div class="card-label">stall</div><div class="card-value">${htmlEscape(String(state.stall_counter ?? 0))}</div></div>` +
     `<div class="card"><div class="card-label">预算</div><div class="card-value card-value-sm">${htmlEscape(budget)}</div></div>` +
     `</div>`
   );
@@ -208,6 +214,13 @@ export function buildHtml({ pipeline, file, state, events, graph, warnings }) {
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const graphOk = graph.cycles.length === 0 && graph.errors.length === 0;
   const lastEvent = events[events.length - 1];
+  // 容器高度按「最多任务的那一层」的行数算，而不是任务总数：卡片按 层=列、层内序=行 绝对定位
+  const rowsPerLayer = new Map();
+  for (const task of tasks) {
+    const layer = graph.layer.get(task.id) ?? 0;
+    rowsPerLayer.set(layer, (rowsPerLayer.get(layer) ?? 0) + 1);
+  }
+  const maxRows = Math.max(1, ...rowsPerLayer.values());
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -228,7 +241,7 @@ h2 { font-size: 16px; margin: 32px 0 12px; color: var(--muted); border-bottom: 1
 .card-value { font-size: 20px; font-weight: 700; margin-top: 2px; }
 .card-value-sm { font-size: 13px; font-weight: 500; }
 .card-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.graph { position: relative; min-height: ${Math.max(220, tasks.length * 110)}px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 14px; }
+.graph { position: relative; min-height: ${Math.max(220, maxRows * 110 + 36)}px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 14px; }
 .task { position: absolute; width: 300px; max-width: 90%; background: var(--panel2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 10px; }
 .task-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 2px; }
 .task-id { font-weight: 700; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }

@@ -104,6 +104,14 @@ function main() {
   if (hard.length === 0 && soft.length === 0 && forbidden.length === 0) {
     fail("no scope configured; pass --hard/--soft/--forbidden or put a scope object in the state file");
   }
+  // `!` 否定不支持：globToRegExp 会把它当字面量，写进 forbidden 会静默永不匹配（fail-open）。
+  // 显式报错把人引到 hard/soft/forbidden 的正确表达方式上，而不是让越界改动静默通过
+  for (const [kind, patterns] of [["hard", hard], ["soft", soft], ["forbidden", forbidden]]) {
+    const negated = patterns.find((pattern) => pattern.startsWith("!"));
+    if (negated) {
+      fail(`scope ${kind} pattern "${negated}": negation ("!") is not supported and would silently never match; express the rule via the hard/soft/forbidden split instead`);
+    }
+  }
   // 状态文件本身不属于业务改动；默认排除，避免 pipeline 自己把自己判成越界。
   const exclude = listOf(args.exclude).length > 0 ? listOf(args.exclude) : [".loop-cli/**"];
 
