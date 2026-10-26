@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 统一同步插件版本号（多插件，按插件分组）：
 //
-//   systemone-decision（7 处）：
+//   systemone-decision（8 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
@@ -9,8 +9,9 @@
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
 //     mcp/server.mjs 的 SERVER_INFO.version ×1
+//     根 README.md 插件表版本 ×1
 //
-//   worktree-ops（7 处）：
+//   worktree-ops（8 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
@@ -18,22 +19,25 @@
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
 //     mcp/protocol.mjs 的 SERVER_INFO.version ×1（服务端身份在协议层）
+//     根 README.md 插件表版本 ×1
 //
-//   agent-pipelines（6 处）：
+//   agent-pipelines（7 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
 //                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     根 README.md 插件表版本 ×1
 //
-//   pstack（6 处）：
+//   pstack（7 处）：
 //     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
 //                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
 //     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
 //                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     根 README.md 插件表版本 ×1
 //     注意：pstack 的版本号只表示本仓库的移植包版本，与上游 poteto/pstack 的版本号解耦，
 //     上游版本记录在 plugins/pstack/NOTICE-PORT.md，不在此同步。
 //
@@ -121,6 +125,13 @@ const serverInfoVersion = (file, pluginName) =>
     new RegExp(`const SERVER_INFO = \\{ name: '${esc(pluginName)}', version: '([^']+)' \\}`),
   )?.[1];
 
+// 根 README.md 插件表的版本位：行形如 `| [name](plugins/name/) | x.y.z | ...`。
+// release 脚本此前不覆盖它，导致表里长期留着过期版本——现在与其余版本位一并同步、校验。
+const readmeVersion = (pluginName) =>
+  readFileSync(at('README.md'), 'utf8').match(
+    new RegExp(`\\| \\[${esc(pluginName)}\\]\\(plugins/${esc(pluginName)}/\\) \\| (\\d+\\.\\d+\\.\\d+) \\|`),
+  )?.[1];
+
 // 每个插件收集 [label, 当前版本值]；以 currentFrom 清单为基准版本
 function collect(name) {
   const cfg = PLUGINS[name];
@@ -129,6 +140,7 @@ function collect(name) {
   for (const f of cfg.markets) spots.push([f, marketEntryVersion(f, name)]);
   for (const f of cfg.jsonFiles) spots.push([f, readJson(f).version]);
   if (cfg.serverInfo) spots.push([`${cfg.serverInfo} SERVER_INFO`, serverInfoVersion(cfg.serverInfo, name)]);
+  spots.push(['README.md 插件表', readmeVersion(name)]);
   return { current, spots };
 }
 
@@ -198,10 +210,20 @@ function writeJsonRoot(file, from, to) {
   console.log(`✓ ${file}: ${from} → ${to}`);
 }
 
+// 根 README.md 插件表：按插件行锚定后替换首个版本段
+function writeReadmeEntry(pluginName, from, to) {
+  const src = readFileSync(at('README.md'), 'utf8');
+  const re = new RegExp(`(\\| \\[${esc(pluginName)}\\]\\(plugins/${esc(pluginName)}/\\) \\| )${esc(from)}( \\|)`);
+  if (!re.test(src)) throw new Error(`README.md 插件表中未找到 ${pluginName} 的版本 ${from}，请人工检查`);
+  writeFileSync(at('README.md'), src.replace(re, `$1${to}$2`));
+  console.log(`✓ README.md 插件表 [${pluginName}]: ${from} → ${to}`);
+}
+
 const cfg = PLUGINS[name];
 try {
   for (const f of cfg.markets) writeMarketEntry(f, name, current, next);
   for (const f of cfg.jsonFiles) writeJsonRoot(f, current, next);
+  writeReadmeEntry(name, current, next);
   if (cfg.serverInfo) {
     const src = readFileSync(at(cfg.serverInfo), 'utf8');
     const re = new RegExp(`(const SERVER_INFO = \\{ name: '${esc(name)}', version: ')[^']+(' \\})`);
