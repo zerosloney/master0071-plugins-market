@@ -78,3 +78,10 @@ export function readEndpointConfig() {
   }
   return null;
 }
+
+/** baseUrl 是否为不安全端点：非 https 且非本机回环。这类端点携带 Bearer Key 等于明文外泄凭据，
+ *  MCP 服务与 hook 在发请求前都应据此拒绝（共享文件落在用户可写目录，值不可信）。 */
+export function isInsecureBaseUrl(baseUrl) {
+  if (typeof baseUrl !== 'string' || /^https:\/\//i.test(baseUrl)) return false;
+  return !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])([:\/]|$)/i.test(baseUrl);
+}

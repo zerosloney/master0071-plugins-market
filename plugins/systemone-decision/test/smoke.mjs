@@ -114,6 +114,18 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ ...FIXTURE, answers }));
       return;
     }
+    // type 错乱：choice 问题收到 noul 形态的答案（confidence 还很高）。归一化必须按问题
+    // 定义题型取值——choice 字段不存在 → value=null → borderline 转人工；若反过来信响应的
+    // type，这条会被当 noul 成功判定放行，decision 明示「无法判断」却 needs_human_review=false。
+    if (parsed.state === 'mock:type-mismatch') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        answers[qid] = q.type === 'choice' ? { type: 'noul', noul: 0.9, confidence: 0.95 } : answerFor(qid, q);
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }));
+      return;
+    }
     // 幻觉选项 / 越界分值：模型给出判据表里不存在的 choice，或超出量表范围的 score。
     // 两者 confidence 都很高，但前者会渲染成一个不存在的选项、后者会被 deriveFields
     // 钳成最高档（如 severity 7 → P1），都必须转人工，而不是当作合法判定放行。
@@ -493,6 +505,20 @@ const main = async () => {
       assert.equal(typeLess.answers.severity.level, '核心功能不可用，没有替代方案');
       assert.ok(typeLess.summary.includes('核心功能不可用，没有替代方案'), 'summary 应走 score 分支');
       assert.ok(!typeLess.summary.includes('"score"'), 'summary 不得退化成原始 JSON');
+    });
+
+    // 回归：响应回显的 type 与所问题型错乱时，必须按问题定义取值并转人工，
+    // 不得出现「decision 显示无法判断、needs_human_review 却为 false」的视图矛盾
+    const mismatch = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:type-mismatch' })
+    );
+    check('type 错乱的答案按问题定义取空并转人工，视图一致', () => {
+      assert.equal(mismatch.answers.department.type, 'choice', '归一化题型必须以问题定义为准');
+      assert.equal(mismatch.answers.department.value, null, 'noul 形态的答案按 choice 取值必须取空');
+      assert.equal(mismatch.decision.department, null);
+      assert.equal(mismatch.labels.department, '无法判断');
+      assert.equal(mismatch.needs_human_review, true, '高 confidence 的错乱答案必须转人工');
+      assert.deepEqual(mismatch.low_confidence_questions, ['department']);
     });
 
     const aliasRun = toolResult(await runScenario(client, { action: 'run', scenario: '工单分流', state: '简单咨询类工单' }));

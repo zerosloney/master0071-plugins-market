@@ -12,8 +12,9 @@ import { STDIN_MAX_CHARS } from './hook-io.mjs';
 export const GATE = { riskDenyMin: 3, riskConfirmMin: 2, irreversibleMin: 0.5 };
 
 // 只对 shell 类工具启动判定：其余工具（读写文件、搜索）单次风险低且调用频繁，
-// 每次都发判定请求不可接受。名称匹配覆盖各宿主对终端类工具的常见命名。
-const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run)([_\-.]|$)/i;
+// 每次都发判定请求不可接受。名称匹配覆盖各宿主对终端类工具的常见命名——
+// powershell/pwsh 等词内部的 shell 不构成边界（"powershell" 里 shell 前是 r），必须单列
+const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.]|$)/i;
 
 // 明显只读的命令捷径：不发判定请求直接放行（与 clarity 的寒暄捷径同一思路）
 const READONLY =

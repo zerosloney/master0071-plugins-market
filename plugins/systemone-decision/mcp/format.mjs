@@ -13,7 +13,10 @@ export function normalizeAnswer(question, answer) {
   if (!answer || typeof answer !== 'object') {
     return { present: false };
   }
-  const out = { present: true, type: answer.type || question.type };
+  // 题型以问题定义为准：响应回显的 type 若与所问题型错乱，按所问题型取值必然取空
+  // （value/confidence 缺失），再由 isBorderlineAnswer 兜底转人工——
+  // 若反过来信响应的 type，错乱答案会被当成成功判定放行（decision 与 needs_human_review 互相矛盾）
+  const out = { present: true, type: question.type || answer.type };
   fillAnswerByType(out, answer, question);
   return out;
 }
@@ -141,9 +144,9 @@ export function formatAnswerLines(questions, rawAnswers) {
       continue;
     }
     const label = question?.label || qid;
-    // type 回退到问题定义：与 normalizeAnswer / normalizeDecision 保持一致，
-    // 否则响应缺 type 时这里会掉进兜底分支打印原始 JSON，与 answers/labels 打架
-    const type = raw.type || question?.type;
+    // type 以问题定义为准（响应缺 type 时回退响应值）：与 normalizeAnswer / normalizeDecision 保持一致，
+    // 否则同一份答案在逐题行与 answers/labels 两个视图里会按不同题型渲染
+    const type = question?.type || raw.type;
     // 各题型渲染分支在 question-types.mjs；未知题型兜底打印原始 JSON
     const line = renderAnswerLine(type, label, raw, question);
     lines.push(line ?? `- **${label}**：${JSON.stringify(raw)}`);

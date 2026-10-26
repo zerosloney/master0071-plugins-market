@@ -8,7 +8,7 @@
 
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
-import { writeEndpointConfig } from '../endpoint-config.mjs';
+import { writeEndpointConfig, isInsecureBaseUrl } from '../endpoint-config.mjs';
 import {
   buildSummary,
   deriveFields,
@@ -31,7 +31,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.4' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.5' };
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
@@ -196,7 +196,8 @@ async function callSystemone(state, questions, timeoutMsOverride) {
         'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
     );
   }
-  const timeoutMs = Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? timeoutMsOverride : cfg.timeoutMs;
+  // 与 hooks 侧 decide-client 同口径：调用方传入的剩余预算只收缩、不放大已配置的单条超时
+  const timeoutMs = Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;
   const key = cacheKey(cfg.model, state, questions);
   if (CACHE_TTL_MS > 0) {
     const hit = decisionCache.get(key);
@@ -207,6 +208,15 @@ async function callSystemone(state, questions, timeoutMsOverride) {
     }
   }
   const url = `${cfg.baseUrl}/systemone`;
+  // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key：共享配置文件在用户可写目录，
+  // 值不可信；明文外发凭据比单次工具调用失败严重得多
+  if (isInsecureBaseUrl(cfg.baseUrl)) {
+    throw new ToolError(
+      `baseUrl ${cfg.baseUrl} 不是加密端点（https 或本机回环），为避免 API Key 明文外泄已拒绝请求。` +
+        '请改用 https 端点（SYSTEMONE_BASE_URL 或插件设置页）。本机调试可用 http://127.0.0.1:<port>。'
+    );
+  }
+  // 与 hooks 侧 decide-client 同口径：调用方传入的剩余预算只收缩、不放大已配置的单条超时
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   let res;

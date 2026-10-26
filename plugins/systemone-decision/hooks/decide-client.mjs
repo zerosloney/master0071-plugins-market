@@ -3,7 +3,7 @@
 // 缺失/损坏回退环境变量；API Key 不在共享文件里，仍只从环境变量取。
 // fail-open 契约在调用方：decide 抛错时调用方必须放行，绝不阻塞用户输入或工具调用。
 
-import { readEndpointConfig } from '../endpoint-config.mjs';
+import { readEndpointConfig, isInsecureBaseUrl } from '../endpoint-config.mjs';
 import { cacheGet, cacheKey, cachePut } from './decision-cache.mjs';
 
 export function config(env) {
@@ -31,6 +31,12 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   const key = cacheKey(cfg, state, questions);
   const cached = cacheGet(key);
   if (cached) return cached;
+  // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key 外发；抛错由调用方按 fail-open 契约放行，
+  // stderr 留一条便于诊断为什么预检/风险闸静默失效
+  if (isInsecureBaseUrl(cfg.baseUrl)) {
+    process.stderr.write(`[systemone-decision] baseUrl ${cfg.baseUrl} 不是加密端点（https 或本机回环），拒绝携带 API Key 请求，本次判定跳过。\n`);
+    throw new Error('insecure endpoint');
+  }
   const res = await fetch(`${cfg.baseUrl}/systemone`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
