@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "worktree-ops",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，注册 10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / config / handoff），并用 worktree-manager skill 规定何时建、怎么把工作交接到新会话、破坏性操作如何二次确认。根目录、分支前缀、基线策略与闲置阈值均可配置（环境变量 > 单仓库覆盖 > 全局配置），根目录必须显式配置（未配置时拒绝创建），脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。",
   "author": {
     "name": "master0071",

@@ -44,6 +44,8 @@ node --version && git --version
 | `worktree_config` | 读写全部 worktree 配置（`root` / `baseRef` / `branchPrefix` / `staleDays`），`scope: global` 或单仓库覆盖。`scope: "global"` 下 `repoPath` 可选，仅用于回执附上该仓库的生效值（传了就必须是 git 仓库，路径无效整次调用报错） |
 | `worktree_handoff` | 生成可粘贴的交接简报（路径、分支、基线、任务、约束） |
 
+> **调用模型**：工具调用在服务端是**串行执行**的（同步实现，无请求队列与取消机制）——一次长调用期间，后续请求（含 `ping`）会排队等待。最坏情况是 `worktree_audit` 带 `includeSize: true`：目录体积统计共享 20 秒预算，整次调用最坏约 20 秒。宿主的工具超时预算偏紧或需要并发复用服务时，建议大仓库先跑不带 `includeSize` 的审计，或等异步化改造。
+
 ## 仓库定位：`repoPath` 必须显式传
 
 所有工具都接受 `repoPath`（要操作的仓库的绝对路径），**每次调用都显式传**。
@@ -132,6 +134,13 @@ node --version && git --version
 - 修正锁定语义的文档与回执：`worktree_remove` 拒绝碰锁定工作树，`worktree_merge_back` 仅在带 `remove: true` 时拒绝（纯合并 / 变基锁定工作树是放行的）——此前"一律拒绝"的表述与实现不符。
 - 锁定拒绝消息与 `worktree_lock` 回执的解锁指引改用插件自带的 `worktree_unlock`（保留裸 `git worktree unlock` 作备选）。
 - 移除 `mcp/core.mjs` 未使用的 `SOURCES` 常量与导出。
+
+**0.4.4**
+
+- **配置文件读取路径校验 `staleDays`**。三条写入路径本就只收正数，但手编 `config.json` 写入 0 / 负数 / 非数字会被照单全收，audit 分桶阈值随之异常；现在读取时同口径忽略并报告 issue，回退默认 14。
+- **修复配置锁的陈旧锁接管竞态**。持锁者停滞超 30s 被后来者清掉接管后，原持锁者迟到的 `release()` 会无条件删锁、误删新持锁者的锁；现在 release 前比对锁文件里的 pid，只释放仍属于自己的锁。
+- README 补"调用模型"说明：工具调用串行执行、`worktree_audit` 带 `includeSize: true` 最坏约 20s，长操作期间后续请求排队。
+- 冒烟断言增至 213 条。
 
 **0.3.0（含破坏性变更）**
 

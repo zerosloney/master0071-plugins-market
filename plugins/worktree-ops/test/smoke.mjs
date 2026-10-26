@@ -959,6 +959,13 @@ const emptyPrefix = await session.tool('worktree_config', { action: 'set', scope
 check('branchPrefix 空串被拒绝（空串无法区分「不改」与「去掉前缀」）', emptyPrefix.isError && /invalid branchPrefix/.test(emptyPrefix.text), emptyPrefix.text);
 const resetPrefix = await session.tool('worktree_config', { action: 'set', scope: 'global', branchPrefix: null });
 check('branchPrefix 传 null 才是「回退默认」', !resetPrefix.isError && /branchPrefix=wt\//.test(resetPrefix.text), resetPrefix.text);
+// 读取路径与写入路径同口径：手编配置文件写入非法 staleDays 时忽略并报告 issue，不悄悄采用
+const cfgFile = path.join(cfgHome, 'config.json');
+const cfgSnapshot = readFileSync(cfgFile, 'utf8');
+writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(cfgSnapshot), staleDays: -5 }));
+const badStale = await session.tool('worktree_config', { action: 'get', repoPath: repo });
+check('手编 staleDays 负数被忽略并报告 issue，回退默认 14', !badStale.isError && /staleDays=14/.test(badStale.text) && /staleDays: 14 \(default\)/.test(badStale.text) && /staleDays: expected a positive number, got -5/.test(badStale.text), badStale.text);
+writeFileSync(cfgFile, cfgSnapshot);
 const emptyBase = await session.tool('worktree_create', { repoPath: repo, name: 'empty-base-probe', baseRef: '' });
 check('create 的 baseRef 空串被拒绝而不是悄悄走 auto', emptyBase.isError && /invalid baseRef/.test(emptyBase.text), emptyBase.text);
 

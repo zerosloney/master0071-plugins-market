@@ -145,14 +145,27 @@ function loadConfig() {
   if (rootValue !== null && !path.isAbsolute(rootValue)) {
     issues.push(`root: expected an absolute path, got ${JSON.stringify(rootValue)}`);
   }
+  // staleDays 三条写入路径都校验正数，读取路径同口径：手编配置写入 0/负数/非数字时
+  // 忽略并报告 issue，不能让 audit 的分桶阈值悄悄变成负数
+  if (source.staleDays !== undefined && !(Number.isFinite(source.staleDays) && Number(source.staleDays) > 0)) {
+    issues.push(`staleDays: expected a positive number, got ${JSON.stringify(source.staleDays)}`);
+    // 连键一起删掉：否则来源标注仍按「配置文件里定义过」显示 (global)，值却是默认 14，自相矛盾
+    delete source.staleDays;
+  }
   const config = {
     file,
     parseError,
     issues,
+    // 记录配置文件里真正出现过的键：来源标注只对「文件里写了的」标 global，
+    // 物化的默认值不能冒充 global 来源
+    sourceKeys: Object.keys(source),
     root: rootValue !== null && path.isAbsolute(rootValue) ? rootValue : null,
     baseRef: typeof source.baseRef === "string" ? source.baseRef : DEFAULT_CONFIG.baseRef,
     branchPrefix: typeof source.branchPrefix === "string" ? source.branchPrefix : DEFAULT_CONFIG.branchPrefix,
-    staleDays: Number.isFinite(source.staleDays) ? Number(source.staleDays) : DEFAULT_CONFIG.staleDays,
+    staleDays:
+      Number.isFinite(source.staleDays) && Number(source.staleDays) > 0
+        ? Number(source.staleDays)
+        : DEFAULT_CONFIG.staleDays,
     repos,
   };
   return { file, config };
@@ -171,10 +184,14 @@ function acquireConfigLock(file) {
   for (;;) {
     try {
       const fd = fs.openSync(lockPath, "wx");
-      fs.writeSync(fd, String(process.pid));
+      const owner = String(process.pid);
+      fs.writeSync(fd, owner);
       fs.closeSync(fd);
       return () => {
         try {
+          // 只释放仍属于自己的锁：陈旧锁超时被后来者接管后，迟到的 release 不能误删新持锁者的锁，
+          // 否则第三方可再获取，两个写者并发读-改-写
+          if (fs.readFileSync(lockPath, "utf8") !== owner) return;
           fs.unlinkSync(lockPath);
         } catch {
           /* 已被清理 */
@@ -463,7 +480,13 @@ const env = envOverrides();
 const pick = (envKey, repoKey, globalKey, fallback) => {
 if (env[envKey] !== undefined) return { value: env[envKey], source: "env" };
 if (o[repoKey] !== undefined) return { value: o[repoKey], source: "repo" };
-if (config[globalKey] !== undefined && config[globalKey] !== null) return { value: config[globalKey], source: "global" };
+if (
+  config[globalKey] !== undefined &&
+  config[globalKey] !== null &&
+  (config.sourceKeys || []).includes(globalKey)
+) {
+  return { value: config[globalKey], source: "global" };
+}
 return { value: fallback, source: "default" };
 };
 return {

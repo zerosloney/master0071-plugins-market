@@ -1,6 +1,6 @@
 {
   "name": "worktree-ops",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Git worktree 操作台：10 个 MCP 工具在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，脏工作树、未合并提交与锁定默认拒绝删除。",
   "author": {
     "name": "master0071",

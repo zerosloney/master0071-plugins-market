@@ -1,6 +1,6 @@
 {
   "name": "worktree-ops",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干 / 安全清理 worktree，根目录、分支前缀、基线策略与闲置阈值均可配置；受管根在仓库内时自动写 .git/info/exclude 本地忽略。",
   "author": { "name": "master0071", "url": "https://github.com/zerosloney/master0071-plugins-market" },
   "keywords": ["git", "worktree", "mcp", "branch", "code-review", "productivity"],
