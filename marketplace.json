@@ -17,7 +17,7 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / config / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析，脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。",
       "displayName": "Worktree Ops",
       "displayName_i18n": {
@@ -30,7 +30,7 @@
     {
       "name": "agent-pipelines",
       "source": "./plugins/agent-pipelines",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "description": "多代理编排管道套件：Ralph-Pipeline 通用编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。模型不写死，回退会话默认模型。",
       "displayName": "Agent Pipelines",
       "displayName_i18n": {
