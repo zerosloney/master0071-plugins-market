@@ -1,7 +1,7 @@
 // Sheet decode and check shared by the node hook entries. Ports
 // skills/setup-pstack/scripts/read-sheet.sh (decode) and sheet.awk (parse and
 // check); POSIX awk, run under LC_ALL=C, was the original engine.
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 export const ROLES = [
   'feature, refactoring',
@@ -39,6 +39,9 @@ export function decodeSheet(buf) {
 
 export function readSheet(path) {
   try {
+    // 读前先做大小预检：decodeSheet 的 1 MiB 上限在整读之后才生效，而原 read-sheet.sh
+    // 引擎是先 wc -c 再读——失控的表文件不应先整个载入内存。
+    if (statSync(path).size > MAX_BYTES) return null;
     return decodeSheet(readFileSync(path));
   } catch {
     return null;

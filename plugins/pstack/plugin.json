@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "pstack",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "poteto 风格 agent 工作流栈（65 个 skill）：poteto-mode 作为路由入口，按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，配合 24 条 principle 原则与 swarm 并行子代理；支持 Claude 式 hook 的宿主上由 SessionStart 自动注入路由令。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan），内容同步至上游 0.15.28。",
   "author": {
     "name": "master0071",
