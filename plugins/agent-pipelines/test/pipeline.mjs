@@ -471,12 +471,13 @@ check("SSE 后页面反映新状态", /badge-done/.test(page2), serveOut);
 
 serveProc.kill();
 
-// 只读性：serve 不修改状态文件、不追加事件、不创建锁
+// 只读性：serve 不修改状态文件、不追加事件、不创建锁，也不触发 render 产物落盘
 const serveStateBefore = readFileSync(serveStateFile, "utf8");
 const serveEventsBefore = readFileSync(`${serveStateFile}.events.jsonl`, "utf8");
 check("serve 不修改状态文件", serveStateBefore === readFileSync(serveStateFile, "utf8"));
 check("serve 不修改事件日志", serveEventsBefore === readFileSync(`${serveStateFile}.events.jsonl`, "utf8"));
 check("serve 不创建锁", !existsSync(`${serveStateFile}.lock`));
+check("serve 不生成 render HTML 产物", !existsSync(serveStateFile.replace(/\.json$/, ".html")), serveOut);
 
 console.log("\n== 预算与依赖图 ==");
 const budgetFile = path.join(sandbox, "budget.json");

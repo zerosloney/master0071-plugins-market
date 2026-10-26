@@ -209,6 +209,16 @@ try {
 
   // coding scope 漂移
   expectStop("coding scope_drift=FAIL 判 ESCALATE", "coding", { scope_drift: "FAIL" }, "ESCALATE");
+  // 零容忍高于 DONE：全部任务 done 但 scope 越界仍不允许 DONE
+  expectStop(
+    "coding 全部 done + scope_drift=FAIL → ESCALATE（零容忍高于 DONE）",
+    "coding",
+    {
+      scope_drift: "FAIL",
+      tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    },
+    "ESCALATE",
+  );
 
   // 预算耗尽（无更高优先级规则触发时）
   expectStop("token 预算耗尽判 BUDGET", "ralph", { budget: { max_tokens: 100, spent_tokens: 100 } }, "BUDGET");

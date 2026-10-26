@@ -174,25 +174,46 @@ for (const rel of [
 }
 
 // A2：失败教训回填——委派执行者时必须注入 fail_history 摘要
+// skill 与 command 是同一协议的两套入口，必须同步检查防止行为漂移
 for (const rel of [
   "commands/ralph-pipeline.md",
   "commands/coding-pipeline.md",
   "agents/ralph-orchestrator.md",
   "agents/coding-orchestrator.md",
+  "skills/ralph-pipeline/SKILL.md",
+  "skills/coding-pipeline/SKILL.md",
 ]) {
   const source = read(rel);
   check(`${rel} 注入失败教训`, /失败教训/.test(source) || /fail_lessons/.test(source));
 }
 
-// A3：并行执行就绪任务——命令模板与 orchestrator 都声明"全部可执行项"委派
+// A3：并行执行就绪任务——命令模板、orchestrator 与 skill 都声明"全部可执行项"委派
 for (const rel of [
   "commands/ralph-pipeline.md",
   "commands/coding-pipeline.md",
   "agents/ralph-orchestrator.md",
   "agents/coding-orchestrator.md",
+  "skills/ralph-pipeline/SKILL.md",
+  "skills/coding-pipeline/SKILL.md",
 ]) {
   const source = read(rel);
   check(`${rel} 并行委派就绪任务`, /并行|全部可执行任务|全部发出/.test(source));
+}
+
+// 状态文件默认路径：脚本默认值必须与全部文档声明的 <pipeline>-pipeline.json 一致
+for (const rel of ["scripts/state.mjs", "scripts/render.mjs", "scripts/graph.mjs"]) {
+  const source = read(rel);
+  check(`${rel} 默认状态路径为 <pipeline>-pipeline.json`, source.includes("`${pipeline}-pipeline.json`"));
+  check(`${rel} 不含旧默认路径 <pipeline>.json`, !source.includes("`${pipeline}.json`"));
+}
+for (const rel of [
+  "README.md",
+  "skills/ralph-pipeline/SKILL.md",
+  "skills/coding-pipeline/SKILL.md",
+  "commands/ralph-pipeline.md",
+  "commands/coding-pipeline.md",
+]) {
+  check(`${rel} 状态路径写法与脚本默认值一致`, /\.loop-cli\/state\/(ralph|coding)-pipeline\.json/.test(read(rel)));
 }
 
 // 可视化渲染：render.mjs 存在，且命令模板声明了可视化入口

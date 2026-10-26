@@ -45,7 +45,7 @@ export function pipelineOf(args) {
 
 export function stateFile(args, pipeline) {
   if (args.file) return path.resolve(String(args.file));
-  return path.resolve(".loop-cli", "state", `${pipeline}.json`);
+  return path.resolve(".loop-cli", "state", `${pipeline}-pipeline.json`);
 }
 
 export function htmlEscape(value) {
@@ -305,4 +305,5 @@ function main() {
   else console.log(`Rendered ${out} (${tasks.length} tasks, ${events.length} events)`);
 }
 
-main();
+// 只在直接执行本脚本时渲染；被 serve.mjs import 时不产生任何副作用
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

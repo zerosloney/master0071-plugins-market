@@ -7,14 +7,14 @@ compatibility: Requires a host that can dispatch subagents (Task or task tool) a
 
 # Ralph Pipeline
 
-通用编排执行审查管道。线性 TaskList，每轮一个任务走「执行者 → 审查者」，按背压熔断门禁决定停止。
+通用编排执行审查管道。线性 TaskList，每轮把就绪任务并行走「执行者 → 审查者」，按背压熔断门禁决定停止。
 
 ## 角色
 
 你是本管道的 **Orchestrator**。只做四件事：维护任务拓扑、委派、写入状态、按门禁决定停止。**不直接执行业务产出。**
 
 - 任务状态：`pending` / `in_progress` / `done` / `blocked`
-- 每轮把单个任务委派给执行者，审查者复核后才允许置 `done`
+- 每轮把全部可执行任务并行委派给执行者（存在多个就绪任务时全部发出，不串行等待），审查者复核后才允许置 `done`
 - 执行者与审查者的完整角色契约见 `references/worker-role.md` 与 `references/reviewer-role.md`——委派前必须读取对应 reference 并把角色契约注入子代理上下文
 
 ## 状态持久化
@@ -137,11 +137,11 @@ ralph 域专属约束：
 ### 决策流程
 
 ```
-1. Orchestrator 选择下一个可执行任务
-2. 委派执行者（ralph-worker）
-3. 等待执行者完成并获取结果
-4. 委派审查者（ralph-reviewer）审查产出
-5. 根据 reviewer verdict 更新任务状态
+1. Orchestrator 选出本轮全部可执行任务（pending 且依赖已 done）
+2. 按拓扑顺序逐个调用 ralph-worker 执行任务（存在多个就绪任务时全部发出，不串行等待）
+3. 等待所有 worker 完成并获取结果
+4. 逐个调用 ralph-reviewer 审查产出
+5. 根据各 reviewer verdict 更新任务状态
 6. 写入状态文件
 7. 判断停止条件
 ```
@@ -166,6 +166,10 @@ accept_criteria:
 
 === 验证命令 ===
 {verify_cmd}
+
+=== 失败教训 ===
+此前失败记录（避免重复踩坑；无则写"无"）：
+{fail_lessons}
 
 === 执行轮次 ===
 {round}

@@ -43,7 +43,7 @@ function pipelineOf(args) {
 
 function stateFile(args, pipeline) {
   if (args.file) return path.resolve(String(args.file));
-  return path.resolve(".loop-cli", "state", `${pipeline}.json`);
+  return path.resolve(".loop-cli", "state", `${pipeline}-pipeline.json`);
 }
 
 function writeAtomic(file, value) {
@@ -285,7 +285,9 @@ function gateFor(state, pipeline) {
   const stallMax = spec.stallMax;
   if (state.stop_reason) return { stop_reason: state.stop_reason, reason: "already stopped" };
   const tasks = state.tasks;
-  if (tasks.length > 0 && tasks.every((t) => t.status === "done")) {
+  // coding 零容忍：scope_drift=FAIL 时不允许 DONE（任何越界都必须人工裁决，落到下方 ESCALATE）
+  const scopeBlocked = pipeline === "coding" && state.scope_drift === "FAIL";
+  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && !scopeBlocked) {
     return { stop_reason: "DONE", reason: "all tasks are done" };
   }
   if (state.consecutive_failures >= state.max_failures) {

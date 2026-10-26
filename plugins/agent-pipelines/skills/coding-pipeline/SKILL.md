@@ -160,11 +160,11 @@ coding 域专属约束：
 ### 决策流程
 
 ```
-1. Orchestrator 选择下一个可执行任务
-2. 委派 Builder（coding-builder）
-3. 等待 Builder 完成并获取结果
-4. 委派 Reviewer（coding-reviewer）审查产出
-5. 根据 Reviewer verdict 更新任务状态
+1. Orchestrator 选出本轮全部可执行任务（pending 且依赖已 done）
+2. 按拓扑顺序逐个调用 coding-builder 执行任务（存在多个就绪任务时全部发出，不串行等待）
+3. 等待所有 builder 完成并获取结果
+4. 逐个调用 coding-reviewer 审查产出
+5. 根据各 Reviewer verdict 更新任务状态
 6. 写入状态文件
 7. 判断停止条件
 ```
@@ -194,6 +194,10 @@ lint: {lint_cmd}
 typecheck: {typecheck_cmd}
 build: {build_cmd}
 test: {test_cmd}
+
+=== 失败教训 ===
+此前失败记录（避免重复踩坑；无则写"无"）：
+{fail_lessons}
 
 === Risk Level ===
 {risk_level}

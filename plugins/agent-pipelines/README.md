@@ -60,7 +60,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 实测）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（89 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（81 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（104 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（82 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
 
 ## 使用
 

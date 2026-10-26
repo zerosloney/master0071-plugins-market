@@ -38,7 +38,7 @@ function main() {
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
   const spec = PIPELINES[pipeline];
   if (!spec) fail(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);
-  const file = args.file ? path.resolve(String(args.file)) : path.resolve(".loop-cli", "state", `${pipeline}.json`);
+  const file = args.file ? path.resolve(String(args.file)) : path.resolve(".loop-cli", "state", `${pipeline}-pipeline.json`);
   if (!existsSync(file)) fail(`state file not found: ${file}`);
 
   let state;
