@@ -122,7 +122,8 @@ answer that data was destroyed. After removing, offer `deleteBranch: true` when 
 fully merged.
 
 Lock a worktree someone else is working in with `worktree_lock` (release it with `worktree_unlock`);
-remove and merge-back refuse to touch locked worktrees, and the audit buckets them `hold`.
+`worktree_remove` refuses to touch locked worktrees, `worktree_merge_back` refuses only when asked
+to remove after the merge, and the audit buckets them `hold`.
 
 Never prune or remove the primary worktree.
 

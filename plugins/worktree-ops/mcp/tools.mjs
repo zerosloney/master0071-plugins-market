@@ -429,7 +429,7 @@ return ok(
       const info = describe(repo, entry, target, {});
       const force = boolArg(args.force);
       if (entry.locked) {
-        return fail(`refusing to remove a locked worktree (${entry.locked}).\nUnlock it with \`git worktree unlock ${entry.path}\`, then re-run.`);
+        return fail(`refusing to remove a locked worktree (${entry.locked}).\nUnlock it with worktree_unlock (or \`git worktree unlock ${entry.path}\`), then re-run.`);
       }
       const managedPath = managedRoot(config, repo);
       // force only covers dirty/unmerged work; it never widens the managed root.
@@ -482,7 +482,7 @@ return ok(
   {
     name: "worktree_lock",
     description:
-      "Lock a worktree (git worktree lock). worktree_remove and worktree_merge_back refuse to touch locked worktrees — use this while another agent session or person is working in it, so cleanup passes leave it alone.",
+      "Lock a worktree (git worktree lock). worktree_remove refuses to touch locked worktrees, and worktree_merge_back refuses when asked to remove after the merge — use this while another agent session or person is working in it, so cleanup passes leave it alone.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -502,7 +502,7 @@ return ok(
       const reason = stringArg(args.reason).trim();
       git(["worktree", "lock", ...(reason ? ["--reason", reason] : []), entry.path], repo);
       return ok(
-        `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove and worktree_merge_back now refuse to touch it; unlock with worktree_unlock.`,
+        `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove now refuses to touch it, and worktree_merge_back refuses when asked to remove after the merge; unlock with worktree_unlock.`,
       );
     },
   },
@@ -552,7 +552,7 @@ return ok(
         return fail("this is the primary worktree; nothing to merge back from it.");
       }
       if (boolArg(args.remove) && entry.locked) {
-        return fail(`this worktree is locked (${entry.locked}), so it cannot be removed after merge.\nUnlock it with \`git worktree unlock ${entry.path}\`, or re-run without remove=true.`);
+        return fail(`this worktree is locked (${entry.locked}), so it cannot be removed after merge.\nUnlock it with worktree_unlock (or \`git worktree unlock ${entry.path}\`), or re-run without remove=true.`);
       }
       const target = resolveTarget(repo, args.target);
       let info = describe(repo, entry, target, {});

@@ -455,7 +455,6 @@ function repoOverrides(config, repo) {
   return key ? config.repos[key] : null;
 }
 
-const SOURCES = ["env", "repo", "global", "default"];
 /** 逐键判定生效值与来源：同一个 root 可能是环境变量注入的、单仓库覆盖的或全局配置的，
 * 用户只看最终值无法判断「为什么我在设置页改的不生效」。 */
 function effectiveWithSources(config, repo) {
@@ -930,7 +929,6 @@ export {
   mainWorktreePath,
   repoKey,
   repoOverrides,
-  SOURCES,
   effectiveWithSources,
   effective,
   managedRoot,

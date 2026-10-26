@@ -38,7 +38,7 @@ node --version && git --version
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中（标准客户端下传 `sessionCwd` 可确认） |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
 | `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（可显式 `force`）；受管目录外一律拒绝，`force` 也不放宽 |
-| `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：remove / merge_back 一律拒绝碰锁定的工作树 |
+| `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
 | `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还 |
 | `worktree_config` | 读写全部 worktree 配置（`root` / `baseRef` / `branchPrefix` / `staleDays`），`scope: global` 或单仓库覆盖。`scope: "global"` 下 `repoPath` 可选，仅用于回执附上该仓库的生效值（传了就必须是 git 仓库，路径无效整次调用报错） |
@@ -122,6 +122,16 @@ node --version && git --version
 - **`merge_back` 的删除判定使用最新 HEAD**。rebase 改写提交后重新读取 HEAD，不再用调用开始时的旧快照做合并判定。
 - **非 ASCII 短任务名提示哈希来源**。纯中文等不含 ASCII 字母数字的名字仍用稳定哈希后缀，返回里说明原因。
 - 冒烟断言增至 211 条。
+
+**0.4.2**
+
+- 修正 ZCode 兼容垫片里对受管根的过时描述：受管根允许配置在仓库内，垫片文案按实际语义改写。代码无行为变化。
+
+**0.4.3**
+
+- 修正锁定语义的文档与回执：`worktree_remove` 拒绝碰锁定工作树，`worktree_merge_back` 仅在带 `remove: true` 时拒绝（纯合并 / 变基锁定工作树是放行的）——此前"一律拒绝"的表述与实现不符。
+- 锁定拒绝消息与 `worktree_lock` 回执的解锁指引改用插件自带的 `worktree_unlock`（保留裸 `git worktree unlock` 作备选）。
+- 移除 `mcp/core.mjs` 未使用的 `SOURCES` 常量与导出。
 
 **0.3.0（含破坏性变更）**
 
