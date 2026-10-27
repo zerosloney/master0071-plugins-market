@@ -2,6 +2,7 @@
 // agent-pipelines 状态机辅助：init / validate / write / gate。
 // 提示词仍是主入口；宿主能执行 shell 时用本脚本落盘与判停，不能执行时退回 SKILL 里的手写规则。
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { parseArgs } from "./args.mjs";
 
@@ -26,6 +27,43 @@ function pipelineOf(args) {
 function stateFile(args, pipeline) {
   if (args.file) return path.resolve(String(args.file));
   return path.resolve(".loop-cli", "state", `${pipeline}-pipeline.json`);
+}
+
+// 管道状态与 <file>.events.jsonl 事件日志是运行垃圾（事件行里带任务笔记与代理输出），
+// 落在使用项目的仓库里、却没有任何一处忽略它——顺手 git add -A 就把过程噪声提交进主干。
+// 写 .git/info/exclude 而不是用户的 .gitignore：本地生效、不改跟踪文件、不给 PR 制造 diff 噪声。
+// 仅在状态确实落在本仓 .loop-cli/ 下时登记（--file 指到别处就不动别人的仓库配置）。
+// 失败一律静默：这是卫生便利，不该让 init 因此红。
+function ensureStateIgnored(file) {
+  const loopRoot = path.join(process.cwd(), ".loop-cli");
+  const rel = path.relative(loopRoot, file);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return;
+  let out;
+  try {
+    out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return; // 不在 git 仓库 / 无 git
+  }
+  const pointer = String(out).trim();
+  if (!pointer) return;
+  const excludeFile = path.resolve(process.cwd(), pointer);
+  const rule = ".loop-cli/";
+  try {
+    const current = existsSync(excludeFile) ? readFileSync(excludeFile, "utf8") : "";
+    if (current.split(/\r?\n/).some((line) => line.trim() === rule)) return;
+    mkdirSync(path.dirname(excludeFile), { recursive: true });
+    appendFileSync(
+      excludeFile,
+      `${current === "" || current.endsWith("\n") ? "" : "\n"}# agent-pipelines 管道状态与事件日志\n${rule}\n`,
+      "utf8",
+    );
+  } catch {
+    /* 只读仓库 / 权限问题：跳过登记 */
+  }
 }
 
 function writeAtomic(file, value) {
@@ -390,6 +428,7 @@ function main() {
     if (existingProgress) {
       fail(`refusing to overwrite existing state (has progress): pass --force to start over, or use write to update it`);
     }
+    ensureStateIgnored(file);
     if (args.json) console.log(JSON.stringify({ file, state: base }));
     else console.log(`Initialized ${file}`);
     return;

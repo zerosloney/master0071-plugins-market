@@ -66,10 +66,22 @@ function git(args, cwd) {
   }
 }
 
+// --base 是被直接塞进 git argv 的位置参数：`git diff --name-only --output=<path> HEAD` 里的
+// `--output=…` 会被 git 当选项执行并真的写出文件（实测 git 2.53），等于借 scope 检查在仓库外落盘。
+// git 的位置参数分隔符 `--` 只能分路spec 不能分 rev，`--end-of-options` 又要求 git ≥2.24，
+// 故在此收口：合法 rev 不可能以 `-` 开头、不可能含空白与控制字符，拒掉即无选项注入面。
+function assertSafeRev(rev, label) {
+  const s = String(rev);
+  if (!s) fail(`${label} is empty`);
+  if (s.startsWith("-")) fail(`${label} must not start with "-" (git would read it as an option): ${s}`);
+  if (/[\s\x00-\x1f]/.test(s)) fail(`${label} must not contain whitespace or control characters: ${JSON.stringify(s)}`);
+  return s;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const cwd = args.cwd ? path.resolve(String(args.cwd)) : process.cwd();
-  const base = typeof args.base === "string" ? args.base : "HEAD";
+  const base = assertSafeRev(typeof args.base === "string" ? args.base : "HEAD", "--base");
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
   if (pipeline !== "coding") fail("scope checking is only defined for --pipeline coding");
 
