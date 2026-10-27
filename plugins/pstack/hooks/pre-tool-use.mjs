@@ -7,6 +7,12 @@
 // pstack agent dispatch on a model the user did not save. Anything else gets
 // no output and takes the normal permission flow. Copilot denies the call when
 // the hook exits non-zero, so every path exits 0.
+//
+// STATUS: not auto-registered. None of this repo's four manifests (plugin.json,
+// .codex-plugin, .omp-plugin, .zcode-plugin) references hooks/copilot-hooks.json,
+// and there is no Copilot shim here, so on a plain install this gate never runs.
+// Contract tests exist (test/run-hook-tests.mjs); wiring is the host's step.
+// See README.md, "hooks/copilot-hooks.json 目前无人注册".
 import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';

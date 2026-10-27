@@ -45,7 +45,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 65 个 skill，无需 prompts 垫片 |
 | `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
 | `agents/` | **客户端约定**；4 个基础子智能体（ZCode 实证注册）。10 个 effort 分级变体已移至 `extras/effort-agents/`：Agent Plugins 1.0.0 的 `extensions` 命名空间尚无客户端实现（Claude Code 用自有目录约定且只认 `agents/`），ZCode 也只注册 `agents/` 的 4 个，effort 语义不可用，按上游原样隔离保留 |
-| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口） |
+| `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口）。`hooks/copilot-hooks.json` **未被任何清单引用**，Copilot 上需手工登记，见下 |
 | `models.json` | skill 内多处引用它说明模型分工的出处；改它需要同步更新各 skill 的 Models 列表（各文件已注明，本移植未附带生成脚本） |
 
 Codex 侧实测结论（codex-cli 0.163.0，2026-10-23）：`.codex-plugin` 里修正为 `hooks.hooks.SessionStart` 的嵌套结构后，用 `--dangerously-bypass-hook-trust` 运行 `codex exec` 仍未在系统上下文看到 `You have pstack.`，说明本机 Codex **没有执行插件的 SessionStart hook**，自动路由未生效。同一轮实测中 MCP 的 `${PLUGIN_ROOT}` 可以正常展开（systemone 的 `systemone_scenario` 已注册并可发起调用），所以问题不在变量展开，而在 Codex 对插件 hook 的加载/注入契约。结论：Codex 上请手动调用 `/poteto-mode`；`hooks` 字段保留为正确的嵌套声明，等宿主支持后无需再改插件。hook 脚本自身不依赖插件根环境变量（插件根由脚本路径推出），可零变量手工运行验证。
@@ -54,7 +54,9 @@ hook 行为：会话开始时读取运行时的模型表（Claude Code `~/.claud
 
 ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理会垫片里的 hooks 指针**（实测面板与日志证实），因此同一份注册要同时服务 Claude Code 与 ZCode——`session-start.mjs` 靠环境自检切换：检测到 `ZCODE_PLUGIN_ROOT` 或插件根在 `.zcode` 下即走 zcode 分支，读 `~/.zcode/pstack-models.md`、沿用 `session hook: off` 开关，输出 ZCode 要求的 `hookSpecificOutput.additionalContext` JSON；否则按参数走 claude/codex/copilot 分支。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
 
-**全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。三份 hook 注册（`hooks/hooks.json`、`hooks/copilot-hooks.json`、`.codex-plugin` 内联）全部改为 `node` 调用。测试见 `test/run-hook-tests.mjs`（hook 契约与表解码，在插件根执行）与 `test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。原 `session-start.sh`、`pre-tool-use.sh`、`session-start.ps1` 与四个 `hooks/*.awk` 共 7 个文件移入 `extras/upstream-reference/` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
+**全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。**实际被宿主接上的注册有两份**：`hooks/hooks.json`（Claude 式宿主 + ZCode 约定路径）与 `.codex-plugin` 内联那一份，两者都改为 `node` 调用。测试见 `test/run-hook-tests.mjs`（hook 契约与表解码，在插件根执行）与 `test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。原 `session-start.sh`、`pre-tool-use.sh`、`session-start.ps1` 与四个 `hooks/*.awk` 共 7 个文件移入 `extras/upstream-reference/` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
+
+**`hooks/copilot-hooks.json` 目前无人注册（0.1.8 已知缺口）**：本仓库的四份清单（根 `plugin.json`、`.codex-plugin`、`.omp-plugin`、`.zcode-plugin`）都不引用它，仓库里也没有 Copilot 专用的垫片目录，所以 **GitHub Copilot 宿主上 `pre-tool-use.mjs` 权限闸不会自动生效**——脚本本身有测试（`run-hook-tests.mjs` 覆盖其 view/task/bash 规则与解析器），只是缺一条把它交给宿主的注册路径。上游 pstack 的 Copilot 集成走的是宿主自有配置而非本仓库清单，具体登记方式本移植未实测，故不臆造 manifest 结构。要让它在你的 Copilot 上生效：按你所用 Copilot 客户端的 hook 配置约定，把 `hooks/copilot-hooks.json` 的内容登记进去（脚本根用 `${COPILOT_PLUGIN_ROOT}` 展开）。在那之前，请把 Copilot 视为 **skills-only 安装**：SessionStart 路由令可用（`session-start.mjs` 有 copilot 分支），脚本权限闸不可用。
 
 ## extras/（按需启用的非核心组件）
 

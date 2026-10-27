@@ -42,7 +42,11 @@ Summary of structural changes:
 
 ## Modifications
 
-Per the MIT license, modifications are permitted. Skill bodies have been edited to substitute Cursor-specific primitives with their Claude Code equivalents (the substitution rules are in `tools/substitutions.json`, an upstream file not shipped in this port). All upstream copyright notices in source files (where present) are preserved.
+Per the MIT license, modifications are permitted. Skill bodies have been edited to substitute Cursor-specific primitives with their Claude Code equivalents (the substitution rules are in `tools/substitutions.json`, an upstream file not shipped in this port).
+
+On notices: **upstream ships no per-source-file copyright headers** — zero files under `skills/`, `agents/`, or `hooks/` carry one, so there is nothing at file level to preserve, and this port does not add headers that upstream never had. MIT's retention requirement is met at distribution level: the copyright lines and license texts live in `LICENSE` (Lauren Tan, Michael Denyer), `LICENSE-thermos` and `LICENSE-cursor-team-kit` (Cursor), and in the per-component table of `NOTICE.md` / `NOTICE-skills.md` / `NOTICE-PORT.md`. Those files must be shipped with any redistribution. Every skill's frontmatter additionally declares `license: MIT`.
+
+Caveat for host UIs: a manifest's `author` field is rendered by some clients as the work's author. `plugins/pstack/**` is a **port**, not original work — the four manifests therefore name the porter and the upstream (`master0071 (porter) — upstream work by Lauren Tan / michael-denyer/pstack-claude`) so the plugin is never displayed as a solo original.
 
 Port-authored files covered by this notice include:
 
