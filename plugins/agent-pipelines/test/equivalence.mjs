@@ -113,6 +113,25 @@ for (const [pipeline, files] of Object.entries(docFiles)) {
         `文档: ${JSON.stringify(members)}\n      脚本: ${JSON.stringify([...stopReasons])}`,
       );
     }
+
+    // scope_drift 枚举锚定：文档输出格式只允许 PASS/FAIL（与 state.mjs validateState、scope.mjs 一致）。
+    // 此前文档写 PASS | WARN | FAIL，而 validateState 拒绝 WARN、scope.mjs 永不产出 WARN——悬空枚举。
+    // commands/coding-pipeline.md 无输出格式节（scope_drift 只以规则表述出现），无枚举行时跳过。
+    if (pipeline === "coding") {
+      const docFilesForScope = [...files, "agents/coding-orchestrator.md", "agents/coding-builder.md", "agents/coding-reviewer.md"];
+      for (const scopeRel of docFilesForScope) {
+        const scopeDoc = readFileSync(path.join(root, scopeRel), "utf8");
+        const scopeEnums = [...scopeDoc.matchAll(/"scope_drift":\s*"([^"]+)"/g)].map((m) => m[1]);
+        if (scopeEnums.length === 0) continue;
+        check(
+          `${scopeRel} scope_drift 枚举仅 PASS | FAIL`,
+          scopeEnums.every((e) => e === "PASS | FAIL"),
+          JSON.stringify(scopeEnums),
+        );
+        const warnRefs = [...scopeDoc.matchAll(/scope_drift[^\n]{0,40}WARN/g)];
+        check(`${scopeRel} scope_drift 不再引用 WARN`, warnRefs.length === 0, JSON.stringify(warnRefs.map((m) => m[0])));
+      }
+    }
   }
 }
 
@@ -242,6 +261,37 @@ try {
   expectStop("ralph stall_counter=2 继续", "ralph", { stall_counter: 2 }, null);
   expectStop("coding stall_counter=2 判 STALL", "coding", { stall_counter: 2 }, "STALL");
   expectStop("coding stall_counter=1 继续", "coding", { stall_counter: 1 }, null);
+
+  // gate 优先级锚定：多条件同时满足时按 已停止→DONE→ESCALATE→单任务上限→scope→BUDGET→HOLD→STALL→MAX_CYCLES 取第一个命中
+  expectStop(
+    "多条件叠加：连续失败 + 预算耗尽 + STALL + 轮次超限 → ESCALATE 优先",
+    "ralph",
+    {
+      consecutive_failures: 3,
+      stall_counter: 5,
+      round: 99,
+      budget: { max_tokens: 100, spent_tokens: 100 },
+    },
+    "ESCALATE",
+  );
+  expectStop(
+    "ESCALATE（单任务上限）优先于 BUDGET/STALL/MAX_CYCLES",
+    "ralph",
+    {
+      stall_counter: 5,
+      round: 99,
+      budget: { max_tokens: 100, spent_tokens: 100 },
+      tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 4 }],
+    },
+    "ESCALATE",
+  );
+  expectStop(
+    "无 ESCALATE 时 BUDGET 优先于 STALL/MAX_CYCLES",
+    "ralph",
+    { stall_counter: 5, round: 99, budget: { max_tokens: 100, spent_tokens: 100 } },
+    "BUDGET",
+  );
+  expectStop("无 BUDGET 时 STALL 优先于 MAX_CYCLES", "ralph", { stall_counter: 5, round: 99 }, "STALL");
 
   // 已停止状态原样返回，不被更低优先级规则改写
   expectStop("已有 stop_reason=STOPPED 原样返回", "ralph", { stop_reason: "STOPPED", round: 99 }, "STOPPED");

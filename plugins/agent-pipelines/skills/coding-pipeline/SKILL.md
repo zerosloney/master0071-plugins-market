@@ -95,7 +95,7 @@ DONE 必须**同时**满足：
 - 审查者 `verdict == "PASS"`。
 - 零 critical / major。
 - **`scope_drift == "PASS"`**（任何越界都不允许 DONE）。
-- **零证据禁令**：`detected_stack` 非空但验证脚本至少一项 MISSING 时，禁止 DONE。
+- **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，禁止 DONE。
 - 无未处理的人工确认项。
 
 执行者自报完成、单次 PASS 都不算最终完成。
@@ -255,7 +255,7 @@ value: {baseline_value}
 - Builder 报 MISSING 时，按项目结构做低成本确认；确实不存在就保留 MISSING。
 - FAIL 阻塞 PASS。
 - 低风险下 MISSING 不自动阻塞 PASS；高风险且缺少验证证据时降级。
-- 零证据禁令：`detected_stack` 非空且 `scripts_gap=true` 时，必须设 `manual_review_required=true` 且 `verdict != PASS`。
+- 零证据禁令：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，必须设 `manual_review_required=true` 且 `verdict != PASS`。
 - 重跑只跑无产物命令：优先复核 Builder 结果；确需自验时只跑 `--verify-no-changes` / `--noEmit` / `checkstyle:check` / `clippy` / `lint` / `vet` / `audit` 这类无落盘产物的命令。
 
 ## 执行路径
@@ -308,7 +308,7 @@ value: {baseline_value}
   "action": "DELEGATE | WAIT_REVIEW | DONE | ESCALATE | HOLD | STALL",
   "task_id": "<下一任务 id，DELEGATE 时必填>",
   "root_cause_group": "<当前修复的根因组 id，DELEGATE 时必填>",
-  "scope_drift": "PASS | WARN | FAIL",
+  "scope_drift": "PASS | FAIL",
   "verification_snapshot": {
     "lint_pass": true,
     "typecheck_pass": true,

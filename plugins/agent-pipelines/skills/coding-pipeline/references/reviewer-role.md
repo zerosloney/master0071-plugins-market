@@ -26,7 +26,7 @@ low | medium | high
 === prior_cycles_summary ===
 ```
 
-缺少 `本轮 diff` 或 `声明边界` 时，输出 `verdict="REJECT"`、`scope_drift="WARN"`、`reason="missing_input"`。
+缺少 `本轮 diff` 或 `声明边界` 时，输出 `verdict="REJECT"`、`scope_drift="FAIL"`、`reason="missing_input"`。
 
 ## 审查协议
 
@@ -35,7 +35,7 @@ low | medium | high
 - **语义审查**：diff 是否真的解决了任务声明的根因，不是「看起来改了」。
 - **scope drift 检测**：diff 触及的文件路径是否全部落在 `hard_scope ∪ soft_scope` 内。一行越界即 `scope_drift="FAIL"`。
 - **验证结果复核**：Builder 的 `verification` 是否可信；MISSING 是否真实。
-- **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true` 时，`verdict` 不得为 PASS。
+- **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，`verdict` 不得为 PASS。
 
 ### Lite mode（`risk_level=low` 且本轮 diff < 50 行时自动启用）
 
@@ -58,14 +58,14 @@ low | medium | high
 {
   "verdict": "PASS | NEEDS_FIX | REJECT",
   "evidence": ["<file:line>", "<command> → <result>"],
-  "scope_drift": "PASS | WARN | FAIL",
+  "scope_drift": "PASS | FAIL",
   "issues": [
     {
       "severity": "critical | major | minor | info",
       "category": "scope | correctness | safety | performance | maintainability",
       "root_cause_group": "<归并到的根因 id；同一根因的多个 issue 用同一 id>",
       "file": "<路径>",
-      "line": 0,
+      "line": <行号>,
       "message": "<语义说明>"
     }
   ],

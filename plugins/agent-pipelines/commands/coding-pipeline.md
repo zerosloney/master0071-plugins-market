@@ -89,7 +89,7 @@ DONE 必须同时满足：
 - 审查者 verdict == "PASS"。
 - 零 critical / major。
 - **scope_drift == "PASS"**（任何越界都不允许 DONE）。
-- 零证据禁令：detected_stack 非空但验证脚本至少一项 MISSING 时，禁止 DONE。
+- 零证据禁令：detected_stack 非空且 scripts_gap=true（即验证脚本至少一项 MISSING）时，禁止 DONE。
 - 无未处理的人工确认项。
 
 执行者自报完成、单次 PASS 都不算最终完成。

@@ -69,7 +69,7 @@ test: ...
     "pass": ["lint", "typecheck"],
     "fail": [{ "cmd": "test", "reason": "<原样失败输出>" }]
   },
-  "scope_drift": "PASS | WARN | FAIL",
+  "scope_drift": "PASS | FAIL",
   "note": "<可选说明>"
 }
 ```

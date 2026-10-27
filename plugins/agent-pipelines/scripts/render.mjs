@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs } from "./args.mjs";
 
 const PIPELINES = {
   ralph: { label: "Ralph Pipeline", color: "#6366f1" },
@@ -16,25 +17,6 @@ const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
   process.exit(2);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg.startsWith("--")) {
-      out._.push(arg);
-      continue;
-    }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) out[key] = true;
-    else {
-      out[key] = next;
-      i += 1;
-    }
-  }
-  return out;
 }
 
 export function pipelineOf(args) {
@@ -53,7 +35,8 @@ export function htmlEscape(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function jsonBlock(value) {
@@ -82,12 +65,18 @@ export function layoutGraph(tasks) {
     }
   }
   // 分层：层 = 最长依赖链长度；无依赖为 0 层
+  // 兜底初值必须是 -1 而不是 0：get() ?? 0 会让首次访问的节点因 0 <= 0 直接返回，
+  // layer 永远为空、全部任务挤在第 0 列（分层失效）。
   const layer = new Map();
+  const visiting = new Set();
   const visit = (id, depth) => {
-    const current = layer.get(id) ?? 0;
+    const current = layer.get(id) ?? -1;
     if (depth <= current) return;
+    if (visiting.has(id)) return; // 环防护：环内节点不再沿环加深，防止无限递归
+    visiting.add(id);
     layer.set(id, depth);
     for (const child of next.get(id) || []) visit(child, depth + 1);
+    visiting.delete(id);
   };
   for (const id of ids) if (indegree.get(id) === 0) visit(id, 0);
   for (const id of ids) if (!layer.has(id)) visit(id, 0); // 环内节点兜底
@@ -322,6 +311,14 @@ function main() {
   const events = loadEvents(file);
 
   const out = args.out ? path.resolve(String(args.out)) : file.replace(/\.json$/, ".html");
+  // 输出路径不能就是状态文件：--file 不带 .json 后缀时 replace 不替换，out === file，
+  // 渲染会直接覆盖状态文件（数据丢失）；同样拦截 out 是 .events.jsonl 派生路径的情况
+  if (out === file) {
+    fail(`output path resolves to the state file itself: ${file}; pass --out <path>.html explicitly`);
+  }
+  if (path.extname(file) !== ".json") {
+    fail(`state file should have a .json extension (got ${file}): without it, the derived output and events paths collide`);
+  }
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, buildHtml({ pipeline, file, state, events, graph, warnings }), "utf8");
   if (args.json) console.log(JSON.stringify({ file, out, events: events.length, graph }));

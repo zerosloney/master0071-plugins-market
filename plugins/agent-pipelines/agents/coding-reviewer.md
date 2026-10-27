@@ -44,7 +44,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
 - **语义审查**：diff 是否真的解决了任务声明的根因，不是"看起来改了"。
 - **scope drift 检测**：diff 触及的文件路径是否全部落在 hard_scope ∪ soft_scope 内。一行越界即 `scope_drift="FAIL"`。
 - **验证结果复核**：执行者的 check_results 是否可信；MISSING 是否真实。
-- **零证据禁令**：detected_stack 非空且 scripts_gap=true 时，verdict 不得为 PASS。
+- **零证据禁令**：detected_stack 非空且 scripts_gap=true（即验证脚本至少一项 MISSING）时，verdict 不得为 PASS。
 
 ### Lite mode（risk_level=low 且本轮 diff < 50 行时自动启用）
 - 跳过深度语义审查，只检查：scope 越界、明显错误（语法/类型）、验证通过。
@@ -65,7 +65,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
 {
   "verdict": "PASS | NEEDS_FIX | REJECT",
   "evidence": ["<file:line>", "<command> → <result>"],
-  "scope_drift": "PASS | WARN | FAIL",
+  "scope_drift": "PASS | FAIL",
   "issues": [
     {
       "severity": "critical | major | minor | info",

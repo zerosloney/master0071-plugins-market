@@ -3,6 +3,7 @@
 // 用法：node scripts/graph.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json [--json]
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseArgs } from "./args.mjs";
 
 const PIPELINES = {
   ralph: { maxCycles: 10, factor: 0.8 },
@@ -12,25 +13,6 @@ const PIPELINES = {
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
   process.exit(2);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg.startsWith("--")) {
-      out._.push(arg);
-      continue;
-    }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) out[key] = true;
-    else {
-      out[key] = next;
-      i += 1;
-    }
-  }
-  return out;
 }
 
 function main() {
@@ -71,15 +53,18 @@ function main() {
 
   const queue = ids.filter((id) => indegree.get(id) === 0).sort();
   const order = [];
+  const ordered = new Set();
   while (queue.length > 0) {
     const id = queue.shift();
     order.push(id);
+    ordered.add(id);
     for (const dependent of next.get(id) || []) {
       indegree.set(dependent, indegree.get(dependent) - 1);
       if (indegree.get(dependent) === 0) queue.push(dependent);
     }
   }
-  const cycles = ids.filter((id) => !order.includes(id));
+  // 环 = 拓扑排序没吐出来的节点；用 Set 查找，O(n) 而非 includes 的 O(n²)
+  const cycles = ids.filter((id) => !ordered.has(id));
   const maxCycles = Number.isInteger(state.max_iterations) && state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const limit = Math.floor(maxCycles * spec.factor);
   const budget = { limit, count: tasks.length, overflow: tasks.length > limit };

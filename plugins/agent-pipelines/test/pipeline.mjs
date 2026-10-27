@@ -198,6 +198,44 @@ const scope = (extra = []) =>
 const negated = run("scope.mjs", ["--base", base, "--forbidden", "!dist/**", "--json"], undefined, repo);
 check("scope 的 ! 否定模式显式报错而非静默不匹配", negated.status === 2 && /not supported/.test(negated.stderr), negated.stderr);
 
+// 前导 **/ 不匹配仓库根目录文件：forbidden 方向 fail-open，必须打印警告提示根级模式
+writeFileSync(path.join(repo, "root.lock"), "lock\n");
+mkdirSync(path.join(repo, "nested"));
+writeFileSync(path.join(repo, "nested", "deep.lock"), "lock\n");
+const globstarWarn = run(
+  "scope.mjs",
+  ["--base", base, "--hard", "src/**,docs/**,root.lock,nested/**", "--forbidden", "**/*.lock", "--json"],
+  undefined,
+  repo,
+);
+check(
+  "前导 **/ 模式打印根目录警告",
+  globstarWarn.status === 1 && /warning.*\*\/\*\.lock.*repo root/.test(globstarWarn.stderr),
+  globstarWarn.stderr,
+);
+check(
+  "前导 **/ 的 forbidden 只命中子目录、漏掉根目录 lock（fail-open 实况）",
+  JSON.parse(globstarWarn.stdout).forbidden.join(",") === "nested/deep.lock" && !JSON.parse(globstarWarn.stdout).forbidden.includes("root.lock"),
+  globstarWarn.stdout,
+);
+// ? 单字符匹配且不跨目录段
+mkdirSync(path.join(repo, "glob"));
+writeFileSync(path.join(repo, "glob", "a.ts"), "x\n");
+const questionMark = run("scope.mjs", ["--base", base, "--hard", "glob/?.ts", "--json"], undefined, repo);
+check("? 匹配单字符（glob/a.ts 命中 hard）", JSON.parse(questionMark.stdout).hard.length === 1, questionMark.stdout);
+const questionCross = run("scope.mjs", ["--base", base, "--hard", "?.ts", "--json"], undefined, repo);
+check("? 不跨目录段（glob/a.ts 不在根级 ?.ts 内）", !JSON.parse(questionCross.stdout).hard.includes("glob/a.ts"), questionCross.stdout);
+// src/** 不误伤 srcdir 前缀
+mkdirSync(path.join(repo, "srcdir"));
+writeFileSync(path.join(repo, "srcdir", "sibling.ts"), "x\n");
+const prefix = run("scope.mjs", ["--base", base, "--hard", "src/**", "--json"], undefined, repo);
+check("src/** 不误伤 srcdir/（前缀不同段）", !JSON.parse(prefix.stdout).hard.includes("srcdir/sibling.ts"), prefix.stdout);
+// 清理本段新增文件，恢复 scope() 共享基线，避免污染后续 hard/soft/状态文件用例
+rmSync(path.join(repo, "root.lock"), { force: true });
+rmSync(path.join(repo, "nested"), { recursive: true, force: true });
+rmSync(path.join(repo, "glob"), { recursive: true, force: true });
+rmSync(path.join(repo, "srcdir"), { recursive: true, force: true });
+
 mkdirSync(path.join(repo, "src"));
 writeFileSync(path.join(repo, "src", "a.js"), "a\n");
 let result = scope();
@@ -256,8 +294,34 @@ check("锁存在时 init 被拒绝", blocked.status === 2 && /locked/.test(block
 check("锁被拒绝时状态未被覆盖", JSON.parse(readFileSync(lockFile, "utf8")).prompt === "test prompt");
 const old = new Date(Date.now() - 40000);
 utimesSync(lockPath, old, old);
+// 陈旧锁清理后重放 init：initState 产生的是空任务状态（无进度），直接 init 允许覆盖（防覆盖只拦有进度状态）
 const stale = run("state.mjs", ["init", "--pipeline", "ralph", "--file", lockFile, "--prompt", "stale"]);
-check("陈旧锁被清理后 init 成功", stale.status === 0 && !existsSync(lockPath), stale.stderr);
+check("陈旧锁被清理后 init 成功（空任务无进度）", stale.status === 0 && !existsSync(lockPath), stale.stderr);
+
+// 防误覆盖扩展：空任务但 round>0 / stop_reason 非空 / 损坏 JSON 的状态也不允许静默覆盖
+const progressFile = path.join(sandbox, "progress.json");
+const progressState = JSON.parse(JSON.stringify(valid));
+progressState.tasks = [];
+progressState.round = 3;
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", progressFile], JSON.stringify(progressState));
+const refusedProgress = run("state.mjs", ["init", "--pipeline", "ralph", "--file", progressFile, "--prompt", "again"]);
+check("init 拒绝覆盖 round>0 的空任务状态", refusedProgress.status === 2 && /--force/.test(refusedProgress.stderr), refusedProgress.stderr);
+const stoppedState = JSON.parse(JSON.stringify(progressState));
+stoppedState.round = 0;
+stoppedState.stop_reason = "ESCALATE";
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", progressFile], JSON.stringify(stoppedState));
+const refusedStopped = run("state.mjs", ["init", "--pipeline", "ralph", "--file", progressFile, "--prompt", "again"]);
+check("init 拒绝覆盖已停止状态", refusedStopped.status === 2 && /--force/.test(refusedStopped.stderr), refusedStopped.stderr);
+writeFileSync(progressFile, "{corrupted");
+const refusedCorrupt = run("state.mjs", ["init", "--pipeline", "ralph", "--file", progressFile, "--prompt", "again"]);
+check("init 对损坏状态也要求 --force", refusedCorrupt.status === 2 && /--force/.test(refusedCorrupt.stderr), refusedCorrupt.stderr);
+const freshState = JSON.parse(JSON.stringify(valid));
+freshState.tasks = [];
+freshState.round = 0;
+freshState.stop_reason = null;
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", progressFile], JSON.stringify(freshState));
+const allowedFresh = run("state.mjs", ["init", "--pipeline", "ralph", "--file", progressFile, "--prompt", "fresh"]);
+check("无进度状态允许直接 init", allowedFresh.status === 0, allowedFresh.stderr);
 
 const readEvents = () => JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", lockFile, "--json"]).stdout).events;
 check("init 写入事件日志", readEvents().some((event) => event.event === "init"));
@@ -276,6 +340,14 @@ run("state.mjs", ["write", "--pipeline", "ralph", "--file", lockFile], JSON.stri
 check("write 写入事件日志", readEvents().some((event) => event.event === "write"));
 run("state.mjs", ["gate", "--pipeline", "ralph", "--file", lockFile, "--apply"]);
 check("gate --apply 写入事件日志", readEvents().some((event) => event.event === "gate"));
+
+// 事件日志记录相对路径而非绝对路径（日志可能随仓库分发，绝对路径泄露本机目录结构）
+const relPathEvent = readEvents().find((event) => event.event === "write");
+check(
+  "事件日志 file 字段为相对路径",
+  relPathEvent && !path.isAbsolute(String(relPathEvent.file)) && String(relPathEvent.file).replace(/\\/g, "/") === "locked.json",
+  JSON.stringify(relPathEvent && relPathEvent.file),
+);
 
 // 任务状态迁移：write 自动对比旧状态，记录每轮任务状态变化
 // 先建立基线：状态里已有 t1(done)/t2(in_progress)
@@ -366,6 +438,41 @@ check("HTML 依赖图无环", !/存在环/.test(html));
 check("HTML 自包含无外链", !/src="http|href="http/.test(html));
 // .task 绝对定位必须显式设 top：t1/t3 同层（第 0 层两行），t3 应在第 1 行（18 + 110px）
 check("HTML 同层任务按行堆叠（显式 top）", /top:18px/.test(html) && /top:128px/.test(html), html.match(/top:\d+px/g)?.join(","));
+
+// 依赖链必须横向分层：t1(层0) → t2(层1)。此前 layoutGraph 的 ?? 0 让 layer 恒为空，
+// 全部任务挤在 left:0% 一列——该断言曾在 bug 期间被「全 0 层」意外满足，现在锚定真实分层。
+check(
+  "依赖图按层分列（t1 层0 / t2 层1）",
+  /left:0%;top:18px/.test(html) && /left:80%;top:18px/.test(html),
+  html.match(/left:[\d.]+%;top:\d+px/g)?.join(" | "),
+);
+
+// 环场景分层不崩溃且不无限递归：环上节点兜底到可显示的层
+const cycleRenderFile = path.join(renderDir, "cycle.json");
+writeFileSync(
+  cycleRenderFile,
+  JSON.stringify({
+    ...renderState,
+    tasks: [
+      { id: "c1", title: "环1", status: "pending", depends_on: ["c2"], accept_criteria: ["ok"], failures: 0 },
+      { id: "c2", title: "环2", status: "pending", depends_on: ["c1"], accept_criteria: ["ok"], failures: 0 },
+    ],
+  }),
+);
+const cycleRenderResult = run("render.mjs", ["--pipeline", "ralph", "--file", cycleRenderFile, "--out", path.join(renderDir, "cycle.html")]);
+const cycleHtml = existsSync(path.join(renderDir, "cycle.html")) ? readFileSync(path.join(renderDir, "cycle.html"), "utf8") : "";
+check("环场景渲染不崩溃且提示存在环", cycleRenderResult.status === 0 && /存在环/.test(cycleHtml) && /c1/.test(cycleHtml), cycleRenderResult.stderr);
+
+// 输出路径与状态文件相同（--file 无 .json 后缀时派生路径不替换）必须拒绝，防止渲染覆盖状态
+const noExtFile = path.join(renderDir, "noext-state");
+writeFileSync(noExtFile, JSON.stringify(renderState));
+const noExtResult = run("render.mjs", ["--pipeline", "ralph", "--file", noExtFile]);
+check(
+  "无 .json 后缀的状态文件被 render 拒绝",
+  noExtResult.status === 2 && /resolves to the state file itself|\.json extension/.test(noExtResult.stderr),
+  noExtResult.stderr,
+);
+check("被拒绝的渲染未覆盖状态文件", JSON.parse(readFileSync(noExtFile, "utf8")).round === 2);
 
 // 数值字段同样不能裸内插：render/serve 路径不跑 validateState，被篡改的状态文件不能把 HTML 注进看板
 const xssFile = path.join(renderDir, "xss.json");

@@ -3,32 +3,16 @@
 // 用法：node scripts/scope.mjs --base <ref> --hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**,*.lock"
 // 也可从状态文件的可选 scope 对象读取：--file .loop-cli/state/coding-pipeline.json
 // 通配语法：* 单段、** 跨段、? 单字符；不支持 brace 展开与字符类——*.{js,ts} 不匹配，多后缀逐条列出。
+// 前导 `**/` 不匹配仓库根目录的文件（要求至少一个目录段）：`**/*.lock` 漏掉根目录的 lock 文件，
+// forbidden 方向会 fail-open——根目录规则请并排写一条 `*.lock`（运行时也会打印警告）。
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseArgs } from "./args.mjs";
 
 function fail(message, code = 2) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
   process.exit(code);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg.startsWith("--")) {
-      out._.push(arg);
-      continue;
-    }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) out[key] = true;
-    else {
-      out[key] = next;
-      i += 1;
-    }
-  }
-  return out;
 }
 
 function listOf(value) {
@@ -63,8 +47,15 @@ function globToRegExp(glob) {
   return new RegExp(`^${source}$`);
 }
 
+// 模式按原样缓存：matchAny 对每个文件 × 每个 pattern 调用，重复 new RegExp 是纯浪费。
+const compiledCache = new Map();
+function compiled(pattern) {
+  if (!compiledCache.has(pattern)) compiledCache.set(pattern, globToRegExp(pattern));
+  return compiledCache.get(pattern);
+}
+
 function matchAny(file, patterns) {
-  return patterns.some((pattern) => globToRegExp(pattern).test(file));
+  return patterns.some((pattern) => compiled(pattern).test(file));
 }
 
 function git(args, cwd) {
@@ -110,6 +101,14 @@ function main() {
     const negated = patterns.find((pattern) => pattern.startsWith("!"));
     if (negated) {
       fail(`scope ${kind} pattern "${negated}": negation ("!") is not supported and would silently never match; express the rule via the hard/soft/forbidden split instead`);
+    }
+    // 前导 `**/` 要求路径至少含一个目录段，不匹配仓库根目录的文件——forbidden 方向是漏判（fail-open）。
+    // gitignore 语义里 `**/*.lock` 覆盖根目录，这里的实现不覆盖；显式警告避免用户按 gitignore 直觉踩坑。
+    const leadingGlobstar = patterns.find((pattern) => pattern.startsWith("**/"));
+    if (leadingGlobstar) {
+      process.stderr.write(
+        `[agent-pipelines] warning: scope ${kind} pattern "${leadingGlobstar}" does not match files in the repo root (leading **/ requires at least one directory segment); add a root-level pattern (e.g. "*.lock") alongside it\n`,
+      );
     }
   }
   // 状态文件本身不属于业务改动；默认排除，避免 pipeline 自己把自己判成越界。

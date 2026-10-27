@@ -3,6 +3,7 @@
 // 提示词仍是主入口；宿主能执行 shell 时用本脚本落盘与判停，不能执行时退回 SKILL 里的手写规则。
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
+import { parseArgs } from "./args.mjs";
 
 const PIPELINES = {
   ralph: { maxCycles: 10, stallMax: 3 },
@@ -14,25 +15,6 @@ const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
   process.exit(2);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg.startsWith("--")) {
-      out._.push(arg);
-      continue;
-    }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) out[key] = true;
-    else {
-      out[key] = next;
-      i += 1;
-    }
-  }
-  return out;
 }
 
 function pipelineOf(args) {
@@ -50,6 +32,10 @@ function writeAtomic(file, value) {
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
+    // 清理同 pid 的陈旧 tmp（进程被 kill -9 残留）：writeFileSync 以 w 模式覆盖，写坏也无妨
+    try {
+      unlinkSync(tmp);
+    } catch {}
     writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     renameSync(tmp, file);
   } catch (err) {
@@ -91,7 +77,8 @@ function logEvent(file, pipeline, event, state, extra = {}) {
       ts: new Date().toISOString(),
       event,
       pipeline,
-      file,
+      // 相对路径（相对 cwd）：事件日志可能随仓库分发，绝对路径会泄露本机目录结构
+      file: path.relative(process.cwd(), file) || path.basename(file),
       round: state && state.round,
       stop_reason: state ? state.stop_reason ?? null : null,
       tasks:
@@ -378,23 +365,30 @@ function main() {
     }
     const { errors } = validateState(base, pipeline);
     if (errors.length) fail(errors.join("\n"));
-    // 防误覆盖：已有非空任务列表的状态是带进度的管道，直接 init 会静默销毁它。
+    // 防误覆盖：带进度的状态（非空任务列表、已推进轮次或已停止）不允许静默 init 覆盖。
+    // 只看任务数会漏掉「空任务但 round>0 / 已 stop」的进行中管道。
     // 检测在锁内完成（避免 TOCTOU），fail 放在锁外——process.exit 不会跑 withLock 的 finally，锁内 fail 会把锁留在盘上
-    let existingTasks = 0;
+    let existingProgress = false;
     withLock(file, () => {
       if (!args.force && existsSync(file)) {
         try {
           const existing = JSON.parse(readFileSync(file, "utf8"));
-          existingTasks = existing && Array.isArray(existing.tasks) ? existing.tasks.length : 0;
-        } catch {}
+          existingProgress = Boolean(
+            existing &&
+            (Array.isArray(existing.tasks) ? existing.tasks.length : 0) > 0 ||
+              (existing && (existing.round > 0 || existing.stop_reason != null)),
+          );
+        } catch {
+          existingProgress = true; // 旧文件损坏也按有进度处理，交给 --force 决定，避免静默覆盖
+        }
       }
-      if (existingTasks === 0) {
+      if (!existingProgress) {
         writeAtomic(file, base);
         logEvent(file, pipeline, "init", base);
       }
     });
-    if (existingTasks > 0) {
-      fail(`refusing to overwrite existing state (${existingTasks} task(s)): pass --force to start over, or use write to update it`);
+    if (existingProgress) {
+      fail(`refusing to overwrite existing state (has progress): pass --force to start over, or use write to update it`);
     }
     if (args.json) console.log(JSON.stringify({ file, state: base }));
     else console.log(`Initialized ${file}`);

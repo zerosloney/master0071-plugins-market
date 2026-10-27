@@ -6,25 +6,7 @@ import { createServer } from "node:http";
 import { statSync, watch } from "node:fs";
 import path from "node:path";
 import { buildHtml, layoutGraph, loadEvents, loadState, pipelineOf, stateFile } from "./render.mjs";
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg.startsWith("--")) {
-      out._.push(arg);
-      continue;
-    }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) out[key] = true;
-    else {
-      out[key] = next;
-      i += 1;
-    }
-  }
-  return out;
-}
+import { parseArgs } from "./args.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const pipeline = pipelineOf(args);
@@ -61,32 +43,38 @@ function broadcast() {
 }
 
 function handleRequest(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  if (url.pathname === "/") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(lastHtml);
-    return;
+  // 兜底：畸形请求行/请求头可能让 new URL 抛错，回调内异常会打崩整个看板进程
+  try {
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    if (url.pathname === "/") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(lastHtml);
+      return;
+    }
+    if (url.pathname === "/events") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      res.write("retry: 2000\n\n");
+      clients.add(res);
+      // write 到已销毁的流会触发 error 事件（先于 close）：不接住就是未捕获异常，直接打崩看板进程
+      res.on("error", () => clients.delete(res));
+      req.on("close", () => clients.delete(res));
+      return;
+    }
+    if (url.pathname === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: true, pipeline, file, port, clients: clients.size }));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("not found");
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("bad request");
   }
-  if (url.pathname === "/events") {
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-    res.write("retry: 2000\n\n");
-    clients.add(res);
-    // write 到已销毁的流会触发 error 事件（先于 close）：不接住就是未捕获异常，直接打崩看板进程
-    res.on("error", () => clients.delete(res));
-    req.on("close", () => clients.delete(res));
-    return;
-  }
-  if (url.pathname === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: true, pipeline, file, port, clients: clients.size }));
-    return;
-  }
-  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end("not found");
 }
 
 // 轮询兜底：watch 在部分平台（含文件被原子替换时）可能失效，轮询保证最终一致。
