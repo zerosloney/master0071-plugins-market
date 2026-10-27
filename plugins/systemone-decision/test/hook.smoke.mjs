@@ -272,7 +272,8 @@ const main = async () => {
 
   // ---------- 风险闸（PreToolUse）：内核直接调用 + 协议包装子进程 ----------
 
-  const { assess } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'risk-gate.mjs')).href);
+  const riskGate = await import(pathToFileURL(path.join(runRoot, 'hooks', 'risk-gate.mjs')).href);
+  const { assess } = riskGate;
   const hookEnv = {
     SYSTEMONE_API_KEY: 'test-key',
     UNISOUND_API_KEY: '',
@@ -332,6 +333,56 @@ const main = async () => {
     assert.equal(await assess('Bash', { command: 'find . -name node_modules -type d' }, hookEnv), null);
     assert.equal(await assess('Bash', { command: 'grep -rn foo src' }, hookEnv), null);
     assert.equal(received.length, 0);
+  });
+
+  // 只读白名单的 argv 副作用口子：首 token 只读不代表整条只读。
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：--pre 预处理与 find -fprint 不走只读捷径（首 token 只读也照样执行/写文件）', async () => {
+    const mutating = [
+      // rg/grep --pre 对每个待搜文件跑外部程序，`rg --pre sh` 即执行任意命令
+      'rg --pre sh foo',
+      'rg --pre=/tmp/evil foo .',
+      'grep --pre=uncompress foo file',
+      // -fprint 把路径写进文件（原表只列了 -fprintf，`-fprint` 漏网）
+      'find . -fprint /tmp/out',
+    ];
+    for (const command of mutating) {
+      const v = await assess('Bash', { command }, hookEnv);
+      assert.equal(v?.decision, 'deny', `应发判定并 deny，而非静默放行：${command}`);
+    }
+    assert.equal(received.length, mutating.length);
+  });
+
+  // 闸门总开关：关得掉，且关掉后一个请求都不发（否则用户只剩卸载一条路）
+  await checkA('风险闸内核：SYSTEMONE_HOOK_RISK_GATE=off 一律放行且不发请求', async () => {
+    const before = received.length;
+    const off = { ...hookEnv, SYSTEMONE_HOOK_RISK_GATE: 'off' };
+    assert.equal(await assess('Bash', { command: 'rm -rf /' }, off), null);
+    assert.equal(await assess('Bash', { command: 'rm -rf /' }, { ...hookEnv, SYSTEMONE_PLUGIN_HOOK_RISK_GATE: 'off' }), null);
+    assert.equal(received.length, before, '关灯后不应发判定请求');
+    // 非法值不静默关灯：按默认 on 继续拦
+    assert.equal((await assess('Bash', { command: 'rm -rf /' }, { ...hookEnv, SYSTEMONE_HOOK_RISK_GATE: 'maybe' }))?.decision, 'deny');
+  });
+
+  // matcher 与内核名单同宽：宿主要么不调用 hook，内核认得再多也没用（本仓真实踩过的洞）。
+  await checkA('hooks.json 的 PreToolUse matcher 覆盖内核 SHELL_TOOL_NAMES 全部成员', () => {
+    const manifest = JSON.parse(readFileSync(path.join(runRoot, 'hooks', 'hooks.json'), 'utf8'));
+    const entries = manifest.hooks.PreToolUse;
+    assert.ok(Array.isArray(entries) && entries.length > 0, 'PreToolUse 应有条目');
+    const matcher = new RegExp(entries[0].matcher, 'i');
+    const hostForms = (n) => [n, n.charAt(0).toUpperCase() + n.slice(1), `run_${n}`, `mcp__h__${n}_command`];
+    for (const name of riskGate.SHELL_TOOL_NAMES) {
+      for (const form of hostForms(name)) {
+        assert.ok(matcher.test(form), `matcher 漏掉宿主工具名 "${form}"（内核名单 ${name}）——该调用不会进风险闸`);
+      }
+    }
+    // 反向：内核 applies() 也必须认得这些宿主名，否则 matcher 拦了、内核放了，同样形同虚设
+    for (const name of riskGate.SHELL_TOOL_NAMES) {
+      for (const form of hostForms(name)) {
+        assert.ok(riskGate.applies(form), `内核 applies() 不认宿主名 "${form}"`);
+      }
+    }
   });
 
   // stdin 截断 / 命令超 100K 上限时无法完整分析：不得走只读捷径，也不发判定请求，fail-closed 转 ask

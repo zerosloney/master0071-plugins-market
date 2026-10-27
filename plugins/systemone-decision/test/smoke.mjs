@@ -7,12 +7,17 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, wri
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
+import { rejectDataPath } from '../endpoint-config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
 // 在临时目录跑被测插件：服务器启动会把已解析端点落盘到插件根 .endpoint.json，
 // 直接跑仓库副本会污染工作区，并与 hook 冒烟测试互相串扰端点。
 const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-smoke-'));
+// 审计日志 / 场景文件夹具的落点必须**在插件根之外**：runRoot 是复制出来的插件根，
+// 服务器对 SYSTEMONE_LOG_FILE 与 SYSTEMONE_SCENARIOS_FILE 有「不得落在插件安装目录内」的
+// 护栏（插件安装目录跨项目共享、且随下次更新被覆盖），指到 runRoot 里会被正当拒绝。
+const scratchRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-scratch-'));
 cpSync(pluginRoot, runRoot, { recursive: true });
 // 源目录里若留有端点共享文件（本地跑过 MCP 服务的痕迹），它会被一起复制进沙箱，
 // 让「靠环境变量指端点」的用例读到陈旧端点。沙箱必须从干净状态起步。
@@ -1113,7 +1118,7 @@ const main = async () => {
   }
 
   // 审计日志 + stats：专用 client 把决策逐条落盘到临时 JSONL
-  const logFile = path.join(runRoot, 'decisions-audit.jsonl');
+  const logFile = path.join(scratchRoot, 'decisions-audit.jsonl');
   const logClient = new McpClient({
     SYSTEMONE_API_KEY: 'test-key',
     SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
@@ -1138,7 +1143,7 @@ const main = async () => {
   }
 
   // 场景文件加载：SYSTEMONE_PLUGIN_SCENARIOS_FILE + 设置页 JSON 同 id 覆盖文件
-  const scenarioFile = path.join(runRoot, 'team-scenarios.json');
+  const scenarioFile = path.join(scratchRoot, 'team-scenarios.json');
   writeFileSync(
     scenarioFile,
     JSON.stringify([
@@ -1268,7 +1273,19 @@ const main = async () => {
     assert.ok(!existsSync(path.join(pluginRoot, '.endpoint.json')));
     assert.ok(!existsSync(`${path.join(pluginRoot, '.endpoint.json')}.tmp`));
   });
+
+  // 数据路径护栏（endpoint-config.rejectDataPath）：SYSTEMONE_LOG_FILE 过去未经校验就交给
+  // writeFileSync 截断，设置项指错文件等于当场删掉用户数据。锁住五条拒绝与一条放行。
+  check('数据路径护栏：相对路径 / 错扩展名 / 插件根内 / .git 内 / 控制字符均被拒，合规 .jsonl 放行', () => {
+    assert.match(rejectDataPath('audit.jsonl', ['.jsonl']) || '', /绝对路径/, '相对路径应被拒（会写进插件安装目录）');
+    assert.match(rejectDataPath(path.join(scratchRoot, 'notes.md'), ['.jsonl']) || '', /扩展名/, '非 .jsonl 应被拒');
+    assert.match(rejectDataPath(path.join(pluginRoot, 'audit.jsonl'), ['.jsonl']) || '', /插件安装目录/, '插件根内应被拒');
+    assert.match(rejectDataPath(path.join(scratchRoot, '.git', 'audit.jsonl'), ['.jsonl']) || '', /\.git/, '.git 内应被拒');
+    assert.match(rejectDataPath(`${scratchRoot}\u0000audit.jsonl`, ['.jsonl']) || '', /控制字符/, '含 NUL 应被拒');
+    assert.equal(rejectDataPath(path.join(scratchRoot, 'decisions-audit.jsonl'), ['.jsonl']), null, '合规路径不应被拒');
+  });
   rmSync(runRoot, { recursive: true, force: true });
+  rmSync(scratchRoot, { recursive: true, force: true });
 
   if (failed) {
     console.error('\n冒烟测试存在失败项');

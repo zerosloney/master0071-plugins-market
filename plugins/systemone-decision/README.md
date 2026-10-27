@@ -7,7 +7,7 @@
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
-> **⚠ 数据外流提示（装前必读）**：一切判定都发生在你配置的 SystemOne 端点上。MCP 工具按调用把 `state` 发往端点；**配置 API Key 后，两个预检 hook 还会自动把每次用户输入（≥10 字符、非寒暄）与每条非只读 shell 命令的全文发往同一端点**——编码会话里的提示与命令常含私有路径、分支名或凭据引用，请只在你信任的端点上启用 hook，不需要时按[「预检 hook」](#预检-hook随插件自动安装)一节的说明关闭（需求预检可用 `SYSTEMONE_HOOK_PRECHECK=off` 一键停用）。hook 判定带 5 分钟本地缓存：TTL 内重复的相同输入不再重复外发（`SYSTEMONE_CACHE_TTL_MS=0` 关闭）。
+> **⚠ 数据外流提示（装前必读）**：一切判定都发生在你配置的 SystemOne 端点上。MCP 工具按调用把 `state` 发往端点；**配置 API Key 后，两个预检 hook 还会自动把每次用户输入（≥10 字符、非寒暄）与每条非只读 shell 命令的全文发往同一端点**——编码会话里的提示与命令常含私有路径、分支名或凭据引用，请只在你信任的端点上启用 hook，不需要时按[「预检 hook」](#预检-hook随插件自动安装)一节的说明关闭（需求预检 `SYSTEMONE_HOOK_PRECHECK=off`、shell 风险闸 `SYSTEMONE_HOOK_RISK_GATE=off`，各一键停用）。hook 判定带 5 分钟本地缓存：TTL 内重复的相同输入不再重复外发（`SYSTEMONE_CACHE_TTL_MS=0` 关闭）。
 
 ## 前置条件
 
@@ -94,7 +94,7 @@ systemone_scenario(action: "run",
 - **批量** `action=batch`：同一场景对多条 `states`（2~10 条）依次判定，单条失败不中断（逐条标注 `error`），条目为精简形状（不含逐题明细与原始响应）。
 - **精简模式** `format: "brief"`（run / decide 可选）：只返回 `decision` / `labels` / `derived` / `confidences` / `recommendation` 与复核标记，不含 `answers` / `summary` / `raw`——长会话里省上下文。
 - **本地缓存**：相同输入（模型 + state + 问题）5 分钟内命中缓存，`cached: true` 标记且不发远端请求；`SYSTEMONE_CACHE_TTL_MS=0` 关闭（默认 300000，上限 200 条 LRU）。
-- **审计日志**：设置 `SYSTEMONE_LOG_FILE`（或设置页 Decision Log）指向一个 JSONL 文件后，每次决策逐条落盘（判定值、置信度、延迟、复核标记）；`action=stats` 汇总各场景的判定次数、复核率、缓存命中与高频判定——场景判据调优的数据基础。
+- **审计日志**：设置 `SYSTEMONE_LOG_FILE`（或设置页 Decision Log）指向一个 JSONL 文件后，每次决策逐条落盘（判定值、置信度、延迟、复核标记）；`action=stats` 汇总各场景的判定次数、复核率、缓存命中与高频判定——场景判据调优的数据基础。路径受护栏约束（绝对路径、`.jsonl`、不得落在插件安装目录或 `.git` 内）：设置值来自用户可写位置，过去未经校验就交给截断写入，指到一个超过体积上限的非日志文件时会被一行标记整体替换——用户数据当场消失。超上限现在改为**轮转**（上一段改名成 `<文件>.1` 保留一代），不再原地清空。
 - **阈值优先级**：调用参数 `confidenceThreshold` > 场景默认（如 `security_triage` 0.8）> 全局 0.7。
 
 ## 自定义场景（设置页 / 场景文件 / 环境变量）
@@ -181,10 +181,11 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_MODEL` | 否 | `u2-decision` | 模型编码 |
 | `SYSTEMONE_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
 | `SYSTEMONE_SCENARIOS` | 否 | — | 自定义场景 JSON 数组（与设置页同源，优先级低于设置页） |
-| `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件） |
-| `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费 |
+| `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件）。**须为绝对路径、`.json` 扩展名，且不在插件安装目录或任何 `.git` 内**；不合格则忽略该文件并告警，内置场景照常可用 |
+| `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费。**须为绝对路径、`.jsonl` 扩展名，且不在插件安装目录或任何 `.git` 内**（插件安装目录跨项目共享、且随插件更新被覆盖）。超过 5 MB 时**轮转**为 `<文件>.1` 保留上一段，不再原地清空 |
 | `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭；**同时作用于 MCP 工具缓存与 hook 判定缓存** |
 | `SYSTEMONE_HOOK_PRECHECK` | 否 | `on` | 需求预检开关：`on` / `off` / `first:N`（每会话仅前 N 条被判定输入做预检，用尽后静默跳过；裸数字等同 `first:N`） |
+| `SYSTEMONE_HOOK_RISK_GATE` | 否 | `on` | shell 风险闸总开关：`on` / `off`（`off` 时一律放行且不发判定请求，比删 `hooks.json` 注册温和）。非法值告警后按 `on`，不静默关灯 |
 
 Windows 设置示例（设置后重启 ZCode）：
 
@@ -208,7 +209,11 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
-**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具（名称匹配 bash / shell / terminal / command / exec 等，各宿主命名差异在内核里归一）的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
+**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
+
+`hooks.json` 的 matcher 与内核的 `SHELL_TOOL_NAMES` **必须同宽**（由 `test/hook.smoke.mjs` 对账锁死）：过去 matcher 只写 `Bash|Shell|Terminal`，而内核认 12 个名字，宿主把命令交给 `cmd` / `exec` / `run_*` / `pwsh` 类工具时 hook 根本不被调用——闸门对着这些调用完全失效。
+
+已知未覆盖的窄口子：`git log` / `git diff` / `git show` 仍算只读捷径，但仓库自带配置里的 `core.pager` / `pager.log` / `diff.external` 是**仓库可控**的，恶意仓库可借它在 `git diff` 时执行外部程序。把这三条移出白名单会让每次 git 读取都付一次判定请求，代价过大，故交由宿主自身的目录信任与权限系统兜底，这里如实标注而非声称已覆盖。
 
 安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量与 `.endpoint.json` 共享端点，未配置 Key 时自动跳过。
 
@@ -218,7 +223,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
 
-**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；非法值告警后按默认 `on` 处理。
+**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；非法值告警后按默认 `on` 处理。
 
 ## 结果解读
 

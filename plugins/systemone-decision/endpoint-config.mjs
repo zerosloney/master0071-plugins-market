@@ -85,3 +85,37 @@ export function isInsecureBaseUrl(baseUrl) {
   if (typeof baseUrl !== 'string' || /^https:\/\//i.test(baseUrl)) return false;
   return !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])([:\/]|$)/i.test(baseUrl);
 }
+
+/** 设置页 / 环境变量交来的**数据文件路径**是否不可接受；可接受返回 null，否则返回拒绝理由。
+ *
+ *  背景：SYSTEMONE_LOG_FILE 与 SYSTEMONE_SCENARIOS_FILE 过去未经校验就交给 readFileSync /
+ *  appendFileSync / writeFileSync。LOG_FILE 指到一个超过体积上限的非日志文件（如 6MB 的
+ *  data.json）时，server 的截断分支会用一行标记**整体替换**该文件——用户数据当场消失。
+ *  与 baseUrl 同理：设置页的值来自用户可写位置，不是可信输入。
+ *
+ *  三条硬规则（空值 = 功能关闭，由调用方先行判定，不进这里）：
+ *   1. 必须是绝对路径。MCP 服务的 cwd 就是插件根，相对路径会把账本写进插件安装目录——
+ *      那里跨项目共享、且下次插件更新即被覆盖。
+ *   2. 扩展名必须在白名单内。指错文件时最坏结果是没写，而不是毁掉一个真实文件。
+ *   3. 不得落在插件安装目录内，也不得落在任何 .git 目录段内（钩子与 ref 不是日志的去处）。
+ */
+export function rejectDataPath(value, extensions) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return '路径含控制字符';
+  if (!path.isAbsolute(raw)) return '必须是绝对路径（相对路径会落进插件安装目录，跨项目共享且随插件更新丢失）';
+
+  const resolved = path.resolve(raw);
+  const norm = (s) => (process.platform === 'win32' ? s.toLowerCase() : s).replace(/[\\/]+$/, '');
+  const segments = resolved.split(/[\\/]+/);
+  if (segments.some((s) => s === '.git')) return '路径位于 .git 目录内';
+  const pluginRoot = norm(PLUGIN_ROOT);
+  const probe = norm(resolved);
+  if (probe === pluginRoot || probe.startsWith(`${pluginRoot}${path.sep}`)) {
+    return `路径位于插件安装目录内（插件根=${PLUGIN_ROOT}）`;
+  }
+  const ext = path.extname(resolved).toLowerCase();
+  if (!extensions.includes(ext)) {
+    return `扩展名必须是 ${extensions.join(' / ')}（当前 ${ext || '无扩展名'}）——拒绝指向非数据文件，避免截断时毁掉真实文件`;
+  }
+  return null;
+}

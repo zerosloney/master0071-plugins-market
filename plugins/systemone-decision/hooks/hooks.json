@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/requirement-clarity.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/requirement-clarity.mjs\"",
             "timeout": 15
           }
         ]
@@ -13,11 +13,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Shell|Terminal",
+        "matcher": "Bash|Shell|Terminal|Command|command|Cmd|cmd|Exec|exec|Process|process|Run|run|Pwsh|pwsh|PowerShell|zsh|fish",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs\"",
             "timeout": 15
           }
         ]

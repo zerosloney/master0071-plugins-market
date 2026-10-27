@@ -13,8 +13,17 @@ export const GATE = { riskDenyMin: 3, riskConfirmMin: 2, irreversibleMin: 0.5 };
 
 // 只对 shell 类工具启动判定：其余工具（读写文件、搜索）单次风险低且调用频繁，
 // 每次都发判定请求不可接受。名称匹配覆盖各宿主对终端类工具的常见命名——
-// powershell/pwsh 等词内部的 shell 不构成边界（"powershell" 里 shell 前是 r），必须单列
-const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.]|$)/i;
+// powershell/pwsh 等词内部的 shell 不构成边界（"powershell" 里 shell 前是 r），必须单列。
+//
+// SHELL_TOOL_NAMES 是**单源名单**：hooks.json 的 PreToolUse matcher 必须覆盖它的每一项。
+// 过去两处各写各的，matcher 只有 Bash|Shell|Terminal，而内核认 12 个名字——宿主把命令交给
+// cmd / exec / run / pwsh 类工具时，hook 压根不被调用，判定请求一次都不发，风险闸形同虚设。
+// 回归由 test/hook.smoke.mjs 的 matcher 同宽断言锁死（JSON 无法 import，只能在测试里对账）。
+export const SHELL_TOOL_NAMES = [
+  'bash', 'shell', 'terminal', 'command', 'cmd', 'exec', 'process', 'run',
+  'powershell', 'pwsh', 'zsh', 'fish',
+];
+const SHELL_TOOL = new RegExp(`(^|[_\\-.])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-.]|$)`, 'i');
 
 // 明显只读的命令捷径：不发判定请求直接放行（与 clarity 的寒暄捷径同一思路）
 const READONLY =
@@ -24,13 +33,36 @@ const READONLY =
 // 不作数——`echo start; rm -rf build`、`ls && rm -rf x`、`cat a > b` 都会绕过白名单直接放行。
 const COMPOUND = /[;&|><`]|\$\(|\n/;
 // find 的副作用开关：-delete / -exec / -execdir / -ok / -okdir 会删改或执行文件，
-// -fls / -fprintf 会写文件，都不算只读。注意 \b 语义：必须显式列出 okdir 等更长分支——
+// -fls / -fprint / -fprintf 会写文件，都不算只读。注意 \b 语义：必须显式列出 okdir 等更长分支——
 // `ok\b` 匹配不到 `-okdir`（k 与 d 之间无词边界），漏列会把确认式删除当成只读放行。
-const FIND_MUTATES = /\s-(delete|exec|execdir|ok|okdir|fls|fprintf)\b/i;
+// 同理 -fprint 必须列：只写 -fprintf 时 `-fprint` 也匹配不上（fprint 后面是词边界，
+// 但 alternation 里 shorter 在前会让 `-fprint` 走通、`-fprintf` 反而只匹配前半）。长串在前，两条都锁。
+const FIND_MUTATES = /\s-(delete|exec|execdir|ok|okdir|fls|fprintf|fprint)\b/i;
 
-/** 首 token 命中只读白名单、且整条命令无链式副作用时才走捷径（省一次判定请求）。 */
+// ripgrep / grep 的 --pre 对每个待搜文件跑外部预处理器（`rg --pre sh -c '…'` 即执行任意命令），
+// --pre=<prog> 与 --pre <prog> 两种写法都算。挂着只读首 token，实际在执行命令，必须在捷径前剔掉。
+const PRE_EXECUTES = /\s--pre(?:=|\s)/i;
+
+/** 风险闸总开关。设置页注入的 SYSTEMONE_PLUGIN_HOOK_RISK_GATE 优先于裸环境变量。
+ *  开关必须存在：拦不住又关不掉的闸，用户只剩卸载一条路——那不是想要的收敛方式。
+ *  非法值告警后按默认 on（与 precheckMode 同口径：坏值不毒死流程，但也不静默关灯）。 */
+export function riskGateEnabled(env = process.env) {
+  const raw = String(env.SYSTEMONE_PLUGIN_HOOK_RISK_GATE || env.SYSTEMONE_HOOK_RISK_GATE || '').trim().toLowerCase();
+  if (raw === '' || raw === 'on' || raw === 'true') return true;
+  if (raw === 'off' || raw === 'none' || raw === 'false' || raw === '0') return false;
+  process.stderr.write(`[systemone-decision hook] SYSTEMONE_HOOK_RISK_GATE 值 "${raw}" 无法识别（可用：on/off），按默认 on 处理\n`);
+  return true;
+}
+
+/** 首 token 命中只读白名单、且整条命令无链式副作用时才走捷径（省一次判定请求）。
+ *
+ *  已知未覆盖的窄口子（有意留着的成本权衡）：`git log/diff/show` 仍算只读，但仓库自带配置里的
+ *  `core.pager` / `pager.log` / `diff.external` 是仓库可控的，恶意仓库可借此在执行 `git diff` 时
+ *  跑外部程序。把它移出只读白名单会让每次 git 读取都付一次判定请求，代价远大于收益；
+ *  防线交给宿主自身的目录信任与宿主权限系统，这里不再重复收费。 */
 function isReadonlyShortcut(command) {
   if (COMPOUND.test(command)) return false;
+  if (PRE_EXECUTES.test(command)) return false;
   if (/^find\b/i.test(command)) return !FIND_MUTATES.test(command);
   return READONLY.test(command);
 }
@@ -88,6 +120,7 @@ function commandOf(toolInput) {
  * @returns {Promise<{decision: 'ask'|'deny', reason: string} | null>} null = 放行（不拦截）
  */
 export async function assess(toolName, toolInput, env = process.env, opts = {}) {
+  if (!riskGateEnabled(env)) return null; // 显式关灯：一律放行，且不发判定请求
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默放行
   // 管辖权判断先行：名字可读且非 shell 类的工具不归风险闸管，即使 stdin 被截断也直接放行——

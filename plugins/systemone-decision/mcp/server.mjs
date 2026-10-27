@@ -6,9 +6,9 @@
 // 供应商配置见插件 README.md：SYSTEMONE_API_KEY / SYSTEMONE_BASE_URL / SYSTEMONE_MODEL / SYSTEMONE_TIMEOUT_MS。
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
-import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
-import { writeEndpointConfig, isInsecureBaseUrl } from '../endpoint-config.mjs';
+import { writeEndpointConfig, isInsecureBaseUrl, rejectDataPath } from '../endpoint-config.mjs';
 import {
   buildSummary,
   deriveFields,
@@ -31,7 +31,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.6' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.7' };
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
@@ -51,13 +51,21 @@ if (NODE_MAJOR < 18) {
 const scenarioSources = [];
 const scenarioLoadProblems = [];
 const CUSTOM_JSON = process.env.SYSTEMONE_PLUGIN_SCENARIOS || process.env.SYSTEMONE_SCENARIOS || '';
-const SCENARIOS_FILE = process.env.SYSTEMONE_PLUGIN_SCENARIOS_FILE || process.env.SYSTEMONE_SCENARIOS_FILE || '';
+const SCENARIOS_FILE_RAW = process.env.SYSTEMONE_PLUGIN_SCENARIOS_FILE || process.env.SYSTEMONE_SCENARIOS_FILE || '';
+// 设置页的值不可信（与 baseUrl 同口径）：非 .json / 落在 .git 或插件安装目录内一律不读，
+// 只记一条告警——内置 15 场景照常可用，配置错了不会静默毁掉别处的文件。
+const SCENARIOS_FILE_REJECT = SCENARIOS_FILE_RAW.trim() === '' ? null : rejectDataPath(SCENARIOS_FILE_RAW, ['.json']);
+const SCENARIOS_FILE = SCENARIOS_FILE_REJECT ? '' : SCENARIOS_FILE_RAW;
 if (SCENARIOS_FILE.trim() !== '') {
   try {
     scenarioSources.push({ label: `场景文件 ${SCENARIOS_FILE}`, json: readFileSync(SCENARIOS_FILE, 'utf8') });
   } catch (e) {
     scenarioLoadProblems.push(`场景文件 ${SCENARIOS_FILE} 读取失败：${e.message}`);
   }
+} else if (SCENARIOS_FILE_REJECT) {
+  scenarioLoadProblems.push(
+    `场景文件设置被拒绝（${SCENARIOS_FILE_REJECT}）：SYSTEMONE_SCENARIOS_FILE=${SCENARIOS_FILE_RAW}；已忽略该文件，仅用内置与设置页场景。`,
+  );
 }
 scenarioSources.push({ label: '自定义场景', json: CUSTOM_JSON });
 const { scenarios: SCENARIOS, problems: scenarioProblems } = resolveScenarios(scenarioSources);
@@ -109,9 +117,18 @@ function cacheKey(model, state, request) {
 
 // ---------- 审计日志：LOG_FILE 指向 JSONL 文件时逐条追加，action=stats 消费 ----------
 
-const LOG_FILE = process.env.SYSTEMONE_PLUGIN_LOG_FILE || process.env.SYSTEMONE_LOG_FILE || '';
+// 只收 .jsonl（README 与 stats 的读法本就是 JSONL）：把可扩展名限死，配置写错时最坏是没日志，
+// 而不是把别的应用正在写的 .log 当成我们的账本轮转掉。
+const LOG_FILE_RAW = process.env.SYSTEMONE_PLUGIN_LOG_FILE || process.env.SYSTEMONE_LOG_FILE || '';
+const LOG_FILE_REJECT = LOG_FILE_RAW.trim() === '' ? null : rejectDataPath(LOG_FILE_RAW, ['.jsonl']);
+const LOG_FILE = LOG_FILE_REJECT ? '' : LOG_FILE_RAW;
+if (LOG_FILE_REJECT) {
+  process.stderr.write(
+    `[systemone-decision] 审计日志设置被拒绝（${LOG_FILE_REJECT}）：SYSTEMONE_LOG_FILE=${LOG_FILE_RAW}；本次进程不写审计日志。\n`,
+  );
+}
 // 审计日志只追加不轮转的话，长跑进程会让 action=stats 一次读进几 MB 并逐行 parse。
-// 超上限时原地截断并留一行标记，保证 stats 的读放大有界（更早的记录以标记明示丢失）。
+// 超上限时**轮转**（旧文件改名保留一份）而非原地截断：截断等于删除，路径指错时用户数据当场消失。
 const LOG_MAX_BYTES = 5 * 1024 * 1024;
 let logBroken = false;
 function appendLog(entry) {
@@ -126,7 +143,16 @@ function appendLog(entry) {
     }
     // 字节数按 UTF-8 计（Buffer.byteLength）：中文行用 line.length 会低估约 3 倍，5MB 上限实际装得下 ~15MB
     if (size + Buffer.byteLength(line) > LOG_MAX_BYTES) {
-      writeFileSync(LOG_FILE, `# 日志超过 ${LOG_MAX_BYTES} 字节，已截断，更早的记录不再保留\n`);
+      const archive = `${LOG_FILE}.1`;
+      // 只保留一代归档：先丢上一轮，再把当前整段改名保留——旧实现是 writeFileSync 原地清空，
+      // 等于删除；一旦 LOG_FILE 指错，用户数据就不是"更早记录不保留"而是当场全没了。
+      try {
+        unlinkSync(archive);
+      } catch {
+        /* 还没有归档 */
+      }
+      renameSync(LOG_FILE, archive);
+      writeFileSync(LOG_FILE, `# 已达 ${LOG_MAX_BYTES} 字节上限，上一段记录轮转至 ${archive}\n`);
     }
     appendFileSync(LOG_FILE, line);
   } catch (e) {
