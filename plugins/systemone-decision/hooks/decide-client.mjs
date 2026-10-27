@@ -23,6 +23,11 @@ export function config(env) {
 }
 
 export async function decide(state, cfg, questions, timeoutMsOverride) {
+  // 有意保留的双实现：本函数与 mcp/server.mjs 的 callSystemone() 是同一 SystemOne 协议的
+  // 两份传输层（URL 拼 /systemone、Bearer 头、{model, state, questions} 请求体、insecure
+  // 端点检查）——错误契约不同（这里抛错由调用方按 fail-open 契约放行；MCP 侧抛 ToolError
+  // → isError 结果），抽共享模块的回归风险大于收益。改协议形状时必须两处同步，
+  // 以 test/hook.smoke.mjs 与 test/smoke.mjs 为锚。
   // 调用方传入共享 deadline 的剩余预算时取二者较小值，请求不会越过 hook 的 handler 超时
   const timeoutMs =
     Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;

@@ -3,7 +3,7 @@
 标准 Agent Plugin 布局插件：接入 SystemOne 决策协议（默认 unisound u2-decision）。只注册 **2 个 MCP 工具**，控制工具 schema 的上下文开销，同时通过内置场景库覆盖常用业务判定：
 
 - **场景决策** `systemone_scenario` — `action=list / describe / run / batch / stats`，一次调用返回带概率分布的判定、归一化决策（`decision` / `labels` / `derived`）与处置建议（`recommendation`）
-- **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合
+- **自定义决策** `systemone_decide` — 场景库没有的临时判断，直接提交任意 choice / noul / score 问题组合（≤ 16 个问题、单题 `instructions` ≤ 10000 字符，与场景库校验口径对齐）
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
@@ -170,7 +170,7 @@ systemone_scenario(action: "run",
 
 **hook 端点共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）落盘到共享文件，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商后，预检自动跟随同一端点，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
 
-**共享文件位置**：Agent Plugins 规范的客户端会提供 `PLUGIN_DATA`（跨插件更新保留的可写数据目录），此时文件落在 `$PLUGIN_DATA/endpoint.json`——插件更新后端点配置不丢，也不会把运行时产物留在包目录里。没有 `PLUGIN_DATA` 的宿主（Claude Code / ZCode 等）沿用插件根的 `.endpoint.json`。读时两处都看、`PLUGIN_DATA` 优先；写时只写 `PLUGIN_DATA`（存在时）并清掉插件根的旧文件，避免同一份配置留两个副本、日后回退旧文件时读到过期端点。
+**共享文件位置**：Agent Plugins 规范的客户端会提供 `PLUGIN_DATA`（跨插件更新保留的可写数据目录），此时文件落在 `$PLUGIN_DATA/endpoint.json`——插件更新后端点配置不丢，也不会把运行时产物留在包目录里。没有 `PLUGIN_DATA` 的宿主（Claude Code / ZCode 等）沿用插件根的 `.endpoint.json`。读时两处都看、`PLUGIN_DATA` 优先；写时只写 `PLUGIN_DATA`（存在时）并清掉插件根的旧文件，避免同一份配置留两个副本、日后回退旧文件时读到过期端点。**注意：无 `PLUGIN_DATA` 时 `.endpoint.json` / `decision-cache.json` / `precheck-quota.json` 会回退写入插件安装目录，目录只读时各写入路径自行降级——端点共享文件失败会 stderr 告警，判定缓存与预检配额静默跳过，均不影响主流程。**
 
 ## 配置（环境变量）
 

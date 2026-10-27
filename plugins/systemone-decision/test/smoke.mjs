@@ -94,6 +94,23 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ base_resp: { status_code: 100105, status_msg: 'model error: no model u2-decision permission' } }));
       return;
     }
+    // server 侧错误分支的三个哨兵：200 但 body 非 JSON / 200 但缺 answers / 普通 5xx（无权限提示）
+    if (parsed.state === 'mock:non-json') {
+      res.setHeader('content-type', 'text/html');
+      res.end('<html><body>gateway error</body></html>');
+      return;
+    }
+    if (parsed.state === 'mock:no-answers') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ model: 'u2-decision', request_id: 'no-answers', latency_ms: 1, usage: {} }));
+      return;
+    }
+    if (parsed.state === 'mock:server-error') {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'text/plain');
+      res.end('internal error');
+      return;
+    }
     // 缺陷回归夹具：判定值缺失的畸形响应——score 缺 score 字段 / score=null，或 noul 完全没有
     // 概率字段。模型此时仍会返回 legend 或高 confidence。归一化必须把它标成「无法判断」，
     // 绝不能回退到 0 分再取 legend[0] 捏造出等级标签，否则会产出一条看起来完全正常的假判定。
@@ -889,6 +906,26 @@ const main = async () => {
     });
     // 注：循环引用的 state 在任何 JSON-RPC 客户端序列化时就会失败，到不了服务器，无需防御
 
+    // decide 入参上限（与场景库校验口径对齐）：超量问题 / 超长 instructions 在校验层拒绝，不发请求
+    const tooManyQuestions = await decide(client, {
+      state: '超量探测',
+      questions: Object.fromEntries(
+        Array.from({ length: 17 }, (_, i) => [`q${i}`, { type: 'noul', instructions: '是吗？' }])
+      ),
+    });
+    check('decide 超过 16 个问题被拒绝（与场景库 1~16 对齐）', () => {
+      assert.equal(tooManyQuestions.result.isError, true);
+      assert.match(tooManyQuestions.result.content[0].text, /最多 16 个问题/);
+    });
+    const longInstructions = await decide(client, {
+      state: '超长说明探测',
+      questions: { q1: { type: 'noul', instructions: '是'.repeat(10_001) } },
+    });
+    check('decide 单题 instructions 超过 10000 字符被拒绝', () => {
+      assert.equal(longInstructions.result.isError, true);
+      assert.match(longInstructions.result.content[0].text, /instructions 过长/);
+    });
+
     // JSON-RPC 加严：jsonrpc 字段非法 / id 类型非法的消息直接忽略，不响应也不崩
     client.child.stdin.write(`${JSON.stringify({ jsonrpc: '1.0', id: 987001, method: 'ping' })}\n`);
     client.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: { bad: true }, method: 'ping' })}\n`);
@@ -907,6 +944,57 @@ const main = async () => {
       assert.match(perm.result.content[0].text, /模型权限/);
       assert.match(perm.result.content[0].text, /环境变量快照/);
     });
+
+    // server 侧响应处理错误分支（此前零覆盖）：HTTP 非 2xx 的「无提示」路径 + 200 的两类坏 body
+    const serverError = await decide(client, { state: 'mock:server-error', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
+    check('普通 5xx 报 HTTP 状态错误且不带权限提示', () => {
+      assert.equal(serverError.result.isError, true);
+      assert.match(serverError.result.content[0].text, /HTTP 500/);
+      assert.match(serverError.result.content[0].text, /internal error/);
+      assert.ok(!/模型权限/.test(serverError.result.content[0].text), '正文无 permission 字样时不得误附权限排查提示');
+    });
+    const nonJson = await decide(client, { state: 'mock:non-json', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
+    check('HTTP 200 但响应体非 JSON 报可读错误', () => {
+      assert.equal(nonJson.result.isError, true);
+      assert.match(nonJson.result.content[0].text, /不是合法 JSON/);
+    });
+    const noAnswers = await decide(client, { state: 'mock:no-answers', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
+    check('HTTP 200 但缺 answers 字段报可读错误', () => {
+      assert.equal(noAnswers.result.isError, true);
+      assert.match(noAnswers.result.content[0].text, /缺少 answers 字段/);
+    });
+
+    // 超时缺口回归：服务端发完响应头后挂起不发 body——旧实现在收到响应头时就清掉 timer，
+    // await res.text() 无超时保护，tools/call 会无限挂起。body 读取必须同受 timer 保护，
+    // 超时后抛可区分的「响应体读取超时」错误，且不能等满宿主超时。
+    const hanging = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      // flushHeaders 必须显式调用：writeHead 只缓存头部，不 flush 会攒到首次写 body 才发出，
+      // fetch 就还停在等响应头阶段，触发的是「请求超时」而非要回归的「响应体读取超时」分支
+      res.flushHeaders();
+      // 有意不 res.end()：body 永不到达
+    });
+    await new Promise((r) => hanging.listen(0, '127.0.0.1', r));
+    const timeoutClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${hanging.address().port}/v1`,
+      SYSTEMONE_PLUGIN_TIMEOUT_MS: '500',
+    });
+    try {
+      const started = Date.now();
+      const hung = await timeoutClient.call('tools/call', {
+        name: 'systemone_decide',
+        arguments: { state: '响应体挂起探测', questions: { q1: { type: 'noul', instructions: '是吗？' } } },
+      });
+      check('响应头发完但 body 挂起：读取阶段受 timer 保护并抛可区分错误', () => {
+        assert.equal(hung.result.isError, true);
+        assert.match(hung.result.content[0].text, /响应体读取超时（500ms）/);
+        assert.ok(Date.now() - started < 10_000, `应在远小于宿主超时的时间内返回，实际 ${Date.now() - started}ms`);
+      });
+    } finally {
+      timeoutClient.close();
+      hanging.close();
+    }
   } finally {
     client.close();
   }

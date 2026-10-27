@@ -31,7 +31,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.5' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.6' };
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
@@ -140,6 +140,12 @@ function appendLog(entry) {
 // intentional-simple: 100K 字符按「对话数组级业务上下文」估的上限，挡住把整个代码库塞进
 // state 的滥用（决策模型输入窗口远小于此）；若出现超大合法 state 用例再上调。
 const STATE_MAX_CHARS = 100_000;
+// 题数上限与场景库对齐：scenarios.mjs validateScenario 对场景 questions 收 1~16 个
+//（延迟随问题数线性增长），decide 直提路径不允许更宽松
+const QUESTIONS_MAX = 16;
+// 单题 instructions 长度上限：instructions 每次请求都全文发给决策模型，挡住把整段文档
+// 塞进单题说明的滥用（思路同 STATE_MAX_CHARS）
+const INSTRUCTIONS_MAX_CHARS = 10_000;
 
 function validateState(state) {
   if (state === null || (typeof state !== 'string' && typeof state !== 'object')) {
@@ -168,6 +174,11 @@ function validateQuestions(questions) {
   if (entries.length === 0) {
     throw new ToolError('questions 至少包含一个问题');
   }
+  // 题数上限与场景路径对齐：scenarios.mjs validateScenario 对场景 questions 收 1~16 个，
+  // decide 直提路径不允许更宽松（延迟随问题数线性增长）
+  if (entries.length > QUESTIONS_MAX) {
+    throw new ToolError(`questions 一次最多 ${QUESTIONS_MAX} 个问题（当前 ${entries.length} 个）：延迟随问题数线性增长，请拆分为多次调用`);
+  }
   for (const [qid, q] of entries) {
     if (!q || typeof q !== 'object' || Array.isArray(q)) {
       throw new ToolError(`questions.${qid} 必须是对象`);
@@ -177,6 +188,10 @@ function validateQuestions(questions) {
     }
     if (!isNonEmptyString(q.instructions)) {
       throw new ToolError(`questions.${qid}.instructions 必须是非空字符串`);
+    }
+    // instructions 每次请求都全文发给决策模型：挡住把整段文档塞进单题说明的滥用（思路同 STATE_MAX_CHARS）
+    if (q.instructions.length > INSTRUCTIONS_MAX_CHARS) {
+      throw new ToolError(`questions.${qid}.instructions 过长（${q.instructions.length} 字符 > 上限 ${INSTRUCTIONS_MAX_CHARS}）：请精简题目说明`);
     }
     // criteria 规则（choice 选项对象 / score 等级数组 / noul 无判据）收拢在 question-types，
     // 与场景加载校验同一套口径（谁严以谁为准）；报错取第一条
@@ -207,6 +222,11 @@ async function callSystemone(state, questions, timeoutMsOverride) {
       return { ...hit.data, cached: true };
     }
   }
+  // 有意保留的双实现：本函数与 hooks/decide-client.mjs 的 decide() 是同一 SystemOne 协议的
+  // 两份传输层（URL 拼 /systemone、Bearer 头、{model, state, questions} 请求体、insecure 端点
+  // 检查）——错误契约不同（这里抛 ToolError → MCP isError 结果；hook 侧抛错由调用方按
+  // fail-open 契约放行），抽共享模块的回归风险大于收益。改协议形状时必须两处同步，
+  // 以 test/smoke.mjs 与 test/hook.smoke.mjs 为锚。
   const url = `${cfg.baseUrl}/systemone`;
   // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key：共享配置文件在用户可写目录，
   // 值不可信；明文外发凭据比单次工具调用失败严重得多
@@ -232,10 +252,20 @@ async function callSystemone(state, questions, timeoutMsOverride) {
       throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${url}`);
     }
     throw new ToolError(`systemone 请求失败：POST ${url}，原因：${e.message}`);
+  }
+  // 响应头之后 body 仍可能缓慢滴流：读取阶段继续受同一 timer 保护——若收到响应头就清掉
+  // timer，故障端点会让 tools/call 在 await res.text() 上无限挂起
+  let text;
+  try {
+    text = await res.text();
+  } catch (e) {
+    if (ac.signal.aborted) {
+      throw new ToolError(`systemone 响应体读取超时（${timeoutMs}ms）：POST ${url}`);
+    }
+    throw e; // 非 abort 的读取失败维持原样上抛（dispatch 归为工具异常）
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text();
   if (!res.ok) {
     let hint = '';
     if (/permission/i.test(text)) {

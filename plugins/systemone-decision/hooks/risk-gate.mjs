@@ -8,7 +8,7 @@ import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
 import { STDIN_MAX_CHARS } from './hook-io.mjs';
 
 // 门限：拒绝 = 判定为 deny，或（高风险 且 不可逆）；确认 = 判定 confirm，或中风险以上，或不可逆。
-// 低置信度不改门限，只在命中的理由里附注——硬信号归 hook，软怀疑归用户与 Agent。
+// 低置信度不改放行/确认门限，只把 deny 降级为 ask（自动拦截的硬动作需要可信判据），偏低注记保留在理由里。
 export const GATE = { riskDenyMin: 3, riskConfirmMin: 2, irreversibleMin: 0.5 };
 
 // 只对 shell 类工具启动判定：其余工具（读写文件、搜索）单次风险低且调用频繁，
@@ -90,15 +90,19 @@ function commandOf(toolInput) {
 export async function assess(toolName, toolInput, env = process.env, opts = {}) {
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默放行
+  // 管辖权判断先行：名字可读且非 shell 类的工具不归风险闸管，即使 stdin 被截断也直接放行——
+  // 截断转人工只对将要分析的 shell 命令有意义。名字读不出来时（stdin 截断时 hook-io 不解析
+  // JSON，tool_name 为 undefined）无法判定管辖权，落入下面的截断 fail-closed 分支。
+  if (typeof toolName === 'string' && !applies(toolName)) return null;
   // stdin 被截断（超 100K 上限）时 tool_name / tool_input 都可能不完整——分析不到的尾巴里
   // 可以藏 `; rm -rf /`。不能走只读捷径，也不把残缺输入交给判定模型：fail-closed 转人工确认。
+  //（管辖内的 shell 工具，以及 tool_name 不可读、无法排除 shell 类的情形）
   if (opts.truncated === true) {
     return {
       decision: 'ask',
       reason: `[SystemOne 风险闸] hook 输入超过 ${STDIN_MAX_CHARS} 字符上限被截断，无法完整分析命令，默认需先确认：请向用户展示命令并确认后再执行。`,
     };
   }
-  if (!applies(toolName)) return null;
   const command = commandOf(toolInput);
   // 命令本身超上限同理：无法完整分析（也不把 100K+ 文本塞给判定模型白烧一次请求），fail-closed
   if (command.length > STDIN_MAX_CHARS) {
@@ -109,20 +113,36 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
   }
   if (isReadonlyShortcut(command)) return null;
   const answers = await decide(`工具：${toolName}\n命令：${command}`, cfg, QUESTIONS, opts.timeoutMs);
-  const verdict = answers ? choiceOf(answers.verdict) : null;
-  const risk = answers ? scoreOf(answers.risk) : null;
-  const irreversible = answers ? noulOf(answers.irreversible) : null;
-  if (!verdict || !risk || !irreversible) return null; // 响应不完整，fail-open
+  if (!answers) return null; // 无响应（网络失败/超时）：维持 fail-open 放行，与坏响应区别对待
+  // 取不出 = 归一化为 null（字段缺失/题型回显错乱），或 verdict 选中判据表外的选项（幻觉）。
+  // 幻觉选项与 MCP 侧 isBorderlineAnswer（question-types.mjs）同一口径：不能当有效判定。
+  const verdictRaw = choiceOf(answers.verdict);
+  // Object.hasOwn 而非 in：后者沿原型链匹配，'toString' 之类的值会被误当合法选项
+  const verdict = verdictRaw && Object.hasOwn(QUESTIONS.verdict.criteria, verdictRaw.value) ? verdictRaw : null;
+  const risk = scoreOf(answers.risk);
+  const irreversible = noulOf(answers.irreversible);
+  // 拿到了响应但三问任一取不出有效判定：决策响应不完整，fail-closed 转人工确认，不再放行
+  if (!verdict || !risk || !irreversible) {
+    return {
+      decision: 'ask',
+      reason:
+        '[SystemOne 风险闸] 判定响应不完整（幻觉选项或题型错乱，三问至少一问取不出有效判定），不能自动放行：请向用户展示命令并确认后再执行。',
+    };
+  }
   const p = irreversible.probability;
   const deny = verdict.value === 'deny' || (risk.score >= GATE.riskDenyMin && p >= GATE.irreversibleMin);
   const confirm = !deny && (verdict.value === 'confirm' || risk.score >= GATE.riskConfirmMin || p >= GATE.irreversibleMin);
   if (!deny && !confirm) return null; // 放行，零噪音
   const conf = [verdict.confidence, risk.confidence, irreversible.confidence].filter((c) => c !== null);
-  const low =
-    conf.length > 0 && Math.min(...conf) < 0.7 ? `（注意：本次判定最低置信度 ${Math.min(...conf).toFixed(2)}，偏低）` : '';
+  const minConf = conf.length > 0 ? Math.min(...conf) : null;
+  const lowConfident = minConf !== null && minConf < 0.7;
+  const low = lowConfident ? `（注意：本次判定最低置信度 ${minConf.toFixed(2)}，偏低）` : '';
+  // 低置信度的 deny 降级为 ask：deny 是自动拦截的硬动作，判据本身不可信时把决定交还用户
+  //（偏低注记保留在 reason 里）；对 verdict 路径与 risk/irreversible 规则路径同样适用
+  const decision = deny && !lowConfident ? 'deny' : 'ask';
   const reason =
-    `[SystemOne 风险闸] 该命令判定为${deny ? '高风险，拒绝执行' : '需先确认再执行'}：` +
+    `[SystemOne 风险闸] 该命令判定为${decision === 'deny' ? '高风险，拒绝执行' : '需先确认再执行'}：` +
     `破坏性 ${risk.score.toFixed(1)}/3${risk.level ? `（${risk.level}）` : ''}；不可逆概率 ${p.toFixed(2)}；` +
-    `模型判定 ${verdict.value}。${deny ? '建议阻止该命令并向用户说明风险，或让用户手动执行。' : '建议先向用户展示命令并确认后再执行。'}${low}`;
-  return { decision: deny ? 'deny' : 'ask', reason };
+    `模型判定 ${verdict.value}。${decision === 'deny' ? '建议阻止该命令并向用户说明风险，或让用户手动执行。' : '建议先向用户展示命令并确认后再执行。'}${low}`;
+  return { decision, reason };
 }
