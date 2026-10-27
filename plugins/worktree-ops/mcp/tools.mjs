@@ -441,6 +441,14 @@ return ok(
         if (info.clean === false) {
           return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force=true if the user explicitly asked to discard them.`);
         }
+        // clean 为 null = `git status` 本身没跑成。与紧邻的 `ahead === null` 同口径 fail-closed：
+        // 无法证明干净就不能当干净删——状态取不到时恰恰是护栏最该拦住的时候。
+        // 唯一例外是 prunable：工作树目录早被手动删/移走，`git status` 在不存在的 cwd 上必然失败，
+        // 但那里已无未提交工作可丢，删除等价于 prune（旧实现靠 `=== false` 放行整个 null 类，
+        // 连带把「git 拒绝报告状态」也当成干净）。
+        if ((info.clean === null || info.clean === undefined) && !entry.prunable) {
+          return fail(`refusing to remove: cannot determine whether the worktree is clean (git status returned nothing).\nResolve why git cannot report status there, or call again with force=true if the user accepts losing uncommitted work.`);
+        }
         // 数不出 ahead 就拒绝：合并没有验证成，不能因为 null 而当成「已合并」放行。
         // 这里不再要求 entry.branch——detached 工作树同样可能带未合并提交，而 describe()
         // 已改用 entry.head 做 rev，ahead 对 detached 也是真实值。旧实现写成

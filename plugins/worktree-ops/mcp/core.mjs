@@ -884,6 +884,9 @@ function bucketOf(info, staleDays, managedPath = null) {
   if (info.isMain) return { bucket: "hold", reason: "primary worktree" };
   if (info.clean === false) return { bucket: "hold", reason: `${info.dirtyCount} uncommitted change(s)` };
   if (info.prunable) return { bucket: "hold", reason: `prunable: ${info.prunable}` };
+  // 与 worktree_remove 同口径（prunable 例外已在上方先出）：git status 取不到时不得进 safe，
+  // 否则 audit 报「safe to remove」而 remove 拒绝，用户照着做必然撞墙。
+  if (info.clean === null || info.clean === undefined) return { bucket: "review", reason: "git status unavailable — cleanliness unproven, remove refuses without force" };
   if (info.ahead && info.ahead > 0) return { bucket: "hold", reason: `${info.ahead} commit(s) not merged into target` };
   if (managedPath && !isInside(info.path, path.resolve(managedPath))) {
     return { bucket: "review", reason: "outside the managed root — this plugin will not remove it" };
