@@ -39,6 +39,9 @@ const HEADER = ["SIZE", "AGE", "MERGED", "DIRTY", "REMOTE", "PR", "LAST_CHAT", "
 // Merged and closed PRs drop out of gh's default open-only listing.
 const GH_PR_LIST = ["pr", "list", "--author", "@me", "--state", "all", "--limit", "1000",
   "--json", "number,state,headRefName,headRefOid"];
+// The sheet reader stats a file's size before reading it, and so does the transcript
+// scan: a runaway file must not load whole into memory before a cap applies.
+const MAX_BYTES = 1024 * 1024;
 
 export function classify(facts) {
   const { locked, dirty, pr, recent, ancestry, head } = facts;
@@ -183,12 +186,18 @@ function transcriptNeedles(spellings) {
 }
 
 // `spellings` maps each worktree path to every spelling a session could use.
-export function lastChats(roots, spellings) {
+export function lastChats(roots, spellings, warn = () => {}) {
   const needles = [...spellings].map(([path, forms]) => [path, transcriptNeedles(forms)]);
   const latest = new Map();
   for (const { path: file } of roots.flatMap((root) => candidates(root, Infinity))) {
     let text, mtime;
     try {
+      if (statSync(file).size > MAX_BYTES) {
+        // The skip can hide a worktree's latest chat, so it says so rather
+        // than passing silently.
+        warn(`warn: ${file} over 1 MiB; skipped, its worktree's LAST_CHAT may be missed`);
+        continue;
+      }
       text = readFileSync(file);
       // A session can resume after enumeration. Its new content must use its
       // current timestamp, not the old one used to order the candidates.
@@ -339,7 +348,7 @@ export function audit({
     for (const root of roots) warn(`warn: ${root} not found; LAST_CHAT column will be empty`);
     if (roots.length) return UNKNOWN;
     const knownSpellings = new Map([...spellings].filter(([, fact]) => fact.known).map(([path, fact]) => [path, fact.value]));
-    return discover(() => lastChats(transcripts, knownSpellings), scanFailed);
+    return discover(() => lastChats(transcripts, knownSpellings, warn), scanFailed);
   });
   const chats = new Map(live.map((path) => [
     path,

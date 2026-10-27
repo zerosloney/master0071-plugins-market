@@ -14,3 +14,7 @@
 不可用；playbook 文中已同时给出无 bun 场景的替代路径（`gh` / `origin` 直查）。`skills/poteto-mode/scripts/`
 下的 4 个 node 脚本（`check-plan.mjs` / `check-playbooks.mjs` / `resume.mjs` / `worktree-audit.mjs`）
 零依赖、随装随用，与 bun 无关。
+
+bun 测试套件（`poteto-mode-scripts/` 下的 `bun test`，覆盖 `orch`、`watch-pr` 与 `check-plan.test.ts`）
+仅在上游 POSIX 环境验证过。Windows 下它有三类已知失败：fake 可执行文件无 `.exe` 后缀、`orch` store
+锁竞争时序、`watch-pr` 默认 5s 超时，均属平台兼容问题而非本移植回归。
