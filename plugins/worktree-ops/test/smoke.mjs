@@ -969,6 +969,35 @@ writeFileSync(cfgFile, cfgSnapshot);
 const emptyBase = await session.tool('worktree_create', { repoPath: repo, name: 'empty-base-probe', baseRef: '' });
 check('create 的 baseRef 空串被拒绝而不是悄悄走 auto', emptyBase.isError && /invalid baseRef/.test(emptyBase.text), emptyBase.text);
 
+section('P2：staleDays 读写路径同口径（repo 级剔除 + 写盘归一）');
+// 回归①：normalizeRepoOverride 此前只查有限数不查正数，repo 级 staleDays:-5 被静默接受、
+// audit 阈值随之变负——0.4.4「读取时同口径校验」漏掉的分支。修复后与顶层一致：剔除该键并报 issue。
+// 回归②：saveConfig 重建 body 时只查有限数，手编的负值会在下次任意写盘时原样保留，与读路径
+// 的拒绝形成分裂；修复后归一为默认值（不中断写入，落盘的是整份合法化快照）。
+const staleCfgSnap = readFileSync(cfgFile, 'utf8');
+const staleBody = JSON.parse(staleCfgSnap);
+staleBody.repos = staleBody.repos || {};
+staleBody.repos[repo] = { staleDays: -5 };
+writeFileSync(cfgFile, JSON.stringify(staleBody));
+const repoStale = await session.tool('worktree_config', { action: 'get', repoPath: repo });
+check(
+  'repo 级 staleDays 负数被剔除，生效值回退全局 5（而非默认 14）',
+  !repoStale.isError && /staleDays: 5 \(global\)/.test(repoStale.text),
+  repoStale.text,
+);
+check(
+  'issues 点名 repo 级 staleDays 期望正数',
+  /repos\[.*\]\.staleDays: expected a positive number, got -5/.test(repoStale.text),
+  repoStale.text,
+);
+check('config get 回执不把负值当作生效值展示', !/staleDays: -5/.test(repoStale.text) && !/staleDays=-5/.test(repoStale.text), repoStale.text);
+// 写路径：手编顶层负值后做任意一次 config 写操作（改 branchPrefix 触发整份重写），文件应归一为默认 14
+writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(staleCfgSnap), staleDays: -5 }));
+const normWrite = await session.tool('worktree_config', { action: 'set', scope: 'global', branchPrefix: 'wt/' });
+check('非法 staleDays 不中断本次写入', !normWrite.isError, normWrite.text);
+check('写盘时非法 staleDays 归一为默认 14', JSON.parse(readFileSync(cfgFile, 'utf8')).staleDays === 14, readFileSync(cfgFile, 'utf8'));
+writeFileSync(cfgFile, staleCfgSnap);
+
 section('P1：merge_back 在 rebase 之后基于新快照决策');
 // 回归：rebase 改写了提交，但 merge/remove 仍按 rebase 前的 ahead/merged 判断，
 // 可能出现「报告已合并、实际没合」或「已合并却拒绝删除」。

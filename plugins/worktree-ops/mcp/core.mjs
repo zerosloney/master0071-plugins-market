@@ -101,8 +101,11 @@ function normalizeRepoOverride(key, value, issues) {
       continue;
     }
     if (field === "staleDays") {
-      if (typeof v !== "number" || !Number.isFinite(v)) {
-        issues.push(`repos["${key}"].staleDays: expected a finite number, got ${JSON.stringify(v)}`);
+      // 与顶层 loadConfig 的 staleDays 校验同口径：只收正数。此前 repo 级只查有限数，
+      // 手编 0 / 负数被静默接受，audit 的分桶阈值随之变负。非法时剔除该键并报告 issue，
+      // 生效值回退顶层 / 默认值。
+      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+        issues.push(`repos["${key}"].staleDays: expected a positive number, got ${JSON.stringify(v)}`);
         continue;
       }
       clean.staleDays = v;
@@ -251,7 +254,13 @@ function saveConfig(changes = {}) {
       root: typeof disk.root === "string" ? disk.root : null,
       baseRef: typeof disk.baseRef === "string" ? disk.baseRef : DEFAULT_CONFIG.baseRef,
       branchPrefix: typeof disk.branchPrefix === "string" ? disk.branchPrefix : DEFAULT_CONFIG.branchPrefix,
-      staleDays: Number.isFinite(disk.staleDays) ? Number(disk.staleDays) : DEFAULT_CONFIG.staleDays,
+      // 与读取路径（loadConfig）同口径：手编的 0 / 负数若原样保留，会在下次任意写盘时被
+      // 延续下去，读路径拒绝、写路径放行形成分裂。归一为默认值而非拒绝写入：saveConfig
+      // 落盘的是整份合法化快照，因个别坏值中断会把其他合法字段的修改一并挡下。
+      staleDays:
+        Number.isFinite(disk.staleDays) && Number(disk.staleDays) > 0
+          ? Number(disk.staleDays)
+          : DEFAULT_CONFIG.staleDays,
       repos: disk.repos && typeof disk.repos === "object" && !Array.isArray(disk.repos) ? { ...disk.repos } : {},
     };
     if (changes.top) {
