@@ -1,0 +1,56 @@
+# 全仓库测试门禁：
+#   1. 版本位一致性（scripts/release.mjs --check：4 插件 × 各 7-8 处版本位）
+#   2. 四个插件的全部 node 测试套件（共 9 个文件，零依赖，Node ≥ 18 即可跑）
+# pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
+#（见 plugins/pstack/extras/README.md），待其适配后再纳入。
+# windows 用 bash shell：sheet-parity 依赖 awk（Git Bash 自带），node 命令本身无 shell 依赖。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # worktree-ops 的冒烟测试会真实创建 git 提交，runner 需要可用身份
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "CI"
+      - name: Version consistency (release.mjs --check)
+        run: node scripts/release.mjs --check
+      - name: systemone-decision tests
+        run: |
+          node plugins/systemone-decision/test/smoke.mjs
+          node plugins/systemone-decision/test/hook.smoke.mjs
+      - name: worktree-ops tests
+        run: |
+          node plugins/worktree-ops/test/smoke.mjs
+          node plugins/worktree-ops/test/lock.mjs
+      - name: agent-pipelines tests
+        run: |
+          node plugins/agent-pipelines/test/contract.mjs
+          node plugins/agent-pipelines/test/pipeline.mjs
+          node plugins/agent-pipelines/test/equivalence.mjs
+      - name: pstack tests
+        run: |
+          cd plugins/pstack
+          node test/run-hook-tests.mjs
+          node test/sheet-parity.mjs
