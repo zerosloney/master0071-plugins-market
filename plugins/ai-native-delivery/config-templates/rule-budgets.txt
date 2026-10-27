@@ -1,0 +1,49 @@
+# 常驻面体积预算（单源：check-loop.mjs 检查 16（--all，WARN；§13 体 2026-10-16 并入 §16，编号留疤）、.githooks/pre-commit（--staged，硬拦）与 CI workflow（--all）共读；判定脚本 rule-budget.mjs，2026-10-08 自 .sh 移植 node）
+# 格式：<路径或 glob> <上限字节>；路径以 / 结尾表示目录合计。上限 = 瘦身后实测 + 余量。
+# 条目数预算（2026-10-15 减重手段②）：<目录> <N>#count = 匹配文件**条数**上限（规则面一进一出：
+#   新增一条须先退役一条，退役判定 node .agents/scripts/agg-judgments.mjs --retire-candidates）。
+# 2026-09-21 第二轮：backend / frontend 两目录级 AGENTS.md 内容精简后重定上限（实测 backend 5955B / frontend 4581B）。
+# 2026-09-21 第三轮：.agents/commands/ 8 个阶段命令去重（触发节 / 子代理约定 / 重复静态门 / 落点说明）后实测合计 37347B；
+# 上限 39936B 不变（余量 2589B ≈ 6.9%，与其它条目同量级），单篇上限 7168B 不变（当前峰值 maintain.md 6127B）。
+# 2026-10-05 第四轮：flow-kit v1.1.3 升级（卡片 8→12 张、build/test 增厚）重定上限：实测合计 63010B、峰值 build.md 8144B；
+# 目录上限 39936→67584B、单篇 7168→8704B（余量与其它条目同量级 ~7%）。
+# 同轮：AGENTS.md 新增「项目适配区」（v1.1.3 test.md 冒烟脚本登记位）实测 8216B，上限 7680→8704B。
+# 同轮：backend/AGENTS.md 复核 P2-2 恢复被夹带删减的红线明细并保留「异常响应收口」红线，实测 6964B，上限 6400→7424B。
+# 超限含义：常驻面只增不减——须先删除或下沉被取代条目再增（一进一出，见 .agents/commands/maintain.md 三件套③）。
+# 说明：本文件会被 core.autocrlf 检出为 CRLF，读取方（rule-budget.mjs）已显式去 \r，禁止依赖行尾格式。
+# 口径：预算比较用「索引 / HEAD 字节」（git cat-file，LF 归一）；禁用工作区 wc -c 核对（CRLF 膨胀，2026-09-21 实测差 ~500B）。
+AGENTS.md 8704
+backend/AGENTS.md 7424
+frontend/AGENTS.md 4992
+.trae/rules/project-workflow.md 1792
+# 2026-10-09 CodeBuddy 适配收口：rules 常驻面（project-workflow + 中文 + 提交）+ 主记忆 CODEBUDDY.md 首入预算（实测 rules 合计 2162B / CODEBUDDY.md 475B）
+.codebuddy/rules/ 2336
+.codebuddy/CODEBUDDY.md 512
+.agents/commands/*.md 8704
+# 2026-10-21 第五轮：路由表去重与快速道检索前移后重定目录上限。实测 commands 合计 41256B（索引 LF），
+# 上限 67584→44144B（余量 2888B ≈ 7.0%）。单篇上限 8704B 不变（峰值 new-task.md 6121B）。
+# 2026-10-22 第六轮：develop 合并（MTO 批 commands 增改）与本地引擎批并集后实测合计 44189B，
+# 两侧各自在旧上限内、并集超 45B——按轮惯例重定：上限 44144→47282B（余量 3093B ≈ 7.0%）。
+.agents/commands/ 47282
+# 2026-10-15 规则面一进一出（减重手段②）：check-loop 段数上限——锚日升格只增不减的对冲面；
+# 超上限进门先退役一段（候选见 agg-judgments --retire-candidates；段编号承重不重排，退役 = 段体
+# 删除 + SECTIONS 行摘除，编号留疤）。
+# 2026-10-16 减重①落地：§11→§6、§12→§9、§13→§16 三组合并（段体逐字，编号留疤）——上限 26→23。
+# 2026-10-21 门禁极小化第 1 批：§17 发版未收口退役删码（恒不触发，owner 拍板）——段数 23→22，上限棘轮同降。
+# 2026-10-22 门禁收敛批 4：§20 引擎脚本测试覆盖退役删码（挂载条件为包源环境，本仓恒不触发）——段数
+# 22→21，上限棘轮同降（批 4 段体已删但本行未同降，本次补齐——棘轮同降是纪律，漏一次即常驻面只增不减）。
+# 2026-10-23 P1：§28 消费端脚本覆盖对账新增（§20 的替代，判据改扫本仓 .agents/scripts）——段数
+# 21→22，上限同步回升（一进一出：新增段已带豁免表与单测，非无判据扩张）。
+.agents/scripts/check-loop-sections/ 22#count
+# 2026-10-22 gate-health：hard 车道有界——新增 hard 段须先退役一个 hard（当前 5：§1 §3x §8 §15 §23）。
+# 总段数棘轮（上一行 21）只锁总量，不锁 hard 数；本行补 hard 面（rule-budget.mjs 数 check-loop.mjs SECTIONS）。
+check-loop-hard 5#count
+# 2026-10-23 docs-ratchet：环境事实册与机制台账此前无预算行（实测 runtime-env 32 天 3.9KB→47.6KB、
+# 台账 13 天 4.2KB→35.1KB，只增不减）。本轮回溯精简后实测 runtime-env 36.0KB / registry 29.8KB，
+# 上限 = 实测 + ~10-14% 余量。超限含义：先压缩/外迁历史（已根治项、退役行细节留 git 史）再提交；
+# 台账另受检查 22「单行 > 800B WARN」约束（总量锁 + 单行锁双闸）。
+# 超限处置顺序（一进一出）：① 合并重复登记（同一事实只留单源）→ ② 历史外迁（已根治项/退役细节删或移 wiki，
+# git 史可查）→ ③ 压缩叙事（读数/过程/日期流水 → 只留结论+判据）→ ④ 确需长期增长才重定上限，
+# 并在该行上方写带日期的理由（仓内惯例，见前六轮）。禁 --no-verify 绕过。
+.agents/notes/runtime-env.md 40960
+.agents/config/mechanism-registry.md 32768

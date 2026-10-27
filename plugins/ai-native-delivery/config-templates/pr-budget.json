@@ -1,0 +1,23 @@
+{
+  "maxFiles": 20,
+  "maxLines": 800,
+  "freePatterns": [
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "npm-shrinkwrap.json",
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+    "*.snap",
+    "dist/",
+    "build/",
+    "vendor/",
+    "node_modules/",
+    "workflow/verify-evidence.md",
+    "workflow/INDEX.md",
+    "workflow/metrics.md",
+    ".agents/notes/engine-map.md"
+  ],
+  "note": "一个 PR 装得下一次评审。默认 20 文件 / 800 新增行（pstack 借鉴）；删除行、二进制、lockfile、生成物免费。先 advisory 校准本仓，再按 PR_SIZE_STRICT=1 收紧。"
+}

@@ -1,0 +1,35 @@
+# L2 触达面清单（单源：本文件——check-lane-surface.mjs 共读，pre-commit「泳道完整性」门禁 + CI diff 面）
+# 格式：每行一条 ERE（grep -E 兼容），匹配暂存/diff 文件的仓库相对路径（/ 分隔）。
+#   # 注释与空行忽略；本文件缺失或清单为空 = 检查跳过（装户无感升级）。
+#   正则语法错误行 → 门禁 fail-closed 阻断（防静默空洞，修配置后重试）。
+# 段协议（2026-10-09 ai-native-review-p1）：`## engine` / `## product` 行切换后续 ERE 类别——
+#   engine  = 引擎/门禁自身面：无活跃入口时 pre-commit 仅 advisory（docs/bootstrap 豁免类合法形态）；
+#             CI 面不执法（执法点在 pre-commit 提交时刻）。
+#   product = 产品契约/schema 面：pre-commit 按路径归因（暂存 L2/L3 协伴罩住本批；否则每条路径
+#             须写在 draft/approved high intent 或 open high incident 的家族正文里）。
+#             CI diff 面按「diff 内协伴 L2+ 入口文档（状态不限）」判据执法。
+#   标记行出现前的 ERE 默认 engine（向后兼容）。
+# 语义：命中任一模式 = 本次改动触及「一处定义、多处消费」的契约 / 规则面（L2 触达面，
+#   判据见 .agents/commands/new-task.md §级别判断）。
+#   engine：活跃 high（含 fixed incident）即放行；全为 L1 则「触达面判低」；无活跃入口 advisory。
+#   product：不因「有一条活跃 L2」放行全部命中。fixed incident 不罩产品面。
+# 产品面登记口径（2026-10-09 ai-native-review-p1，按可路径表达的保守闭集——内容级权威（取号/编码
+#   逻辑内嵌于服务）不可路径表达，仍靠级别判定纪律）：backend/shared 全模块（跨模块共享内核：
+#   契约/分页/错误出口/认证服务，49 文件）+ API 横切根（DI 管线/错误出口/JSON 序列化权威）+
+#   schema 变更与数据修复 SQL（L3 判据直配；此前 2026-09-28 曾实证「4 个 L3 schema 批次无 spec/plan」）。
+# 闭集防漂移（2026-10-09 P3-2）：月度跑 node .agents/scripts/lane-surface-audit.mjs——反查「L2/L3 任务
+#   反复触及却无 ERE 命中的目录」出候选清单，人工评估补登（高频触及 ≠ 契约面，机器不猜语义）。
+## engine
+^templates/
+^\.agents/(scripts|hooks)/
+^\.githooks/
+^bin/
+^modules/
+## product
+^backend/shared/
+# ↓ 三行为模板种子示例（2026-10-27 插件化迁移脱敏：原为源项目专有路径，项目按自有 API 横切根
+#   与 schema/修复 SQL 目录改写；登记口径与「API 横切根 = DI 管线/错误出口/JSON 序列化权威」
+#   语义见上方产品面登记口径段）：
+^backend/api/(Program\.cs|ErrorHandling/|JsonConverters/)
+^db/schema/.*\.sql$
+^db/repair/.*\.sql$

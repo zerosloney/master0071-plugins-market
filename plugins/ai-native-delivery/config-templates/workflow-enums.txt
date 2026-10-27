@@ -1,0 +1,25 @@
+# workflow 文档枚举单源（2026-09-25 enum-single-source）
+# 本文件会被 core.autocrlf 检出为 CRLF——读取方显式去 \r（node parseEnums），禁止依赖行尾格式（rule-budgets.txt 同约定）。
+# 消费方：check-loop.mjs / workflow-board-server.mjs / kb-search.mjs / gen-workflow-index.mjs /
+#         fill-{intent,plan,spec}.mjs（均经 scripts/workflow-enums.mjs 读取器）——改枚举改这里，别改消费方。
+# 格式：key=value value value（空格分隔；# 注释行忽略；键重复 / 值重复 / 缺键 = 消费方 fail-loud）
+# 语义：doc = intent/spec/plan 三件；incident = 事故件。
+#   all       全生命周期状态
+#   confirmed 已确认（check-loop「状态未确认」放行口径 = 看板枚举告警口径）
+#   active    活跃（INDEX 活跃层 / kb-search 活跃 ×1.3 排序）
+#   terminal  终态（看板「入口已 done 而 plan 未终态」告警口径）
+#   abandoned 放弃留档（L3 确认三件豁免口径）
+doc.status.all=draft approved done superseded cancelled
+doc.status.confirmed=approved done superseded cancelled
+doc.status.active=draft approved
+doc.status.terminal=done superseded cancelled
+doc.status.abandoned=superseded cancelled
+incident.status.all=open fixed closed
+incident.status.active=open
+# 归因枚举（2026-10-11 incident-attribution）：检查 24 校验 incident frontmatter 的「来源:」/「影响环境:」。
+#   source = 谁发现（self=AI 自查 / user=用户报出 / test=测试或实测暴露 / monitor=监控告警）
+#   env    = 缺陷触达的环境（none=未触达任何运行环境，如仅静态检查发现）
+# 锚前存量不回填（policy attributionSince）；新 open 件必填。
+incident.source.all=self user test monitor
+incident.env.all=dev staging prod none
+level.all=L1 L2 L3

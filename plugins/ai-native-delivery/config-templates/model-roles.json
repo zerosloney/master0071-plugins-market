@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "fallback": "host-default",
+  "localOverride": ".agents/config/model-roles.local.json",
+  "preSwapRegression": {
+    "cases": 3,
+    "basis": "workflow/delegations.md"
+  },
+  "roles": {
+    "code": {
+      "model": null,
+      "purpose": "实现 / 重构 / 机械改：优先低成本高吞吐",
+      "heterogeneous": false
+    },
+    "judgment": {
+      "model": null,
+      "purpose": "定级 / 根因 / 设计：优先强推理",
+      "heterogeneous": false
+    },
+    "review": {
+      "model": null,
+      "purpose": "独立复核：须与实现模型不同",
+      "heterogeneous": true
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "dotnet build",
+      "dotnet run",
+      "npm run",
+      "npm install",
+      "npm ci",
+      "node",
+      "git status",
+      "git diff",
+      "git add",
+      "git commit",
+      "git log",
+      "git push",
+      "chrome"
+    ],
+    "deny": [
+      "dotnet ef",
+      "git reset --hard",
+      "git push --force",
+      "git push -f",
+      "drop database"
+    ],
+    "ask": [
+      "git checkout",
+      "git clean",
+      "git branch -D",
+      "rm -rf"
+    ]
+  }
+}

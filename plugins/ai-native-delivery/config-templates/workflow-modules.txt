@@ -1,0 +1,18 @@
+# workflow 文档模块词表（单源：.agents/scripts/check-loop.mjs 与 .agents/scripts/gen-workflow-index.mjs、kb-search.mjs 共读）
+# 用法：workflow/{intents,specs,plans,incidents} 文档 frontmatter `模块:` 取下列之一（单值，取主导模块；
+#       跨模块任务取承载任务意图的模块，检索面由 kb-search 全文兜住）。
+# 建约定（2026-09-21 起新建文档必填，存量不回填——AI 触碰时顺手补）；check-loop 只警告不阻断。
+# 变更本表须同步 workflow/README.md「文档协议」段的说明文字。
+material
+purchase
+mto
+inventory
+masterdata
+baseData
+auth
+ui
+integration
+infra
+pipeline
+wiki
+shared

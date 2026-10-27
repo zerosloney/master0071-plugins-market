@@ -1,0 +1,7 @@
+{
+  "fullMs": 240000,
+  "scopeMs": 120000,
+  "flakyRetry": true,
+  "flakyRetryGates": ["backend-test", "engine-tests"],
+  "note": "墙钟预算（ms），advisory：超限只告警不阻断；连续两月超限由 owner 裁决降档/退役一门（一进一出）。fullMs 依据 workflow/metrics.md 2026-10 均值 217s + 余量；scopeMs 为增量关单目标。flakyRetry：仅对 flakyRetryGates 且首跑命中 flaky 签名（Msg 1205/死锁/Execution Timeout/syscall: rm）的门隔离重跑一次；重跑绿记入绿行 flaky 字段，重跑红照常红。"
+}

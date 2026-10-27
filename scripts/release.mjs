@@ -41,6 +41,16 @@
 //     注意：pstack 的版本号只表示本仓库的移植包版本，与上游 poteto/pstack 的版本号解耦，
 //     上游版本记录在 plugins/pstack/NOTICE-PORT.md，不在此同步。
 //
+//   ai-native-delivery（8 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     mcp/protocol.mjs 的 SERVER_INFO.version ×1（服务端身份在协议层）
+//     根 README.md 插件表版本 ×1
+//
 // 根 .agents/plugins/marketplace.json（Codex 市场根清单）不带条目版本：Codex 的市场 schema
 // 里 plugins[] 只有 name / source / policy / category，版本从各插件的 .codex-plugin/plugin.json 读，
 // 因此它不进 MARKETS，只作为 Codex 侧的插件发现入口。
@@ -96,6 +106,12 @@ const PLUGINS = {
     currentFrom: inPlugin('pstack', 'plugin.json'),
     jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('pstack', f)),
     markets: MARKETS,
+  },
+  'ai-native-delivery': {
+    currentFrom: inPlugin('ai-native-delivery', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('ai-native-delivery', f)),
+    markets: MARKETS,
+    serverInfo: inPlugin('ai-native-delivery', 'mcp/protocol.mjs'),
   },
 };
 

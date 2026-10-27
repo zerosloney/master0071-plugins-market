@@ -1,6 +1,6 @@
 # 全仓库测试门禁：
-#   1. 版本位一致性（scripts/release.mjs --check：4 插件 × 各 7-8 处版本位）
-#   2. 四个插件的全部 node 测试套件（共 9 个文件，零依赖，Node ≥ 18 即可跑）
+#   1. 版本位一致性（scripts/release.mjs --check：5 插件 × 各 7-8 处版本位）
+#   2. 五个插件的全部 node 测试套件（共 65 个文件，零依赖，Node ≥ 18 即可跑）
 # pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
 #（见 plugins/pstack/extras/README.md），待其适配后再纳入。
 # windows 用 bash shell：sheet-parity 依赖 awk（Git Bash 自带），node 命令本身无 shell 依赖。
@@ -54,3 +54,69 @@ jobs:
           cd plugins/pstack
           node test/run-hook-tests.mjs
           node test/sheet-parity.mjs
+      - name: ai-native-delivery tests
+        run: |
+          cd plugins/ai-native-delivery
+          node test/smoke.mjs
+          node test/check-loop.test.mjs
+          node test/check-loop-rev.test.mjs
+          node test/check-loop-rev-hook.test.mjs
+          node test/check-loop-rev-ledger.test.mjs
+          node test/check-loop-rev-outside.test.mjs
+          node test/check-loop-rev-tree.test.mjs
+          node test/warn-format.test.mjs
+          node test/judgment-ledger.test.mjs
+          node test/fill-intent.test.mjs
+          node test/fill-spec.test.mjs
+          node test/fill-plan.test.mjs
+          node test/closeout-l1.test.mjs
+          node test/git-merge-jsonl.test.mjs
+          node test/compact-ledgers.test.mjs
+          node test/archive-sweep.test.mjs
+          node test/check-ledger-doc-presence.test.mjs
+          node test/check-ledger-invariant.test.mjs
+          node test/agg-delegations.test.mjs
+          node test/failure-attribution.test.mjs
+          node test/check-pr-size.test.mjs
+          node test/check-secrets.test.mjs
+          node test/check-scope.test.mjs
+          node test/check-query-contract.test.mjs
+          node test/gen-effective-policy.test.mjs
+          node test/check-lane-surface.test.mjs
+          node test/agg-judgments.test.mjs
+          node test/check-regression-consistency.test.mjs
+          node test/check-script-coverage.test.mjs
+          node test/confirm-doc.test.mjs
+          node test/delegation-presence.test.mjs
+          node test/gen-workflow-index.test.mjs
+          node test/git-core.test.mjs
+          node test/ledger-loader.test.mjs
+          node test/ledger-shards.test.mjs
+          node test/mechanism-retire-watch.test.mjs
+          node test/metrics-core.test.mjs
+          node test/pipeline-run.test.mjs
+          node test/policy.test.mjs
+          node test/rule-budget.test.mjs
+          node test/workflow-enums.test.mjs
+          node test/verify.test.mjs
+          node test/verify-scope.test.mjs
+          node test/kb-search.test.mjs
+          node test/rewrite-file.test.mjs
+          node test/append-compensation.test.mjs
+          node test/gen-verify-evidence.test.mjs
+          node test/contract-commands.mjs
+          node test/check-scripts-syntax.test.mjs
+          node test/workflows-check.test.mjs
+          node test/check-local-gates.test.mjs
+          node test/check-local-gate-config.test.mjs
+          node test/gen-engine-map.test.mjs
+          node test/gen-workflow-metrics.test.mjs
+          node test/grade.test.mjs
+          node test/hook.test.mjs
+          node test/init.test.mjs
+          node test/mcp-tools.test.mjs
+          node skills/session-resume/scripts/worktree-audit.test.mjs
+          node skills/verify-ui/scripts/gen-verify-feature.test.mjs
+          node skills/show-me-your-work/scripts/decision-log.test.mjs
+          node test/acceptance.mjs
+          node test/e2e-fixture.mjs

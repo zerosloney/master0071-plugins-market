@@ -1,0 +1,13 @@
+{
+  "ts": "2026-10-18T15:21:02.469Z",
+  "authority": "仓库所有者对话内指令（2026-10-18）：「a」——对接手会话报告的确认分片事故（两次失误链：分片手动合并序反 + 入史后整文件重写）授权一次性特许重建",
+  "reason": "分片 2026-10-18-po-line-close-caliber-asymmetry.jsonl 立档提交时带病入库（cat 合并时序颠倒：晚 ts 行在前；且 3 行 doc 为基名对齐前旧路径）。本重建仅对 HEAD 既有 5 行按 ts 稳定排序（纯重排：零删除、零新增、行内容零改动）；旧路径行合法性由 workflow/archive/2026-10/ 下三个 superseded 转向占位承载（行级校验④归档感知）。基名对齐后的新追加行走正常前缀扩展通道，不经本 manifest。",
+  "removes": [],
+  "finalRows": [
+    "ef91c26d2429736ef78908278195dccdc9cbc14bafa2d55a12685b9cf6c6ae1c",
+    "7df79fccefbdfbda36621d4d4e1eb47bb7e16824b562e61ec7ee7b7a88ac54d2",
+    "0feae3a6b6316e1b11181618cd84e7575a78dd07d7fce000226cc53d635dfaca",
+    "2ab0ca343c5ca438bec4cb68ed851c59b041cad297a530ca93b632523774c91b",
+    "32942660db22bdceeb33e0c9b081b685adf230437d82f7eda4cdc4b5c6672716"
+  ]
+}

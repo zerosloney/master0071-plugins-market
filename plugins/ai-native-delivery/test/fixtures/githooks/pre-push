@@ -1,0 +1,197 @@
+#!/usr/bin/env node
+// Git 原生 pre-push hook（经 core.hooksPath 挂载，git push 时触发；全 node 化——
+// git 仍以自带 sh 启动本文件（钩子机制要求），但她bang 即 node，PATH 无 sh 不影响任何逻辑。
+// 写法为 CommonJS——无扩展名文件 node 缺省按 CJS 解析，不依赖 ≥22.7 的 ESM 语法探测）
+// 跑 node .agents/scripts/check-loop.mjs：默认只扫硬门（配对/判低/指纹/证据/发版未收口）
+// 构建门（自 pre-commit 后移）：另跑 commit-check.cjs --range <old> <new> 按推送范围条件构建
+// （常规提交时刻只做敏感扫描——提交内环提速；构建执法集中到推送与关单）。
+// （去 sh 化收尾：兼容 shim check-loop.sh 已删，钩子直调 .mjs）
+//   - 硬阻断（exit 1）= 配对断裂 / 回路断档 / 证据与确认链 / 发版未收口 → push 立即阻断
+//   - 卫生段（模板占位 / 引用漂移 / 宿主副本 / 索引）不在本钩子。要看时跑 --hygiene 或 --all
+// stdin 有行时，每个非删除的本地 sha 用 --rev 扫那棵树。没有行时（手跑钩子）仍无参数扫工作区。
+//
+// experiment/* 泳道（hybrid-governance-explore-hardening）：**目标分支**为 experiment/* 时，
+//   闭环扫描降级 advisory（报告不阻断）——快速 PoC 推送不因闭环断档被拦。
+// （原转正加固门——push 目标 main 时 --hardening 扫 exploring 收口——已退役，
+//   见 .agents/config/mechanism-registry.md；main 推送回归普通全量扫描。）
+//
+// 机器门：本地钩子（本地机器门）+ 远端 CI 内容面兜底（CI workflow 立；
+//   trigger 仅 main：main 直推走全量门。CI 供应商差异（azure/github 等）属项目适配点——口径单源 runtime-env §6.5）。
+// 不要用 `git push --no-verify` 绕开——发现 hard-block 应先修 workflow 文档再推。
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+
+const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+if (top.status !== 0 || !top.stdout.trim()) {
+  console.error('pre-push: 无法定位仓库根（git rev-parse --show-toplevel 失败）——推送已阻止');
+  process.exit(1);
+}
+process.chdir(top.stdout.trim());
+
+const SCRIPT = '.agents/scripts/check-loop.mjs';
+// 闭环脚本随仓走——缺失 = checkout 残缺/误删，fail-closed 阻断（prepush-script-missing-failclosed）
+if (!fs.existsSync(SCRIPT)) {
+  console.error(`pre-push: 未找到 ${SCRIPT}——闭环扫描无法执行，推送已阻止（脚本随仓走；git checkout -- ${SCRIPT} 恢复后重试）`);
+  process.exit(1);
+}
+
+// 构建门（自 pre-commit 后移）：非 experiment 目标推送按 old..new 范围跑条件构建
+// （commit-check.cjs --range——匹配逻辑单源：触及 .cs/.sln/.csproj → dotnet build、触及 frontend/
+// → npm run build；远端全零 sha 的新分支首推 = 全量构建语义）。experiment/* 目标降级 advisory。
+// 手动运行（无 stdin 推送行）无范围事实，构建门跳过。脚本缺失 fail-closed。
+const BUILD_CHECK = '.agents/hooks/commit-check.cjs';
+if (!fs.existsSync(BUILD_CHECK)) {
+  console.error(`pre-push: 未找到 ${BUILD_CHECK}——构建门无法执行，推送已阻止（脚本随仓走；git checkout -- ${BUILD_CHECK} 恢复后重试）`);
+  process.exit(1);
+}
+const rangeArgsOf = (remoteSha, localSha) => ['--range', remoteSha && !/^0+$/.test(remoteSha) ? remoteSha : '0'.repeat(40), localSha];
+
+const runLoop = (args = []) => spawnSync(process.execPath, [SCRIPT, ...args], { stdio: 'inherit' });
+
+// stdin（git 以管道喂入待推引用行；手跑钩子无管道 → 空输入走工作区扫描路径）
+let stdinText = '';
+try { stdinText = fs.readFileSync(0, 'utf8'); } catch { /* 无管道输入 */ }
+
+let saw = 0;
+let rc = 0;
+for (const line of stdinText.split(/\r?\n/)) {
+  if (!line.trim()) continue;
+  const parts = line.trim().split(/\s+/);
+  if (parts.length < 4) continue;
+  const [localRef, localSha, remoteRef, remoteSha] = parts;
+  saw = 1;
+  if (/^0+$/.test(localSha)) continue; // 删除推送不扫
+  // 按目标分支分派（判定键 = remote_ref，v09-review-defects）：
+  //   experiment/* → advisory（报告不阻断）；其余（含 main）→ 硬门扫描（卫生段不在本钩子）
+  if (remoteRef.includes('experiment/')) {
+    console.error(`pre-push: experiment/* 目标分支（${remoteRef}）——闭环扫描降级 advisory，不阻断`);
+    const adv = spawnSync(process.execPath, [SCRIPT, '--rev', localSha]);
+    const advOut = `${adv.stdout || ''}${adv.stderr || ''}`;
+    if (adv.status !== 0) console.error(`pre-push: （advisory）闭环断档已在上方列出——experiment 泳道可推送\n${advOut}`);
+    const advB = spawnSync(process.execPath, [BUILD_CHECK, ...rangeArgsOf(remoteSha, localSha)], { stdio: 'inherit' });
+    if (advB.status !== 0) console.error('pre-push: （advisory）构建门未过已在上方列出——experiment 泳道不阻断推送');
+  } else {
+    const r = runLoop(['--rev', localSha]);
+    if (r.status !== 0 && rc === 0) rc = r.status === null ? 1 : r.status;
+    const rb = spawnSync(process.execPath, [BUILD_CHECK, ...rangeArgsOf(remoteSha, localSha)], { stdio: 'inherit' });
+    if (rb.status !== 0 && rc === 0) rc = rb.status === null ? 1 : rb.status;
+  }
+}
+
+if (saw === 0) {
+  const r = runLoop();
+  if (r.status !== 0) rc = r.status === null ? 1 : r.status;
+  console.error('pre-push: 手动运行无推送范围——构建门跳过（真实推送时按 old..new 范围执法）');
+}
+
+// PR 体积预算（pstack 借鉴 2026-10-22）：默认 advisory；PR_SIZE_STRICT=1 时阻断。
+// 口径 = origin/main...HEAD（PR 的真实 diff）；基线缺失/脚本缺失静默跳过，不制造假红。
+if (fs.existsSync('.agents/scripts/check-pr-size.mjs')) {
+  const size = spawnSync(process.execPath, ['.agents/scripts/check-pr-size.mjs', '--base', 'origin/main', '--head', 'HEAD'], { encoding: 'utf8' });
+  if (size.status === 1) {
+    const out = `${size.stdout || ''}${size.stderr || ''}`.trim();
+    if (process.env.PR_SIZE_STRICT === '1') {
+      console.error(`pre-push: PR 体积超预算（PR_SIZE_STRICT=1）——push 已阻断\n${out}`);
+      if (rc === 0) rc = 1;
+    } else {
+      console.error(`pre-push: （advisory）PR 体积超预算——建议拆分后再开 PR\n${out}`);
+    }
+  }
+}
+
+if (rc !== 0) {
+  console.error('pre-push: 闭环骨架断档（hard-block）未通过，push 已阻断。修 workflow 文档后重推——不要用 --no-verify 绕过。本地钩子已阻断本次推送；远端另有 CI（main 全量）兜底。');
+  process.exit(rc);
+}
+
+// papercut 欠账提醒（eli5 卡片 2「回路别等人喊」）——advisory，永不阻断；
+//   debt=0 静默（推送成功零噪音）；sensor / 台账缺失或测量异常一律静默跳过
+if (fs.existsSync('.agents/scripts/papercut-debt-sensor.mjs')) {
+  const sensor = spawnSync(process.execPath, ['.agents/scripts/papercut-debt-sensor.mjs', '--json'], { encoding: 'utf8' });
+  const m = sensor.status === 0 ? String(sensor.stdout || '').match(/"debt":\s*(\d+)/) : null;
+  const debt = m ? Number(m[1]) : 0;
+  if (debt > 0) {
+    console.error(`pre-push: （advisory）papercut 欠账 debt=${debt}——新债已随改动/合并进仓，择机清理：node .agents/scripts/papercut-debt-controller.mjs`);
+  }
+}
+
+// 回路日检：退役催办与 papercut 报债此前无调度，机制空转。
+// 每个本地日在推送成功路径跑一次，advisory，失败不改退出码。摘要落 .agents/cache/loop-watch.jsonl（gitignore）。
+try {
+  const cacheDir = '.agents/cache';
+  const stampPath = `${cacheDir}/loop-watch-stamp`;
+  const ledgerPath = `${cacheDir}/loop-watch.jsonl`;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  let prev = '';
+  try { prev = fs.readFileSync(stampPath, 'utf8').trim(); } catch { /* 首跑 */ }
+  if (prev !== today) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    // 月度分片（gate-metrics-shard 2026-10-22）：上月判定聚合落 workflow/gate-metrics.d/<YYYY-MM>.jsonl
+    // ——judgments.jsonl 是本地台账，换机/换树即归零；分片入库后退役判据才有仓库级燃料。
+    // 每日跑一次 emitMonth（本地 ∪ 既有分片取 max，幂等）：多机各自把本机数据并进同月分片，
+    // 不是「文件存在就跳过」——否则第二台机器的规则永远进不了仓库。只生成不提交（钩子不写历史）。
+    const prevMonth = (() => {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    })();
+    const shard = `workflow/gate-metrics.d/${prevMonth}.jsonl`;
+    if (fs.existsSync('.agents/scripts/agg-judgments.mjs')) {
+      const r = spawnSync(process.execPath, ['.agents/scripts/agg-judgments.mjs', `--emit-month=${prevMonth}`], { encoding: 'utf8' });
+      if (r.status === 0 && /已生成/.test(String(r.stdout || ''))) {
+        console.error(`pre-push: （advisory）已更新 ${shard}——请随下一次提交入库（退役判据的仓库级燃料）`);
+      }
+    }
+    const jobs = [
+      ['retire-watch', '.agents/scripts/mechanism-retire-watch.mjs', ['--json']],
+      ['papercut-report', '.agents/scripts/papercut-debt-report.mjs', ['--json']],
+      // hygiene 车道日检（2026-10-22 门禁收敛批 1 配套）：§3 三件套 / §14 留痕 / §25 路由预判
+      // 三段由 hard 车道下沉 hygiene 后，hygiene 全仓无调度点 = 这三段的可见性与
+      // 「连续 6 月 = 0」退役判据双双失效（mechanism-retire-watch：缺月不算零命中 → 无数据月
+      // 就永远无候选）。本条每本地日跑一次 check-loop --hygiene：只产 WARN、advisory 永不阻断
+      // 推送；判定流水照常落 .agents/judgments.jsonl（retire-watch / agg-judgments 的供数）。
+      ['hygiene-scan', '.agents/scripts/check-loop.mjs', ['--hygiene']],
+    ];
+    const runs = [];
+    for (const [id, script, args] of jobs) {
+      if (!fs.existsSync(script)) { runs.push({ id, missing: true }); continue; }
+      const r = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      if (id === 'hygiene-scan') {
+        // check-loop 的判定走 stderr、且无 --json 摘要格式——只记退出码与告警条数。
+        // 计数口径（2026-10-22 批 2 配套修正）：真引擎自跑时 stderr 是**折叠后**的分组行
+        // （「- [标签] ×N 条同类」），直接数行数得到的是「组数」不是「条数」——记进日检台账会
+        // 让「hygiene 告警 N」随折叠规则漂移。故优先读折叠明细 tmp/check-loop-warn.log 数原始条数，
+        // 读不到（未折叠/无告警/落盘失败）再回退 stderr 行数，并分别记 warns / warnGroups。
+        const stderrLines = String(r.stderr || '').split('\n').filter((l) => /^\s*-\s*\[/.test(l));
+        let warns = stderrLines.length;
+        let warnGroups = stderrLines.length;
+        try {
+          const logPath = 'tmp/check-loop-warn.log';
+          if (fs.existsSync(logPath)) {
+            const raw = fs.readFileSync(logPath, 'utf8').split('\n').filter((l) => /^\s*-\s*\[/.test(l));
+            if (raw.length) { warns = raw.length; warnGroups = stderrLines.length; }
+          }
+        } catch { /* 明细读不到 → 用 stderr 计数 */ }
+        runs.push({ id, exit: r.status, warns, warnGroups });
+        continue;
+      }
+      let summary = {};
+      try { summary = JSON.parse(r.stdout || '{}'); } catch { summary = { parseError: true }; }
+      runs.push({
+        id,
+        exit: r.status,
+        actions: Array.isArray(summary.actions) ? summary.actions.length : null,
+        debt: typeof summary.debt === 'number' ? summary.debt : null,
+      });
+    }
+    fs.appendFileSync(ledgerPath, `${JSON.stringify({ ts: now.toISOString(), day: today, runs })}\n`);
+    fs.writeFileSync(stampPath, `${today}\n`);
+    const retire = runs.find((x) => x.id === 'retire-watch');
+    const paper = runs.find((x) => x.id === 'papercut-report');
+    const hyg = runs.find((x) => x.id === 'hygiene-scan');
+    console.error(`pre-push: （advisory）回路日检已记 ${ledgerPath}（退役动作 ${retire && retire.actions != null ? retire.actions : '?'}，papercut debt ${paper && paper.debt != null ? paper.debt : '?'}，hygiene 告警 ${hyg && hyg.warns != null ? hyg.warns : '?'} 条 / ${hyg && hyg.warnGroups != null ? hyg.warnGroups : '?'} 组）`);
+  }
+} catch (e) {
+  console.error(`pre-push: （advisory）回路日检跳过——${e.message}`);
+}
+process.exit(0);

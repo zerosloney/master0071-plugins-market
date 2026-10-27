@@ -1,0 +1,15 @@
+# 引擎脚本测试覆盖豁免表（消费端版，2026-10-23 P1；判定单源 check-script-coverage.mjs）
+# 行格式：exempt   | <脚本> | <理由>
+#         indirect | <脚本> | <测试文件> | <理由>
+# 纪律：优先补直接同名 .test.mjs；indirect 须指向真实存在的测试；exempt 理由须说明为何无可测面。
+# 新增脚本默认必须带直接测试；确无测试面时在此登记并写理由（check-loop §28 hygiene 只报不拦）。
+# 2026-10-27 插件化迁移同步：仅保留已迁入插件 scripts/ 的脚本条目——ensure-board（面板 Phase 2）、
+# papercut-debt-sensor、wiki-search 未随迁，行删除；其余条目脚本均已迁且间接指向的测试同迁在位。
+indirect | .agents/scripts/check-loop-kit.mjs | .agents/scripts/check-loop.test.mjs | 基础设施层（路径/git/枚举解构），check-loop 全场景用例覆盖
+exempt | .agents/scripts/check-loop-rev-fixture.mjs | 测试夹具生成器（被 check-loop-rev-*.test.mjs 消费），非门禁脚本
+indirect | .agents/scripts/check-metric-claims.mjs | .agents/scripts/check-loop.test.mjs | §16 指标签名对账经 check-loop fixture 场景黑盒覆盖
+exempt | .agents/scripts/check-schema-residue.mjs | 需连 dev 库做 schema 残留审计，本地/CI 手工执行，无库环境不可测
+exempt | .agents/scripts/ci-install-gitleaks.mjs | CI-only 安装器：下载/解压面不可测（网络 + 平台二进制）；幂等探针分支（既有二进制版本核验→跳过下载）属可测未测，登记待补（2026-10-24 复核 D4 理由订正）
+exempt | .agents/scripts/ci-push-before.mjs | CI-only 薄壳（解析 CI 平台构建关联提交），主干由 lane-surface CI 用例覆盖
+indirect | .agents/scripts/quote-grounding.mjs | .agents/scripts/confirm-doc.test.mjs | 委托引文接地纯函数经确认门用例覆盖
+indirect | .agents/scripts/stage-gates.mjs | .agents/scripts/check-loop.test.mjs | entryConfirmed 与检查 19 交叉一致性用例覆盖

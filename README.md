@@ -1,6 +1,6 @@
 # master0071-plugins
 
-四个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
+五个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
@@ -8,6 +8,7 @@
 | [worktree-ops](plugins/worktree-ops/) | 0.4.5 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.15 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.8 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
+| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.0 | `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
 
 ## 标准包结构
 
@@ -98,6 +99,7 @@ plugins/pstack
 /plugin install worktree-ops@master0071-plugins
 /plugin install agent-pipelines@master0071-plugins
 /plugin install pstack@master0071-plugins
+/plugin install ai-native-delivery@master0071-plugins
 ```
 
 本地开发直接指向仓库目录：
@@ -122,6 +124,7 @@ codex plugin add systemone-decision@master0071-plugins
 codex plugin add worktree-ops@master0071-plugins
 codex plugin add agent-pipelines@master0071-plugins
 codex plugin add pstack@master0071-plugins
+codex plugin add ai-native-delivery@master0071-plugins
 ```
 
 Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/` 是 Claude 式宿主的约定，Codex 不加载（effort 分级变体在 `extras/`，任何宿主都不加载）。
@@ -136,6 +139,7 @@ omp plugin install pstack@master0071-plugins
 omp plugin install agent-pipelines@master0071-plugins
 omp plugin install systemone-decision@master0071-plugins
 omp plugin install worktree-ops@master0071-plugins
+omp plugin install ai-native-delivery@master0071-plugins
 ```
 
 市场目录有缓存，仓库改动后用 `omp plugin marketplace update master0071-plugins` 刷新；`omp plugin upgrade` 会把已装插件升到目录里的版本。
@@ -146,7 +150,7 @@ Oh My Pi 侧与 Codex 不同：它**会加载 `agents/` 与 `commands/`**（cave
 
 ## 配置
 
-四个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
+五个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
 
 ```
 setx SYSTEMONE_API_KEY "你的Key"
@@ -156,7 +160,7 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
-带 MCP 服务的两个插件（systemone-decision / worktree-ops）要求 **Node.js ≥ 18**，且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。自检：`node --version && git --version`（worktree-ops 另需 git）。
+带 MCP 服务的三个插件（systemone-decision / worktree-ops / ai-native-delivery）要求 **Node.js ≥ 18**，且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。自检：`node --version && git --version`（worktree-ops 与 ai-native-delivery 另需 git）。
 
 worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_config`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
 
