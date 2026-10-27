@@ -60,13 +60,21 @@ function writeAtomic(file, value) {
   }
 }
 
-function readState(file) {
-  if (!existsSync(file)) fail(`state file not found: ${file}`);
+// readState 的非退出版本：gate --apply 要在锁内读状态，而锁内 process.exit 不会跑 withLock 的 finally、
+// 会把锁留在盘上，因此读取错误先带出锁外，由调用方统一 fail（错误信息与 readState 完全一致）。
+function readStateSoft(file) {
+  if (!existsSync(file)) return { error: `state file not found: ${file}` };
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    return { state: JSON.parse(readFileSync(file, "utf8")) };
   } catch (err) {
-    fail(`state file is not valid JSON (${file}): ${err.message}`);
+    return { error: `state file is not valid JSON (${file}): ${err.message}` };
   }
+}
+
+function readState(file) {
+  const { state, error } = readStateSoft(file);
+  if (error) fail(error);
+  return state;
 }
 
 const LOCK_STALE_MS = 30000;
@@ -158,9 +166,14 @@ function withLock(file, fn) {
     } catch (err) {
       if (!err || err.code !== "EEXIST") throw err;
       try {
-        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          unlinkSync(lock);
-          continue;
+        const mtimeMs = statSync(lock).mtimeMs;
+        if (Date.now() - mtimeMs > LOCK_STALE_MS) {
+          // 二次 stat 防误删：第一次判陈旧后、unlink 前，锁可能已被原持有者重建；
+          // mtime 变了就放弃接管，走下方等待/失败路径。第二次 stat 与 unlink 之间仍残余极窄竞态，属有意取舍。
+          if (statSync(lock).mtimeMs === mtimeMs) {
+            unlinkSync(lock);
+            continue;
+          }
         }
       } catch {}
       if (Date.now() > deadline) fail(`state file is locked by another process: ${lock}`);
@@ -424,9 +437,9 @@ function main() {
     return;
   }
 
-  const state = readState(file);
-  const { errors, warnings } = validateState(state, pipeline);
   if (command === "validate") {
+    const state = readState(file);
+    const { errors, warnings } = validateState(state, pipeline);
     if (args.json) console.log(JSON.stringify({ file, valid: errors.length === 0, errors, warnings }));
     else {
       console.log(errors.length ? `Invalid ${file}` : `Valid ${file}`);
@@ -437,15 +450,38 @@ function main() {
     return;
   }
 
-  if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
-  const result = gateFor(state, pipeline);
-  if (args.apply) {
-    withLock(file, () => {
-      applyGate(file, state, result);
-      logEvent(file, pipeline, "gate", state, { applied: Boolean(result.stop_reason) });
-    });
+  if (!args.apply) {
+    // 只判不写，无并发覆盖风险：保持锁外读取
+    const state = readState(file);
+    const { errors } = validateState(state, pipeline);
+    if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
+    const result = gateFor(state, pipeline);
+    if (args.json) console.log(JSON.stringify({ file, ...result, applied: false }));
+    else console.log(`stop_reason=${result.stop_reason ?? "null"} (${result.reason})`);
+    return;
   }
-  if (args.json) console.log(JSON.stringify({ file, ...result, applied: Boolean(args.apply) }));
+
+  // gate --apply：读-判-写全程持锁。readState 若在锁外执行，拿到的是陈旧快照，
+  // applyGate 会用整份旧对象覆盖并发会话刚写入的状态，违背 withLock「避免整份覆盖」的设计目标。
+  let result = null;
+  let applyErrors = null;
+  let readError = null;
+  withLock(file, () => {
+    const read = readStateSoft(file);
+    if (read.error) {
+      readError = read.error;
+      return;
+    }
+    applyErrors = validateState(read.state, pipeline).errors;
+    if (applyErrors.length > 0) return;
+    result = gateFor(read.state, pipeline);
+    applyGate(file, read.state, result);
+    logEvent(file, pipeline, "gate", read.state, { applied: Boolean(result.stop_reason) });
+  });
+  // fail 统一放锁外：process.exit 不会跑 withLock 的 finally，锁内退出会把锁留在盘上
+  if (readError) fail(readError);
+  if (applyErrors && applyErrors.length > 0) fail(`invalid state:\n- ${applyErrors.join("\n- ")}`);
+  if (args.json) console.log(JSON.stringify({ file, ...result, applied: true }));
   else console.log(`stop_reason=${result.stop_reason ?? "null"} (${result.reason})`);
 }
 

@@ -105,8 +105,12 @@ export function layoutGraph(tasks) {
   return { layer, order, cycles, errors };
 }
 
+// badge 的 kind 会拼进 class 属性：render/serve 刻意不跑 validateState，恶意仓库可预置状态文件与事件日志，
+// kind 必须白名单化（4 个任务状态 + 事件徽标），未知值回退中性样式，防止属性逃逸注入 HTML。
+const BADGE_KINDS = new Set([...STATUS, "event"]);
 function badge(text, kind) {
-  return `<span class="badge badge-${kind}">${htmlEscape(text)}</span>`;
+  const safe = BADGE_KINDS.has(kind) ? kind : "event";
+  return `<span class="badge badge-${safe}">${htmlEscape(text)}</span>`;
 }
 
 function renderTaskGraph(tasks, graph) {
@@ -148,7 +152,8 @@ function renderTaskGraph(tasks, graph) {
 }
 
 function renderEventRow(event) {
-  const tasks = event.tasks ? ` · tasks ${event.tasks.done}/${event.tasks.total}` : "";
+  // round 与 tasks.done/total 来自事件日志，同样不能裸内插：恶意仓库可预置 .events.jsonl
+  const tasks = event.tasks ? ` · tasks ${htmlEscape(`${event.tasks.done}/${event.tasks.total}`)}` : "";
   const applied = event.applied ? " · applied" : "";
   const transitions = Array.isArray(event.transitions) && event.transitions.length
     ? ` · ${event.transitions
@@ -158,7 +163,7 @@ function renderEventRow(event) {
         )
         .join(", ")}`
     : "";
-  return `<li><code class="ts">${htmlEscape(event.ts)}</code> ${badge(event.event, "event")}<span class="ev-meta">round=${event.round ?? "-"} · stop=${htmlEscape(String(event.stop_reason ?? "null"))}${tasks}${applied}${transitions}</span></li>`;
+  return `<li><code class="ts">${htmlEscape(event.ts)}</code> ${badge(event.event, "event")}<span class="ev-meta">round=${htmlEscape(String(event.round ?? "-"))} · stop=${htmlEscape(String(event.stop_reason ?? "null"))}${tasks}${applied}${transitions}</span></li>`;
 }
 
 function renderSummaryCards(state, graph) {
@@ -211,7 +216,9 @@ export function loadEvents(file) {
 
 export function buildHtml({ pipeline, file, state, events, graph, warnings }) {
   const spec = PIPELINES[pipeline];
-  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  // 与 layoutGraph 的畸形条目口径一致：null/缺 id 的任务不进渲染（layoutGraph 已把它们记入 graph.errors），
+  // 否则下方 rowsPerLayer 与 renderTaskGraph 对 null 条目取 task.id 直接 TypeError
+  const tasks = (Array.isArray(state.tasks) ? state.tasks : []).filter((task) => task && typeof task.id === "string");
   const graphOk = graph.cycles.length === 0 && graph.errors.length === 0;
   const lastEvent = events[events.length - 1];
   // 容器高度按「最多任务的那一层」的行数算，而不是任务总数：卡片按 层=列、层内序=行 绝对定位
@@ -241,6 +248,8 @@ h2 { font-size: 16px; margin: 32px 0 12px; color: var(--muted); border-bottom: 1
 .card-value { font-size: 20px; font-weight: 700; margin-top: 2px; }
 .card-value-sm { font-size: 13px; font-weight: 500; }
 .card-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.warnings { background: var(--panel); border: 1px solid #f59e0b55; border-radius: 10px; padding: 10px 12px; margin: 16px 0; font-size: 13px; color: #fbbf24; }
+.warnings ul { margin: 4px 0 0; padding-left: 18px; }
 .graph { position: relative; min-height: ${Math.max(220, maxRows * 110 + 36)}px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 14px; }
 .task { position: absolute; width: 300px; max-width: 90%; background: var(--panel2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 10px; }
 .task-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 2px; }
@@ -274,6 +283,7 @@ h2 { font-size: 16px; margin: 32px 0 12px; color: var(--muted); border-bottom: 1
 <div class="wrap">
 <h1>${spec.label}</h1>
 <div class="sub">${htmlEscape(file)} · 生成于 ${new Date().toISOString()}${lastEvent ? ` · 最近事件 ${htmlEscape(lastEvent.event)}` : ""}</div>
+${warnings && warnings.length ? `<div class="warnings"><div class="warnings-label">渲染警告</div><ul>${warnings.map((warning) => `<li>${htmlEscape(warning)}</li>`).join("")}</ul></div>` : ""}
 ${renderSummaryCards(state, graph)}
 ${graphOk ? "" : `<div class="graph-warn">依赖图警告：${graph.cycles.length ? `存在环：${htmlEscape(graph.cycles.join(", "))}` : ""}${graph.errors.length ? " " + htmlEscape(graph.errors.join("；")) : ""}</div>`}
 <h2>依赖图与任务状态</h2>

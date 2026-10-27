@@ -343,11 +343,15 @@ const renderState = {
   budget: { max_tokens: 1000, spent_tokens: 100 },
 };
 writeFileSync(renderStateFile, JSON.stringify(renderState));
+// 事件文件路径必须按 .json → .events.jsonl 替换规则派生（loadEvents / state.mjs 同款）：
+// 此前写成 `${file}.events.jsonl` 追加式，与应用侧路径永不重合，事件从未被渲染，
+// 下面的「含事件日志」断言靠占位文案里的 "write" 字样假阳性通过。
+const renderEventsFile = renderStateFile.replace(/\.json$/, ".events.jsonl");
 for (const event of [
   { ts: "2026-01-01T00:00:00.000Z", event: "init", round: 0, stop_reason: null, tasks: { done: 0, total: 2 } },
   { ts: "2026-01-01T00:01:00.000Z", event: "write", round: 1, stop_reason: null, tasks: { done: 1, total: 2 } },
 ]) {
-  writeFileSync(`${renderStateFile}.events.jsonl`, `${JSON.stringify(event)}\n`, { flag: "a" });
+  writeFileSync(renderEventsFile, `${JSON.stringify(event)}\n`, { flag: "a" });
 }
 const renderHtmlFile = path.join(renderDir, "render.html");
 let renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", renderStateFile, "--out", renderHtmlFile]);
@@ -355,7 +359,8 @@ check("render 生成 HTML", renderResult.status === 0 && existsSync(renderHtmlFi
 const html = readFileSync(renderHtmlFile, "utf8");
 check("HTML 含任务卡片", /class="task"/.test(html) && /t1/.test(html) && /t2/.test(html));
 check("HTML 含状态徽标", /badge-done/.test(html) && /badge-in_progress/.test(html));
-check("HTML 含事件日志", /执行轨迹/.test(html) && /init/.test(html) && /write/.test(html));
+// round/tasks/ts 是事件行独有的标记，占位文案与静态页面都不含，才能真正证明事件被渲染
+check("HTML 含事件日志", /执行轨迹/.test(html) && /round=0/.test(html) && /round=1/.test(html) && /tasks 1\/2/.test(html) && /2026-01-01T00:01:00\.000Z/.test(html));
 check("HTML 含预算", /100\/1000/.test(html));
 check("HTML 依赖图无环", !/存在环/.test(html));
 check("HTML 自包含无外链", !/src="http|href="http/.test(html));
@@ -368,6 +373,60 @@ writeFileSync(xssFile, JSON.stringify({ ...renderState, round: "<img src=x onerr
 const xssResult = run("render.mjs", ["--pipeline", "ralph", "--file", xssFile, "--out", path.join(renderDir, "xss.html")]);
 const xssHtml = existsSync(path.join(renderDir, "xss.html")) ? readFileSync(path.join(renderDir, "xss.html"), "utf8") : "";
 check("概览卡数值字段转义，状态文件不可注入 HTML", xssResult.status === 0 && /&lt;img/.test(xssHtml) && !/<img src=x/.test(xssHtml), xssResult.stderr);
+// 反向分支：xss.json 没有伴随的事件文件，loadEvents 应返回空数组并渲染占位提示
+check("HTML 无事件文件时显示占位提示", /暂无事件/.test(xssHtml));
+
+// 徽标 kind 会拼进 class 属性：恶意 status 不能属性逃逸（转义后的载荷会以惰性文本存在，
+// 因此断言「未转义形态 onerror=alert(N)> 不出现、转义形态 &lt;img 出现」）
+const badgeXssFile = path.join(renderDir, "xss-badge.json");
+writeFileSync(
+  badgeXssFile,
+  JSON.stringify({
+    ...renderState,
+    tasks: [{ id: "t1", title: "a", status: `pending"><img src=x onerror=alert(3)>`, depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+  }),
+);
+const badgeXssResult = run("render.mjs", ["--pipeline", "ralph", "--file", badgeXssFile, "--out", path.join(renderDir, "xss-badge.html")]);
+const badgeXssHtml = existsSync(path.join(renderDir, "xss-badge.html")) ? readFileSync(path.join(renderDir, "xss-badge.html"), "utf8") : "";
+check(
+  "状态徽标 kind 白名单化，task.status 不可属性逃逸",
+  badgeXssResult.status === 0 && /&lt;img src=x/.test(badgeXssHtml) && !/onerror=alert\(3\)>/.test(badgeXssHtml) && !/badge badge-pending"><img/.test(badgeXssHtml),
+  badgeXssResult.stderr,
+);
+
+// 事件行的 round 与 tasks.done/total 来自 .events.jsonl，同样不允许裸内插
+// （loadEvents 按 .json → .events.jsonl 替换规则定位事件文件，写错路径会静默渲染 0 事件）
+const eventXssFile = path.join(renderDir, "xss-events.json");
+writeFileSync(eventXssFile, JSON.stringify(renderState));
+writeFileSync(
+  eventXssFile.replace(/\.json$/, ".events.jsonl"),
+  `${JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", event: "init", round: `<img src=x onerror=alert(4)>`, stop_reason: null, tasks: { done: `</span><script>alert(5)</script>`, total: 1 } })}\n`,
+);
+const eventXssResult = run("render.mjs", ["--pipeline", "ralph", "--file", eventXssFile, "--out", path.join(renderDir, "xss-events.html")]);
+const eventXssHtml = existsSync(path.join(renderDir, "xss-events.html")) ? readFileSync(path.join(renderDir, "xss-events.html"), "utf8") : "";
+check(
+  "事件行 round/tasks 数值转义，事件日志不可注入 HTML",
+  eventXssResult.status === 0 && !/onerror=alert\(4\)>/.test(eventXssHtml) && !/<script/.test(eventXssHtml) && /&lt;script&gt;/.test(eventXssHtml),
+  eventXssResult.stderr,
+);
+
+// tasks 数组里的 null 条目不允许崩掉渲染：按 layoutGraph 口径过滤并落到 graph 警告
+const nullTaskFile = path.join(renderDir, "null-task.json");
+writeFileSync(nullTaskFile, JSON.stringify({ ...renderState, tasks: [null, renderState.tasks[0]] }));
+const nullTaskResult = run("render.mjs", ["--pipeline", "ralph", "--file", nullTaskFile, "--out", path.join(renderDir, "null-task.html")]);
+const nullTaskHtml = existsSync(path.join(renderDir, "null-task.html")) ? readFileSync(path.join(renderDir, "null-task.html"), "utf8") : "";
+check(
+  "render 容忍 tasks 中的 null 条目",
+  nullTaskResult.status === 0 && /class="task"/.test(nullTaskHtml) && /task without a string id/.test(nullTaskHtml),
+  nullTaskResult.stderr,
+);
+
+// main() 计算的警告此前被丢弃：缺 id 任务必须出现在页面顶部的 warnings 区块
+const warnFile = path.join(renderDir, "warn.json");
+writeFileSync(warnFile, JSON.stringify({ ...renderState, tasks: [{ title: "no id", status: "pending", depends_on: [], accept_criteria: [], failures: 0 }] }));
+const warnResult = run("render.mjs", ["--pipeline", "ralph", "--file", warnFile, "--out", path.join(renderDir, "warn.html")]);
+const warnHtml = existsSync(path.join(renderDir, "warn.html")) ? readFileSync(path.join(renderDir, "warn.html"), "utf8") : "";
+check("渲染页面包含 warnings 区块", warnResult.status === 0 && /class="warnings"/.test(warnHtml) && /存在缺少 id 的任务/.test(warnHtml), warnResult.stderr);
 
 // 渲染必须把 write 事件里的任务迁移显示出来
 const migratedJson = JSON.stringify({
@@ -394,10 +453,10 @@ check("HTML 显示任务状态迁移", /t2:in_progress→done|t2:in_progress→d
 
 // 只读性：render 不写状态、不追加事件、不创建锁
 const stateBefore = readFileSync(renderStateFile, "utf8");
-const eventsBefore = readFileSync(`${renderStateFile}.events.jsonl`, "utf8");
+const eventsBefore = readFileSync(renderEventsFile, "utf8");
 renderResult = run("render.mjs", ["--pipeline", "ralph", "--file", renderStateFile, "--out", renderHtmlFile]);
 const stateAfter = readFileSync(renderStateFile, "utf8");
-const eventsAfter = readFileSync(`${renderStateFile}.events.jsonl`, "utf8");
+const eventsAfter = readFileSync(renderEventsFile, "utf8");
 check("render 不修改状态文件", stateBefore === stateAfter);
 check("render 不修改事件日志", eventsBefore === eventsAfter);
 check("render 不创建锁", !existsSync(`${renderStateFile}.lock`));
@@ -430,7 +489,9 @@ writeFileSync(
     stop_reason: null,
   }),
 );
-writeFileSync(`${serveStateFile}.events.jsonl`, `${JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", event: "init", round: 0, stop_reason: null, tasks: { done: 0, total: 1 } })}\n`);
+// 与 render 段同理：按替换规则派生事件文件路径，serve 的 watch / 轮询才盯得住同一份文件
+const serveEventsFile = serveStateFile.replace(/\.json$/, ".events.jsonl");
+writeFileSync(serveEventsFile, `${JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", event: "init", round: 0, stop_reason: null, tasks: { done: 0, total: 1 } })}\n`);
 const servePort = 8917;
 const serveProc = spawn(process.execPath, [path.join(root, "scripts", "serve.mjs"), "--pipeline", "coding", "--file", serveStateFile, "--port", String(servePort), "--interval", "200"], {
   cwd: sandbox,
@@ -469,7 +530,7 @@ const page = await new Promise((resolve, reject) => {
     })
     .on("error", reject);
 });
-check("serve 返回看板 HTML", page.includes('class="task"') && page.includes("t1"), serveOut);
+check("serve 返回看板 HTML（含种子事件行）", page.includes('class="task"') && page.includes("t1") && page.includes("round=0") && page.includes("tasks 0/1"), serveOut);
 
 // SSE 连接 + 写入新状态 → 收到 render 事件
 const ssePromise = fetchSseEvent(`http://127.0.0.1:${servePort}/events`, "event: render", 5000);
@@ -495,11 +556,19 @@ check("SSE 后页面反映新状态", /badge-done/.test(page2), serveOut);
 
 serveProc.kill();
 
+// 状态文件缺失时 serve 给出可读指引并以退出码 2 结束，不再裸栈崩溃（renderHtml 在监听前执行，不会占端口）
+const missingServe = run("serve.mjs", ["--pipeline", "ralph", "--file", path.join(serveDir, "missing.json"), "--port", "8919"]);
+check(
+  "serve 状态文件缺失时干净退出",
+  missingServe.status === 2 && /state file not found/.test(missingServe.stderr) && /state\.mjs init/.test(missingServe.stderr),
+  missingServe.stderr,
+);
+
 // 只读性：serve 不修改状态文件、不追加事件、不创建锁，也不触发 render 产物落盘
 const serveStateBefore = readFileSync(serveStateFile, "utf8");
-const serveEventsBefore = readFileSync(`${serveStateFile}.events.jsonl`, "utf8");
+const serveEventsBefore = readFileSync(serveEventsFile, "utf8");
 check("serve 不修改状态文件", serveStateBefore === readFileSync(serveStateFile, "utf8"));
-check("serve 不修改事件日志", serveEventsBefore === readFileSync(`${serveStateFile}.events.jsonl`, "utf8"));
+check("serve 不修改事件日志", serveEventsBefore === readFileSync(serveEventsFile, "utf8"));
 check("serve 不创建锁", !existsSync(`${serveStateFile}.lock`));
 check("serve 不生成 render HTML 产物", !existsSync(serveStateFile.replace(/\.json$/, ".html")), serveOut);
 

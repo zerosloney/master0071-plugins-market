@@ -123,7 +123,14 @@ try {
   });
 } catch {}
 
-lastHtml = renderHtml();
+// 状态文件缺失/损坏时给可读指引并以退出码 2 结束，而不是模块顶层裸栈崩溃
+try {
+  lastHtml = renderHtml();
+} catch (err) {
+  console.error(`agent-pipelines live board could not start: ${err.message}`);
+  console.error(`先运行 state.mjs init 创建状态文件，例如：node scripts/state.mjs init --pipeline ${pipeline} --file ${file} --prompt "<目标>"`);
+  process.exit(2);
+}
 
 const server = createServer(handleRequest);
 // 端口被占（常见于上一个看板没退干净）时给可读报错并以退出码 2 结束，而不是抛未监听的 error 事件
