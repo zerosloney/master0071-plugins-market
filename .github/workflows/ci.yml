@@ -48,6 +48,7 @@ jobs:
           node plugins/worktree-ops/test/lock.mjs
           node plugins/worktree-ops/test/bucket.mjs
           node plugins/worktree-ops/test/exclude.mjs
+          node plugins/worktree-ops/test/paths.mjs
       - name: agent-pipelines tests
         run: |
           node plugins/agent-pipelines/test/contract.mjs

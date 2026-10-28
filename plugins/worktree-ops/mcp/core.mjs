@@ -442,9 +442,27 @@ function detectCaseInsensitiveFs() {
 
 const CASE_INSENSITIVE_FS = detectCaseInsensitiveFs();
 
+/** 规范化用于比较的路径（2026-10-28 CI 修复）。
+*  Windows 上同一目录存在 8.3 短名与长名两种写法：GitHub Actions 的 TEMP 是
+*  `C:\Users\RUNNER~1\AppData\Local\Temp`，而 `git worktree list` 回的是长名
+*  `C:\Users\runneradmin\...`。纯字符串比较会把同一目录判成两个不同目录——在 CI 上表现为
+*  「refusing to remove a worktree outside the managed root（RUNNER~1 版）」与
+*  「worktree not found（列出的是 runneradmin 版）」，而两者其实是同一个 worktree。
+*  realpathSync.native 走句柄取真实长名（POSIX 上则解析符号链接，顺带修掉 /tmp→/private/tmp 这类）；
+*  路径不存在时（prunable 工作树目录已被手动删走）退回 resolve 结果——取不到不能当错误。 */
+function canonicalPath(p) {
+  const resolved = path.resolve(p);
+  try {
+    // Windows 的 native realpath 会带 \\?\ 前缀，比较前剥掉
+    return fs.realpathSync.native(resolved).replace(/^\\\\\?\\/, '');
+  } catch {
+    return resolved;
+  }
+}
+
 function samePath(a, b) {
-  const x = path.resolve(a);
-  const y = path.resolve(b);
+  const x = canonicalPath(a);
+  const y = canonicalPath(b);
   return CASE_INSENSITIVE_FS ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
@@ -936,7 +954,9 @@ function table(rows) {
 // 会出现「配置键匹配（samePath）而包含判定失败（isInside）」的分裂——受管根内的工作树被
 // 误报成 outside the managed root。Windows 的 relative 实现内部已小写化，这里统一归一无害。
 const isInside = (dir, root) => {
-  const norm = (p) => (CASE_INSENSITIVE_FS ? path.resolve(p).toLowerCase() : path.resolve(p));
+  // canonicalPath 与 samePath 同一口径：8.3 短名与长名必须先归一，否则受管根判定会把
+  // 同一目录判成「在外」（CI 的 RUNNER~1 场景）。
+  const norm = (p) => (CASE_INSENSITIVE_FS ? canonicalPath(p).toLowerCase() : canonicalPath(p));
   const rel = path.relative(norm(root), norm(dir));
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 };
