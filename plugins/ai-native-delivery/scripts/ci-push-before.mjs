@@ -31,12 +31,41 @@ const loadChanges = async () => {
     return null;
   }
   const url = `${collection.replace(/\/?$/, '/')}${encodeURIComponent(project)}/_apis/build/builds/${encodeURIComponent(buildId)}/changes?api-version=7.1`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  // SYSTEM_COLLECTIONURI 由流水线环境提供，属不可信输入：拼成 http:// 就是把 Bearer 令牌
+  // 明文送出（也可能被指向任意主机）。本机回环放行——自建 Agent 与本地调试确实用 http。
+  // 口径同本仓 systemone-decision 的 isInsecureBaseUrl（那边在 0.5.5 补的）。
+  let endpoint;
+  try {
+    endpoint = new URL(url);
+  } catch {
+    advisory(`SYSTEM_COLLECTIONURI 不是合法 URL：${collection}`);
+    return null;
+  }
+  const loopback = /^http:\/\/(localhost|127\.0\.0\.1|\[::1])([:\/]|$)/i.test(url);
+  if (endpoint.protocol !== 'https:' && !loopback) {
+    advisory(`拒绝向非 https 端点附带 Bearer 令牌（凭据会明文外泄）：${endpoint.origin}`);
+    return null;
+  }
+  // 本脚本对 CI 的承诺是「任何失败都 exit 0」：fetch 抛错（DNS / 拒连 / 坏端口）与
+  // 非 JSON 响应体都必须收成 advisory，否则未捕获拒绝直接把整条流水线打红——
+  // 泳道门只是拿不到 CI_PUSH_BEFORE、退回 HEAD~1 而已，不值得为此挂构建。
+  let res;
+  try {
+    res = await fetch(endpoint.href, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (e) {
+    advisory(`changes API 请求失败（${e.cause?.message || e.message}）`);
+    return null;
+  }
   if (!res.ok) {
     advisory(`changes API HTTP ${res.status}`);
     return null;
   }
-  return res.json();
+  try {
+    return res.json();
+  } catch (e) {
+    advisory(`changes API 响应不是合法 JSON（${e.message}）`);
+    return null;
+  }
 };
 
 const changes = await loadChanges();
