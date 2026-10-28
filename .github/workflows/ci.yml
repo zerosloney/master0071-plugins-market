@@ -86,6 +86,7 @@ jobs:
           node test/check-loop-rev-outside.test.mjs
           node test/check-loop-rev-tree.test.mjs
           node test/warn-format.test.mjs
+          node test/warn-fold-plugin.test.mjs
           node test/judgment-ledger.test.mjs
           node test/fill-intent.test.mjs
           node test/fill-spec.test.mjs
