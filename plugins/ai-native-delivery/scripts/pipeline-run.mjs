@@ -10,20 +10,22 @@
 // pipeline-run.md 不扩写。
 // 存储：.agents/cache/pipeline-runs/<runId>.json（gitignored 缓存态，非权威——workflow/ 文档 + confirmations.jsonl 是唯一真相源）。
 // 注入（测试钩子，spec §测试注入契约）：PIPELINE_RUN_ROOT（仓库根，默认 cwd）/
-//       PIPELINE_RUN_BIN（门脚本目录，默认 <root>/.agents/scripts）/ PIPELINE_RUN_GIT_BIN（git 命令前缀，空格分隔，默认 "git"）/
+//       PIPELINE_RUN_BIN（门脚本目录，默认项目侧 .agents/scripts 优先、插件内 scripts/ 回退）/ PIPELINE_RUN_GIT_BIN（git 命令前缀，空格分隔，默认 "git"）/
 //       PIPELINE_RUN_TODAY（文档日期锚定，默认当天——测试固定日期消除时钟依赖，2026-10-03 实证：测试硬编码日期跨日即红）。
 //       npm 不直接调用——测试门统一走 verify.mjs（其内部自跑 npm test）。
 // 用法：
-//   node .agents/scripts/pipeline-run.mjs start "<需求原文>" [--hint "kind=require level=L1 module=wiki"]
-//   node .agents/scripts/pipeline-run.mjs next [--run <id>] [--triage "kind=|level=|module=|topic="] [--delegated "<原话>"] [--files "a,b"]
-//   node .agents/scripts/pipeline-run.mjs status [--run <id>] [--adopt] [--json]
-//   node .agents/scripts/pipeline-run.mjs watch [--run <id>] [--interval 2]
-//   node .agents/scripts/pipeline-run.mjs abort --run <id> [--to superseded|cancelled] [--delegated "<原话>"]
+//   node <插件根>/scripts/pipeline-run.mjs start "<需求原文>" [--hint "kind=require level=L1 module=wiki"]
+//   node <插件根>/scripts/pipeline-run.mjs next [--run <id>] [--triage "kind=|level=|module=|topic="] [--delegated "<原话>"] [--files "a,b"]
+//   node <插件根>/scripts/pipeline-run.mjs status [--run <id>] [--adopt] [--json]
+//   node <插件根>/scripts/pipeline-run.mjs watch [--run <id>] [--interval 2]
+//   node <插件根>/scripts/pipeline-run.mjs abort --run <id> [--to superseded|cancelled] [--delegated "<原话>"]
 // 测试：node templates/_agents/scripts/pipeline-run.test.mjs（夹具假门 + 假 git，不触真实仓库）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：门脚本目录缺省按「项目侧优先、插件内回退」解析。
+import { PLUGIN_SCRIPTS_DIR } from './paths.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const KINDS = ['require', 'fix', 'verify', 'review', 'deploy']; // 导出单源：check-loop §25 预判执法面 import，禁再造字面拷贝
@@ -40,7 +42,13 @@ const pad = (n) => String(n).padStart(2, '0');
 // ── 环境解析（测试注入点） ─────────────────────────────────────────────
 function ctxEnv(overrideRoot) {
   const root = path.resolve(overrideRoot || process.env.PIPELINE_RUN_ROOT || process.cwd());
-  const bin = path.resolve(process.env.PIPELINE_RUN_BIN || path.join(root, '.agents', 'scripts'));
+  // 门脚本目录（2026-10-27 插件化改道 paths.mjs 同口径）：项目侧 .agents/scripts 优先（源仓形态 /
+  // 测试夹具副本），回退插件内本体——插件形态下项目侧不落脚本副本，缺省写死 <root>/.agents/scripts
+  // 会让每个门子进程都找不到脚本（ENOENT → 假失败）。
+  const projectBin = path.join(root, '.agents', 'scripts');
+  const bin = process.env.PIPELINE_RUN_BIN
+    ? path.resolve(process.env.PIPELINE_RUN_BIN)
+    : (fs.existsSync(projectBin) ? projectBin : PLUGIN_SCRIPTS_DIR);
   const gitPrefix = (process.env.PIPELINE_RUN_GIT_BIN || 'git').split(/\s+/).filter(Boolean);
   return { root, bin, gitPrefix, runsDir: path.join(root, '.agents', 'cache', 'pipeline-runs') };
 }
@@ -92,7 +100,7 @@ function newRunId(requirement) {
 // ── 门执行（唯一子进程出口；记录真实退出码） ──────────────────────────
 function runNode(ctx, run, script, args) {
   const scriptPath = path.join(ctx.bin, script);
-  const cmd = `node .agents/scripts/${script} ${args.join(' ')}`;
+  const cmd = `node <插件根>/scripts/${script} ${args.join(' ')}`;
   const t0 = Date.now();
   // PIPELINE_RUN_ID 注入（verify-evidence 复核 P2-1）：verify.mjs 绿行据此绑定 runId
   //（对质链与 run 事件流同源，docsCommit 格式已含同一 runId）——spec「pipeline-run 路径自动绑定」落点
@@ -269,7 +277,7 @@ function printRun(ctx, run, problems) {
     for (const c of w.constraints) console.log(`  - ${c}`);
     console.log('验收（脚本机器校验）：');
     for (const a of w.acceptance) console.log(`  - ${a}`);
-    console.log(`\n完成工单后回跑：node .agents/scripts/pipeline-run.mjs next${run.docs?.entry ? '' : ''}`);
+    console.log(`\n完成工单后回跑：node <插件根>/scripts/pipeline-run.mjs next${run.docs?.entry ? '' : ''}`);
   } else if (run.stopType === 'await-confirm' && run.awaitConfirm) {
     const c = run.awaitConfirm;
     console.log(`\n== 等待确认 ==${c.ledger ? `（文档：${c.doc}，将经 confirm-doc 代录入台账）` : '（对话级确认，记 run 事件不进台账）'}`);

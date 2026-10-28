@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 跨语料检索入口（2026-09-21，intent 2026-09-21-workflow-doc-retrieval）
-// 用法：node .agents/scripts/kb-search.mjs [选项] <词1> [词2 ...]（多词 AND，全部命中才算）
+// 用法：node <插件根>/scripts/kb-search.mjs [选项] <词1> [词2 ...]（多词 AND，全部命中才算）
 //
 // 语料与口径
 //   workflow（流程留痕）：只搜 frontmatter + H1 + 指定节（背景 / 目标 / 根因 / 复盘三件套 / 验收标准 / 影响面），
@@ -10,7 +10,7 @@
 // 结构缓存（2026-09-23 intent kb-search-structure-cache）：可检索子集预提取进 .agents/cache/kb-index.json，
 //   按 [mtimeMs,size] 逐文件失效，口径指纹变化整份作废；匹配/排序/输出路径不变（三路输出与冷扫逐字节一致）；
 //   缓存任何读写异常静默回退全扫。`--include-generated` 走纯扫（bulk 文件不入缓存）。
-// 测试：node .agents/scripts/kb-search.test.mjs（fixture 回归，须全绿）
+// 测试：node <插件根>/test/kb-search.test.mjs（fixture 回归，须全绿）
 // 模块词表：.agents/config/workflow-modules.txt（--module 取值校验，单源）
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,7 +24,7 @@ import { configDir, engineDir, findProjectRoot } from './paths.mjs';
 const KB_PROJECT_ROOT = findProjectRoot() || process.cwd();
 const MODULES_FILE = path.join(configDir(KB_PROJECT_ROOT), 'workflow-modules.txt');
 
-const USAGE = `用法: node .agents/scripts/kb-search.mjs [选项] <词1> [词2 ...]（多词 AND）
+const USAGE = `用法: node <插件根>/scripts/kb-search.mjs [选项] <词1> [词2 ...]（多词 AND）
 
   --scope <workflow|wiki|all>   检索语料，默认 all（指定 -t 时默认转 wiki）
   --files <路径,...>            文件关联检索：逗号分隔路径，各取「文件名去扩展名」
@@ -100,7 +100,7 @@ if (!qWords.length && !anyWords.length) { console.error(`检索词不能为空�
 // 空格短语检索本就不受支持（拆词 AND 命中面是短语的超集），无损失面。
 const spaced = qWords.filter((w) => /\s/.test(w));
 if (spaced.length) {
-  console.error(`词内含空白：${spaced.map((w) => `「${w}」`).join(' ')}——多词请拆独立参数（AND 语义）：node .agents/scripts/kb-search.mjs 订单 导入\n\n${USAGE}`);
+  console.error(`词内含空白：${spaced.map((w) => `「${w}」`).join(' ')}——多词请拆独立参数（AND 语义）：node <插件根>/scripts/kb-search.mjs 订单 导入\n\n${USAGE}`);
   process.exit(1);
 }
 words.length = 0; words.push(...qWords); // 原位替换，下游 searchWorkflow/searchWiki 传参不变

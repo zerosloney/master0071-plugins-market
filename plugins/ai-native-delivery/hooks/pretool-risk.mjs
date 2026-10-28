@@ -7,7 +7,9 @@
 //   deny → stdout 输出 hookSpecificOutput.permissionDecision='deny'（宿主阻断），exit 0；
 //   ask  → 同格式 permissionDecision='ask'（宿主向用户确认），exit 0；
 //   allow / 非 shell 工具 / 取不到命令 → 静默 exit 0；
-//   settings.json 损坏 → fail-open：放行 + stderr WARN（配置问题绝不卡死用户）；
+//   settings.json 损坏（含 permissions 形状非法、deny 键缺失）→ fail-open：放行 + stderr WARN
+//     （配置问题绝不卡死用户）；清单回退插件种子，种子也缺则代码内最小 deny 兜底；
+//   输入截断 / 坏 JSON → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令）；
 //   任何异常 → stderr 后 exit 0，绝不阻塞工具调用。
 // 清单单源：项目侧 .agents/settings.json（permissions.deny/ask/allow，§5.2）——缺该文件回退
 // 插件内置默认（config-templates/settings.json 种子；再缺则代码内最小 deny 兜底）。
@@ -43,7 +45,11 @@ function matchList(command, rules, { prefix = false } = {}) {
 }
 
 // 清单加载：项目侧 .agents/settings.json 优先（清单单源），缺文件回退插件种子，再缺代码兜底。
-// 「损坏」仅指文件在场但不可解析 / permissions 形状非法——fail-open 放行并标 broken（调用方 WARN）。
+// 「损坏」= 文件在场但不可解析 / permissions 形状非法 / **deny 键缺失或非数组**——
+//   2026-10-27 修复：此前只要 permissions 是对象就采信其清单，deny 键缺失时 deny 面为空数组，
+//   且「文件在场且合法」使代码内 BUILTIN 兜底**不触发**——静默降级、零告警（与「deny 面永不因缺
+//   文件变空」的承诺相反）。现在 deny 键缺失 = 损坏 → 按既有契约 fail-open 放行 + stderr WARN
+//   （配置问题绝不卡死用户）；至少从「静默失效」变为「可见失效」。
 function loadLists(root) {
   const candidates = [
     ...(root ? [path.join(root, '.agents', 'settings.json')] : []),
@@ -57,6 +63,7 @@ function loadLists(root) {
     }
     const p = parsed && typeof parsed === 'object' ? parsed.permissions : null;
     if (!p || typeof p !== 'object') return { broken: file };
+    if (!Array.isArray(p.deny)) return { broken: file }; // deny 键缺失/非数组 → 损坏（见上注）
     const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
     return { deny: arr(p.deny), ask: arr(p.ask), allow: arr(p.allow), source: file };
   }
@@ -93,20 +100,37 @@ function readStdin() {
 async function main() {
   const { raw, truncated } = await readStdin();
   let input = {};
+  let jsonBroken = false;
   if (!truncated) {
-    try { input = raw.trim() ? JSON.parse(raw) : {}; } catch { input = {}; }
+    // 坏 JSON 与截断同向处理（2026-10-27 修复）：两者都意味着「命令不可信、读不出来」。
+    //   此前坏 JSON 被 catch 成 {} → tool_name='' → 判为「非 shell 工具」→ 静默放行——与截断
+    //   转 ask 的 fail-closed 方向相反：宿主喂入非 JSON 时高风险 shell 命令可直接放行且无任何痕迹。
+    try { input = raw.trim() ? JSON.parse(raw) : {}; } catch { input = {}; jsonBroken = true; }
   }
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
   const command = commandOf(input.tool_input);
-  // 管辖外（非 shell 工具）与截断/读不出命令的走向：
-  //   非 shell 工具 → 静默放行；shell 工具但输入截断（命令不可信，尾巴里可藏破坏性命令）→ fail-closed 转 ask
-  if (!SHELL_TOOL.test(toolName)) return null;
-  if (truncated || command === null) {
+  // 管辖外（非 shell 工具）与输入不可信的走向：
+  //   输入不可信（截断 / 坏 JSON）→ fail-closed 转 ask，**先于非 shell 判定**——
+  //     宿主已用 matcher（Bash|Shell|Terminal）把本 hook 限定在 shell 工具上，输入不可信时
+  //     连 tool_name 都读不出，不能拿「读不出名字」当「非 shell 工具」静默放行；
+  //   非 shell 工具 → 静默放行；shell 工具但缺 command 字段 → fail-closed 转 ask。
+  if (truncated || jsonBroken) {
+    const why = truncated ? '输入截断' : 'hook 输入不是合法 JSON';
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'ask',
-        permissionDecisionReason: '[ai-native-delivery 风险闸] hook 输入不完整（截断或缺 command 字段），无法做清单匹配——请向用户展示命令并确认后再执行。',
+        permissionDecisionReason: `[ai-native-delivery 风险闸] hook 输入不完整（${why}），无法做清单匹配——请向用户展示命令并确认后再执行。`,
+      },
+    };
+  }
+  if (!SHELL_TOOL.test(toolName)) return null;
+  if (command === null) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: '[ai-native-delivery 风险闸] hook 输入不完整（缺 command 字段），无法做清单匹配——请向用户展示命令并确认后再执行。',
       },
     };
   }

@@ -6,7 +6,7 @@
 // 本门只做终树行级存在性检查（约 500 次 existsSync，<100ms），挂 verify 引擎段——删除动作下一次
 // 验证即被拦。判据与 check-ledger-invariant 行级④同口径：doc 匹配四目录，活跃路径未命中再探
 // workflow/archive/*/（归档是容量治理，不是失效）。
-// 用法：node .agents/scripts/check-ledger-doc-presence.mjs [--root <仓库根>] [--staged]
+// 用法：node <插件根>/scripts/check-ledger-doc-presence.mjs [--root <仓库根>] [--staged]
 //   --staged：除磁盘检查外，把**本次暂存删除**的四目录文档也视为缺失（pre-commit 用）——堵住
 //   `git rm --cached` 形态：文件仍在磁盘、提交后却消失，纯磁盘判据会漏（2026-10-24 复核 m5）。
 import fs from 'node:fs';

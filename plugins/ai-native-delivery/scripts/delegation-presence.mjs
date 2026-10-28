@@ -2,7 +2,7 @@
 // 消费方：check-loop-kit.delegationResultRows（检查 18 事后对账）+ confirm-doc done 前置门
 // （写入时拦截）——两个执法点共用同一套解析与判据，事后 WARN 与关单拦截不漂移。
 // 解析语义与 kit 原内联实现逐字一致：`## 委派结果`/`## 自做任务结果` 节内、管道行、首列 YYYY-MM-DD。
-// 测试：node .agents/scripts/delegation-presence.test.mjs（另由 check-loop.test / confirm-doc.test 端到端覆盖）
+// 测试：node <插件根>/test/delegation-presence.test.mjs（另由 check-loop.test / confirm-doc.test 端到端覆盖）
 import { readDelegationsText } from './ledger-shards.mjs';
 
 export function parseDelegationRows(text) {

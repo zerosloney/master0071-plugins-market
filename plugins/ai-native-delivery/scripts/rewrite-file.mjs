@@ -9,12 +9,14 @@
 //   ③ 写后回读校验（新锚已在、旧锚已零、行数不变、EOL 未变）——全过才打印成功；任一不过即非零退出
 // 另防两类自伤：find === replace（无操作却报成功）与目标文件不存在（fail-loud，不静默建文件）。
 // 原子写：同目录临时文件 + rename——中途崩溃不留半写文件（沿 git-merge-jsonl.mjs / compact-ledgers.mjs 惯例）。
-// 用法：node .agents/scripts/rewrite-file.mjs <文件> --find <字面串> --replace <字面串>
+// 用法：node <插件根>/scripts/rewrite-file.mjs <文件> --find <字面串> --replace <字面串>
 //         [--expect N] [--allow-multi] [--dry-run] [--root <仓库根>]
 //   --expect N    期望命中数（默认 1）；实际 ≠ N → 非零退出且不写盘
 //   --allow-multi 显式声明允许多命中（等价 --expect 的宽松形态：N ≥ 1 即过，用于批量同串替换）
 //   --dry-run     只打印将发生的替换与校验预览，不写盘
-// 测试：node .agents/scripts/rewrite-file.test.mjs
+//   --root <目录> 限定改写范围（2026-10-27 起真正生效）：相对路径按该目录解析，且目标必须落在
+//                 该目录内——越界即拒（此前 --root 被吞掉，路径仍按 cwd 解析，无边界可依）
+// 测试：node <插件根>/test/rewrite-file.test.mjs
 // 沿革：2026-10-12 立档（优先级 3：把「静默无操作」改成响亮失败）
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,18 +31,19 @@ const MULTI = argv.includes('--allow-multi');
 let file = '';
 let find = null;
 let replace = null;
+let rootArg = '';
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--find') find = argv[++i] ?? null;
   else if (a === '--replace') replace = argv[++i] ?? null;
   else if (a === '--expect') { /* 下面统一解析 */ }
-  else if (a === '--root') { /* 仅为与其它脚本口令一致，路径按 cwd 解析 */ i++; }
+  else if (a === '--root') { rootArg = argv[++i] ?? ''; }
   else if (a === '--dry-run' || a === '--allow-multi') { /* 旗标已处理 */ }
   else if (!a.startsWith('--') && !file) file = a;
 }
 const expectRaw = argOf('--expect');
 
-const USAGE = `用法：node .agents/scripts/rewrite-file.mjs <文件> --find <字面串> --replace <字面串> [--expect N] [--allow-multi] [--dry-run]`;
+const USAGE = `用法：node <插件根>/scripts/rewrite-file.mjs <文件> --find <字面串> --replace <字面串> [--expect N] [--allow-multi] [--dry-run] [--root <目录>]`;
 const die = (msg) => { console.error(`❌ rewrite-file: ${msg}\n${USAGE}`); process.exit(1); };
 if (argv.includes('--help') || argv.includes('-h')) { console.log(USAGE); process.exit(0); }
 if (!file) die('缺目标文件');
@@ -54,7 +57,18 @@ if (expectRaw !== '') {
 }
 if (MULTI && expectRaw !== '') die('--allow-multi 与 --expect 互斥（一个宽松一个严格，同给无法裁决）');
 
-const abs = path.resolve(process.cwd(), file);
+// 路径解析（2026-10-27 路径逃逸修复）：--root 此前被**吞掉**（解析后丢弃、路径仍按 cwd 解析），
+// 于是「以为在仓库内改、实际改到别处」与「以为受限、实际可越界」两个坑同时存在。
+// 现 --root 生效：给定时，相对路径按 root 解析，且目标必须落在 root 内（绝对路径也校验）；
+// 不给定时沿用旧口径（按 cwd 解析绝对/相对路径，不加边界——保持既有调用面不变）。
+const ROOT = rootArg ? path.resolve(process.cwd(), rootArg) : process.cwd();
+const abs = path.isAbsolute(file) ? path.resolve(file) : path.resolve(ROOT, file);
+if (rootArg) {
+  const rel = path.relative(ROOT, abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    die(`路径逃逸被拒：「${file}」解析到 --root 之外（${abs}，root=${ROOT}）——只改 root 内的文件`);
+  }
+}
 if (!fs.existsSync(abs)) die(`目标文件不存在：${file}（不静默创建新文件——路径写错时应响亮失败）`);
 let raw;
 try { raw = fs.readFileSync(abs, 'utf8'); } catch (err) { die(`读取失败：${file}（${err.message}）`); }

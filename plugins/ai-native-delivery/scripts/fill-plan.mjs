@@ -1,5 +1,5 @@
 // fill-plan：起草 plan 草稿（L1 五节且 plan 即入口 / L2-L3 完整 4 节）
-// 用法：node .agents/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--root <仓库根>]
+// 用法：node <插件根>/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--root <仓库根>]
 // L1：入口 + 改动方案 + 约束与风险 + 验证计划 + 验收标准（不另立 intent）
 // L2/L3：改动方案 + 任务拆解 + 执行顺序 + 验证计划
 // 起草门（stage-gate-machine）：output 落于工作区（路径含 workflow 段）时，须同主题入口已确认，

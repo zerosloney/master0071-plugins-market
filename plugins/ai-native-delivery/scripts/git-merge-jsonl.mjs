@@ -3,7 +3,11 @@
 // 用于解决多人并发提 develop 或单人多 worktree 并行时，.agents/*.jsonl 尾部并发追加导致的 Git 合并冲突。
 //
 // 调用协议（由 .gitattributes 关联 merge=jsonl-union 触发）：
-//   git config merge.jsonl-union.driver "node .agents/scripts/git-merge-jsonl.mjs %O %A %B"
+//   源仓形态（脚本随项目落 .agents/scripts/）：
+//     git config merge.jsonl-union.driver "node .agents/scripts/git-merge-jsonl.mjs %O %A %B"
+//   插件形态（脚本留插件内，2026-10-27 插件化）：驱动须指向插件内绝对路径——
+//     git config merge.jsonl-union.driver "node <插件安装路径>/scripts/git-merge-jsonl.mjs %O %A %B"
+//   （期望值由 check-local-gates.mjs / check-local-gate-config.mjs 按部署形态给出）
 //   %O: 祖先版本路径 (ancestor/base)
 //   %A: 当前分支版本路径 (current/ours，合并结果必须覆写回此文件)
 //   %B: 对方分支版本路径 (other/theirs)

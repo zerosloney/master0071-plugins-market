@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // check-secrets：gitleaks 包装门（2026-10-14 决定 4 / G5 安全插队；机制台账已登记）
-// 用法：node .agents/scripts/check-secrets.mjs [--staged]
+// 用法：node <插件根>/scripts/check-secrets.mjs [--staged]
 //   默认     = 全量历史：gitleaks detect --baseline-path .gitleaks-baseline.json（基线外新泄漏 exit 1）
 //   --staged = 提交增量：gitleaks protect --staged（只看暂存内容，历史存量不触；原 pre-commit 消费——
 //              2026-10-21 owner 指令「密钥本地不扫」退役该腿，旗标保留供手动/测试）
@@ -16,7 +16,7 @@
 //   用户拍板「公司私有 npm 源 Basic 认证凭据豁免，不作废轮换，下次不再扫」（内部源端点见项目侧登记，不随插件分发）。
 //   detect 模式基线缺失 = exit 2
 //   （配置失守 fail-closed——静默无基线会让存量全量爆红，与拍板相反）。
-// 测试：node .agents/scripts/check-secrets.test.mjs（CHECK_SECRETS_ROOT + GITLEAKS_BIN 指向 stub）
+// 测试：node <插件根>/test/check-secrets.test.mjs（CHECK_SECRETS_ROOT + GITLEAKS_BIN 指向 stub）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';

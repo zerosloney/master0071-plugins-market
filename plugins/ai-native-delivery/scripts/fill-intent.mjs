@@ -1,6 +1,6 @@
 // fill-intent：起草 intent 草稿（背景与问题/历史教训防复发/目标/非目标/约束/影响面/触达红线/验收标准 8 节正文 + 确认与复核 共 9 节）
 // 读 workflow/intents/_TEMPLATE.md 的节标题 → 输出符合 frontmatter 受限子集（5 字段）的草稿到指定文件
-// 用法：node .agents/scripts/fill-intent.mjs --module pipeline --level L1 --topic "test" --output /tmp/x.md
+// 用法：node <插件根>/scripts/fill-intent.mjs --module pipeline --level L1 --topic "test" --output /tmp/x.md
 // 零依赖；CLI 解析用最简字符串匹配；不替代 AI 起草——本工具只输出模板与提示句
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +27,7 @@ function fail(msg) { console.error('❌ ' + msg); process.exit(1); }
 
 const SECTIONS = [
   { title: '背景与问题', hint: '<为什么做；写明需求来源（工单 / 沟通记录 / 待办事项）>' },
-  { title: '历史教训/防复发', hint: '- 检索结果：`node .agents/scripts/kb-search.mjs "<关键词>" --type incidents` 命中结果；按改动文件找同类用 `--files <路径,...>`（词元 OR）\n- 避坑指南：<针对历史根因，本次如何预防/规避>' },
+  { title: '历史教训/防复发', hint: '- 检索结果：`node <插件根>/scripts/kb-search.mjs "<关键词>" --type incidents` 命中结果；按改动文件找同类用 `--files <路径,...>`（词元 OR）\n- 避坑指南：<针对历史根因，本次如何预防/规避>' },
   { title: '目标', hint: '- <可验证的目标>' },
   { title: '非目标（L1 微改动无实质内容可删本节，不硬填）', hint: '- <明确不做的，防止范围蔓延>' },
   { title: '约束（L1 微改动无实质内容可删本节，不硬填）', hint: '- <复用什么、不许动什么>' },

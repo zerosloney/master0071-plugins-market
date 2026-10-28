@@ -3,7 +3,7 @@
  * 读 workflow/delegations.md 两张结果表（按表头签名识别：委派表含「被委派方」列、自做表=日期+任务一句话；不依赖 ## 节标题）+ 扫 workflow/incidents/ 与 workflow/archive 下各批次 incidents 目录、按文件名月份计数（归档不出账），
  * 输出各月指标（一次通过率 / 平均返工次数 / 主兜底占比）、并发扩容门判定、可粘贴的月度快照行。
  * 结果取值：一次通过 | 返工×N | 主兜底 | 返工待修（未闭环，不计入率）。
- * 用法：node .agents/scripts/agg-delegations.mjs [--month=YYYY-MM] [--write]（默认输出全部月份 + 全量累计；
+ * 用法：node <插件根>/scripts/agg-delegations.mjs [--month=YYYY-MM] [--write]（默认输出全部月份 + 全量累计；
  *       --write = 机器落表：目标月（argMonth 或当月）快照行写入 workflow/delegations.md §月度聚合快照 GENERATED 区，
  *       同月重写、他月行不触碰；不带 --write 仍只打印（snapshot-machine-write，手工粘贴退役）。
  * 门槛定义见 workflow/delegations.md §并发扩容门槛（doc 为权威，脚本向文档对齐——board-kb-p1）。

@@ -340,5 +340,22 @@ const wf = (root, ...p) => path.join(root, 'workflow', ...p);
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- S22 分片月键校验（2026-10-27 路径逃逸修复）----
+// 月键直接进 path.join → 不校验时 `--month ../../../../evil` 把台账写出 workflow/ 树（仓外 C:\evil.md）
+{
+  const root = mkroot();
+  let thrown = null;
+  try { shardPathFor(root, 'papercuts', '../../../../evil'); } catch (e) { thrown = e; }
+  check('S22a 非法月键 → shardPathFor 抛错', thrown !== null && /月键非法/.test(thrown.message), thrown ? thrown.message : 'no throw');
+  let thrown2 = null;
+  try { appendRows(root, 'papercuts', ['| 2026-10-13 | x | s | f |'], { month: '../../../../evil' }); } catch (e) { thrown2 = e; }
+  check('S22b appendRows 显式非法 month → 抛错（不落盘）', thrown2 !== null && /月键非法/.test(thrown2.message), thrown2 ? thrown2.message : 'no throw');
+  check('S22c 仓外未落盘', !fs.existsSync(path.resolve(root, '../../../evil.md')));
+  let thrown3 = null;
+  try { shardPathFor(root, 'papercuts', '2026-13'); } catch (e) { thrown3 = e; }
+  check('S22d 月份 13 判非法（不造无意义目录）', thrown3 !== null, thrown3 ? thrown3.message : 'no throw');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

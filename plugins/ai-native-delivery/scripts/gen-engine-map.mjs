@@ -6,8 +6,8 @@
 // 单源：.githooks/ 文件清单｜verify.mjs GATES（spawn --list，即时不执行门）｜
 //       check-loop.mjs SECTIONS（lane 计数）｜mechanism-registry.md（parseRegistry 复用）｜
 //       commands/skills/roles 目录清单。静态文字仅「执行模型/卡口职责/台账用途」三段说明性内容。
-// 用法：node .agents/scripts/gen-engine-map.mjs [--check] [--root <仓库根>]
-// 测试：node .agents/scripts/gen-engine-map.test.mjs（临时夹具根：生成/一致/漂移三态）
+// 用法：node <插件根>/scripts/gen-engine-map.mjs [--check] [--root <仓库根>]
+// 测试：node <插件根>/test/gen-engine-map.test.mjs（临时夹具根：生成/一致/漂移三态）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,13 +16,20 @@ import { parseRegistry, STATUSES } from './mechanism-retire-watch.mjs';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：脚本本体落插件 scripts/；check-loop 段表走
 // scriptPath、机制台账走 configDir（项目侧优先回退插件内种子）；命令/技能/角色载体项目侧优先、
 // 回退插件内（模型侧载体随插件分发）。
-import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, findProjectRoot, scriptPath, configDir } from './paths.mjs';
+import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir } from './paths.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 const argv = process.argv.slice(2);
 const argOf = (k) => { const i = argv.indexOf(k); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : ''; };
-// 默认根（2026-10-27 插件化迁移，与 verify.mjs 同口径）：--root > git root > 插件根。
-const ROOT = path.resolve(argOf('--root') || findProjectRoot() || PLUGIN_ROOT);
+// 默认根：--root（测试夹具）> git root。**不回退插件根**——本脚本把 engine-map.md 写进
+// <root>/.agents/notes/，落进插件安装目录即违反「项目侧数据不进插件目录」不变量。
+// 读锚点仍允许回退插件内本体（见下方 PLUGIN_ROOT 单点回退）。
+const L = ledgerRoot({ explicit: argOf('--root') });
+if (!L.writable) {
+  console.error(`[engine-map] ❌ ${ledgerRefusal(L.status, L.detail)}`);
+  process.exit(1);
+}
+const ROOT = path.resolve(L.root);
 const MAP_REL = path.join('.agents', 'notes', 'engine-map.md');
 
 // ---- 单源取数 ----
@@ -149,7 +156,7 @@ function buildMap() {
   const L = [];
   L.push('# 引擎地图（生成物，勿手改）');
   L.push('');
-  L.push('> 生成器 `node .agents/scripts/gen-engine-map.mjs`（单源现场取数；`--check` 防漂移——改引擎后重生成随同提交）。');
+  L.push('> 生成器 `node <插件根>/scripts/gen-engine-map.mjs`（单源现场取数；`--check` 防漂移——改引擎后重生成随同提交）。');
   L.push('> 一页冷启动地图：接手会话/新协作者读本页替代全仓考古；明细按 §维护 的单源指针下钻。');
   L.push('');
   L.push('## 执行模型（一段）');
@@ -209,7 +216,7 @@ function buildMap() {
   L.push('');
   L.push('## 维护');
   L.push('');
-  L.push('- 改任何单源（钩子/GATES/SECTIONS/台账/目录）后：`node .agents/scripts/gen-engine-map.mjs` 重生成随同提交；CI/hygiene 可跑 `--check` 防漂移。');
+  L.push('- 改任何单源（钩子/GATES/SECTIONS/台账/目录）后：`node <插件根>/scripts/gen-engine-map.mjs` 重生成随同提交；CI/hygiene 可跑 `--check` 防漂移。');
   L.push('- 环境事实单源 `.agents/notes/runtime-env.md` §6；机制明细与退役阈值单源 `.agents/config/mechanism-registry.md`；门禁成本 `workflow/metrics.md`。');
   L.push('');
   return L.join('\n');
@@ -225,7 +232,7 @@ if (isMain) {
       console.log('[engine-map] ✅ 与单源一致');
       process.exit(0);
     }
-    console.error('❌ engine-map.md 与单源漂移——重生成：node .agents/scripts/gen-engine-map.mjs');
+    console.error('❌ engine-map.md 与单源漂移——重生成：node <插件根>/scripts/gen-engine-map.mjs');
     process.exit(1);
   }
   fs.mkdirSync(path.dirname(mapPath), { recursive: true });

@@ -92,7 +92,7 @@ export function run() {
       const hasImplEvidence = results.some((r) => r.t.ok && (r.t.type === 'sha' || r.t.type === 'process'));
       for (const r of results) {
         if (r.t.ok && r.t.type === 'verify-missing') {
-          warnings.push(`- [WARN 测试绿缺凭证] ${base} 验收证据声明「测试绿」但 24h 内无 verify 凭证（verifications.jsonl）——跑 node .agents/scripts/verify.mjs 后重跑（advisory，灰度第一档）`);
+          warnings.push(`- [WARN 测试绿缺凭证] ${base} 验收证据声明「测试绿」但 24h 内无 verify 凭证（verifications.jsonl）——跑 node <插件根>/scripts/verify.mjs 后重跑（advisory，灰度第一档）`);
           continue;
         }
         if (r.t.ok) continue;

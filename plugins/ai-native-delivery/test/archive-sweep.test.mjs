@@ -125,5 +125,40 @@ check('parseStatus 基础+CRLF', parseStatus('---\r\n状态: done\r\n---\nx') ==
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// 场景 8：终态时间三级锚——台账 ts 非法时逐级回退，不派生逃逸归档月
+// （2026-10-27 路径逃逸修复：ts 是外部可写数据，`ts=../../../../evil` 旧实现会派生出归档月
+//  `../../..` → git mv 把文件甩出 workflow/archive/ 树）
+{
+  const r = analyze({
+    docs: [doc('plans', '2026-09-03-x.md', 'done')],
+    windowDays: 21,
+    ledgerTs: { 'workflow/plans/2026-09-03-x.md': '../../../../evil' },
+    lastTouch: { 'workflow/plans/2026-09-03-x.md': '2026-08-01' },
+  });
+  const months = r.candidates.map((c) => c.month);
+  check('非法台账 ts 不派生逃逸月', r.candidates.length === 1 && /^\d{4}-\d{2}$/.test(r.candidates[0].month), JSON.stringify(months));
+  check('非法 ts → 回退到内容 last-touch 锚', r.candidates[0]?.src === 'git' && r.candidates[0].month === '2026-08', JSON.stringify(r.candidates[0]?.src));
+}
+// 场景 8b：三锚皆无有效值 → 无日期（不归档），不静默用坏值
+{
+  const r = analyze({
+    docs: [doc('plans', 'nodate-x.md', 'done')],
+    windowDays: 21,
+    ledgerTs: { 'workflow/plans/nodate-x.md': '../../../../evil' },
+    lastTouch: {},
+  });
+  check('三锚皆非法 → 无日期不归档', r.candidates.length === 0 && r.noDate.length === 1, `cand=${r.candidates.length} nodate=${r.noDate.length}`);
+}
+// 场景 8c：非法日历日（2026-02-30）同样判非法
+{
+  const r = analyze({
+    docs: [doc('plans', '2026-09-04-y.md', 'done')],
+    windowDays: 21,
+    ledgerTs: { 'workflow/plans/2026-09-04-y.md': '2026-02-30' },
+    lastTouch: {},
+  });
+  check('非法日历日回退（不派生 2026-02 归档月）', r.candidates.length === 0 || /^\d{4}-\d{2}$/.test(r.candidates[0].month), JSON.stringify(r.candidates.map((c) => c.month)));
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

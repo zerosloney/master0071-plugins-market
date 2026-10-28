@@ -77,7 +77,7 @@ const tools = [
   {
     name: "verify_gate",
     description:
-      "跑闭环门禁车道并原样回报（exit code + stdout/stderr 摘要，截断至 8KB 防爆）：hard=默认车道（check-loop 硬门，不带 flag）、hygiene=卫生段（--hygiene）、all=两段都跑（--all）。cwd 锚定项目根。",
+      "跑闭环门禁车道并回报裁决（status 字段三态：passed=跑完且通过 / failed=跑完且有违例 / not-executed=超时或启动失败，**没跑完不等于通过**；另附 exit code + stdout/stderr 摘要，截断至 8KB 防爆）：hard=默认车道（check-loop 硬门，不带 flag）、hygiene=卫生段（--hygiene）、all=两段都跑（--all）。cwd 锚定项目根。",
     inputSchema: {
       type: "object",
       additionalProperties: false,

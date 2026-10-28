@@ -11,7 +11,7 @@
 //   - 台账无该 doc+stage 行 / 末次行缺 prev（schema 演进前存量）→ 无补偿基底，追加反而制造失配
 //   - 内容未变（与末次确认行指纹一致）→ 无可补偿的漂移
 //   - 缺 --quote → 用户裁定原话是补偿行的法律依据，禁空
-// 用法：node .agents/scripts/append-compensation.mjs <doc...> --quote "<用户原话>"
+// 用法：node <插件根>/scripts/append-compensation.mjs <doc...> --quote "<用户原话>"
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -73,7 +73,7 @@ function main() {
     else docs.push(args[i]);
   }
   if (!docs.length || !quote) {
-    console.error('用法：node .agents/scripts/append-compensation.mjs <doc...> --quote "<用户原话>"');
+    console.error('用法：node <插件根>/scripts/append-compensation.mjs <doc...> --quote "<用户原话>"');
     console.error('  done/closed 等终态文档改正文后，按 §4.4 同批补重确认补偿行（指纹=bindingSha256 单源口径）');
     process.exit(2);
   }

@@ -5,7 +5,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { aggFromRows, retireCandidates, mergeJudgmentRows, readAllJudgments, emitMonth, shardPath } from '../scripts/agg-judgments.mjs';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 let pass = 0;
 let fail = 0;
@@ -128,6 +132,40 @@ check('S3 null 入参不 throw', Object.keys(aggFromRows(null).byMonth).length =
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agg-empty-'));
   const all = readAllJudgments(root);
   check('S8 无台账无分片 → missing=true', all.missing === true && all.rows.length === 0);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S9 坏行计数出声（2026-10-27：--retire-candidates 路径此前恒传 bad=0，账本破损静默）----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agg-bad-'));
+  fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'judgments.jsonl'), [
+    JSON.stringify({ ts: '2026-09-10T00:00:00Z', rules: [{ rule: '规则甲', level: 'WARN', count: 2 }] }),
+    '{ 这不是 JSON',           // 坏行 1
+  ].join('\n') + '\n');
+  fs.mkdirSync(path.join(root, 'workflow', 'gate-metrics.d'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'gate-metrics.d', '2026-09.jsonl'), [
+    JSON.stringify({ ts: '2026-09-01T00:00:00.000Z', rules: [{ rule: '规则甲', level: 'WARN', count: 4 }] }),
+    '{ 也不是 JSON',            // 坏行 2
+  ].join('\n') + '\n');
+  const all = readAllJudgments(root);
+  check('S9 坏行计数出声（本地 1 + 分片 1 = 2）', all.bad === 2, `bad=${all.bad}`);
+  check('S9 坏行不中断聚合（好行仍入账）', all.rows.length === 1 && all.rows[0].rules.length === 1, JSON.stringify(all.rows));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S10 退役候选口径诚实化：无候选时不说「所有规则均有命中」（judgments 只记命中行）----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agg-caliber-'));
+  fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+  // 夹具须是 git 仓：agg-judgments 的 ROOT 按项目 git 根锚定（插件化改道 paths.mjs 同口径）
+  spawnSync(process.platform === 'win32' ? 'git.exe' : 'git', ['init', '-q'], { cwd: root });
+  const row = (ym) => JSON.stringify({ ts: `${ym}-10T00:00:00Z`, rules: [{ rule: '规则甲', level: 'WARN', count: 1 }] });
+  fs.writeFileSync(path.join(root, '.agents', 'judgments.jsonl'), ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'].map(row).join('\n') + '\n');
+  const r = spawnSync(process.execPath, [path.join(SCRIPT_DIR, '..', 'scripts', 'agg-judgments.mjs'), '--retire-candidates'], { cwd: root, encoding: 'utf8' });
+  const out = `${r.stdout || ''}${r.stderr || ''}`;
+  check('S10 无候选 → 口径改为「账内规则」（不再宣称所有规则）',
+    r.status === 0 && /无候选/.test(out) && /账内规则/.test(out) && !/所有规则均有命中/.test(out), out.slice(0, 400));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

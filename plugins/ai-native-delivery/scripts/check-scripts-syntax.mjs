@@ -8,8 +8,8 @@
 // 不 import 任何引擎件，零依赖可独立调度。
 // 性能（scripts-syntax-parallel）：node --check 无原地解析 ESM 的 API，只能逐文件起子进程
 //       （单次 ~70ms × 117 文件）；改工作池并发（min(8, cpus-2)）后本机 8.1s → 4.2s，判红集合不变。
-// 测试：node .agents/scripts/check-scripts-syntax.test.mjs
-// 用法：node .agents/scripts/check-scripts-syntax.mjs [目录...]（相对仓库根；缺省 .agents/scripts .agents/hooks
+// 测试：node <插件根>/test/check-scripts-syntax.test.mjs
+// 用法：node <插件根>/scripts/check-scripts-syntax.mjs [目录...]（相对仓库根；缺省 .agents/scripts .agents/hooks
 //       scripts/verify——第三项为 backend 门执行器所在，2026-10-24 复核 P1 修复纳入守护；
 //       CHECK_LOOP_ROOT 可覆写仓库根，与 check-loop/verify 同口径）
 // 沿革：guardian-selfcheck（审计 P0-1 立项，verify.mjs GATES 首门消费）。

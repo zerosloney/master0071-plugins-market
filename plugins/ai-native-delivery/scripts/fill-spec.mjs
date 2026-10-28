@@ -1,5 +1,5 @@
 // fill-spec：起草 spec 草稿（功能行为 / 数据流 / 系统改动 / 约束遵守映射 / 验收判据 / 风险评估 共 6 节）
-// 用法：node .agents/scripts/fill-spec.mjs --topic "test" --output /tmp/x.md [--root <仓库根>]
+// 用法：node <插件根>/scripts/fill-spec.mjs --topic "test" --output /tmp/x.md [--root <仓库根>]
 // 起草门（2026-09-30 stage-gate-machine）：output 落于工作区（路径含 workflow 段）时，须同主题入口已确认
 // （判定口径见 stage-gates.mjs）；未过 → 拒绝生成（exit 2）；仓外草稿（无 workflow 段）不校验。
 import fs from 'node:fs';

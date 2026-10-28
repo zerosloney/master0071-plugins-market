@@ -26,12 +26,12 @@
 //   调用总份数。check-loop 检查 15 的并录审计据此直读事实判定，不再从 quote 相等 + ts 接近反推
 //   （旧判据可被「换 quote」平凡规避、且合规逐件复用同句必然误报——见同名 incident）。
 // 指纹：内容 CRLF 归一 → 剔除「确认指纹:」行（防自引用）→ sha256；frontmatter 存前 16 位，台账存全量。
-// 用法：node .agents/scripts/confirm-doc.mjs <workflow/intents|x.md> [<doc2>...] [--root <仓库根>]
-//       node .agents/scripts/confirm-doc.mjs <doc...> --delegated "<用户对话原话>"（委托代录）
-//       node .agents/scripts/confirm-doc.mjs <doc...> --delegated "<原话>" --batch（协作道批量：L1 多份一次代录）
-//       node .agents/scripts/confirm-doc.mjs <doc...> --delegated "<原话>" --strict-quote（引文接地收硬：不成立即拒）
-//       node .agents/scripts/confirm-doc.mjs <doc...> --to superseded|cancelled（放弃态：取代/取消，留指纹与台账）
-//       node .agents/scripts/confirm-doc.mjs <doc...> --reconfirm --delegated "<原话>"（重新确认：approved 档承诺面
+// 用法：node <插件根>/scripts/confirm-doc.mjs <workflow/intents|x.md> [<doc2>...] [--root <仓库根>]
+//       node <插件根>/scripts/confirm-doc.mjs <doc...> --delegated "<用户对话原话>"（委托代录）
+//       node <插件根>/scripts/confirm-doc.mjs <doc...> --delegated "<原话>" --batch（协作道批量：L1 多份一次代录）
+//       node <插件根>/scripts/confirm-doc.mjs <doc...> --delegated "<原话>" --strict-quote（引文接地收硬：不成立即拒）
+//       node <插件根>/scripts/confirm-doc.mjs <doc...> --to superseded|cancelled（放弃态：取代/取消，留指纹与台账）
+//       node <插件根>/scripts/confirm-doc.mjs <doc...> --reconfirm --delegated "<原话>"（重新确认：approved 档承诺面
 //         被改写后用户重新点头——不推进状态，只重录指纹 + 承诺面指纹；状态行仍由本脚本写，无需手改 frontmatter）
 //       台账写入形态：默认分片 .agents/confirmations.d/<doc>.jsonl；--no-shard 或 CONFIRM_SHARDED=0 写主台账
 //   多文档一次传入：TTY 模式天然逐份过目键入；--delegated 默认一次仅一份（2026-09-27
@@ -207,7 +207,9 @@ if (isMain) {
       trustConfig = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'trust-mode.json'), 'utf8'));
     } catch { trustConfig = { enabled: false, level: 0 }; }
     if (!trustConfig.enabled || ![1, 2].includes(trustConfig.level)) {
-      console.error('❌ AI 自治未开启或等级非法（.agents/trust-mode.json enabled=false 或 level∉[1,2]）——跑 node .agents/scripts/trust-mode.mjs --enable --level <1|2> 开启');
+      // 修复指引不指向不存在的脚本（2026-10-27）：trust-mode.mjs 未随插件迁移，
+      // 旧文案让用户去跑一个插件内没有的脚本——死路。改为给出配置文件本体。
+      console.error('❌ AI 自治未开启或等级非法（.agents/trust-mode.json enabled=false 或 level∉[1,2]）——开启方式：在项目根写 .agents/trust-mode.json = {"enabled":true,"level":1}（Standard）或 {"enabled":true,"level":2}（Trusted）');
       process.exit(1);
     }
     if (toTarget) {
@@ -221,7 +223,7 @@ if (isMain) {
     console.error(`⚠️  AI 自治模式（Trust L${trustConfig.level}）：仅限 L1 文档；Level 1 只放行 draft→approved，Level 2 放行至 done`);
   }
   if (delegated && !String(delegatedQuote).trim()) {
-    console.error('用法：--delegated 须带用户对话原话（node .agents/scripts/confirm-doc.mjs <doc...> --delegated "<用户原话>"）——原话入台账供事后对质，不可缺省');
+    console.error('用法：--delegated 须带用户对话原话（node <插件根>/scripts/confirm-doc.mjs <doc...> --delegated "<用户原话>"）——原话入台账供事后对质，不可缺省');
     process.exit(1);
   }
   // TTY 门（仅 TTY 模式；先于文档参数校验）：AI 会话内非委托调用一律拒绝
@@ -250,12 +252,12 @@ if (isMain) {
       trustConfig = implicitTrust; // 主循环自治门（L1 与 incidents 排除）直读本配置——顶部 if (autoMode) 块先于 TTY 门执行，须在此补装
       console.error('⚠️  Trusted 自动泳道（隐式）：单份 L1 文档按 AI 自治放行（Level 2 全闭环，台账 source=ai-auto-trust-L2）；L2/L3 与 incidents 仍须人工确认');
     } else {
-      console.error('确认门须由用户在终端亲手运行（node .agents/scripts/confirm-doc.mjs <workflow/文档>...）——AI 会话内不可代确认；用户对话内明确确认后可用 --delegated "<用户原话>" 委托代录（台账如实记来源）');
+      console.error('确认门须由用户在终端亲手运行（node <插件根>/scripts/confirm-doc.mjs <workflow/文档>...）——AI 会话内不可代确认；用户对话内明确确认后可用 --delegated "<用户原话>" 委托代录（台账如实记来源）');
       process.exit(1);
     }
   }
   if (!docs.length) {
-    console.error('用法：node .agents/scripts/confirm-doc.mjs <workflow/intents|specs|plans/x.md> [...]  [--root <仓库根>] [--delegated "<用户原话>" [--batch]]');
+    console.error('用法：node <插件根>/scripts/confirm-doc.mjs <workflow/intents|specs|plans/x.md> [...]  [--root <仓库根>] [--delegated "<用户原话>" [--batch]]');
     process.exit(1);
   }
   if (delegated) {
@@ -455,7 +457,7 @@ if (isMain) {
               if (!rowCovers(delegationRowsOf(root), base, dDate)) {
                 console.error(`❌ ${doc} 未过委派台账在场门：delegations 台账（主表∪分片）没有日期 ≥ ${dDate} 且含「${base}」的结果行`);
                 console.error('   先落一行再关单（委派走「委派结果」节、自做走「自做任务结果」节，任务一句话含文件名）：');
-                console.error('   node .agents/scripts/ledger-shards.mjs --append delegations --section <委派结果|自做任务结果> --row "| YYYY-MM-DD | … | 一次通过 | 备注 | 返工原因 |"');
+                console.error('   node <插件根>/scripts/ledger-shards.mjs --append delegations --section <委派结果|自做任务结果> --row "| YYYY-MM-DD | … | 一次通过 | 备注 | 返工原因 |"');
                 console.error('   （判据与检查 18 对账一致；修复族与锚前存量豁免，记法见 workflow/delegations.md 头部）（本份未落账、未写盘）');
                 refused++;
                 continue;
@@ -478,7 +480,7 @@ if (isMain) {
         const nowCommit = commitmentFingerprint(text);
         if (nowCommit !== lastAppr.commit) {
           console.error(`❌ ${doc} 未过承诺面绑定门：承诺面自 approved 确认后已被改写（承诺面指纹 ${lastAppr.commit} → ${nowCommit}）——用户点头的不是关单时兑现的那一份`);
-          console.error('   ① 承诺确有变更 → 请用户重新点头后重录：node .agents/scripts/confirm-doc.mjs ' + doc + ' --reconfirm --delegated "<用户对话原话>"');
+          console.error('   ① 承诺确有变更 → 请用户重新点头后重录：node <插件根>/scripts/confirm-doc.mjs ' + doc + ' --reconfirm --delegated "<用户对话原话>"');
           console.error('   ② 仅勾验收/补证据/复核行改动 → 不应触发本门（归一口径有漏，请登记 papercut）');
           console.error('   （本份未落账、未写盘）');
           refused++;
@@ -498,7 +500,7 @@ if (isMain) {
         const today = (process.env.CONFIRM_DOC_TEST_NOW || new Date().toISOString()).slice(0, 10);
         const hard = typeof pol.verifyHardSince === 'string' && today >= pol.verifyHardSince;
         console.error(`${hard ? '❌' : '⚠️'} ${doc} 置 done：24h 内无测试绿凭证（verifications.jsonl）——关单勾验的「测试绿」声明缺机器事实`);
-        console.error(`   跑 node .agents/scripts/verify.mjs（全绿自动落账）后重新关单；本次${hard ? '拒绝落账、不改盘（hard，灰度第二档：policy v8 verifyHardSince）' : '不拦截（advisory，灰度第一档）'}`);
+        console.error(`   跑 node <插件根>/scripts/verify.mjs（全绿自动落账）后重新关单；本次${hard ? '拒绝落账、不改盘（hard，灰度第二档：policy v8 verifyHardSince）' : '不拦截（advisory，灰度第一档）'}`);
         if (hard) {
           refused++;
           continue;

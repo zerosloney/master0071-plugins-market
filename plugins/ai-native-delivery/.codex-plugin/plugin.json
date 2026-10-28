@@ -1,6 +1,6 @@
 {
   "name": "ai-native-delivery",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI-Native 交付治理引擎：三层闭环（任务级硬闭环 / 状态收敛闭环 / 治理进化闭环）——L1/L2/L3 风险泳道 + check-loop 硬门 5 段 + 台账三件套 + 判定账进化；台账为项目级资产，一律落使用项目 git 仓库根。",
   "author": {
     "name": "master0071",
@@ -19,6 +19,23 @@
     "productivity"
   ],
   "mcpServers": "./mcp.json",
+  "skills": "./skills",
+  "hooks": {
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash|Shell|Terminal",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs\"",
+              "timeout": 15
+            }
+          ]
+        }
+      ]
+    }
+  },
   "interface": {
     "displayName": "AI-Native Delivery",
     "shortDescription": "AI-Native 交付治理：风险泳道定级 + 硬门关单闸 + 台账审计",

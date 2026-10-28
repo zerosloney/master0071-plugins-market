@@ -23,7 +23,7 @@ import { MARK_RE, approvedTraceIndex, commitmentFingerprint } from './stage-gate
 import { GIT, spawnGit as coreSpawnGit, gitOut as coreGitOut, clearGitCache } from './git-core.mjs';
 // 路径收口（2026-10-27 插件化迁移）：脚本落位 / 项目根 / 台账根常量由 paths.mjs 单源供给。
 // 脚本是插件资产（留插件内，不落用户项目）；项目根仍 git root 锚定（CHECK_LOOP_ROOT fixture 注入原样保留）。
-import { PLUGIN_SCRIPTS_DIR, findProjectRoot, WF_REL } from './paths.mjs';
+import { PLUGIN_SCRIPTS_DIR, findProjectRoot, resolveProjectRoot, WF_REL } from './paths.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 
@@ -74,16 +74,23 @@ if (process.env.CHECK_LOOP_ROOT) {
   }
   MAIN_ROOT = ROOT;
 } else {
-  const top = findProjectRoot(); // git root 锚定（rev-parse --show-toplevel），不锚 cwd——paths.mjs 单源
-  if (top === null) {
+  // 项目根解析三态（2026-10-27 插件化修复）：「不在 git 仓库内」与「git 拒绝工作」必须分开——
+  // 物理闸门（pre-commit / pre-push）在自身基础设施故障时不得静默放行（假绿比红危险）。
+  const probe = resolveProjectRoot(); // git root 锚定（rev-parse --show-toplevel），不锚 cwd——paths.mjs 单源
+  if (probe.status !== 'ok') {
     if (REV_ARG) {
       console.error(`check-loop: --rev 剥不到提交 ${REV_ARG}`);
       process.exit(1);
     }
-    console.error('check-loop: 不在 git 仓库内,跳过扫描');
-    process.exit(0);
+    if (probe.status === 'not-a-repo') {
+      console.error('check-loop: 不在 git 仓库内,跳过扫描');
+      process.exit(0);
+    }
+    console.error(`check-loop: git 不可用或拒绝工作（${probe.detail}）——闭环扫描未能执行，按 fail-closed 拒绝`
+      + '（pre-commit / pre-push 阻断；这不是「不在 git 仓库内」，不得当合法形态放行）');
+    process.exit(1);
   }
-  ROOT = top.trim();
+  ROOT = probe.root;
   MAIN_ROOT = ROOT;
   if (REV_ARG) {
     const peeled = gitOut(['rev-parse', '--verify', `${REV_ARG}^{commit}`]);

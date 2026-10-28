@@ -12,8 +12,8 @@
 //   ④ 现役行 + 处置期限列含「复评 YYYY-MM-DD」且已过 → 动作项（owner-fiat 复评到期，2026-10-21 W5 惯例：
 //     owner 裁决型退役/降档自带回头看闹钟——到期重评现口径，维持/恢复/调整由 owner 一句话定）。
 // 退出码恒 0（催办报告不该阻断调度器；测量失败打 [ERROR] 行）。
-// 用法：node .agents/scripts/mechanism-retire-watch.mjs [--json] [--root <仓库根>] [--now <ISO 日期>]
-// 测试：node .agents/scripts/mechanism-retire-watch.test.mjs（纯函数 evaluate 进程内断言）
+// 用法：node <插件根>/scripts/mechanism-retire-watch.mjs [--json] [--root <仓库根>] [--now <ISO 日期>]
+// 测试：node <插件根>/test/mechanism-retire-watch.test.mjs（纯函数 evaluate 进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

@@ -2,7 +2,7 @@
 // 背景：mechanism-registry 月度对账原为「人工 grep check-loop 输出」；advisory→hard 升格与退役判定
 // 均缺 per-rule 判定流水（时间戳+结论）。本模块把每次 check-loop 真实运行追加为一行 per-rule 计数
 // 到 .agents/judgments.jsonl（本地，gitignore——同 verifications.jsonl「本机机器事实不跨机共享」口径）。
-// 消费：node .agents/scripts/agg-judgments.mjs（月度×规则计数）；mechanism-registry 月度对账直接查账。
+// 消费：node <插件根>/scripts/agg-judgments.mjs（月度×规则计数）；mechanism-registry 月度对账直接查账。
 // 诚实边界：非签名链（同 verify-evidence）——本地追加可被改，事后对质靠 git 历史与确认台账。
 // fail-open：落账失败只打 stderr，不改变门禁裁决（观测面不得挡住裁决面）。
 import fs from 'node:fs';

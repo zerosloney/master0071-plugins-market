@@ -4,7 +4,10 @@
 // 退出一律 0（文件系统错误除外）。已存在文件一律跳过不覆盖——项目改动不受初始化侵蚀。
 // 落位（名字与源项目一致，§5.2 项目级不变量）：
 //   .agents/            引擎运行时
-//     config/           从 config-templates 全量种子（排除 githooks/ 与 settings.json——各有专位）
+//     config/           从 config-templates 全量种子（排除 githooks/ 与 settings.json——各有专位；
+//                        亦排除 pipelines/——编排脚本有专位 .agents/pipelines/，见 ①b）
+//     pipelines/        编排脚本种子（config-templates/pipelines/ → .agents/pipelines/；与
+//                        workflows-check.mjs 扫描面、autonomous-run skill 路径约定同源）
 //     settings.json     permissions 三清单种子（config-templates/settings.json）
 //     confirmations.jsonl + confirmations.d/   确认账（入库；主账缺则建空文件）
 //     cache/ loop/ notes/ board/ tmp/          本机运行时目录（cache/tmp 不入库）
@@ -12,15 +15,17 @@
 //     INDEX.md + plans/ specs/ intents/ incidents/ reviews.d/ delegations.d/ evidence/ archive/
 //     papercuts.md delegations.md metrics.md regression-checklist.md（空骨架标题行）
 //   .gitignore          标记注释块（BEGIN/END）内追加本机不入库项；已有标记块整块替换，其余原样
-//   .git/hooks/         pre-commit / pre-push 安装（config-templates/githooks 种子，安装时把
+//   git 钩子目录        pre-commit / pre-push 安装（config-templates/githooks 种子，安装时把
 //                       @@ENGINE_SCRIPT@@ 实化为 check-loop.mjs 绝对路径——项目侧 .agents/scripts
-//                       优先回退插件内，paths.mjs scriptPath 同口径）；已存在同名钩子跳过不覆盖
+//                       优先回退插件内，paths.mjs scriptPath 同口径）；目录走 gitHooksDir()
+//                       （core.hooksPath 优先，否则 git rev-parse --git-path hooks——worktree 下
+//                       .git 是文件，拼 <root>/.git/hooks 会 ENOTDIR 崩）；已存在同名钩子跳过不覆盖
 // 首行判断：项目 .agents/config/engine.json 的 policyVersion 与插件种子不同 → WARN 可升级但不自动覆盖。
 // 用法：node init-engine.mjs [--root <仓库根>]（缺省用 git root 锚定的项目根）
 // 测试：node test/init.test.mjs（幂等 / gitignore 块替换 / 已存在跳过 / 钩子不覆盖）
 import fs from 'node:fs';
 import path from 'node:path';
-import { findProjectRoot, engineDir, ledgerDir, PLUGIN_CONFIG_TEMPLATES_DIR, scriptPath } from './paths.mjs';
+import { findProjectRoot, engineDir, ledgerDir, PLUGIN_CONFIG_TEMPLATES_DIR, scriptPath, gitHooksDir } from './paths.mjs';
 
 export const GITIGNORE_BEGIN = '# BEGIN ai-native-delivery engine';
 export const GITIGNORE_END = '# END ai-native-delivery engine';
@@ -57,11 +62,31 @@ function walkFiles(dir, base = dir) {
 }
 
 // config-templates → .agents/config 种子清单。排除：githooks/（.git/hooks 安装的模板源，非项目配置）、
-// settings.json（项目侧专位在 .agents/settings.json，与 config/ 平级——§5.2 目录规范）。
+// settings.json（项目侧专位在 .agents/settings.json，与 config/ 平级——§5.2 目录规范）、
+// pipelines/（项目侧专位在 .agents/pipelines/——编排脚本落位口径，见下方 ①b）。
 function configSeedFiles() {
   return walkFiles(PLUGIN_CONFIG_TEMPLATES_DIR)
     .map((rel) => rel.split(path.sep).join('/'))
-    .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json');
+    .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json' && !rel.startsWith('pipelines/'));
+}
+
+// ①b 编排脚本种子 → 项目侧 .agents/pipelines/（2026-10-27 插件化修复）。
+// 落位口径单源：config-templates/pipelines/_TEMPLATE.md 头注声明「正式落位在项目侧 .agents/pipelines/」，
+// workflows-check.mjs 的机器门扫描面也是 <root>/.agents/pipelines/，autonomous-run skill 引用同一路径。
+// 修复前：本函数只排除了 githooks/ 与 settings.json，pipelines/ 随 config 全量种子落到
+// .agents/config/pipelines/ —— 与三处声明的路径约定全部不符，且编排机器门扫 0 份文件恒报绿（假绿）。
+function seedPipelines(root, report) {
+  const src = path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'pipelines');
+  if (!fs.existsSync(src)) return;
+  const dest = path.join(engineDir(root), 'pipelines');
+  for (const rel of walkFiles(src)) {
+    const posix = rel.split(path.sep).join('/');
+    const target = path.join(dest, ...posix.split('/'));
+    if (fs.existsSync(target)) { report.skipped.push(`.agents/pipelines/${posix}（已存在）`); continue; }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(src, ...rel.split(path.sep)), target);
+    report.created.push(`.agents/pipelines/${posix}`);
+  }
 }
 
 function seedGitignore(root, report) {
@@ -91,17 +116,23 @@ function seedGitignore(root, report) {
 // ENGINE_SCRIPT 用 JSON.stringify 生成字符串字面量——Windows 反斜杠路径在 JS 单引号串里是
 // 转义雷（'\U' 会吞反斜杠），JSON 字面量转义是唯一稳妥写法。LANE：两钩子均走默认 hard 车道
 //（§3.2 L-git：pre-commit / pre-push 都是 check-loop 硬门执法点；项目可改种子值换 --hygiene/--all）。
+//
+// 钩子目录解析（2026-10-27 插件化修复）：走 gitHooksDir()——core.hooksPath 已设置则以其为准
+//（那才是 git 真正执行的目录），否则取 `git rev-parse --git-path hooks`（worktree / submodule /
+// 标准仓都准）。修复前直接拼 <root>/.git/hooks：worktree 下 .git 是**文件**不是目录 → mkdir 抛
+// ENOTDIR，整个初始化崩在最后一步（已落地的种子留在半途）。
 function installHooks(root, report) {
-  const hooksDir = path.join(root, '.git', 'hooks');
-  if (!fs.existsSync(path.join(root, '.git'))) {
-    report.hooks.skipped.push('.git/ 不存在（非标准 git 仓库布局）——git hooks 未安装');
+  const hooksDir = gitHooksDir(root);
+  report.hooksDir = hooksDir;
+  if (!hooksDir) {
+    report.hooks.skipped.push('git 钩子目录解析不出（非 git 仓库或 git 不可用）——git hooks 未安装');
     return;
   }
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const name of ['pre-commit', 'pre-push']) {
     const target = path.join(hooksDir, name);
     if (fs.existsSync(target)) {
-      report.hooks.skipped.push(`.git/hooks/${name}（已存在同名钩子——不覆盖用户钩子）`);
+      report.hooks.skipped.push(`${name}（已存在同名钩子——不覆盖用户钩子）`);
       continue;
     }
     let tpl = '';
@@ -115,7 +146,7 @@ function installHooks(root, report) {
       .replace(/"@@LANE@@"/g, JSON.stringify(''));
     fs.writeFileSync(target, body, 'utf8');
     try { fs.chmodSync(target, 0o755); } catch { /* Windows 尽力而为（git 经 sh 启动钩子，不依赖执行位） */ }
-    report.hooks.installed.push(`.git/hooks/${name}（node ${engine}，hard 车道）`);
+    report.hooks.installed.push(`${name}（node ${engine}，hard 车道）→ ${target}`);
   }
 }
 
@@ -124,7 +155,7 @@ function installHooks(root, report) {
  * @returns {{created:string[], skipped:string[], warnings:string[], gitignore:string, hooks:{installed:string[], skipped:string[]}}}
  */
 export function initEngine(root) {
-  const report = { created: [], skipped: [], warnings: [], gitignore: 'unchanged', hooks: { installed: [], skipped: [] } };
+  const report = { created: [], skipped: [], warnings: [], gitignore: 'unchanged', hooksDir: null, hooks: { installed: [], skipped: [] } };
   const agents = engineDir(root);
   const wf = ledgerDir(root);
 
@@ -181,6 +212,8 @@ export function initEngine(root) {
   // ④ .gitignore 标记块 + ⑤ git hooks
   seedGitignore(root, report);
   installHooks(root, report);
+  // ⑥ 编排脚本种子 → .agents/pipelines/（落位口径单源，见 seedPipelines 注释）
+  seedPipelines(root, report);
   return report;
 }
 
@@ -191,9 +224,9 @@ export function formatReport(root, report) {
   if (report.created.length) lines.push(`新建 ${report.created.length} 项:\n  + ${report.created.join('\n  + ')}`);
   else lines.push('新建 0 项');
   if (report.skipped.length) lines.push(`跳过 ${report.skipped.length} 项:\n  = ${report.skipped.join('\n  = ')}`);
-  if (report.hooks.installed.length) lines.push(`git hooks 安装:\n  + ${report.hooks.installed.join('\n  + ')}`);
+  if (report.hooks.installed.length) lines.push(`git hooks 安装（目录 ${report.hooksDir || '(未解析)'}）:\n  + ${report.hooks.installed.join('\n  + ')}`);
   for (const s of report.hooks.skipped) lines.push(`git hooks 跳过: ${s}`);
-  lines.push('卸载说明: git hooks 落在 .git/hooks/（不入版本库）——删除 .git/hooks/pre-commit 与 .git/hooks/pre-push 即卸载；种子正文在插件 config-templates/githooks/。');
+  lines.push(`卸载说明: git hooks 落在 ${report.hooksDir || '.git/hooks/'}（不入版本库）——删除该目录下的 pre-commit 与 pre-push 即卸载；种子正文在插件 config-templates/githooks/。`);
   return lines.join('\n');
 }
 

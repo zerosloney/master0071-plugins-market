@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // agg-judgments.mjs — check-loop 判定流水月度聚合（judgment-ledger）
-// 用法：node .agents/scripts/agg-judgments.mjs [--month=YYYY-MM]
-//       node .agents/scripts/agg-judgments.mjs --retire-candidates [--months=6]
-//       node .agents/scripts/agg-judgments.mjs --emit-month[=YYYY-MM]
+// 用法：node <插件根>/scripts/agg-judgments.mjs [--month=YYYY-MM]
+//       node <插件根>/scripts/agg-judgments.mjs --retire-candidates [--months=6]
+//       node <插件根>/scripts/agg-judgments.mjs --emit-month[=YYYY-MM]
 // 源：.agents/judgments.jsonl（check-loop.mjs 每次真实运行追加一行，本地 gitignore；
 //     缺文件 = 尚无运行记录，提示后 exit 0——与 delegations 台账「必在」不同，这是渐积数据）。
 // 仓库级数据面（gate-metrics-shard 2026-10-22）：--emit-month 把某月聚合落成
@@ -15,13 +15,19 @@
 //     逐条裁决（安全主干/级别闭环主干等「不退役」行除外；「且 X 停滞」类附加条件由人判）。
 //     台账不足 N 个数据月 → 数据不充分，不产候选（年轻遥测不得制造假候选）。判定口径 = 尾部
 //     N 个「有运行的月」（非日历月——遥测断档的月不算零命中，防漏跑误判退役）。
-// 测试：node .agents/scripts/agg-judgments.test.mjs（纯函数 aggFromRows / retireCandidates 进程内断言）
+// 测试：node <插件根>/test/agg-judgments.test.mjs（纯函数 aggFromRows / retireCandidates 进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 路径收口（2026-10-27 插件化改道 paths.mjs）：项目根锚定单源。
+import { findProjectRoot } from './paths.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-27 插件化改道，与 check-query-contract / gen-effective-policy 同口径）：
+//   项目 git 根（findProjectRoot）→ 旧锚 <script>/../..（源仓形态行为不变）。
+// 修复前恒用旧锚：插件形态下 <plugin>/scripts/../.. = **插件目录的上级**（市场仓 plugins/）——
+// 台账（项目级资产）读写到别人的 .agents/ 下，退役判据喂错数据面。
+const ROOT = findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
 const LEDGER = path.join(ROOT, '.agents', 'judgments.jsonl');
 
 const argMonth = (process.argv.find((a) => a.startsWith('--month=')) || '').split('=')[1] || null;
@@ -79,16 +85,23 @@ export function shardPath(root, ym) {
 
 /** 读全部分片 → 行数组（坏行跳过；目录缺失 = 空）。 */
 export function readShards(root) {
+  return readShardsDetailed(root).rows;
+}
+
+/** 同 readShards，但带坏行计数（2026-10-27：坏行此前静默跳过，退役候选口径看不到账本破损）。
+ *  坏行仍不中断聚合（不因一行坏数据丢失整月事实），但计数必须出声——不可判定 ≠ 已放行。 */
+export function readShardsDetailed(root) {
   const dir = path.join(root, SHARD_DIR_REL);
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) return { rows: [], bad: 0 };
   const rows = [];
+  let bad = 0;
   for (const f of fs.readdirSync(dir).filter((x) => /^\d{4}-\d{2}\.jsonl$/.test(x)).sort()) {
     for (const line of fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/)) {
       if (!line.trim()) continue;
-      try { rows.push(JSON.parse(line)); } catch { /* 坏行跳过，不中断 */ }
+      try { rows.push(JSON.parse(line)); } catch { bad++; }
     }
   }
-  return rows;
+  return { rows, bad };
 }
 
 /** 按月×规则聚合（内部用；与 aggFromRows 同口径，不做 month 过滤）。 */
@@ -143,12 +156,15 @@ export function mergeJudgmentRows(localRows, shardRows) {
 export function readAllJudgments(root = ROOT) {
   const local = readRowsAt(root);
   const localRows = local ? local.rows : [];
-  const shardRows = readShards(root);
+  const localBad = local ? local.bad : 0;
+  const shard = readShardsDetailed(root);
   return {
-    rows: mergeJudgmentRows(localRows, shardRows),
+    rows: mergeJudgmentRows(localRows, shard.rows),
     localRows,
-    shardRows,
-    missing: localRows.length === 0 && shardRows.length === 0,
+    shardRows: shard.rows,
+    // 坏行计数（2026-10-27）：此前此处恒 0 → 「跳过坏行 N」提示永不出现，账本破损静默。
+    bad: localBad + shard.bad,
+    missing: localRows.length === 0 && shard.rows.length === 0,
   };
 }
 
@@ -230,7 +246,9 @@ function printRetireCandidates(read) {
   }
   console.log(`退役候选（零命中窗口 ${r.windowFrom}..${r.windowTo}，共 ${r.windowMonths} 个数据月）——仅机械筛查，裁决走 mechanism-registry「退役判据」列（「不退役」主干除外）：`);
   if (!r.candidates.length) {
-    console.log('  （无候选——尾部窗口内所有规则均有命中）');
+    // 口径诚实化（2026-10-27）：judgments 台账**只记命中行**——「全账零命中」的规则根本不在账内，
+    // 因此「无候选」只说明「账内规则在尾部窗口内都有命中」，不代表「所有规则都有命中」（设计文档 §12.5）。
+    console.log('  （无候选——尾部窗口内**账内规则**均有命中；全账零命中的规则不入账、不产候选，见设计文档 §12.5）');
   }
   for (const c of r.candidates) {
     console.log(`  候选  ${c.rule.padEnd(24)} 全历史命中 ${String(c.total).padStart(4)}  末次命中 ${c.lastHit || '—'}`);
@@ -270,7 +288,7 @@ function main() {
       console.error(`agg-judgments: ${path.relative(ROOT, LEDGER)} 与 ${SHARD_DIR_REL} 均无记录——尚无运行记录（check-loop 真实运行一次即有一行）`);
       process.exit(0);
     }
-    printRetireCandidates({ rows: all.rows, bad: 0 });
+    printRetireCandidates({ rows: all.rows, bad: all.bad });
     return;
   }
   const read = readRows();

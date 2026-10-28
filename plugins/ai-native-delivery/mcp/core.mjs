@@ -111,6 +111,21 @@ function ledgerInvariantPrecheck(root) {
   return { passed: true };
 }
 
+// 原子写（2026-10-27 修复）：同目录临时文件 + rename——直接 writeFileSync 是「先截断后写」，
+// 进程中途崩溃会留下半写台账（append 还要先读全量再整写，并发追加会互相覆盖）。
+// 口径与仓内其余写点一致：compact-ledgers / git-merge-jsonl / pipeline-run / rewrite-file。
+// 失败时原文件保持原样（tmp 清理），不吞错。
+function writeAtomic(target, text) {
+  const tmp = `${target}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text, 'utf8');
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* tmp 可能尚未创建 */ }
+    throw new ToolError(`写入失败：${target}（${err.message}）——原文件应保持原样，请核对后重试`);
+  }
+}
+
 export function toolUpdateLedger(args) {
   const root = requireRoot();
   const mode = args.mode;
@@ -131,7 +146,7 @@ export function toolUpdateLedger(args) {
       return ok({ written: false, file: relPosix, mode, reason: `文件已存在：${relPosix}——create 拒绝覆盖；要追加行请用 mode:"append"。` });
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
+    writeAtomic(target, content.endsWith('\n') ? content : `${content}\n`);
     return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
   }
   // append：追加行语义——目标缺行尾时先补换行，保证追加内容自成一行的原子性
@@ -139,7 +154,7 @@ export function toolUpdateLedger(args) {
   let prev = '';
   try { prev = fs.readFileSync(target, 'utf8'); } catch { /* 不存在则新建 */ }
   const joiner = prev === '' || prev.endsWith('\n') ? '' : '\n';
-  fs.writeFileSync(target, `${prev}${joiner}${content.endsWith('\n') ? content : `${content}\n`}`, 'utf8');
+  writeAtomic(target, `${prev}${joiner}${content.endsWith('\n') ? content : `${content}\n`}`);
   return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
 }
 
@@ -189,13 +204,29 @@ export function toolVerifyGate(args) {
     if (Number.isFinite(b.fullMs) && b.fullMs > 0) timeout = b.fullMs + 60_000;
   } catch { /* 预算表不可读：回退默认 */ }
   const r = spawnNode(script, LANES[lane], { cwd: root, timeout });
+  // 状态语义（2026-10-27 修复）：门禁有三种终态，**不得把「没跑完」与「跑过了」同形**——
+  //   passed       = exit 0（跑完且通过）
+  //   failed       = exit 非 0（跑完且有违例）
+  //   not-executed = 超时 / spawn 失败（**没跑完**——状态未知≠通过）
+  // 此前超时返回 exitCode:null + 空 stdout，调用方按「exitCode ≠ 1 即通过」解读会把
+  // 「超时未完成」当成未检出违例；spawn 异常用 -1（不在仓内 0/1/2 约定内）。现统一 exit 2 + status 字段。
   if (r.error && r.error.code === 'ETIMEDOUT') {
-    return ok({ lane, script, exitCode: null, timedOut: true, stdout: '', stderr: `check-loop 超过墙钟预算（${timeout}ms）被终止。` });
+    return ok({
+      lane, script, exitCode: 2, status: 'not-executed', timedOut: true, stdout: '',
+      stderr: `check-loop 超过墙钟预算（${timeout}ms）被终止——**门未执行完**，不得当作通过（状态未知≠通过）`,
+    });
+  }
+  if (r.error) {
+    return ok({
+      lane, script, exitCode: 2, status: 'not-executed', timedOut: false, stdout: '',
+      stderr: `check-loop 启动失败（${r.error.code || r.error.message}）——**门未执行**，不得当作通过（状态未知≠通过）`,
+    });
   }
   return ok({
     lane,
     script,
-    exitCode: r.status === null ? (r.error ? -1 : 1) : r.status, // 信号/异常归一为非 0
+    exitCode: r.status === null ? 2 : r.status,
+    status: r.status === 0 ? 'passed' : 'failed',
     timedOut: false,
     stdout: clip(r.stdout),
     stderr: clip(r.stderr),

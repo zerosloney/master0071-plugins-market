@@ -14,9 +14,9 @@
 // 归档形态：git mv → workflow/archive/<家族最晚终态月>/{类型}/（kit-engine 先例同款；check-loop docFiles
 // 与配对门只扫四目录直下；kb-search 已扩 archive/<批次>/<type> 覆盖——同日返工中补齐）
 // 用法：
-// node .agents/scripts/archive-sweep.mjs # dry-run（缺省），--window 21
-// node .agents/scripts/archive-sweep.mjs --window 21 --execute # git mv 执行
-// 验证：node .agents/scripts/archive-sweep.test.mjs
+// node <插件根>/scripts/archive-sweep.mjs # dry-run（缺省），--window 21
+// node <插件根>/scripts/archive-sweep.mjs --window 21 --execute # git mv 执行
+// 验证：node <插件根>/test/archive-sweep.test.mjs
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +25,21 @@ import { loadAllConfirmations } from './ledger-loader.mjs';
 const DIRS = ['intents', 'specs', 'plans', 'incidents'];
 export const TERMINAL = new Set(['done', 'superseded', 'cancelled', 'closed']);
 export const ACTIVE = new Set(['draft', 'approved', 'open', 'fixed']);
+
+// isRealDate(s)：日历有效日期 YYYY-MM-DD（2026-02-30 / 2026-13-01 一律判无效）。
+// 2026-10-27 路径逃逸修复：终态时间会派生归档目录名（workflow/archive/<月>/），
+// 台账 ts 是外部可写数据——不校验时 `ts=../../../../evil` 会把归档目录甩出 workflow/ 树
+// （实测 month 派生成 `../../.` → 归档落 C:\proj\specs）。
+export function isRealDate(s) {
+  const t = String(s ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(`${t}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === t;
+}
+
+// MONTH_RE：归档月目录名格式（由合法日期派生，故月份 01-12 恒成立）。
+export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export function parseStatus(text) {
  const lines = text.split(/\r?\n/);
@@ -69,8 +84,21 @@ export function analyze({ docs, ledgerTs = {}, lastTouch = {}, activeTexts = [],
   for (const [, members] of fams) {
     const enriched = members.map((d) => {
       const st = parseStatus(d.text);
-      const tTime = ledgerTs[d.rel] || lastTouch[d.rel] || /^(\d{4}-\d{2}-\d{2})/.exec(d.file)?.[1] || '';
-      const src = ledgerTs[d.rel] ? 'ledger' : lastTouch[d.rel] ? 'git' : 'name';
+      // 终态时间三级锚（ts → 内容 last-touch → 文件名日期）**逐级取第一个日历有效值**：
+      // 台账 ts 是外部可写数据，坏值（如 `../../../../evil`）不校验会直接派生归档目录名
+      // （实测 month 派生成 `../../.` → 归档落 C:\proj\specs，甩出 workflow/ 树）。
+      // 坏值视同该锚不可用 → 落到下一锚；三锚皆无有效值 → 无日期（该家族不进入归档候选，
+      // 不可判定 ≠ 可归档）。
+      const cand = [
+        [ledgerTs[d.rel], 'ledger'],
+        [lastTouch[d.rel], 'git'],
+        [/^(\d{4}-\d{2}-\d{2})/.exec(d.file)?.[1], 'name'],
+      ];
+      let tTime = '';
+      let src = 'invalid';
+      for (const [v, s] of cand) {
+        if (isRealDate(v)) { tTime = v; src = s; break; }
+      }
       return { ...d, st, tTime, src };
     });
     const allTerminal = enriched.every((x) => TERMINAL.has(x.st));
@@ -116,7 +144,9 @@ export function loadLedgerTs(root) {
   for (const e of loadAllConfirmations(root)) {
     if (TERMINAL.has(e.stage) && e.doc) {
       const d = (e.ts || '').slice(0, 10);
-      if (d && (!out[e.doc] || d > out[e.doc])) out[e.doc] = d;
+      // ts 是外部可写数据：只收日历有效日期（坏值不落库——派生归档目录名的唯一入口在这里）
+      if (!isRealDate(d)) continue;
+      if (!out[e.doc] || d > out[e.doc]) out[e.doc] = d;
     }
   }
   return out;
@@ -217,10 +247,24 @@ function main() {
     return;
   }
   let moved = 0;
+  const archiveRoot = path.join(root, 'workflow', 'archive');
   for (const x of r.candidates) {
-    const destDir = path.join(root, 'workflow', 'archive', x.month, x.dir);
+    // 归档目标双保险（2026-10-27 路径逃逸修复）：月名由台账 ts 派生 → ①格式校验 ②解析后须落在
+    // workflow/archive/ 内（`..` 逃逸一律拒并出声，不静默跳过）。
+    if (!MONTH_RE.test(x.month)) {
+      console.error(`[拒] ${x.rel}：归档月非法「${x.month}」——跳过（不写入 workflow/archive/）`);
+      continue;
+    }
+    const destDir = path.join(archiveRoot, x.month, x.dir);
+    const rel = path.relative(archiveRoot, destDir);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      console.error(`[拒] ${x.rel}：归档目标逃出 workflow/archive/（${destDir}）——跳过`);
+      continue;
+    }
     fs.mkdirSync(destDir, { recursive: true });
-    execFileSync('git', ['mv', x.rel, path.join('workflow', 'archive', x.month, x.dir, x.file)], { cwd: root });
+    // git 路径用正斜杠（跨平台一致；path.join 在 Windows 产反斜杠，git 参数不认）
+    const destRel = ['workflow', 'archive', x.month, x.dir, x.file].join('/');
+    execFileSync('git', ['mv', x.rel, destRel], { cwd: root });
     moved++;
   }
   console.log(`execute 完成：git mv ${moved} 篇 → workflow/archive/<家族最晚终态月>/`);

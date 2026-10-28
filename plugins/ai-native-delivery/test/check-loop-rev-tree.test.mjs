@@ -23,6 +23,9 @@ try {
   fs.copyFileSync(path.join(SCRIPTS, 'gen-workflow-index.mjs'), path.join(tree, '.agents', 'scripts', 'gen-workflow-index.mjs'));
   fs.copyFileSync(path.join(SCRIPTS, 'workflow-enums.mjs'), path.join(tree, '.agents', 'scripts', 'workflow-enums.mjs'));
   fs.copyFileSync(path.join(SCRIPTS, 'rule-budget.mjs'), path.join(tree, '.agents', 'scripts', 'rule-budget.mjs'));
+  // rule-budget.mjs import paths.mjs（→git-core.mjs）——依赖链一并拷入，否则门内执行失败（预算判定假红）
+  fs.copyFileSync(path.join(SCRIPTS, 'paths.mjs'), path.join(tree, '.agents', 'scripts', 'paths.mjs'));
+  fs.copyFileSync(path.join(SCRIPTS, 'git-core.mjs'), path.join(tree, '.agents', 'scripts', 'git-core.mjs'));
   fs.writeFileSync(path.join(tree, '.agents', 'config', 'rule-budgets.txt'), 'big.txt 10\n');
   fs.writeFileSync(path.join(tree, 'big.txt'), 'ok\n');
   for (const sub of ['intents', 'specs', 'plans', 'incidents']) {

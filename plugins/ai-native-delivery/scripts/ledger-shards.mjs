@@ -22,9 +22,9 @@
 //   import { readLedger, shardPathFor, appendRows } from './ledger-shards.mjs';
 //   const { main, shards, all } = readLedger(root, 'delegations');
 // 用法（CLI，迁移/巡检）：
-//   node .agents/scripts/ledger-shards.mjs --check          # 巡检：主台账残留数据行 / 分片可读性
-//   node .agents/scripts/ledger-shards.mjs --split <ledger> # 把主台账数据行按月迁入分片（幂等）
-// 测试：node .agents/scripts/ledger-shards.test.mjs
+//   node <插件根>/scripts/ledger-shards.mjs --check          # 巡检：主台账残留数据行 / 分片可读性
+//   node <插件根>/scripts/ledger-shards.mjs --split <ledger> # 把主台账数据行按月迁入分片（幂等）
+// 测试：node <插件根>/test/ledger-shards.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -99,8 +99,20 @@ export function shardDir(root, name) {
   return path.join(root, 'workflow', `${name}.d`);
 }
 
+// 月键格式单源（2026-10-27 路径逃逸修复）：分片文件名 = <月键>.md，月键直接进 path.join——
+// 不校验时 `--month ../../../../evil` 会把写入甩出 workflow/ 树（实测可写到仓外 C:\evil.md）。
+// 判据取严格 YYYY-MM 且月份在 01-12 内（`2026-13` 形态虽不逃逸，但会造出无意义目录）。
+export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+export function assertMonth(month) {
+  const m = String(month ?? '');
+  if (!MONTH_RE.test(m)) {
+    throw new Error(`分片月键非法：「${m}」——须为 YYYY-MM（月份 01-12）。拒绝写入：月键直接进路径拼接，不校验可写出 workflow/ 树外。`);
+  }
+  return m;
+}
+
 export function shardPathFor(root, name, month) {
-  return path.join(shardDir(root, name), `${month}.md`);
+  return path.join(shardDir(root, name), `${assertMonth(month)}.md`);
 }
 
 // monthOf(line)：从数据行提取分片月（YYYY-MM）。表格式取首列日期；清单式无日期 → 返回 ''（调用方兜底）。
@@ -193,6 +205,9 @@ export function splitMain(root, name, { dryRun = false } = {}) {
     if (!inScope(name, section) || !isDataRow(name, line)) { kept.push(line); continue; }
     const month = monthOf(name, line);
     if (!month) { kept.push(line); continue; } // 无日期行不迁
+    // 月键非法（如 2026-13）→ 不迁，留在主台账等人工修（--check 会把残留行报出来）。
+    // 不静默丢弃，也不因一行坏日期中止整批迁移。
+    if (!MONTH_RE.test(month)) { kept.push(line); continue; }
     if (!byMonth.has(month)) byMonth.set(month, []);
     byMonth.get(month).push({ line, section }); // 带节信息（多表台账按节归属表）
   }
@@ -262,10 +277,12 @@ function insertIntoSection(text, section, lines) {
 export function appendRows(root, name, rows, { month, section = '' } = {}) {
   const written = [];
   const byMonth = new Map();
+  // 显式 month 先校验（调用方可传任意串 → 路径逃逸面）；未传则由行内日期推导（月键天然合规）
+  const forced = month === undefined || month === null || month === '' ? null : assertMonth(month);
   for (const row of rows) {
     const line = typeof row === 'string' ? row : row.line;
     const sec = typeof row === 'string' ? section : (row.section ?? section);
-    const m = month || monthOf(name, line);
+    const m = forced || monthOf(name, line);
     if (!m) throw new Error(`appendRows: 无法确定分片月（行无日期且未传 month）: ${String(line).slice(0, 80)}`);
     if (!byMonth.has(m)) byMonth.set(m, []);
     byMonth.get(m).push({ line, section: sec });
@@ -338,14 +355,28 @@ function main() {
     if (!row) { console.error('--append 须带 --row "<数据行>"'); process.exit(2); }
     const mIdx = argv.indexOf('--month');
     const month = mIdx >= 0 ? argv[mIdx + 1] : undefined;
+    // --month 先校验再落盘（2026-10-27 路径逃逸修复）：月键直接进分片路径拼接，
+    // 不校验时 `--month ../../../../evil` 会把台账写到 workflow/ 树外（仓外 C:\evil.md）。
+    if (month !== undefined) {
+      if (!MONTH_RE.test(month)) {
+        console.error(`--month 须为 YYYY-MM（月份 01-12），现「${month}」——拒绝写入（防路径逃逸）`);
+        process.exit(2);
+      }
+    }
     const sIdx = argv.indexOf('--section');
     const section = sIdx >= 0 ? argv[sIdx + 1] : '';
     if (sIdx >= 0 && !section) { console.error('--section 须带节标题（如 委派结果）'); process.exit(2); }
-    const written = appendRows(root, name, [row], { month, section });
+    let written;
+    try {
+      written = appendRows(root, name, [row], { month, section });
+    } catch (err) {
+      console.error(`追加失败：${err.message}`);
+      process.exit(1);
+    }
     console.log(`✓ 追加 1 行 → ${written.map((p) => path.relative(root, p).split(path.sep).join('/')).join(', ')}`);
     return;
   }
-  console.error('用法：node .agents/scripts/ledger-shards.mjs --check | --split <ledger> [--dry-run] | --append <ledger> --row "<行>" [--month YYYY-MM] [--section <节标题>]');
+  console.error('用法：node <插件根>/scripts/ledger-shards.mjs --check | --split <ledger> [--dry-run] | --append <ledger> --row "<行>" [--month YYYY-MM] [--section <节标题>]');
   process.exit(2);
 }
 

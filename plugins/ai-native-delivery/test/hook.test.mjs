@@ -104,5 +104,38 @@ const mkRepo = () => {
   check('shell 工具缺 command 字段 → fail-closed 转 ask', decisionOf(r3)?.permissionDecision === 'ask', r3.stdout);
 }
 
+// ---- ⑥ deny 键缺失 = 损坏（2026-10-27 插件化修复）----
+// 此前只要 permissions 是对象就采信其清单：deny 键缺失 → deny 面为空数组，且「文件在场且合法」
+// 使内置兜底不触发——**静默降级、零告警**。现在 deny 键缺失即视为损坏：按既有契约 fail-open
+// 放行 + stderr WARN（至少从「静默失效」变为「可见失效」；配置问题绝不卡死用户的既有语义不变）。
+{
+  const repo = mkRepo();
+  fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.agents', 'settings.json'), JSON.stringify({
+    permissions: { ask: ['rm -rf'] }, // 无 deny 键
+  }), 'utf8');
+  const r = run({ tool_name: 'Bash', tool_input: { command: 'git push -f origin main' } }, repo);
+  check('deny 键缺失 → stderr WARN（判损坏，不再静默失效）', /settings\.json 损坏/.test(r.stderr || ''), r.stderr);
+  check('deny 键缺失 → exit 0（fail-open，不卡死用户）', r.status === 0 && r.stdout.trim() === '',
+    `exit=${r.status} stdout=${r.stdout}`);
+  fs.rmSync(repo, { recursive: true, force: true });
+}
+
+// ---- ⑦ 坏 JSON 输入 → fail-closed 转 ask（2026-10-27 插件化修复）----
+// 此前坏 JSON 被 catch 成 {} → tool_name='' → 判为非 shell 工具 → 静默放行（与截断转 ask 方向相反）。
+{
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: '{not valid json',
+    encoding: 'utf8',
+    cwd: process.cwd(),
+    env: { ...process.env },
+  });
+  const d = decisionOf(r);
+  check('坏 JSON 输入 → exit 0（宿主协议）', r.status === 0, `exit=${r.status} stderr=${r.stderr}`);
+  check('坏 JSON 输入 → fail-closed 转 ask（非静默放行）', d && d.permissionDecision === 'ask', r.stdout);
+  check('坏 JSON 输入 → 理由点明「不是合法 JSON」', d && /不是合法 JSON/.test(d.permissionDecisionReason || ''),
+    d && d.permissionDecisionReason);
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // 跨端查询契约对账门禁（2026-09-21，incident 2026-09-21-validation-contract-gate-scope；
 // intent 2026-09-18-query-contract-gate 预留的第二次升级授权落地）
-// 用法：node .agents/scripts/check-query-contract.mjs [--help]
+// 用法：node <插件根>/scripts/check-query-contract.mjs [--help]
 // 口径：frontend/src/api/*.ts 中每个 interface *Query* 的**直接字段声明**，
 //   与后端 class *QueryDto 的属性名做 camelCase↔PascalCase 归一后比对，
 //   报出「前端有、后端无」的字段。page/pageSize 由共享契约基类 PagedQueryDto 提供，视为合法。
 // 违例一次性列出 → exit 1；全通过 → exit 0。
-// 测试：node .agents/scripts/check-query-contract.test.mjs（解析器与对账函数可注入目录/映射）
+// 测试：node <插件根>/test/check-query-contract.test.mjs（解析器与对账函数可注入目录/映射）
 //
 // ⚠️ 启发式覆盖边界（有意简化，不得假装全量）：
 //   1. 只解析 TS 的 `interface *Query*` **直接字段声明**（`name?: type` 形态），
@@ -186,7 +186,7 @@ export function compareContracts(frontend, backendDtos, options = {}) {
 
 function main() {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log('用法：node .agents/scripts/check-query-contract.mjs [--help]（见脚本头部口径与覆盖边界）');
+    console.log('用法：node <插件根>/scripts/check-query-contract.mjs [--help]（见脚本头部口径与覆盖边界）');
     process.exit(0);
   }
 

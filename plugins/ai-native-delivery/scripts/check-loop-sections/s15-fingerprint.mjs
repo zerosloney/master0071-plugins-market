@@ -64,7 +64,7 @@ export function run() {
       const ok = !!fp && docEntries.some((e) => e.stage === st
         && typeof e.fingerprint === 'string' && e.fingerprint.startsWith(fp));
       if (!ok) {
-        blockers.push(`- [确认未对账] ${base} 状态 ${st} 无用户确认记录——AI 不得代确认，用户在终端跑 node .agents/scripts/confirm-doc.mjs ${rel} 后重试`);
+        blockers.push(`- [确认未对账] ${base} 状态 ${st} 无用户确认记录——AI 不得代确认，用户在终端跑 node <插件根>/scripts/confirm-doc.mjs ${rel} 后重试`);
       }
       // 内容绑定（audit-gate-hardening；生效锚 gate-hardening-p2-batch 自文档自报日期
       // 改为台账 done 行 ts）：done 文档当前内容须与台账 done 行确认时的内容一致——按 prev 复原跳转前文本
@@ -79,7 +79,12 @@ export function run() {
         const entry = doneEntries[doneEntries.length - 1]; // append-only 台账，末次生效（重确认场景）
         if (!entry || !entry.prev) {
           warnings.push(`- [WARN 绑定降级] ${base} 台账 stage=${st} 行缺 prev 字段（schema 演进前行），内容绑定跳过——仅配对判定`);
-        } else if (!(typeof entry.ts === 'string' && entry.ts >= kitPolicy.bindingTs)) {
+        } else if (typeof entry.ts !== 'string') {
+          // ts 缺失 / 非字符串 = **不可判定**（≠「早于生效锚」）——2026-10-27 修复：此前与
+          // 「ts 早于锚点」共用同一分支一并豁免，台账行缺 ts（手写 / 被改 / 旧 schema）时
+          // 「确认后篡改正文」这一 hard 门静默不触发。现单列为 WARN（不可判定 ≠ 已放行）。
+          warnings.push(`- [WARN 绑定不可判定] ${base} 台账 stage=${st} 行 ts 字段缺失或非字符串，无法判定是否在生效锚（${kitPolicy.bindingTs}）之后——内容绑定跳过（仅配对判定），须人工核对`);
+        } else if (entry.ts < kitPolicy.bindingTs) {
           // 该 done 确认发生在生效锚前（旧关单顺序时代）——豁免内容绑定，配对判定照常
         } else if (bindingSha256(linesOf(doc) || [], entry.prev) !== entry.fingerprint) {
           blockers.push(`- [确认内容漂移] ${base} ${st} 后内容与确认台账不符——已关单文档不得直接改（关单编辑先于关单确认）；确需修订走 superseded 或新 intent 引用`);
@@ -100,7 +105,7 @@ export function run() {
         if (lastAppr) {
           const nowCommit = commitmentFingerprint(linesOf(doc) || []);
           if (nowCommit !== lastAppr.commit) {
-            blockers.push(`- [承诺面漂移] ${base} approved 后承诺面被改写（${lastAppr.commit} → ${nowCommit}）——用户点头的不是现在这一份；请用户重新点头后跑 node .agents/scripts/confirm-doc.mjs ${rel} --reconfirm --delegated "<原话>" 重录承诺面指纹（仅勾验收/补证据/复核行改动不应触发本门——若触发请登记 papercut）`);
+            blockers.push(`- [承诺面漂移] ${base} approved 后承诺面被改写（${lastAppr.commit} → ${nowCommit}）——用户点头的不是现在这一份；请用户重新点头后跑 node <插件根>/scripts/confirm-doc.mjs ${rel} --reconfirm --delegated "<原话>" 重录承诺面指纹（仅勾验收/补证据/复核行改动不应触发本门——若触发请登记 papercut）`);
           }
         }
       }

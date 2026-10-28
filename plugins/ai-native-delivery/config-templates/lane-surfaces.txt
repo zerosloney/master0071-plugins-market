@@ -10,14 +10,14 @@
 #             CI diff 面按「diff 内协伴 L2+ 入口文档（状态不限）」判据执法。
 #   标记行出现前的 ERE 默认 engine（向后兼容）。
 # 语义：命中任一模式 = 本次改动触及「一处定义、多处消费」的契约 / 规则面（L2 触达面，
-#   判据见 .agents/commands/new-task.md §级别判断）。
+#   判据见 <插件根>/commands/new-task.md §级别判断）。
 #   engine：活跃 high（含 fixed incident）即放行；全为 L1 则「触达面判低」；无活跃入口 advisory。
 #   product：不因「有一条活跃 L2」放行全部命中。fixed incident 不罩产品面。
 # 产品面登记口径（2026-10-09 ai-native-review-p1，按可路径表达的保守闭集——内容级权威（取号/编码
 #   逻辑内嵌于服务）不可路径表达，仍靠级别判定纪律）：backend/shared 全模块（跨模块共享内核：
 #   契约/分页/错误出口/认证服务，49 文件）+ API 横切根（DI 管线/错误出口/JSON 序列化权威）+
 #   schema 变更与数据修复 SQL（L3 判据直配；此前 2026-09-28 曾实证「4 个 L3 schema 批次无 spec/plan」）。
-# 闭集防漂移（2026-10-09 P3-2）：月度跑 node .agents/scripts/lane-surface-audit.mjs——反查「L2/L3 任务
+# 闭集防漂移（2026-10-09 P3-2）：月度跑 node <插件根>/scripts/check-lane-surface.mjs——反查「L2/L3 任务
 #   反复触及却无 ERE 命中的目录」出候选清单，人工评估补登（高频触及 ≠ 契约面，机器不猜语义）。
 ## engine
 ^templates/

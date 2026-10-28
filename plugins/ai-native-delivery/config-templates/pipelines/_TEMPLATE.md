@@ -2,6 +2,8 @@
 
 > **种子定位（2026-10-27 插件化迁移）**：本目录是插件内**首次初始化的种子**（`config-templates/pipelines/`）——正式落位在**项目侧 `.agents/pipelines/`，由初始化从此种子复制**；下文与各编排脚本的 `.agents/pipelines/`、`.agents/roles/` 等路径均按项目侧落位口径书写。
 
+> **命令口径**：`<插件根>` 指 ai-native-delivery 插件的安装根（宿主按插件清单解析）——治理脚本随插件分发，项目侧只落数据（`.agents/` 运行时 + `workflow/` 台账），故脚本路径一律写 `<插件根>/scripts/<名>.mjs`，**不写项目侧脚本目录（插件形态下该目录不存在）**（该路径在插件形态下不存在）。
+
 > kit 的跨宿主编排机制：`.agents/pipelines/` 下的编排脚本承载编排语义（依赖分层 / 并行 / 重试 / gate / 用户确认门 / run journal），**宿主 AI 经 AGENTS.md 常驻指令自动加载并按语义执行**——有子智能体的宿主并行 fan-out，没有的顺序自做，验收不变。零宿主协议适配：机制只依赖所有宿主共有的四样本领（读 AGENTS.md、读仓库文件、跑终端命令、子智能体）。
 
 ## 自动加载（AGENTS.md 常驻指令）
@@ -39,14 +41,12 @@ concurrency: 2
 
 **编排语义**（执行口径，全宿主同一）：`after` 空 = 第 0 层；一层全 ok 才派依赖它的下一层；层内按 `concurrency` 分批——有子智能体的宿主并行 fan-out，没有的顺序自做（验收标准不变）；失败且 `retries` > 0 → 重派（全新上下文）；重试超限 / gate 非零 / human 驳回 → 中止后续、汇总报告失败项。human 行无重试语义（retries 视作 0）。
 
-**run journal**（断点续跑与重试计量）：每个 stage 每次尝试出结果（pass / fail / blocked）即记一行；中止后重跑先看 status——已 pass 的 stage 不重跑，从就绪层续：
+**run journal**（断点续跑与重试计量）：每个 stage 每次尝试出结果（pass / fail / blocked）即记一行；中止后重跑先看 status——已 pass 的 stage 不重跑，从就绪层续。
 
-```bash
-node .agents/scripts/wf-journal.mjs add --wf <编排名> --stage <id> --status pass --form human   # fail/blocked 同式；--form ∈ role|step|gate|human
-node .agents/scripts/wf-journal.mjs status --wf <编排名>                                        # 已完成 / 就绪（含重试就绪×N）/ 待定
-```
-
-journal 落 `.agents/cache/orchestration-runs.jsonl`（本地运行态，可丢弃；同 run 同 stage 多行按末次生效，attempt 自动计次；`--new-run` 新起一轮）。
+- journal 落 `.agents/cache/orchestration-runs.jsonl`（本地运行态，可丢弃；同 run 同 stage 多行按末次生效，attempt 自动计次）。
+- 记账由**执行者（宿主 AI）直接追加 JSONL 行**（一行一个 JSON 对象，无表头）：`run` / `wf` / `stage` / `status`（pass|fail|blocked）/ `form`（role|step|gate|human）/ `attempt` / `ts`。
+- 续跑时读该文件：某 stage 最新一行为 `pass` 即视为已完成（不重跑），据此从就绪层续。
+- journal 是**自报态，非验证态**（见下方纪律条）——编排层无运行时派发器强制（源项目的 wf-run 已废），记账纪律由执行者保证。
 
 ## steps 扩展点（`.agents/pipelines/steps/<名>.md`）
 
@@ -71,7 +71,7 @@ params: env（目标环境）；timeout-min（可选，默认 10）
 - **声明随 plan 确认后方可执行**：编排脚本是 plan 任务拆解的执行器，随 plan 草稿一并全文过目。
 - 子智能体不跨确认门、不 commit / push（派单红线行：只改授权文件；缺输入或需偏离 → `BLOCKER:` 停下）。确认门一律用 human 形态行表达，不得派子智能体代行。
 - 收敛复核：派单返回后核对 diff 与授权文件范围（与 build.md 委派约定同口径）；BLOCKER 停住待处置。
-- **run journal 三条**：① 每个 stage 每次尝试出结果即 `wf-journal.mjs add` 记一行（含重试与 human 门结论）；② 中止后重跑先 `status`——已 pass 不重跑，从就绪层续；③ 收尾可把本 run 的 status 汇总粘 `workflow/delegations.md` 留痕（聚合脚本不读 journal）。
+- **run journal 三条**：① 每个 stage 每次尝试出结果即向 `.agents/cache/orchestration-runs.jsonl` 追加一行（含重试与 human 门结论）；② 中止后重跑先读 journal——已 pass 不重跑，从就绪层续；③ 收尾可把本 run 的 status 汇总粘 `workflow/delegations.md` 留痕（聚合脚本不读 journal）。
 - **journal 是自报态，非验证态**：run journal 由执行者（宿主 AI）自己记——concurrency / retry / 断点续跑语义的保证取决于记账纪律，编排层无运行时派发器强制（wf-run 已废，执行按本机制文档语义）；中止续跑时对「已 pass」结论保留人工核对权（audit-gate-hardening 边界声明）。
 - 留痕：每个派单 / step stage 完成后向 `workflow/delegations.md` 委派结果表追加一行（`一次通过` / `返工×N` / `返工待修`，口径与 agg-delegations.mjs 对齐）。
-- 解析校验先行（机器门）：`node .agents/scripts/workflows-check.mjs`——role ∈ `.agents/roles/`、step ∈ `steps/`、after 引用存在且无环、四形态恰填一项、retries/concurrency 数值合法；任一不过即拒，不执行。
+- 解析校验先行（机器门）：`node <插件根>/scripts/workflows-check.mjs`——role ∈ `.agents/roles/`、step ∈ `steps/`、after 引用存在且无环、四形态恰填一项、retries/concurrency 数值合法；任一不过即拒，不执行。

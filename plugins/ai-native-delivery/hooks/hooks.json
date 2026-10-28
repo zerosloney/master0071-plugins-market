@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs\"",
             "timeout": 15
           }
         ]

@@ -7,8 +7,8 @@
 // 预算：.agents/config/pr-budget.json（maxFiles 20 / maxLines 800）；env PR_MAX_FILES / PR_MAX_LINES 覆盖。
 // 覆盖：PR_SIZE_OK=1 → exit 0（须在 PR body 的 Tradeoffs 写理由）。
 // 退出：0 通过/覆盖；1 超限；2 用法/基线错误。
-// 用法：node .agents/scripts/check-pr-size.mjs [--base <ref>] [--head <ref>] [--json]
-// 测试：node .agents/scripts/check-pr-size.test.mjs（临时 git 仓，不触真实分支）
+// 用法：node <插件根>/scripts/check-pr-size.mjs [--base <ref>] [--head <ref>] [--json]
+// 测试：node <插件根>/test/check-pr-size.test.mjs（临时 git 仓，不触真实分支）
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

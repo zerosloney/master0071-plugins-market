@@ -16,9 +16,9 @@
 // 落点：
 //   - check-loop 新段 s27（hygiene）—— 提交时可见
 //   - confirm-doc.mjs 关单（docs→done / incidents→closed）前置 —— 关单时拦，防残留进归档
-// 用法：node .agents/scripts/check-regression-consistency.mjs [--root <仓库根>]
+// 用法：node <插件根>/scripts/check-regression-consistency.mjs [--root <仓库根>]
 //   exit 0 = 无悬空引用；exit 1 = 存在悬空测试类/文档引用；tmp 缺失只警告不拦。
-// 测试：node .agents/scripts/check-regression-consistency.test.mjs（扫描器纯函数逐项）
+// 测试：node <插件根>/test/check-regression-consistency.test.mjs（扫描器纯函数逐项）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -215,7 +215,7 @@ if (isMain) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--root') root = path.resolve(argv[++i]);
     else if (argv[i] === '--help' || argv[i] === '-h') {
-      console.log('用法：node .agents/scripts/check-regression-consistency.mjs [--root <仓库根>]');
+      console.log('用法：node <插件根>/scripts/check-regression-consistency.mjs [--root <仓库根>]');
       process.exit(0);
     }
   }

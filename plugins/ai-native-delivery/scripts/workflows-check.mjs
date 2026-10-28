@@ -25,10 +25,10 @@
 //       机制文档不按可执行件校验）；steps/ 子目录（是扩展点注册表，非编排脚本）。
 // 表解析：取首个表头含 id+after+gate 的表格，列名归一（task / params → task、files（授权）→ files），
 //        到首个非 `|` 行截止；仅此一张表——编排脚本按机制文档只允许一张 stages 表。
-// 用法：node .agents/scripts/workflows-check.mjs [--root <目标根>] [--json]
+// 用法：node <插件根>/scripts/workflows-check.mjs [--root <目标根>] [--json]
 // 默认根 = process.cwd()（仓库根直跑即自扫）
 // 零依赖；只报告不修复（B-b 决策口径，同 check-loop 的 advisory 面）
-// 测试：node .agents/scripts/workflows-check.test.mjs（fixture + 真实仓库 baseline）
+// 测试：node <插件根>/test/workflows-check.test.mjs（fixture + 真实仓库 baseline）
 import fs from 'node:fs';
 import path from 'node:path';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：角色契约随插件分发，词表并集见 lintWorkflows。

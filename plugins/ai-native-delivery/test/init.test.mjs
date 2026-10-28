@@ -69,9 +69,11 @@ const snapDiff = (a, b) => {
   check('首跑建 workflow 八子目录与 INDEX', r1.created.includes('workflow/INDEX.md') && r1.created.includes('workflow/archive/'));
   check('首跑安装两个 git hooks', r1.hooks.installed.length === 2, JSON.stringify(r1.hooks));
   check('首跑 .gitignore 标记块写入', r1.gitignore === 'created' && fs.readFileSync(path.join(root, '.gitignore'), 'utf8').includes(GITIGNORE_BEGIN));
-  // 钩子已实化：占位符不存在，ENGINE_SCRIPT 是可解析的绝对路径
+  // 钩子已实化：**带引号的可执行占位符**已被替换为可解析的绝对路径。
+  // 注意：种子头注的散文里合法提到 @@ENGINE_SCRIPT@@（说明占位符语义），故断言只查带引号的可执行形式。
   const hookBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), 'utf8');
-  check('钩子占位符已被实化', !hookBody.includes('@@ENGINE_SCRIPT@@') && /const ENGINE_SCRIPT = ".+check-loop\.mjs";/.test(hookBody), hookBody.split('\n').find((l) => l.includes('ENGINE_SCRIPT =')));
+  check('钩子占位符已被实化', !/const ENGINE_SCRIPT = "@@ENGINE_SCRIPT@@"/.test(hookBody)
+    && /const ENGINE_SCRIPT = ".+check-loop\.mjs";/.test(hookBody), hookBody.split('\n').find((l) => l.includes('ENGINE_SCRIPT =')));
 
   const snap1 = snapshot(root);
   const r2 = initEngine(root);
@@ -144,3 +146,50 @@ const snapDiff = (a, b) => {
   check('CLI 输出含卸载说明', /卸载说明/.test(b.stdout));
   fs.rmSync(root, { recursive: true, force: true });
 }
+
+// ---- ⑥ 编排脚本种子落位（2026-10-27 插件化修复）：落 .agents/pipelines/，不落 .agents/config/pipelines/ ----
+// 落位口径单源：_TEMPLATE.md 头注 + workflows-check.mjs 扫描面 + autonomous-run skill 三处同源；
+// 修复前落 .agents/config/pipelines/，导致编排机器门扫 0 份文件恒报绿（假绿）。
+{
+  const root = mkRepo();
+  const r = initEngine(root);
+  check('⑥ 编排种子落 .agents/pipelines/', fs.existsSync(path.join(root, '.agents', 'pipelines', '_TEMPLATE.md'))
+    && fs.existsSync(path.join(root, '.agents', 'pipelines', 'pipeline-closing.md')),
+    JSON.stringify(r.created.filter((c) => c.includes('pipelines'))));
+  check('⑥ 编排种子不在 .agents/config/pipelines/', !fs.existsSync(path.join(root, '.agents', 'config', 'pipelines')));
+  check('⑥ 编排机器门扫得到编排脚本（不再 0 份恒绿）', (() => {
+    const r2 = spawnSync(process.execPath, [path.join(TEST_DIR, '..', 'scripts', 'workflows-check.mjs'), '--root', root], { encoding: 'utf8' });
+    return r2.status === 0 && /编排脚本 [1-9]/.test(r2.stdout || '');
+  })());
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑦ worktree 内初始化不崩（2026-10-27 插件化修复）----
+// worktree 下 .git 是**文件**不是目录：修复前直接拼 <root>/.git/hooks → mkdir 抛 ENOTDIR，整个初始化崩在最后一步。
+{
+  const main = mkRepo();
+  spawnSync(GIT, ['config', 'user.email', 't@t'], { cwd: main });
+  spawnSync(GIT, ['config', 'user.name', 't'], { cwd: main });
+  spawnSync(GIT, ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: main });
+  const wt = path.join(path.dirname(main), `init-engine-wt-${path.basename(main)}`);
+  const add = spawnSync(GIT, ['worktree', 'add', '-q', wt, '-b', 'feat'], { cwd: main, encoding: 'utf8' });
+  if (add.status !== 0) {
+    check('⑦ worktree 夹具创建（跳过：环境不支持）', true, add.stderr);
+  } else {
+    check('⑦ worktree 内 .git 是文件', !fs.statSync(path.join(wt, '.git')).isDirectory());
+    const r = spawnSync(process.execPath, [INIT, '--root', wt], { encoding: 'utf8' });
+    check('⑦ worktree 内 init exit 0（不 ENOTDIR 崩）', r.status === 0, `exit=${r.status} ${r.stderr}`);
+    check('⑦ worktree 内种子落位完整', fs.existsSync(path.join(wt, '.agents', 'config', 'engine.json'))
+      && fs.existsSync(path.join(wt, '.agents', 'pipelines', '_TEMPLATE.md')));
+    // 钩子应落在 git 公共钩子目录（worktree 与主仓共享），而非 worktree/.git/hooks（不存在）
+    const hooksPath = spawnSync(GIT, ['rev-parse', '--git-path', 'hooks'], { cwd: wt, encoding: 'utf8' }).stdout.trim();
+    const absHooks = path.isAbsolute(hooksPath) ? hooksPath : path.resolve(wt, hooksPath);
+    check('⑦ 钩子落 git 公共钩子目录', fs.existsSync(path.join(absHooks, 'pre-commit')), `hooks=${absHooks}`);
+    spawnSync(GIT, ['worktree', 'remove', '--force', wt], { cwd: main });
+  }
+  fs.rmSync(main, { recursive: true, force: true });
+}
+
+// 汇总 + 退出码（2026-10-27 修复：本文件此前无汇总、无 process.exit——断言全挂也返回 0，CI 永不红）
+console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
+process.exit(fail ? 1 : 0);

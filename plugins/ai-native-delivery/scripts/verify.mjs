@@ -19,8 +19,8 @@
 //         clone 传播的静默失效面从「靠人记得跑 check-local-gates」升格为每次关单自动对质）。
 //         2026-10-27 插件化迁移：wiki-consistency 门加 optional 标记——该门脚本为项目自带件（wiki 内容
 //         源项目专有不随插件分发），缺失降级 SKIP（项目适配点，门表计数/序不变），在场照常执法。
-// 用法：node .agents/scripts/verify.mjs [--full | --scope] [--list] [--jobs N | --serial]
-//       node .agents/scripts/verify.mjs --stub-gate <cmd>   （仅 CHECK_LOOP_ROOT 夹具；走生产尾段，不打 testCmd）
+// 用法：node <插件根>/scripts/verify.mjs [--full | --scope] [--list] [--jobs N | --serial]
+//       node <插件根>/scripts/verify.mjs --stub-gate <cmd>   （仅 CHECK_LOOP_ROOT 夹具；走生产尾段，不打 testCmd）
 //   **默认档 = diff 面增量**（verify-scope-default 2026-10-22）：不带参数即按变更面裁门；`--full` 显式全量。
 //     兜底：最近 24h 无全量绿行（或 diff 面解析失败）→ 自动退回全量并打印 ⏭️ 兜底行，不静默降档。
 //     基线候选 = 本地台账 ∪ 仓库凭证（workflow/verify-evidence.md，verify-evidence-fallback 2026-10-22）：
@@ -52,11 +52,13 @@ import { pathToFileURL } from 'node:url';
 import { computeDiffScope, parseEvidenceGreens, EVIDENCE_REL } from './verify-scope.mjs';
 import { classifyFailure } from './failure-attribution.mjs';
 // 路径收口（2026-10-27 插件化迁移）：SCRIPT_DIR 落插件内（paths.mjs 单源）；项目根仍 git root 锚定
-//（CHECK_LOOP_ROOT fixture 注入原样保留），非 git 环境回退插件根本身（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）。
-import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, findProjectRoot, scriptPath, configDir } from './paths.mjs';
+//（CHECK_LOOP_ROOT fixture 注入原样保留）。锚点根（脚本定位/配置读取）非 git 环境回退插件根本身
+//（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；**账本根不回退**——见 LEDGER 与 paths.mjs ledgerRoot。
+import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir } from './paths.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
-const ROOT = process.env.CHECK_LOOP_ROOT || findProjectRoot() || PLUGIN_ROOT;
+const LEDGER = ledgerRoot({ fixture: process.env.CHECK_LOOP_ROOT });
+const ROOT = LEDGER.root || PLUGIN_ROOT;
 // 引擎门命令（2026-10-27 插件化迁移）：门表逐字保真，仅脚本定位改走 scriptPath——
 // 项目侧 .agents/scripts/<name> 优先（源仓形态 / 测试夹具副本），回退插件内本体（paths.mjs 单源）。
 const eng = (name) => `node "${scriptPath(ROOT, name)}"`;
@@ -187,6 +189,10 @@ const recordFailure = (step, exitInfo, note, attribution) => {
     // 归因（gate-health 2026-10-22）：env / flaky / real——红单可读，AI 不在假红上反复重跑。
     if (attribution) entry.attribution = attribution;
     if (process.env.PIPELINE_RUN_ID) entry.runId = process.env.PIPELINE_RUN_ID;
+    if (!LEDGER.writable) {
+      console.error(`[verify] ⚠️ ${ledgerRefusal(LEDGER.status, LEDGER.detail)}（本次红行未落账：suite=${step}）`);
+      return;
+    }
     fs.mkdirSync(path.join(ROOT, '.agents'), { recursive: true });
     fs.appendFileSync(path.join(ROOT, '.agents', 'verifications.jsonl'), `${JSON.stringify(entry)}\n`);
     console.log(`[verify] 🧾 失败行已留痕 verifications.jsonl（suite=${step}${attribution ? `，归因 ${attribution}` : ''}）`);
@@ -271,8 +277,8 @@ async function run() {
     // rebase 残留）拒用，回落 origin/main。凭证 baseSource 记来源，审计可对质基线从哪来。
     const candidates = [];
     try {
-      const vp = path.join(ROOT, '.agents', 'verifications.jsonl');
-      const rows = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split(/\r?\n/).filter(Boolean) : [];
+      const vp = LEDGER.writable ? path.join(ROOT, '.agents', 'verifications.jsonl') : null;
+      const rows = vp && fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split(/\r?\n/).filter(Boolean) : [];
       for (let i = rows.length - 1; i >= 0; i--) {
         try {
           const e = JSON.parse(rows[i]);
@@ -427,7 +433,7 @@ async function run() {
 
   console.log(`[verify] 🚀 开始全量静态门验证 (共 ${gates.length} 项，并发 ${JOBS}${serial ? '·串行' : ''})${testCmd ? '【fixture 模式】' : ''}${stubCmd ? '【stub 尾段】' : ''}${engineOnly ? '【引擎段增量门】' : ''}\n`);
   if (!testCmd && !stubCmd && process.env.RUN_E2E !== '1') {
-    console.log('[verify] ⏭️  E2E 冒烟门未启用（RUN_E2E≠1）——前置为全栈在线（前端 5203 + API 8932 + SMOKE_ADMIN/SMOKE_ADMIN_PASSWORD）；启用方式：RUN_E2E=1 node .agents/scripts/verify.mjs\n');
+    console.log('[verify] ⏭️  E2E 冒烟门未启用（RUN_E2E≠1）——前置为全栈在线（前端 5203 + API 8932 + SMOKE_ADMIN/SMOKE_ADMIN_PASSWORD）；启用方式：RUN_E2E=1 node <插件根>/scripts/verify.mjs\n');
   }
 
   let passedCount = 0;
@@ -636,9 +642,13 @@ async function run() {
       // 分层跑标记（2026-10-23）：diff 档 engine-tests 用 --fast——绿行记录，审计可对质。
       if (fastEngineTests) entry.fastTests = true;
       if (process.env.PIPELINE_RUN_ID) entry.runId = process.env.PIPELINE_RUN_ID;
-      fs.mkdirSync(path.join(ROOT, '.agents'), { recursive: true });
-      fs.appendFileSync(path.join(ROOT, '.agents', 'verifications.jsonl'), `${JSON.stringify(entry)}\n`);
-      console.log(`[verify] 🧾 全绿凭证已落账 verifications.jsonl`);
+      if (!LEDGER.writable) {
+        console.error(`[verify] ❌ ${ledgerRefusal(LEDGER.status, LEDGER.detail)}（门全绿但不产出凭证——无凭证即不可关单）`);
+      } else {
+        fs.mkdirSync(path.join(ROOT, '.agents'), { recursive: true });
+        fs.appendFileSync(path.join(ROOT, '.agents', 'verifications.jsonl'), `${JSON.stringify(entry)}\n`);
+        console.log(`[verify] 🧾 全绿凭证已落账 verifications.jsonl`);
+      }
     } catch (e) {
       console.error(`[verify] ⚠️ 凭证落账失败: ${e.message}`);
     }
@@ -657,13 +667,17 @@ async function run() {
       const budgetNote = budget === null ? '' : `（预算 ${(budget / 1000).toFixed(0)}s${over ? `，超 ${((wallMs / budget - 1) * 100).toFixed(1)}%` : ''}）`;
       console.log(`[verify] ⏱️ 门禁成本：墙钟 ${(wallMs / 1000).toFixed(1)}s${budgetNote}｜各门合计 ${(totalMs / 1000).toFixed(1)}s｜最慢三门 ${top3}`);
       if (over) {
-        console.log('[verify] ⚠️ 门禁成本超预算——下一批须退役一门（一进一出；候选 node .agents/scripts/agg-judgments.mjs --retire-candidates）');
+        console.log('[verify] ⚠️ 门禁成本超预算——下一批须退役一门（一进一出；候选 node <插件根>/scripts/agg-judgments.mjs --retire-candidates）');
       }
-      const gen = spawnSync(process.execPath, [path.join(SCRIPT_DIR, 'gen-verify-evidence.mjs'), '--root', ROOT], { encoding: 'utf8' });
-      if (gen.status === 0) {
+      const gen = LEDGER.writable
+        ? spawnSync(process.execPath, [path.join(SCRIPT_DIR, 'gen-verify-evidence.mjs'), '--root', ROOT], { encoding: 'utf8' })
+        : null;
+      if (gen === null) {
+        console.error(`[verify] ❌ ${ledgerRefusal(LEDGER.status, LEDGER.detail)}（仓内摘要 verify-evidence.md 未生成）`);
+      } else if (gen.status === 0) {
         if (gen.stdout) process.stdout.write(String(gen.stdout).trimEnd() + '\n');
       } else {
-        console.error(`[verify] ⚠️ 绿凭证摘要生成失败（${String(gen.stderr || gen.stdout || '').trim().slice(0, 200)}）——绿裁决不变，手动补跑 node .agents/scripts/gen-verify-evidence.mjs`);
+        console.error(`[verify] ⚠️ 绿凭证摘要生成失败（${String(gen.stderr || gen.stdout || '').trim().slice(0, 200)}）——绿裁决不变，手动补跑 node <插件根>/scripts/gen-verify-evidence.mjs`);
       }
     }
   }

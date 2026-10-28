@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // closeout-l1 — L1 关单一把编排（2026-10-15 减重手段④：记录性动作一把生成，判断留给人）
 // 把 test.md §5 的 L1 关单链（预检 → confirm-doc 代录 → INDEX 重生成 → 提交清单）收进一条命令。
-// 用法：node .agents/scripts/closeout-l1.mjs <workflow/plans/xxx.md>              # 预检模式：只查差距，不落任何状态
-//       node .agents/scripts/closeout-l1.mjs <plan> --delegated "<用户对话原话>"   # 执行模式：预检过 → confirm-doc 代录 → 重生成 INDEX
+// 用法：node <插件根>/scripts/closeout-l1.mjs <workflow/plans/xxx.md>              # 预检模式：只查差距，不落任何状态
+//       node <插件根>/scripts/closeout-l1.mjs <plan> --delegated "<用户对话原话>"   # 执行模式：预检过 → confirm-doc 代录 → 重生成 INDEX
 //       （可加 --root <仓库根>；缺省 git toplevel，无 git 用 cwd）
 // 边界（判据单源，本工具不复制强判断）：
 //   - 证据格式 / approved 历史 / 测试绿硬门 = confirm-doc（stage-gates/policy 单源），本工具预检只是
 //     提前暴露差距的 advisory 快筛；执行模式原样转发 confirm-doc，其拒绝即本命令拒绝。
 //   - --delegated 调用纪律：AI 须先取得用户对话内明确放行（AGENTS.md 确认门条款），原话入账供对质。
 //   - L2/L3 不受理（spec 收敛对账 + 独立复核是防御道本体，不做捷径）；incidents 不受理（两跳制）。
-// 测试：node .agents/scripts/closeout-l1.test.mjs（parseArgs / preflight 纯函数进程内断言）
+// 测试：node <插件根>/test/closeout-l1.test.mjs（parseArgs / preflight 纯函数进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -38,7 +38,7 @@ export function parseArgs(argv = []) {
       out.error = `未知参数 ${a}`;
     }
   }
-  if (!out.error && !out.plan) out.error = '用法：node .agents/scripts/closeout-l1.mjs <workflow/plans/xxx.md> [--delegated "<用户对话原话>"] [--root <仓库根>]';
+  if (!out.error && !out.plan) out.error = '用法：node <插件根>/scripts/closeout-l1.mjs <workflow/plans/xxx.md> [--delegated "<用户对话原话>"] [--root <仓库根>]';
   return out;
 }
 
@@ -105,7 +105,7 @@ export function preflight({ rel, text, freshVerify }) {
     for (const u of acc.unchecked) problems.push(`    - [ ] ${u}`);
   }
   if (!freshVerify) {
-    problems.push('24h 内无 verify 绿行（.agents/verifications.jsonl）——先跑 node .agents/scripts/verify.mjs（全绿自动落绿凭证与 verify-evidence 摘要）');
+    problems.push('24h 内无 verify 绿行（.agents/verifications.jsonl）——先跑 node <插件根>/scripts/verify.mjs（全绿自动落绿凭证与 verify-evidence 摘要）');
   }
   return { ok: problems.length === 0, problems, level, status, total: acc.total, checked: acc.total - acc.unchecked.length };
 }
@@ -162,7 +162,7 @@ function main() {
 
   if (!args.delegated) {
     console.log('\n下一步（执行关单，须先取得用户对话内明确放行）：');
-    console.log(`  node .agents/scripts/closeout-l1.mjs ${rel} --delegated "<用户确认原话>"`);
+    console.log(`  node <插件根>/scripts/closeout-l1.mjs ${rel} --delegated "<用户确认原话>"`);
     return;
   }
 
@@ -176,7 +176,7 @@ function main() {
   }
   const gi = spawnSync(process.execPath, [path.join(SCRIPT_DIR, 'gen-workflow-index.mjs')], { cwd: root, encoding: 'utf8' });
   if (gi.status !== 0) {
-    console.error('closeout-l1: ⚠️ INDEX 重生成失败（确认已落账不可回滚；提交前须手动跑 node .agents/scripts/gen-workflow-index.mjs 修齐，否则索引漂移门会拦提交）');
+    console.error('closeout-l1: ⚠️ INDEX 重生成失败（确认已落账不可回滚；提交前须手动跑 node <插件根>/scripts/gen-workflow-index.mjs 修齐，否则索引漂移门会拦提交）');
   }
 
   // 汇总：关单后的落盘面与提交清单（归档 mv 时给出新路径）。

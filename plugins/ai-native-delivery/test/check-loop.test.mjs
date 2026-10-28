@@ -67,6 +67,16 @@ const mkfix = () => {
 };
 const w = (root, rel, content) => fs.writeFileSync(path.join(root, rel), content);
 
+// 引擎脚本副本落夹具（插件化 2026-10-27）：被测脚本 import 同目录引擎模块（rule-budget.mjs → paths.mjs
+// → git-core.mjs），只拷单个脚本会 ERR_MODULE_NOT_FOUND → 门内执行失败 → 断言误判为超限。
+// 依赖链须一并复制（同 agg-delegations 夹具惯例）。
+const copyEngineScripts = (root, ...names) => {
+  fs.mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
+  for (const n of names) {
+    fs.copyFileSync(path.join(SCRIPT_DIR, n), path.join(root, '.agents', 'scripts', n));
+  }
+};
+
 const INTENT = (name, fm, body = '') => `---\n${fm}\n---\n# INTENT — ${name}\n${body}`;
 const PLAN = (name, fm, body = '') => `---\n${fm}\n---\n# PLAN — ${name}\n${body}`;
 const SPEC = (name, fm, body = '') => `---\n${fm}\n---\n# SPEC — ${name}\n${body}`;
@@ -685,7 +695,8 @@ SCEN(async () => {
 SCEN(async () => {
   const T = mkfix();
   fs.mkdirSync(path.join(T, '.agents', 'scripts'), { recursive: true });
-  fs.copyFileSync(path.join(SCRIPT_DIR, 'rule-budget.mjs'), path.join(T, '.agents', 'scripts', 'rule-budget.mjs'));
+  // rule-budget.mjs import paths.mjs（→git-core.mjs）——依赖链一并拷入，否则门内执行失败
+  copyEngineScripts(T, 'rule-budget.mjs', 'paths.mjs', 'git-core.mjs');
   fs.copyFileSync(path.join(CONFIG_DIR, 'rule-budgets.txt'), path.join(T, '.agents', 'config', 'rule-budgets.txt'));
   // 超限样本自校准：从拷入的预算表读 AGENTS.md 上限（预算可上调，硬编码样本会随上调失效——2026-10-06-v114-backflow-batch）
   const agLimit = Number(fs.readFileSync(path.join(T, '.agents', 'config', 'rule-budgets.txt'), 'utf8').split(/\r?\n/).find((l) => l.startsWith('AGENTS.md ')).trim().split(' ').pop());
@@ -709,7 +720,8 @@ SCEN(async () => {
 SCEN(async () => {
   const T = mkfix();
   fs.mkdirSync(path.join(T, '.agents', 'scripts'), { recursive: true });
-  fs.copyFileSync(path.join(SCRIPT_DIR, 'rule-budget.mjs'), path.join(T, '.agents', 'scripts', 'rule-budget.mjs'));
+  // rule-budget.mjs import paths.mjs（→git-core.mjs）——依赖链一并拷入，否则直调失败
+  copyEngineScripts(T, 'rule-budget.mjs', 'paths.mjs', 'git-core.mjs');
   fs.copyFileSync(path.join(CONFIG_DIR, 'rule-budgets.txt'), path.join(T, '.agents', 'config', 'rule-budgets.txt'));
   const agLimit = Number(fs.readFileSync(path.join(T, '.agents', 'config', 'rule-budgets.txt'), 'utf8').split(/\r?\n/).find((l) => l.startsWith('AGENTS.md ')).trim().split(' ').pop());
   gitInit(T);

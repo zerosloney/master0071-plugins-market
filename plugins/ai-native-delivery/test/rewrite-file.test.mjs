@@ -144,5 +144,29 @@ const mk = (name, content) => {
   fs.rmSync(path.dirname(p), { recursive: true, force: true });
 }
 
+// T15：--root 生效——相对路径按 root 解析，且目标必须在 root 内（2026-10-27 路径逃逸修复）
+// 旧实现把 --root 吞掉（解析后丢弃、路径仍按 cwd 解析）→ 「以为在仓库内改、实际改到别处」
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rewrite-file-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'rewrite-file-out-'));
+  fs.writeFileSync(path.join(root, 'ok.md'), 'ANCHOR\n', 'utf8');
+  const victim = path.join(outside, 'victim.md');
+  fs.writeFileSync(victim, 'ANCHOR\n', 'utf8');
+  // ① root 内相对路径 → 按 root 解析并改写
+  const r = spawnSync(process.execPath, [SCRIPT, 'ok.md', '--find', 'ANCHOR', '--replace', 'NEW', '--root', root], { encoding: 'utf8' });
+  check('T15 --root 内相对路径按 root 解析并改写',
+    r.status === 0 && fs.readFileSync(path.join(root, 'ok.md'), 'utf8') === 'NEW\n', `${r.stdout}${r.stderr}`);
+  // ② root 外的绝对路径 → 拒（越界即拒，不改文件）
+  const r2 = spawnSync(process.execPath, [SCRIPT, victim, '--find', 'ANCHOR', '--replace', 'NEW', '--root', root], { encoding: 'utf8' });
+  check('T15b --root 外目标 → exit 1 且越界文件逐字节未变',
+    r2.status === 1 && /逃逸|之外/.test(`${r2.stdout}${r2.stderr}`) && fs.readFileSync(victim, 'utf8') === 'ANCHOR\n', `${r2.stdout}${r2.stderr}`);
+  // ③ root 外的相对逃逸路径（../）→ 拒
+  const r3 = spawnSync(process.execPath, [SCRIPT, path.join('..', path.basename(outside), 'victim.md'), '--find', 'ANCHOR', '--replace', 'NEW', '--root', root], { encoding: 'utf8' });
+  check('T15c root 外相对逃逸路径 → exit 1',
+    r3.status === 1 && fs.readFileSync(victim, 'utf8') === 'ANCHOR\n', `${r3.stdout}${r3.stderr}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outside, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

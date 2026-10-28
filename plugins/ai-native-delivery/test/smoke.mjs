@@ -16,12 +16,16 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const NAME = 'ai-native-delivery';
-const VERSION = '0.1.0';
 
 // 路径基于本文件解析（而不是 cwd），插件根 = test/ 上一级，仓库根 = 插件根上两级
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MARKET_ROOT = path.resolve(PLUGIN_ROOT, '..', '..');
 const at = (...rel) => path.join(PLUGIN_ROOT, ...rel);
+
+// 版本基准 = plugin.json 自身，其余 7 处向它对账。
+// 写成字面量的话每次升版都要同步改本行——漏改就是「release.mjs --check 全绿、
+// 插件自测 7 项红」（scripts/release.mjs 只写清单与 SERVER_INFO，不碰测试文件）。
+const VERSION = JSON.parse(readFileSync(at('plugin.json'), 'utf8')).version;
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 

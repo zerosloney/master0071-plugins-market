@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // workflow 规模与规则面月度快照（2026-09-21，intent 2026-09-21-workflow-metrics-snapshot）
-// 用法：node .agents/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--help]
+// 用法：node <插件根>/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--help]
 // 目的：把「语料膨胀 + 常驻面体积」变成可观测趋势——每月（或按需）跑一次，往 workflow/metrics.md 追加/更新一行。
 // 口径：文档 = 磁盘（对照 gen-workflow-index / 看板，排除 _TEMPLATE.md）；常驻面 = `.agents/config/rule-budgets.txt`
 //   各条实测（单源，含预算上限），括号内给「预算占用峰值项」。
@@ -11,7 +11,7 @@
 //   上限 31 天（METRICS_MAX_AGE_DAYS 可调）——治「引擎量化自述停在某个时刻而无人发现」（实测 2026-10
 //   的成本画像头名已换人而 published 表未更新）。规则面的机器约束由 pre-commit 的 rule-budget.mjs 负责，
 //   本脚本只负责「看见趋势」+「不许长期不更新」。
-// 测试：node .agents/scripts/gen-workflow-metrics.test.mjs（fixture 回归，须全绿）
+// 测试：node <插件根>/test/gen-workflow-metrics.test.mjs（fixture 回归，须全绿）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ import { analyze, buildDocList, loadLastTouch, loadLedgerTs, parseStatus, ACTIVE
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：枚举种子回退位经插件 config-templates 定位。
 import { PLUGIN_CONFIG_TEMPLATES_DIR } from './paths.mjs';
 
-const USAGE = `用法：node .agents/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--check] [--restamp] [--help]
+const USAGE = `用法：node <插件根>/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--check] [--restamp] [--help]
 
 事实源：workflow/{intents,specs,plans,incidents}/*.md（排除 _TEMPLATE.md）+ workflow/INDEX.md + .agents/config/rule-budgets.txt + workflow/reviews.d/*.md（独立复核效果台账，2026-10-16 建账）+ workflow/specs/*.md 与 workflow/archive/*/specs/*.md（spec 体积观察，2026-10-16 起采集）+ workflow/deploy-observations.d/（发布观察台账，2026-10-25 建账）
 产物：workflow/metrics.md —— 每月一行（同月重跑即更新该行，不重复追加）；明细打印在 stdout，不落表。
@@ -497,7 +497,7 @@ try {
     windowDays: 21,
   });
   const fams = new Set(arch.candidates.map((x) => x.file));
-  console.log(`  归档积压：候选 ${arch.candidates.length} 篇 / ${fams.size} 族（21 天窗）${arch.candidates.length ? '——node .agents/scripts/archive-sweep.mjs 查看，--execute 执行' : ''}`);
+  console.log(`  归档积压：候选 ${arch.candidates.length} 篇 / ${fams.size} 族（21 天窗）${arch.candidates.length ? '——node <插件根>/scripts/archive-sweep.mjs 查看，--execute 执行' : ''}`);
 } catch { /* fail-open */ }
 console.log(`  ${DRY ? '（--dry-run，未写盘）' : ''}`);
 
@@ -512,7 +512,7 @@ if (DRY) {
 // ---- 组装：GENERATED 区内的月表按月份键 upsert（同月重跑覆盖，行序按月升序）----
 const HEADER = `# workflow 规模与规则面月度快照
 
-> 生成器 \`node .agents/scripts/gen-workflow-metrics.mjs\`（每月或有需要时跑；同月重跑即更新该行）。明细（类型分布 / 逐条预算占用）看脚本 stdout，不落表。
+> 生成器 \`node <插件根>/scripts/gen-workflow-metrics.mjs\`（每月或有需要时跑；同月重跑即更新该行）。明细（类型分布 / 逐条预算占用）看脚本 stdout，不落表。
 > 口径：文档 = 磁盘（排除 \`_TEMPLATE.md\`）；常驻面 = \`.agents/config/rule-budgets.txt\` 逐条实测，括号内为「预算占用峰值项」。
 > 归因表 = incident frontmatter 枚举；空键用 archive/attribution-legacy.md 对质表补齐（不回写文件；不明与仍缺的来源计入未判读）+ 引擎面提交占比（git）。
 `;
@@ -555,14 +555,14 @@ if (CHECK) {
   const snapM = existing.match(/<!-- 快照生成：([0-9T:.+-]+Z?)/);
   if (!snapM) {
     console.error('❌ workflow/metrics.md 无「快照生成」时刻标记——本门判的是自述时效（快照按设计是历史记录，逐字比会常红）');
-    console.error('   修：node .agents/scripts/gen-workflow-metrics.mjs（重生成快照并写入生成时刻），须随同提交');
+    console.error('   修：node <插件根>/scripts/gen-workflow-metrics.mjs（重生成快照并写入生成时刻），须随同提交');
     process.exit(1);
   }
   const ts = Date.parse(snapM[1]);
   const ageDays = (Date.now() - ts) / 86400000;
   if (!Number.isFinite(ts) || ageDays > maxAgeDays) {
     console.error(`❌ workflow/metrics.md 快照陈旧 ${Number.isFinite(ts) ? ageDays.toFixed(1) : '?'} 天（上限 ${maxAgeDays} 天，METRICS_MAX_AGE_DAYS 可调）——引擎量化自述停在 ${snapM[1]}`);
-    console.error('   修：node .agents/scripts/gen-workflow-metrics.mjs（重生成快照；须随同提交）');
+    console.error('   修：node <插件根>/scripts/gen-workflow-metrics.mjs（重生成快照；须随同提交）');
     process.exit(1);
   }
   console.log(`✅ workflow/metrics.md 快照新鲜（生成于 ${snapM[1]}，${ageDays.toFixed(1)} 天前；上限 ${maxAgeDays} 天）`);

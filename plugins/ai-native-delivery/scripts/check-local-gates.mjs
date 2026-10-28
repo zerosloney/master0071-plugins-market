@@ -4,12 +4,13 @@
 // ⑥ 起工具链按「环境变量（仅浏览器 CHROME_PATH）→ 本机登记 runtime-env.local.md → 标准安装位置探测」解析并回显路径（机理 runtime-env.md §6.3，
 // 2026-10-10 本机事实出库——绝对路径不再入库登记，新机按回显补登记即可）。
 // 鸡生蛋约束：钩子没挂时任何钩子面检测不可达，故自检必须是独立脚本 + 显著入口（README 入门节 / AGENTS.md 头部）。
-// 用法：node .agents/scripts/check-local-gates.mjs [--fix]
+// 用法：node <插件根>/scripts/check-local-gates.mjs [--fix]
 // 退出码：0 全过 / 1 有缺。零工作区副作用（只读 git config + 文件存在性检测）。
 
 import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { deploymentMode, gitHooksDir, scriptPath } from './paths.mjs';
 
 const fix = process.argv.includes('--fix');
 const git = (args) => {
@@ -19,21 +20,58 @@ const git = (args) => {
 const results = [];
 const check = (ok, name, detail, fixCmd) => results.push({ ok, name, detail, fixCmd });
 
-// ① core.hooksPath → .githooks（五钩子的挂载点）
-const hooksPath = git(['config', 'core.hooksPath']);
-check(hooksPath === '.githooks', 'core.hooksPath → .githooks',
-  hooksPath ? `当前值: ${hooksPath}` : '未配置', 'git config core.hooksPath .githooks');
+// ── 部署形态（2026-10-27 插件化修复）──
+//   source-repo：项目侧自带 .agents/scripts 脚本副本 → 判 core.hooksPath=.githooks + 五钩子（源仓老口径）。
+//   plugin     ：治理脚本留插件内（市场分发形态）→ 判 git 实际会执行的两个执法点（pre-commit / pre-push）在位。
+// 两套判据互斥：插件形态下绝不给「设 core.hooksPath」的修复指引——core.hooksPath 会整体接管 git 的
+// 钩子查找，init-engine 装到 git 默认钩子目录的钩子会因此静默失效（钩子文件仍在但不再执行）。
+const ROOT = process.cwd();
+const MODE = deploymentMode(ROOT);
+
+// ① 钩子挂载面
+if (MODE === 'source-repo') {
+  const hooksPath = git(['config', 'core.hooksPath']);
+  check(hooksPath === '.githooks', 'core.hooksPath → .githooks',
+    hooksPath ? `当前值: ${hooksPath}` : '未配置', 'git config core.hooksPath .githooks');
+} else {
+  const hooksDir = gitHooksDir(ROOT);
+  const configured = git(['config', 'core.hooksPath']);
+  const gateHooks = ['pre-commit', 'pre-push'];
+  const missing = hooksDir ? gateHooks.filter((h) => !fs.existsSync(path.join(hooksDir, h))) : gateHooks;
+  check(missing.length === 0,
+    `git 实际执行的钩子在位（${gateHooks.join(' / ')}）`,
+    missing.length
+      ? `缺失: ${missing.join('、')} —— 有效钩子目录 ${hooksDir || '(解析不出)'}${configured ? `（core.hooksPath=${configured}）` : ''}`
+      : '',
+    `node "${scriptPath(ROOT, 'init-engine.mjs')}" --root "${ROOT}"`);
+  if (configured) {
+    console.log(`  [提示] core.hooksPath = ${configured} —— 该设置整体接管 git 钩子查找；init-engine 装到 git 默认钩子目录的钩子在此情形下不执行`);
+  }
+}
 
 // ② merge.ours.driver（appsettings.json 合并保护的本地开关）
+//    插件形态不判：appsettings.json 是业务项目资产，插件不接管其合并语义（源仓形态老口径原样保留）。
 const ours = git(['config', 'merge.ours.driver']);
-check(ours === 'true', 'merge.ours.driver = true',
-  ours ? `当前值: ${ours}` : '未配置', 'git config merge.ours.driver true');
+if (MODE === 'source-repo') {
+  check(ours === 'true', 'merge.ours.driver = true',
+    ours ? `当前值: ${ours}` : '未配置', 'git config merge.ours.driver true');
+}
 
 // ②b merge.jsonl-union.driver（.agents/*.jsonl 台账并发去重合并驱动）
+//     插件形态：期望值指向插件内 git-merge-jsonl.mjs 绝对路径（脚本留插件内，不落项目侧）。
+//     但 git driver 值含嵌套引号，跨 shell 的「一键修复」不可靠 → 插件形态只作提示不计入缺配
+//     （项目侧 git 配置属用户决策，插件不代改）。
 const jsonlDriver = git(['config', 'merge.jsonl-union.driver']);
-const expectedJsonlDriver = 'node .agents/scripts/git-merge-jsonl.mjs %O %A %B';
-check(jsonlDriver === expectedJsonlDriver, 'merge.jsonl-union.driver（台账并发并集合并驱动）',
-  jsonlDriver ? `当前值: ${jsonlDriver}` : '未配置', `git config merge.jsonl-union.driver "${expectedJsonlDriver}"`);
+const expectedJsonlDriver = MODE === 'plugin'
+  ? `node "${scriptPath(ROOT, 'git-merge-jsonl.mjs')}" %O %A %B`
+  : 'node .agents/scripts/git-merge-jsonl.mjs %O %A %B';
+if (MODE === 'source-repo') {
+  check(jsonlDriver === expectedJsonlDriver, 'merge.jsonl-union.driver（台账并发并集合并驱动）',
+    jsonlDriver ? `当前值: ${jsonlDriver}` : '未配置', `git config merge.jsonl-union.driver "${expectedJsonlDriver}"`);
+} else {
+  console.log(`  [提示] merge.jsonl-union.driver（台账并发并集合并，可选）：`
+    + `${jsonlDriver ? `当前值 ${jsonlDriver}` : '未配置'} —— 期望驱动 ${expectedJsonlDriver}（含嵌套引号，按你的 shell 调整）`);
+}
 
 // ③ .gitattributes 的 merge=ours 与 merge=jsonl-union 行（仓库侧声明，与 ②/②b 配对生效）
 // 判据脱敏泛化（2026-10-27 插件化迁移）：appsettings 具体路径按使用项目替换（源为业务解决方案内
@@ -41,14 +79,21 @@ check(jsonlDriver === expectedJsonlDriver, 'merge.jsonl-union.driver（台账并
 const gaText = fs.existsSync('.gitattributes') ? fs.readFileSync('.gitattributes', 'utf8').replace(/\r/g, '') : '';
 const gaOursOk = /appsettings\.json\s+merge=ours$/m.test(gaText);
 const gaJsonlOk = /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
-check(gaOursOk && gaJsonlOk, '.gitattributes 含 appsettings merge=ours 与 jsonl merge=jsonl-union 行',
-  (!gaOursOk ? 'appsettings 行缺失; ' : '') + (!gaJsonlOk ? '.agents/*.jsonl 行缺失' : ''), null);
+if (MODE === 'source-repo') {
+  check(gaOursOk && gaJsonlOk, '.gitattributes 含 appsettings merge=ours 与 jsonl merge=jsonl-union 行',
+    (!gaOursOk ? 'appsettings 行缺失; ' : '') + (!gaJsonlOk ? '.agents/*.jsonl 行缺失' : ''), null);
+} else {
+  console.log(`  [提示] .gitattributes 含 .agents/*.jsonl merge=jsonl-union 行（台账并发合并声明）：`
+    + `${gaJsonlOk ? '已在' : '未在 —— 台账并发合并按普通文本冲突处理（不丢行但会冲突）'}`);
+}
 
-// ④ 五钩子文件在位（防「配了 hooksPath 但文件缺」的假上岗）
-const hooks = ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit'];
-const missing = hooks.filter((h) => !fs.existsSync(path.join('.githooks', h)));
-check(missing.length === 0, `.githooks/ 五钩子文件在位（${hooks.join(' / ')}）`,
-  missing.length ? `缺失: ${missing.join('、')} —— git checkout -- .githooks 恢复后重跑` : '', null);
+// ④ 钩子文件在位（防「配了但文件缺」的假上岗）——源仓形态判 .githooks/ 五钩子；插件形态已在 ① 判过
+if (MODE === 'source-repo') {
+  const hooks = ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit'];
+  const missing = hooks.filter((h) => !fs.existsSync(path.join('.githooks', h)));
+  check(missing.length === 0, `.githooks/ 五钩子文件在位（${hooks.join(' / ')}）`,
+    missing.length ? `缺失: ${missing.join('、')} —— git checkout -- .githooks 恢复后重跑` : '', null);
+}
 
 // ⑤ node 在位且主版本 ≥ 22（CI 已验证锚 22.17.0 / 本机 24.21.0，runtime-env §6.2）——pre-commit /
 // pre-push 的门禁面几乎全依赖 node，缺失即整体瘫痪（pre-push 已 fail-closed 阻断推送；本项把暴露提前到上岗自检）。版本下限 = CI 验证锚；无法自动安装，不代修。
@@ -112,7 +157,9 @@ console.log(browserPath
 if (fail > 0) {
   console.log(fix
     ? '\n门卫未全上岗：配置类已尝试自动修复（文件类缺失须按指引手动恢复）；修复后重跑本脚本确认全绿。'
-    : '\n门卫未全上岗——逐条执行上方修复命令，或一键: node .agents/scripts/check-local-gates.mjs --fix');
+    : `\n门卫未全上岗——逐条执行上方修复命令，或一键: node "${scriptPath(ROOT, 'check-local-gates.mjs')}" --fix`);
   process.exit(1);
 }
-console.log('\n[PASS] 七项全过——门卫已上岗（六门 pre-commit / 整树强制编译 pre-merge-commit / 闭环扫描+debt 提醒 pre-push / evict+积压提醒 post-commit / 台账并集合并；机理详见 .agents/notes/runtime-env.md §7）。');
+console.log(MODE === 'plugin'
+  ? '\n[PASS] 门卫已上岗——插件形态：git 实际执行的 pre-commit / pre-push 两个执法点在位，node 工具链在位（机理详见 .agents/notes/runtime-env.md §7）。'
+  : '\n[PASS] 七项全过——门卫已上岗（六门 pre-commit / 整树强制编译 pre-merge-commit / 闭环扫描+debt 提醒 pre-push / evict+积压提醒 post-commit / 台账并集合并；机理详见 .agents/notes/runtime-env.md §7）。');

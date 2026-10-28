@@ -1,4 +1,4 @@
-// 用法:node .agents/scripts/check-loop.mjs [--rev <sha>] [--all | --hygiene]
+// 用法:node <插件根>/scripts/check-loop.mjs [--rev <sha>] [--all | --hygiene]
 // 默认（2026-10-10 收敛）：只跑硬门 §1 §3 §3x §8 §14 §15 §17；2026-10-11 起含 §23；
 // 2026-10-12 起含 §25（路由预判一致性，纯 WARN advisory——预判字段在场才检，缺字段零告警）。
 // 2026-10-21 门禁极小化第 1 批：§17 退役删除；§1 配对/L3 三件、§3 配对/回路、§14 留痕降 WARN——
@@ -22,7 +22,7 @@
 // 现状（2026-10-23）：22 段 = hard 5（§1 §3x §8 §15 §23）+ hygiene 17（§28 脚本覆盖对账为 P1 新增）；
 //   段数棘轮见 .agents/config/rule-budgets.txt（check-loop-sections 计数上限 22，退役一段同降一）。
 // --hygiene 只跑卫生段（索引/宿主/词表/指标签名/委派等 WARN）。--all 两段都跑。
-// 测试:node .agents/scripts/check-loop.test.mjs（fixture 注入 CHECK_LOOP_ROOT；套件默认 --all）
+// 测试:node <插件根>/test/check-loop.test.mjs（fixture 注入 CHECK_LOOP_ROOT；套件默认 --all）
 import * as kit from './check-loop-kit.mjs';
 import { formatWarnings, WARN_LOG_REL } from './warn-format.mjs';
 import { recordRun } from './judgment-ledger.mjs';

@@ -26,10 +26,11 @@ AI-Native 交付治理引擎：把 Shipyard.Material 里跑通 14 个 policy ver
 
 ## 宿主与 hook 降级
 
-三层拦截模型按宿主能力降级：
+拦截按宿主能力降级，**插件自带两层**（PreToolUse 风险闸 + git hooks），第三层是项目适配点：
 
 - **PreToolUse 风险闸**仅在 Claude 式 hook 宿主（Claude Code / ZCode 等）生效；
-- 不支持该类 hook 的宿主**自动降级为 git hooks + CI 模板两层拦截**，硬门语义不变，只是拦截时点从工具调用前推迟到提交 / 推送前；
+- 不支持该类 hook 的宿主**自动降级为 git hooks 单层拦截**，硬门语义不变，只是拦截时点从工具调用前推迟到提交 / 推送前；
+- **CI 层是项目适配点，插件不附带 CI 模板**：项目可在自己的 CI 里跑 `node <插件安装路径>/scripts/check-loop.mjs --all`（插件随宿主常驻，CI 侧需能访问该路径），把合入前兜底补上；
 - 命令、角色委派（斜杠命令 / 子智能体）按各宿主约定目录加载，不支持对应约定的宿主跳过加载即可，MCP 工具全宿主可用。
 
 ## 安装
@@ -81,7 +82,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask / allow 三清单静态匹配；清单**单源项目侧 `.agents/settings.json`**（`permissions.deny/ask/allow`），缺文件回退插件种子，再缺代码内最小 deny 兜底。
 - **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
 
-不支持对应 hook 约定的宿主自动降级为 git hooks + CI 两层拦截，硬门语义不变（见「宿主与 hook 降级」）。
+不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。
 
 ## 工程准入与验收
 

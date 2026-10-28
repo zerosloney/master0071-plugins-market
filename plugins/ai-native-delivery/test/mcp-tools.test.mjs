@@ -137,6 +137,9 @@ initEngine(root);
   const upd2 = jsonOf(replies.get(17));
   const appended = fs.readFileSync(path.join(root, 'workflow', 'papercuts-2026-10.md'), 'utf8');
   check('update_ledger append 追加成行', upd2 && upd2.written === true && appended.includes('- [x] MCP 工具链端到端补一行'), appended);
+  // 原子写（2026-10-27）：tmp+rename —— 台账目录不得残留 .tmp（半写文件的痕迹）
+  const tmpLeft = fs.readdirSync(path.join(root, 'workflow')).filter((f) => f.includes('.tmp'));
+  check('update_ledger 原子写无 .tmp 残留', tmpLeft.length === 0, JSON.stringify(tmpLeft));
 
   const vg = jsonOf(replies.get(18));
   check('verify_gate hard 车道 exit 0（最小 fixture 仓）', vg && vg.exitCode === 0 && vg.timedOut === false, JSON.stringify(vg && { exitCode: vg.exitCode, stderr: (vg.stderr || '').slice(0, 400) }));

@@ -14,20 +14,26 @@
 //   重生成自动纠正——须人工改正；若本地台账仍持同一 SHA，重生成会按台账重写该行（须连同台账处理）。
 // 时机：verify.mjs 全绿尾部自动重生成（2026-10-11 C4 事件原子化——检查 23 收敛硬门读本文件，滞后即误拦）
 //   + 关单时随三件套同笔提交；CI 侧重生成于 CI 工作区、不回流本仓，无副作用；--check 只供本地自检。
-// 用法：node .agents/scripts/gen-verify-evidence.mjs [--root <dir>] [--check]
-// 测试：node .agents/scripts/gen-verify-evidence.test.mjs（fixture 注入 --root）
+// 用法：node <插件根>/scripts/gen-verify-evidence.mjs [--root <dir>] [--check]
+// 测试：node <插件根>/test/gen-verify-evidence.test.mjs（fixture 注入 --root）
 import fs from 'node:fs';
 import path from 'node:path';
-// 路径收口（2026-10-27 插件化迁移）：项目根 git root 锚定（paths.mjs 单源），非 git 环境回退插件根
-//（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；--root 注入（verify.mjs 尾段 / 测试夹具）原样保留。
-import { PLUGIN_ROOT, findProjectRoot } from './paths.mjs';
+// 路径收口（2026-10-27 插件化迁移）：项目根 git root 锚定（paths.mjs 单源）；--root 注入
+//（verify.mjs 尾段 / 测试夹具）原样保留。**不回退插件根**——本脚本产出仓内绿凭证摘要
+//（workflow/verify-evidence.md），落进跨项目共享的插件安装目录等于给别的项目发关单凭证。
+import { ledgerRoot, ledgerRefusal } from './paths.mjs';
 
 const argv = process.argv.slice(2);
 const argOf = (k) => {
   const i = argv.indexOf(k);
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : '';
 };
-const ROOT = argOf('--root') || findProjectRoot() || PLUGIN_ROOT;
+const L = ledgerRoot({ explicit: argOf('--root') });
+if (!L.writable) {
+  console.error(`[gen-verify-evidence] ❌ ${ledgerRefusal(L.status, L.detail)}`);
+  process.exit(1);
+}
+const ROOT = L.root;
 const LEDGER = path.join(ROOT, '.agents', 'verifications.jsonl');
 const OUT = path.join(ROOT, 'workflow', 'verify-evidence.md');
 
@@ -91,7 +97,7 @@ function render() {
   const lines = [];
   lines.push('# 验证绿凭证摘要（生成物，勿手改）');
   lines.push('');
-  lines.push('> 生成器 `node .agents/scripts/gen-verify-evidence.mjs`（verify.mjs 全绿尾部自动重生成，2026-10-11 C4 起；源 .agents/verifications.jsonl 为本地台账）。');
+  lines.push('> 生成器 `node <插件根>/scripts/gen-verify-evidence.mjs`（verify.mjs 全绿尾部自动重生成，2026-10-11 C4 起；源 .agents/verifications.jsonl 为本地台账）。');
   lines.push('> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证。非签名链——诚实边界同 check-loop 检查 15。');
   lines.push('> 行来源 = 本地台账绿行 ∪ 本文件既有行（**追加保全**：跨机 / 换 worktree 不失历史；代价：错行不会被重生成自动纠正，须人工改正后重跑）。');
   lines.push('');
@@ -108,7 +114,7 @@ if (argv.includes('--check')) {
   let disk = '';
   try { disk = fs.readFileSync(OUT, 'utf8'); } catch { /* 缺文件走漂移分支 */ }
   if (disk === text) { console.log('[verify-evidence] ✅ 与磁盘一致'); process.exit(0); }
-  console.error('[verify-evidence] 漂移：本地台账有新绿行未入摘要——关单时跑 node .agents/scripts/gen-verify-evidence.mjs 并随同提交');
+  console.error('[verify-evidence] 漂移：本地台账有新绿行未入摘要——关单时跑 node <插件根>/scripts/gen-verify-evidence.mjs 并随同提交');
   process.exit(1);
 }
 fs.mkdirSync(path.dirname(OUT), { recursive: true });

@@ -30,7 +30,7 @@ function fmValue(text, key) {
 
 const ACTIVE_DOC_STATUS = new Set(['draft', 'approved']); // doc.status.active（workflow-enums 单源的活跃集）
 
-function inFlightFiles(root, dir) {
+function inFlightFiles(root, dir, degraded = []) {
   const abs = path.join(ledgerDir(root), dir);
   if (!fs.existsSync(abs)) return [];
   const out = [];
@@ -38,7 +38,13 @@ function inFlightFiles(root, dir) {
     if (!f.endsWith('.md') || f.startsWith('_TEMPLATE')) continue;
     const absFile = path.join(abs, f);
     let text = '';
-    try { text = fs.readFileSync(absFile, 'utf8'); } catch { continue; }
+    try {
+      text = fs.readFileSync(absFile, 'utf8');
+    } catch (e) {
+      // 读不出 ≠ 没有（2026-10-27 修复）：此前静默 continue——在途件数偏小且无任何痕迹。
+      degraded.push(`workflow/${dir}/${f} 读不出（${(e && e.code) || (e && e.message) || '未知错误'}）——未计入在途清单`);
+      continue;
+    }
     const status = fmValue(text, '状态');
     if (!ACTIVE_DOC_STATUS.has(status)) continue;
     out.push({ file: `${dir}/${f}`, status, level: fmValue(text, '级别') || null });
@@ -46,9 +52,13 @@ function inFlightFiles(root, dir) {
   return out;
 }
 
+// 降级出账（2026-10-27 修复）：读不出 ≠ 没有。读失败此前被静默剔除——在途件数偏小、
+// INDEX 读失败与「INDEX 为空文件」输出同形，调用方无法区分「没这回事」与「没读出来」。
+// 现统一收集到 degraded 数组，由 readContext 回传给调用方（MCP read_context / CLI stdout）。
+
 // 最近确认行：主台账 ∪ confirmations.d 分片（原始行，坏行跳过），按 ts 排序取尾 N——
 // 「最近 N 行」取原始追加语义，不做 loadAllConfirmations 的同键去重（重确认的多次落账都是事实）。
-function recentConfirmations(root, n = CONFIRM_TAIL) {
+function recentConfirmations(root, n = CONFIRM_TAIL, degraded = []) {
   const rows = [];
   const mainFile = path.join(engineDir(root), 'confirmations.jsonl');
   const files = [mainFile];
@@ -59,10 +69,17 @@ function recentConfirmations(root, n = CONFIRM_TAIL) {
         if (f.endsWith('.jsonl')) files.push(path.join(shardDir, f));
       }
     }
-  } catch { /* 分片目录不可读：只回主台账 */ }
+  } catch (e) {
+    degraded.push(`.agents/confirmations.d/ 目录不可读（${(e && e.code) || (e && e.message) || '未知错误'}）——只回主台账`);
+  }
   for (const file of files) {
     let text = '';
-    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (e) {
+      degraded.push(`${path.basename(file)} 读不出（${(e && e.code) || (e && e.message) || '未知错误'}）——该账未计入最近确认行`);
+      continue;
+    }
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue;
       try {
@@ -83,25 +100,35 @@ export function readContext(root) {
   if (!fs.existsSync(wf)) {
     return { initialized: false, hint: HINT_UNINITIALIZED };
   }
+  const degraded = [];
   const indexFile = path.join(wf, 'INDEX.md');
   let index = { exists: false, head: [] };
   if (fs.existsSync(indexFile)) {
     let text = '';
-    try { text = fs.readFileSync(indexFile, 'utf8'); } catch { /* 读失败按占位处理 */ }
-    index = { exists: true, head: text.replace(/\r\n/g, '\n').split('\n').slice(0, INDEX_HEAD_LINES) };
+    let readable = true;
+    try {
+      text = fs.readFileSync(indexFile, 'utf8');
+    } catch (e) {
+      // 读失败与「INDEX 是空文件」此前输出同形（exists:true + head:[]）——调用方分不出
+      // 「没有索引」与「索引读不出来」。现单列 readable=false 并出账。
+      readable = false;
+      degraded.push(`workflow/INDEX.md 读不出（${(e && e.code) || (e && e.message) || '未知错误'}）——索引内容未取到（不是「索引为空」）`);
+    }
+    index = { exists: true, readable, head: readable ? text.replace(/\r\n/g, '\n').split('\n').slice(0, INDEX_HEAD_LINES) : [] };
   }
   const inFlight = {
-    intents: inFlightFiles(root, 'intents'),
-    specs: inFlightFiles(root, 'specs'),
-    plans: inFlightFiles(root, 'plans'),
+    intents: inFlightFiles(root, 'intents', degraded),
+    specs: inFlightFiles(root, 'specs', degraded),
+    plans: inFlightFiles(root, 'plans', degraded),
   };
-  const confirmations = recentConfirmations(root);
+  const confirmations = recentConfirmations(root, CONFIRM_TAIL, degraded);
   return {
     initialized: true,
     index,
     inFlight,
     inFlightCount: inFlight.intents.length + inFlight.specs.length + inFlight.plans.length,
     confirmations,
+    degraded,
   };
 }
 

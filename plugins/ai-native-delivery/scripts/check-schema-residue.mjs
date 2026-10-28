@@ -25,7 +25,7 @@
  *
  * 依赖：sqlcmd（PATH 可达）与后端服务 appsettings.json 的 DBConnParameter（定位为项目适配点：
  *       SCHEMA_RESIDUE_APPSETTINGS 显式指定优先，缺省扫 backend 下各服务项目的 appsettings.json 取首个命中）。
- * 用法：node .agents/scripts/check-schema-residue.mjs [--verbose]
+ * 用法：node <插件根>/scripts/check-schema-residue.mjs [--verbose]
  * 退出码：0 = 无未解释残留/缺失；1 = 有；2 = 前置缺失（appsettings/sqlcmd）。
  */
 import { execFileSync } from 'node:child_process';

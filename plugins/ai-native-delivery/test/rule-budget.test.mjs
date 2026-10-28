@@ -165,6 +165,45 @@ root = makeFixture({
     r2.code === 0, `exit=${r2.code}\n${r2.out}`);
 }
 
+// ---- T11 插件形态落位解析（2026-10-27 插件化修复）：项目侧无 .agents/scripts 时，
+//      预算模式 `.agents/scripts/…` / `.agents/commands/…` 必须解析到**插件内**实际落位，
+//      而不是解析到不存在的目录恒算 0（修复前棘轮恒过——恒为假绿）。
+//      夹具：空项目（无 .agents/scripts）+ 预算表写死插件真实段数上下限。
+{
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const realSections = fs.readdirSync(path.join(pluginRoot, 'scripts', 'check-loop-sections'))
+    .filter((f) => f.endsWith('.mjs')).length;
+  root = makeFixture({ budgets: `.agents/scripts/check-loop-sections/ ${realSections}#count\n` });
+  const atLimit = run(root);
+  check(`T11 插件形态：段数按插件真实落位计（${realSections} 段 = 上限 → exit 0）`,
+    atLimit.code === 0 && !/条目数/.test(atLimit.out), JSON.stringify(atLimit));
+  fs.rmSync(root, { recursive: true, force: true });
+
+  root = makeFixture({ budgets: `.agents/scripts/check-loop-sections/ ${realSections - 1}#count\n` });
+  const overLimit = run(root);
+  check(`T11 插件形态：段数超上限即拦（${realSections} > ${realSections - 1} → exit 1）`,
+    overLimit.code === 1 && /条目数/.test(overLimit.out), JSON.stringify(overLimit));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- T12 插件形态 hard 段棘轮：check-loop-hard 的段数读插件内 check-loop.mjs ----
+{
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const src = fs.readFileSync(path.join(pluginRoot, 'scripts', 'check-loop.mjs'), 'utf8');
+  const realHard = (src.match(/\{\s*lane:\s*'hard'/g) || []).length;
+  root = makeFixture({ budgets: `check-loop-hard ${realHard}#count\n` });
+  const atLimit = run(root);
+  check(`T12 插件形态：hard 段按插件真实落位计（${realHard} 段 = 上限 → exit 0）`,
+    atLimit.code === 0, JSON.stringify(atLimit));
+  fs.rmSync(root, { recursive: true, force: true });
+
+  root = makeFixture({ budgets: `check-loop-hard ${realHard - 1}#count\n` });
+  const overLimit = run(root);
+  check(`T12 插件形态：hard 段超上限即拦（${realHard} > ${realHard - 1} → exit 1）`,
+    overLimit.code === 1 && /check-loop-hard/.test(overLimit.out), JSON.stringify(overLimit));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 for (const d of fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('rule-budget-'))) {
   try { fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true }); } catch { /* Windows 文件锁容忍 */ }
 }

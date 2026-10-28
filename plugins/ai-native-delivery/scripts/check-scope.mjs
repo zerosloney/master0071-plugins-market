@@ -8,8 +8,8 @@
 //   文件匹配沿检查 8 宽松规则（f===df / 后缀 / 双向 includes）——声明粒度粗（写目录或部分路径）不误报越界；
 //   白名单豁免：workflow/ 台账（intents/specs/plans/incidents/INDEX）、.agents/confirmations.jsonl、
 //   .agents/confirmations.d/ 分片、package-lock.json——闭环随行件不算越界。
-// 测试：node .agents/scripts/check-scope.test.mjs（tmp git 仓 fixture：越界 / 未落 / 白名单 / strict / 无 plan）
-// 用法：node .agents/scripts/check-scope.mjs workflow/plans/<name>.md [--base <sha>|--staged] [--strict] [--root <dir>]
+// 测试：node <插件根>/test/check-scope.test.mjs（tmp git 仓 fixture：越界 / 未落 / 白名单 / strict / 无 plan）
+// 用法：node <插件根>/scripts/check-scope.mjs workflow/plans/<name>.md [--base <sha>|--staged] [--strict] [--root <dir>]
 //   默认比对工作区（含未跟踪，git status --porcelain 口径）；--base <sha> 比对 sha..HEAD 已提交变更；
 //   --staged 仅比对暂存区。
 // 沿革：2026-10-09 立档（缺口实证=检查 8 单向交集不拦夹带）。
@@ -28,7 +28,7 @@ for (let i = 0; i < args.length; i++) {
   else if (!planRel && !a.startsWith('--')) planRel = a;
 }
 const ROOT = path.resolve(rootArg || process.cwd());
-if (!planRel) { console.error('用法: node .agents/scripts/check-scope.mjs workflow/plans/<name>.md [--base <sha>|--staged] [--strict] [--root <dir>]'); process.exit(2); }
+if (!planRel) { console.error('用法: node <插件根>/scripts/check-scope.mjs workflow/plans/<name>.md [--base <sha>|--staged] [--strict] [--root <dir>]'); process.exit(2); }
 const planAbs = path.isAbsolute(planRel) ? planRel : path.join(ROOT, planRel);
 if (!fs.existsSync(planAbs)) { console.error(`plan 不可读: ${planRel}`); process.exit(2); }
 
