@@ -31,6 +31,11 @@ const zcodeHome = path.join(home, '.zcode');
 const ws = path.join(home, 'ws');
 for (const d of [claudeHome, codexHome, copilotHome, zcodeHome, ws]) mkdirSync(d);
 const posix = (p) => p.replaceAll('\\', '/');
+// zcode 分支没有专属 home 变量，默认读 ~/.zcode——os.homedir() 在 Windows 读 USERPROFILE、
+// 在 POSIX 读 HOME。此前只覆盖 USERPROFILE，Linux CI 上脚本仍读真实 /home/runner，找不到
+// 假 home 里那份 sheet，于是「zcode off: silent」在 ubuntu 上必红（node 20/22 都红）。
+// 两个变量一起给，才是真正的"伪造 home"。
+const fakeHomeEnv = { ...envBase, HOME: home, USERPROFILE: home };
 
 const ROLES = ['feature, refactoring', 'bug-fix', 'perf-issue', 'hillclimb', 'judgment and prose', 'strongest judgment',
   'how explorer', 'how explainer', 'why investigators', 'why synthesizer', 'reflect tooling',
@@ -61,12 +66,12 @@ writeFileSync(path.join(codexHome, 'pstack-models.md'), 'session hook: off\n');
 r = run('session-start.mjs', ['codex'], { ...envBase, CODEX_HOME: codexHome });
 ok('codex off: silent', r.code === 0 && r.out === '');
 
-r = run('session-start.mjs', ['zcode'], { ...envBase, USERPROFILE: home });
+r = run('session-start.mjs', ['zcode'], fakeHomeEnv);
 let j = JSON.parse(r.out);
 ok('zcode no sheet: JSON mandate', r.code === 0 && j.hookSpecificOutput.hookEventName === 'SessionStart'
   && j.hookSpecificOutput.additionalContext.includes('pstack:poteto-mode'));
 writeFileSync(path.join(zcodeHome, 'pstack-models.md'), 'session hook: off\n');
-r = run('session-start.mjs', ['zcode'], { ...envBase, USERPROFILE: home });
+r = run('session-start.mjs', ['zcode'], fakeHomeEnv);
 ok('zcode off: silent', r.code === 0 && r.out === '');
 rmSync(path.join(zcodeHome, 'pstack-models.md'));
 
