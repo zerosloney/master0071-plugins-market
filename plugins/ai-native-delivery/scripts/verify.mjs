@@ -120,25 +120,30 @@ const GATES = [
   //   冷缓存/网络抖动即假红、换内网源即假绿——判据不可靠，故整族退出关单门表。
   //   退役留档：机制台账两行（NuGet 漏洞门 / 前端依赖审计）+ papercuts 2026-10-16 行。
   { id: 'secrets-scan', cohort: 'security', name: '密钥扫描（gitleaks 全量+基线）', cmd: eng('check-secrets.mjs'), folder: '.', type: 'shell' },
-  { id: 'frontend-lint', cohort: 'product', name: '前端代码规范检查', cmd: 'npm run lint:check', folder: 'frontend', type: 'shell' },
+  // 项目适配点（2026-10-28 市场审查）：产品段各门都指向源项目那套 .NET + Vue 栈。消费项目里
+  // 这些路径不存在，装上即得五条红门，与「装上即得」的承诺冲突。加 requires 判据：所需路径不在
+  // 即判「不适用」SKIP（显式输出、不挡关单、不进 passedCount——没跑 ≠ 过了）。
+  // 与 optional 的分工：optional 针对「项目自带脚本」（走 scriptPath 两处查找），
+  // requires 针对「项目自带目录/解决方案文件」（直接相对项目根判定）。
+  { id: 'frontend-lint', cohort: 'product', requires: 'frontend/package.json', name: '前端代码规范检查', cmd: 'npm run lint:check', folder: 'frontend', type: 'shell' },
   // 前端单测硬门（2026-10-09）：Vitest 纯 node 面零外部依赖，CI 可执法——
   // 补齐「后端 1426 用例 vs 前端 0」的验证面不对称（AI-Native 架构审查 P1-1）。
-  { id: 'frontend-unit-test', cohort: 'product', name: '前端单测 (Vitest)', cmd: 'npm run test:unit', folder: 'frontend', type: 'shell' },
+  { id: 'frontend-unit-test', cohort: 'product', requires: 'frontend/package.json', name: '前端单测 (Vitest)', cmd: 'npm run test:unit', folder: 'frontend', type: 'shell' },
   // 项目适配点（2026-10-27 插件化迁移）：wiki 三方一致性脚本为**项目自带件**（wiki 内容源项目专有，
   // 不随插件分发）——脚本缺失时本门降级 SKIP（显式输出适配点说明，不算门红），在场时照常执法；
   // 门表计数与序不变（--list 恒 20 仍含本门），判据单源 optionalGateMissing（文末导出，测试锁语义）。
   { id: 'wiki-consistency', cohort: 'product', optional: 'verify-wiki-consistency.mjs', name: 'wiki 三方一致性', cmd: eng('verify-wiki-consistency.mjs'), folder: '.', type: 'shell' },
   // 项目适配点（2026-10-27 脱敏泛化）：解决方案名按使用项目替换（源为业务解决方案名，出库前清洗）。
-  { id: 'backend-build', cohort: 'product', name: '后端编译', cmd: 'dotnet build App.sln', folder: '.', type: 'shell' },
+  { id: 'backend-build', cohort: 'product', requires: 'App.sln', name: '后端编译', cmd: 'dotnet build App.sln', folder: '.', type: 'shell' },
   // --no-build（verify-diet 2026-10-21 ③）：测试直接消费 backend-build 产物，消「build → test 内部再
   // 构建同一 sln」的双构建。deps 仍必需：--no-build 无产物即红，且保持依赖门序（依赖门红 → 本门不启动）。
   // 入口收敛（gate-diet #1' 2026-10-23）：无分区库配置时等价于 dotnet test sln --no-build；
   // 配置分区库时 = 单测一次 + 集成测试按独立库进程分区并行（scripts/verify/backend/run-backend-tests.mjs）。
-  { id: 'backend-test', cohort: 'product', name: '后端自动化测试', cmd: 'node scripts/verify/backend/run-backend-tests.mjs', folder: '.', type: 'shell', deps: ['backend-build'] },
+  { id: 'backend-test', cohort: 'product', requires: 'scripts/verify/backend/run-backend-tests.mjs', name: '后端自动化测试', cmd: 'node scripts/verify/backend/run-backend-tests.mjs', folder: '.', type: 'shell', deps: ['backend-build'] },
   // 前端关单门（verify-diet ④ 分离）：本地关单只执法类型检查——vite bundle 产物不进任何断言，
   // 对验证语义无贡献，完整构建留在 deploy 与 CI（TF_BUILD 时仍 npm run build 全量）。
   // 门 id/计数变更（--list 恒 20，2026-10-25 local-gate-config 加入引擎段；2026-10-24 复核加三门）；s23 GATE_CMD 已同步收 vue-tsc。
-  { id: 'frontend-build', cohort: 'product',
+  { id: 'frontend-build', cohort: 'product', requires: 'frontend/package.json',
     name: process.env.TF_BUILD ? '前端构建 (含类型检查)' : '前端类型检查 (vue-tsc)',
     cmd: process.env.TF_BUILD ? 'npm run build' : 'npm run type-check',
     folder: 'frontend', type: 'shell' },
@@ -151,6 +156,17 @@ const GATES = [
 // gate.optional = 该门依赖的**项目自带**脚本名（scriptPath 项目侧优先、回退插件内定位）——
 // 两处皆缺 → 门降级 SKIP（不算门红）；脚本在场 → 照常执法。
 export const optionalGateMissing = (gate, root) => !!gate.optional && !fs.existsSync(scriptPath(root, gate.optional));
+
+// requires 门判据（2026-10-28 市场审查，导出供 verify.test 锁语义）：
+// gate.requires = 该门赖以成立的项目侧**路径**（相对项目根）——不存在即「不适用」SKIP。
+// 与 optional 的分工：optional 查「项目自带脚本」（scriptPath 两处查找，缺则降级）；
+// requires 查「项目自带目录 / 解决方案文件」（如前端工程、.sln），用于产品段那些只对
+// 特定技术栈成立的门——消费项目没有那套栈时，红门是误报，不是缺陷。
+export const gateNotApplicable = (gate, root) => !!gate.requires && !fs.existsSync(path.join(root, gate.requires));
+
+// 门表导出供测试做结构性断言（2026-10-28）：产品段每一门都必须带 optional 或 requires，
+// 否则新增一门「只对某技术栈成立」的门时会再退回「消费项目装上即红」的老问题。
+export { GATES };
 const fixtureGates = (cmd) => [
   { id: 'test', name: '测试步（注入）', cmd, folder: '.', type: 'shell' },
   { id: 'check-loop', name: '闭环门禁校验', cmd: `node "${path.join(SCRIPT_DIR, 'check-loop.mjs')}"`, folder: '.', type: 'shell' },
@@ -160,7 +176,7 @@ const fixtureGates = (cmd) => [
 // （前端 5203 + API 8932 + SMOKE_ADMIN/SMOKE_ADMIN_PASSWORD 凭证），CI 未配全栈前不假装执法；
 // 未启用时开跑前显式打印 loud-skip（跳过可见，与 fail-loud 对称）。
 if (process.env.RUN_E2E === '1') {
-  GATES.push({ id: 'frontend-e2e', cohort: 'product', name: '前端 E2E 冒烟 (Playwright)', cmd: 'npm run test:e2e', folder: 'frontend', type: 'shell' });
+  GATES.push({ id: 'frontend-e2e', cohort: 'product', requires: 'frontend/package.json', name: '前端 E2E 冒烟 (Playwright)', cmd: 'npm run test:e2e', folder: 'frontend', type: 'shell' });
 }
 
 // 计数捕获：优先 run-tests 的「断言合计」汇总行，退路取末条「合计: PASS x / FAIL y」
@@ -456,6 +472,12 @@ async function run() {
     if (optionalGateMissing(gate, ROOT)) {
       return Promise.resolve({ status: 0, skip: true, optionalSkip: true, stdout: '', stderr: '', durMs: 0 });
     }
+    // requires 门（2026-10-28）：所需项目侧路径不在 → 判「不适用」SKIP（同为合成跳过，
+    // 显式出账、不挡关单、不进 passedCount）。产品段各门只对特定技术栈成立，
+    // 消费项目没那套栈时红门是误报。
+    if (gateNotApplicable(gate, ROOT)) {
+      return Promise.resolve({ status: 0, skip: true, notApplicableSkip: true, stdout: '', stderr: '', durMs: 0 });
+    }
     // CI-only 门本地 loud-skip：合成「通过」裁决（不 spawn、不计耗时、不进 passedCount）——
     // 跳过在 finishGate 以 ⏭️ 行显式可见（与 E2E loud-skip 对称：没跑 ≠ 过了，台账可区分）。
     if (envSkipIds.has(gate.id)) {
@@ -503,6 +525,14 @@ async function run() {
     if (r.skip) {
       if (r.optionalSkip) {
         console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：SKIP（项目适配点：wiki 一致性门需要项目自带脚本 ${gate.optional}——wiki 内容源项目专有不随插件分发，缺失降级不挡关单；脚本在场即照常执法）\n`);
+        return false;
+      }
+      if (r.notApplicableSkip) {
+        console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：SKIP（不适用：本项目无 ${gate.requires}——该门只对特定技术栈成立，缺失不算门红；路径出现即自动恢复执法）\n`);
+        return false;
+      }
+      if (r.depSkipped) {
+        console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：SKIP（依赖门 ${r.depSkipped} 已跳过——本门消费其产物，上游不适用时下游同样不适用）\n`);
         return false;
       }
       console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：CI-only（TF_BUILD 外跳过——提交时刻 --staged 增量门已执法，全史扫描 CI 兜底）\n`);
@@ -588,6 +618,15 @@ async function run() {
           const depResults = await Promise.all(deps.map((d) => gatePromise.get(idxOf.get(d)) ?? Promise.resolve(null)));
           if (failedIdx >= 0) return;
           if (depResults.some((r) => !r || r.status !== 0)) continue; // 依赖未过 → 本门不启动
+          // 依赖被跳过（optional / requires 不适用）→ 本门同样跳过并出账。否则会出现
+          // 「构建已判不适用、测试照跑却因无产物变红」的假红——跳过必须沿依赖边传播。
+          const skippedDep = deps.find((d, k) => depResults[k]?.skip);
+          if (skippedDep) {
+            const p = Promise.resolve({ status: 0, skip: true, depSkipped: skippedDep, stdout: '', stderr: '', durMs: 0 });
+            gatePromise.set(i, p);
+            finishGate(i, await p);
+            continue;
+          }
         }
         const p = runGate(i);
         gatePromise.set(i, p);

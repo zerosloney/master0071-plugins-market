@@ -95,12 +95,16 @@ if (MODE === 'source-repo') {
     missing.length ? `缺失: ${missing.join('、')} —— git checkout -- .githooks 恢复后重跑` : '', null);
 }
 
-// ⑤ node 在位且主版本 ≥ 22（CI 已验证锚 22.17.0 / 本机 24.21.0，runtime-env §6.2）——pre-commit /
-// pre-push 的门禁面几乎全依赖 node，缺失即整体瘫痪（pre-push 已 fail-closed 阻断推送；本项把暴露提前到上岗自检）。版本下限 = CI 验证锚；无法自动安装，不代修。
+// ⑤ node 在位且主版本 ≥ 18——pre-commit / pre-push 的门禁面几乎全依赖 node，缺失即整体瘫痪
+//（pre-push 已 fail-closed 阻断推送；本项把暴露提前到上岗自检）。下限 = 代码真实可运行下限
+//（mcp/server.mjs 同一判据，hooks 依赖的 `Object.hasOwn` / `AbortSignal.timeout` 均 ≥17.3）。
+// 旧文案写 ≥22 并以「CI 验证锚」为由——该依据已过期：CI 矩阵自 2026-10 起跑 20 与 22，
+// 在 Node 20 的开发机上装插件会被自己的上岗自检判红，与 CI 声明支持的事实相反。
+// 故 18 为硬下限（低于即拦），<20 只代表未经 CI 验证，仍允许本地开发。无法自动安装，不代修。
 const nodeVer = (() => { try { return execFileSync('node', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })();
 const nodeMajor = Number((/^v(\d+)/.exec(nodeVer) || [])[1]);
-check(nodeMajor >= 22, 'Node.js 在位且主版本 ≥ 22（CI 锚 22.17 / 本机 24.21）',
-  nodeVer ? `当前: ${nodeVer}（低于 22，请升级）` : '未找到 node（六门中除 commit-msg 外全依赖 node）',
+check(nodeMajor >= 18, 'Node.js 在位且主版本 ≥ 18（代码下限；CI 验证锚 20 / 22）',
+  nodeVer ? `当前: ${nodeVer}（低于 18，请升级）` : '未找到 node（六门中除 commit-msg 外全依赖 node）',
   null);
 
 // ⑥ 工具链解析回显（跨机自适应，runtime-env.md §6.3）：解析顺序 = 环境变量（仅浏览器 CHROME_PATH）→ 本机登记 runtime-env.local.md → 标准安装位置。

@@ -688,6 +688,36 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 15：requires 判据与产品段结构性不变量（2026-10-28 市场审查）----
+// 产品段各门只对源项目那套 .NET + Vue 栈成立；消费项目路径不在时，红门是误报而非缺陷。
+// 判据单源 = 导出的 gateNotApplicable；结构性不变量 = 产品段每门都必须带 optional 或 requires，
+// 否则新增门会再退回「装上即五条红门」。
+{
+  const { gateNotApplicable, GATES } = await import('../scripts/verify.mjs');
+  const root = mkfix();
+  const requiredGate = { id: 'backend-build', requires: 'App.sln' };
+  const plainGate = { id: 'secrets-scan' };
+  check('场景 15：所需路径不在 → 判不适用（降级 SKIP）',
+    gateNotApplicable(requiredGate, root) === true, `${gateNotApplicable(requiredGate, root)}`);
+  fs.writeFileSync(path.join(root, 'App.sln'), '// 项目自带\n', 'utf8');
+  check('场景 15：所需路径在场 → 照常执法',
+    gateNotApplicable(requiredGate, root) === false, `${gateNotApplicable(requiredGate, root)}`);
+  check('场景 15：无 requires 标记的门不受判据影响',
+    gateNotApplicable(plainGate, root) === false, `${gateNotApplicable(plainGate, root)}`);
+
+  const product = GATES.filter((g) => g.cohort === 'product');
+  const naked = product.filter((g) => !g.optional && !g.requires).map((g) => g.id);
+  check('场景 15：产品段每一门都带 optional 或 requires（否则消费项目必然假红）',
+    naked.length === 0, `缺适用性判据：${naked.join('、') || '(none)'}`);
+  // backend-test 消费 backend-build 产物：两者必须同为「不适用即跳」，否则上游跳过、下游照跑必红
+  const bt = GATES.find((g) => g.id === 'backend-test');
+  const bb = GATES.find((g) => g.id === 'backend-build');
+  check('场景 15：backend-test 依赖 backend-build 且两者同带适用性判据',
+    !!bt?.deps?.includes('backend-build') && !!bt?.requires && !!bb?.requires,
+    `backend-test.requires=${bt?.requires} backend-build.requires=${bb?.requires}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

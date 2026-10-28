@@ -84,6 +84,17 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。
 
+### 门禁的适用性判据（`verify.mjs`，2026-10-28）
+
+`verify.mjs` 的 20 门里有 6 门只对**特定技术栈**成立（前端 `npm run lint:check` / Vitest / vue-tsc、后端 `dotnet build App.sln` / 后端测试、Playwright E2E、wiki 一致性脚本）。这类门带一条适用性判据，缺失时判 **SKIP** 并显式出账，不挡关单、不计入通过数（没跑 ≠ 过了）：
+
+| 判据字段 | 语义 | 现有门 |
+| --- | --- | --- |
+| `requires: <路径>` | 项目根下该路径存在才执法（目录 / 解决方案文件） | `frontend-lint`、`frontend-unit-test`、`frontend-build`、`frontend-e2e`、`backend-build`、`backend-test` |
+| `optional: <脚本名>` | 项目自带脚本存在才执法（`scriptPath` 两处查找） | `wiki-consistency` |
+
+两条硬约束（由 `test/verify.test.mjs` 场景 15 锁定）：**产品段每一门都必须带其中一个判据**，否则新增门会再退回「消费项目装上即红」；**跳过沿依赖边传播**——上游判不适用时下游同步跳过，避免「构建已跳过、测试照跑因无产物变红」的假红。路径一旦出现，该门自动恢复执法，无需改配置。
+
 ## 工程准入与验收
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；

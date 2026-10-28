@@ -36,6 +36,6 @@
 
 **仍保留**（属方法论实证锚，不含个人数据与凭证）：源产品路由（`/mto-orders` 等）、内部 commit 短 SHA（`5e4c41bc`、`803029f3` 等）、`features/*.md` 19 份源产品界面地图、`verify.mjs` 门表中的源产品构建命令。
 
-**待决（需 owner 定案，非脱敏问题）**：`verify.mjs` 的 `frontend-lint` / `backend-build`（`dotnet build App.sln`）/ `backend-test` 三条产品门**未标 `optional`**——只有 `wiki-consistency` 有。消费项目装上即得三条红门，而插件承诺的是"装上即得"。建议给门表加 `requires: <路径>` 判据（缺 `App.sln` / `frontend/` 即 SKIP），复用已测试过的 `optionalGateMissing` 语义；本条因 `verify.mjs` 正处迁移改造中而未一并改动。
+**已解决（2026-10-28）**：`verify.mjs` 的 `frontend-lint` / `frontend-unit-test` / `frontend-build` / `backend-build`（`dotnet build App.sln`）/ `backend-test` 五条产品门补齐 `requires` 判据，加上 E2E 条件门共六条——所需项目侧路径不在即判「不适用」SKIP 并显式出账，跳过沿依赖边传播（`backend-build` 跳过 → `backend-test` 同步跳过，不再产生「无产物却照跑」的假红）。产品段"每门必带 optional 或 requires"与"跳过传播"两条不变量由 `test/verify.test.mjs` 场景 15 锁定。消费项目空仓实测：6 门全部 SKIP，无真跑产品门。
 
 **建议后续**：`features/` 是源产品的界面地图，对消费项目无复用价值且暴露内部路由与提交历史。推荐随包只发一份 `features/_TEMPLATE.md`，由 `skills/verify-ui/scripts/gen-verify-feature.mjs --route <path>` 在使用项目里生成自己的地图；该删减动作影响面较大，留给 owner 执行。
