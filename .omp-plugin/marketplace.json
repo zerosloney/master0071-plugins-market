@@ -7,7 +7,7 @@
     {
       "name": "systemone-decision",
       "source": "./plugins/systemone-decision",
-      "version": "0.5.8",
+      "version": "0.5.9",
       "description": "SystemOne 决策模型工具集：2 个 MCP 工具（场景调度 + 自定义问题）覆盖 15 个内置业务场景，返回概率化判定、归一化决策与处置建议，端点/模型/超时经 SYSTEMONE_* 环境变量配置。",
       "category": "productivity",
       "keywords": ["mcp", "decision", "systemone"]
@@ -15,7 +15,7 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.7",
+      "version": "0.4.8",
       "description": "Git worktree 操作台：10 个 MCP 工具在可配置目录（仓库内外皆可，须先配置根）里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree；删除默认拒绝脏工作树与未合并提交（force=true 可越过），锁定中与受管目录外一律拒绝删除且 force 不放开。",
       "category": "productivity",
       "keywords": ["git", "worktree", "mcp", "branch"]
@@ -23,7 +23,7 @@
     {
       "name": "agent-pipelines",
       "source": "./plugins/agent-pipelines",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "description": "多代理编排管道套件：Ralph-Pipeline 通用编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。模型不写死，回退会话默认模型。",
       "category": "productivity",
       "keywords": ["multi-agent", "orchestration", "pipeline", "code-review"]
