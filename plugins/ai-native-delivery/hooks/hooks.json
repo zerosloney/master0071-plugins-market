@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Shell|Terminal",
+        "matcher": "Bash|Shell|Terminal|Command|command|Cmd|cmd|Exec|exec|Process|process|Run|run|Pwsh|pwsh|PowerShell|zsh|fish",
         "hooks": [
           {
             "type": "command",

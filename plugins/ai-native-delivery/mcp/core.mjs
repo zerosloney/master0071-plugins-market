@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 import {
   findProjectRoot,
@@ -116,7 +117,10 @@ function ledgerInvariantPrecheck(root) {
 // 口径与仓内其余写点一致：compact-ledgers / git-merge-jsonl / pipeline-run / rewrite-file。
 // 失败时原文件保持原样（tmp 清理），不吞错。
 function writeAtomic(target, text) {
-  const tmp = `${target}.tmp`;
+  // 临时名带 pid + 随机后缀（口径同本仓 worktree-ops saveConfig / decision-cache）：
+  // MCP 服务是长驻进程，两个并发的 update_ledger 追加同一台账时，固定 .tmp 名会互相
+  // 截断对方的写入；短命 CLI 脚本（rewrite-file 等）单写者无此面，不在本次收口范围。
+  const tmp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
     fs.writeFileSync(tmp, text, 'utf8');
     fs.renameSync(tmp, target);

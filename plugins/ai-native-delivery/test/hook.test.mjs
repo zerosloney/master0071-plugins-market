@@ -137,5 +137,31 @@ const mkRepo = () => {
     d && d.permissionDecisionReason);
 }
 
+// ---- ⑧ matcher 与内核名单同宽 ----
+// 本仓 systemone 踩过的洞：matcher 窄于内核名单时，宿主把命令交给 cmd/exec/pwsh 类工具
+// 的话 hook 压根不被调用，清单闸形同虚设。名单从 hook 源的 SHELL_TOOL 正则里提取，
+// 内核改名单时本断言跟着红，不需要手工维护两份。
+{
+  const hookSrc = fs.readFileSync(HOOK, 'utf8');
+  const listMatch = /const SHELL_TOOL = [^\n]*\(([a-z|]+)\)/.exec(hookSrc);
+  check('能从 hook 源提取 SHELL_TOOL 名单（提取失败=正则改形，需同步本测试）', Boolean(listMatch),
+    hookSrc.split(/\r?\n/).find((l) => l.includes('SHELL_TOOL')));
+  const names = listMatch ? listMatch[1].split('|') : [];
+  const manifest = JSON.parse(fs.readFileSync(path.join(TEST_DIR, '..', 'hooks', 'hooks.json'), 'utf8'));
+  const entries = manifest.hooks && manifest.hooks.PreToolUse;
+  check('hooks.json 的 PreToolUse matcher 存在', Array.isArray(entries) && entries.length > 0, JSON.stringify(manifest));
+  // 宿主按不区分大小写的正则匹配工具名（口径同 systemone 的 hook.smoke 断言）
+  const matcher = entries && entries.length > 0 ? new RegExp(entries[0].matcher, 'i') : /$^/;
+  const hostForms = (n) => [n, n.charAt(0).toUpperCase() + n.slice(1), `run_${n}`, `mcp__h__${n}_command`];
+  const missed = [];
+  for (const name of names) {
+    for (const form of hostForms(name)) {
+      if (!matcher.test(form)) missed.push(form);
+    }
+  }
+  check('matcher 覆盖内核 SHELL_TOOL 名单全部成员的常见宿主形态', missed.length === 0,
+    missed.length ? `matcher 漏掉宿主工具名 "${missed.join('", "')}"（内核名单 ${names.join('/')}）——该调用不会进风险闸` : '');
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);
