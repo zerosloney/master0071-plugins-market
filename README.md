@@ -4,11 +4,11 @@
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.5.6 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.4.5 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配，脏工作树、未合并提交、锁定与受管目录外一律拒绝删除 |
-| [agent-pipelines](plugins/agent-pipelines/) | 0.1.15 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
-| [pstack](plugins/pstack/) | 0.1.8 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
-| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.0 | `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
+| [systemone-decision](plugins/systemone-decision/) | 0.5.7 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [worktree-ops](plugins/worktree-ops/) | 0.4.6 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 可越过），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
+| [agent-pipelines](plugins/agent-pipelines/) | 0.1.16 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
+| [pstack](plugins/pstack/) | 0.1.9 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
+| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.1 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
 
 ## 标准包结构
 
@@ -38,6 +38,13 @@ plugins/
 │   ├── skills/               # 标准 skill：ralph-pipeline / coding-pipeline
 │   ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
+├── ai-native-delivery/
+│   ├── plugin.json           # 标准清单
+│   ├── mcp.json              # 标准 MCP 声明：delivery = node ./mcp/server.mjs（7 工具）
+│   ├── skills/               # 标准 skill：6 个（autonomous-run / review-method / session-resume / show-me-your-work / verify-ui / workflow-closeout）
+│   ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心（8 命令 / 3 角色）
+│   ├── scripts/  hooks/  config-templates/            # ↓ 引擎脚本 / PreToolUse 风险闸 / 项目侧配置种子
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 └── pstack/
     ├── plugin.json           # 标准清单
     ├── skills/               # 标准 skill：65 个（poteto-mode / 24 principle-* / 工作流）
@@ -64,6 +71,7 @@ Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标�
 |------|------|--------|
 | `plugins/*/hooks/hooks.json` | 客户端约定（非标准） | Claude Code / ZCode 等支持 Claude 式 hook 的宿主，用 `${CLAUDE_PLUGIN_ROOT}` 定位插件根 |
 | `plugins/agent-pipelines/commands/`、`agents/` | 客户端约定（非标准） | 支持斜杠命令与子智能体的宿主 |
+| `plugins/ai-native-delivery/commands/`、`agents/` | 客户端约定（非标准） | 同上（8 交付命令 / 3 角色委派）；`hooks/hooks.json` 走 Claude 式 hook 约定，omp 不加载 |
 | `plugins/pstack/agents/`、`hooks/` | 客户端约定（非标准） | 支持子智能体 / Claude 式 hook 的宿主；session hook 读 `~/.claude/pstack-models.md`，含 `session hook: off` 即不注入路由令；ZCode 按约定路径注册同一份 `hooks/hooks.json`，`session-start.mjs` 宿主自检后走 zcode 分支读 `~/.zcode/pstack-models.md`，映射见 `skills/poteto-mode/references/zcode-tools.md`。effort 分级子智能体与 bun 专属脚本在 `plugins/pstack/extras/`（默认不加载） |
 | `plugins/*/.zcode-plugin/plugin.json` | **非标准 ZCode 兼容垫片** | ZCode；提供内联 `mcpServers` 与 `userConfig` 设置页 |
 | `plugins/*/.codex-plugin/plugin.json` | **非标准 Codex 兼容垫片** | Codex；声明 `skills` / `mcpServers` / `hooks` 与 `interface` 展示信息 |
@@ -87,6 +95,7 @@ plugins/systemone-decision
 plugins/worktree-ops
 plugins/agent-pipelines
 plugins/pstack
+plugins/ai-native-delivery
 ```
 
 各客户端的分发入口以其自身文档为准（规范刻意不规定分发机制）。

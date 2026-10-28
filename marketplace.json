@@ -4,7 +4,7 @@
     {
       "name": "systemone-decision",
       "source": "./plugins/systemone-decision",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "description": "SystemOne 决策模型工具集：只注册 2 个 MCP 工具（场景调度 + 自定义问题）控制 schema 开销，内置 15 个业务场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，判据可按问题覆盖，返回概率化判定、归一化决策与处置建议，支持用 SYSTEMONE_SCENARIOS / SYSTEMONE_SCENARIOS_FILE 追加或覆盖自定义场景；在支持 Claude 式 hook 的宿主上还附带需求明确度预检与 shell 命令风险闸。默认接入 unisound u2-decision，端点/模型/超时经 SYSTEMONE_* 环境变量配置，可切换任意 SystemOne 兼容供应商。",
       "displayName": "SystemOne Decision",
       "displayName_i18n": {
@@ -17,20 +17,20 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.5",
-      "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / config / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析，脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。",
+      "version": "0.4.6",
+      "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / config / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析；删除默认拒绝脏工作树与未合并提交（force=true 可越过），锁定中与受管目录外的 worktree 一律拒绝删除且 force 不放开。",
       "displayName": "Worktree Ops",
       "displayName_i18n": {
         "zh-CN": "Worktree 操作台"
       },
       "description_i18n": {
-        "zh-CN": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建），脏工作树、未合并提交、锁定与受管目录外的 worktree 一律拒绝删除。"
+        "zh-CN": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + worktree-manager skill；根目录须先配置（未配置时拒绝创建）；删除默认拒绝脏工作树与未合并提交（force=true 可越过），锁定中与受管目录外的 worktree 一律拒绝删除且 force 不放开。"
       }
     },
     {
       "name": "agent-pipelines",
       "source": "./plugins/agent-pipelines",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "description": "多代理编排管道套件：Ralph-Pipeline 通用编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。模型不写死，回退会话默认模型。",
       "displayName": "Agent Pipelines",
       "displayName_i18n": {
@@ -43,7 +43,7 @@
     {
       "name": "pstack",
       "source": "./plugins/pstack",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "description": "poteto 风格 agent 工作流栈：poteto-mode 作为路由入口，按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理，支持 Claude 式 hook 的宿主由 SessionStart 自动注入路由令。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan）。",
       "displayName": "pstack",
       "displayName_i18n": {
@@ -56,14 +56,14 @@
     {
       "name": "ai-native-delivery",
       "source": "./plugins/ai-native-delivery",
-      "version": "0.1.0",
-      "description": "AI-Native 交付治理引擎：装上即得三层闭环——①任务级硬闭环：L1/L2/L3 风险泳道（两问定级、L2 触达面闭集、判低拦截）、check-loop 硬门 5 段（判低/回归证据/验收勾验/确认指纹/收敛对账）、关单与 pre-push 物理闸门；②状态收敛闭环：台账三件套（intents/specs/plans）+ INDEX + 收敛对账 + loop-watch 日检 + compact/archive 台账卫生；③治理进化闭环：judgment-ledger per-rule 计数、连续 6 月零命中退役候选、门禁段数棘轮、实测墙钟预算。台账与三本审计账为项目级资产，一律落使用项目仓库根（git root 锚定），不进插件目录与用户目录。MCP 7 工具 + 8 交付命令 + 3 角色委派，PreToolUse 风险闸 + git hooks + CI 模板三层拦截。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁）。",
+      "version": "0.1.1",
+      "description": "AI-Native 交付治理引擎：装上即得三层闭环——①任务级硬闭环：L1/L2/L3 风险泳道（两问定级、L2 触达面闭集、判低拦截）、check-loop 硬门 5 段（判低/回归证据/验收勾验/确认指纹/收敛对账）、关单与 pre-push 物理闸门；②状态收敛闭环：台账三件套（intents/specs/plans）+ INDEX + 收敛对账 + loop-watch 日检 + compact/archive 台账卫生；③治理进化闭环：judgment-ledger per-rule 计数、连续 6 月零命中退役候选、门禁段数棘轮、实测墙钟预算。台账与三本审计账为项目级资产，一律落使用项目仓库根（git root 锚定），不进插件目录与用户目录。MCP 7 工具 + 8 交付命令 + 3 角色委派，PreToolUse 风险闸 + git hooks 两层拦截（CI 层为项目适配点，插件不附带 CI 模板）。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁）。",
       "displayName": "AI-Native Delivery",
       "displayName_i18n": {
         "zh-CN": "AI-Native 交付治理"
       },
       "description_i18n": {
-        "zh-CN": "AI-Native 交付治理引擎：装上即得三层闭环——①任务级硬闭环：L1/L2/L3 风险泳道（两问定级、L2 触达面闭集、判低拦截）、check-loop 硬门 5 段（判低/回归证据/验收勾验/确认指纹/收敛对账）、关单与 pre-push 物理闸门；②状态收敛闭环：台账三件套（intents/specs/plans）+ INDEX + 收敛对账 + loop-watch 日检 + compact/archive 台账卫生；③治理进化闭环：judgment-ledger per-rule 计数、连续 6 月零命中退役候选、门禁段数棘轮、实测墙钟预算。台账与三本审计账为项目级资产，一律落使用项目仓库根（git root 锚定），不进插件目录与用户目录。MCP 7 工具 + 8 交付命令 + 3 角色委派，PreToolUse 风险闸 + git hooks + CI 模板三层拦截。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁）。"
+        "zh-CN": "AI-Native 交付治理引擎：装上即得三层闭环——①任务级硬闭环：L1/L2/L3 风险泳道（两问定级、L2 触达面闭集、判低拦截）、check-loop 硬门 5 段（判低/回归证据/验收勾验/确认指纹/收敛对账）、关单与 pre-push 物理闸门；②状态收敛闭环：台账三件套（intents/specs/plans）+ INDEX + 收敛对账 + loop-watch 日检 + compact/archive 台账卫生；③治理进化闭环：judgment-ledger per-rule 计数、连续 6 月零命中退役候选、门禁段数棘轮、实测墙钟预算。台账与三本审计账为项目级资产，一律落使用项目仓库根（git root 锚定），不进插件目录与用户目录。MCP 7 工具 + 8 交付命令 + 3 角色委派，PreToolUse 风险闸 + git hooks 两层拦截（CI 层为项目适配点，插件不附带 CI 模板）。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁）。"
       }
     }
   ]
