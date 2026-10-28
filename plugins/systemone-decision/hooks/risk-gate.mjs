@@ -25,7 +25,17 @@ export const SHELL_TOOL_NAMES = [
   'bash', 'shell', 'terminal', 'command', 'cmd', 'exec', 'process', 'run',
   'powershell', 'pwsh', 'zsh', 'fish',
 ];
-const SHELL_TOOL = new RegExp(`(^|[_\\-.])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-.]|$)`, 'i');
+const SHELL_TOOL = new RegExp(`(^|[_\\-. ])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-. ]|$)`, 'i');
+
+// 驼峰工具名先拆词再匹配（2026-10-28）：宿主用 `RunCommand` / `ExecuteCommand` / `BashTool` 这类
+// 命名时，`Command` 前是大写字母 R、后是小写字母 T——两侧都不是 [_\-.] 边界，于是 matcher 命中
+// （它按子串判定，hook 被调用）而内核对不上，落进「非 shell 工具」静默放行。这是 2026-10-27 修的
+// 「matcher 太窄导致 hook 不被调用」的镜像洞：那次只对了 matcher→内核一个方向。
+// 拆词把 `RunCommand` 变成 `Run Command`，两侧变成空格边界（已加进上面的字符类）。
+// 方向安全：拆词只会让更多工具落进管辖范围（多发一次判定请求），不会让 shell 工具漏出。
+export function normalizeToolName(toolName) {
+  return String(toolName).replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
 
 // 明显只读的命令捷径：不发判定请求直接放行（与 clarity 的寒暄捷径同一思路）
 // 注意 git branch / git remote 不在这里：它们是**命令族**而不是只读动作，见下方 gitReadonlyAllowed。
@@ -138,9 +148,12 @@ const QUESTIONS = {
   },
 };
 
-/** 该工具是否属于风险闸的管辖范围（shell 类）。 */
+/** 该工具是否属于风险闸的管辖范围（shell 类）。
+ *  先按原样匹配（大小写变体如 `basH` 直接命中）；失败再拆驼峰词重试——`RunCommand` 拆成
+ *  `Run Command` 后 `Command` 前是空格边界。两步都失败才算不管辖。 */
 export function applies(toolName) {
-  return typeof toolName === 'string' && SHELL_TOOL.test(toolName);
+  if (typeof toolName !== 'string') return false;
+  return SHELL_TOOL.test(toolName) || SHELL_TOOL.test(normalizeToolName(toolName));
 }
 
 // 退化路径：宿主用了别的字段名承载命令。原先把整个 tool_input 序列化外发，

@@ -15,7 +15,12 @@
 // 清单来源：项目侧 .agents/settings.json（permissions.deny / ask，§5.2）→ 插件种子
 // （config-templates/settings.json）→ 代码内最小兜底；其中 **deny 取「内置地板 ∪ 来源追加」，
 // 被治理项目只能加严、不能放宽**（ask 仍可被项目侧整体接管）。
-// 匹配语义：deny/ask 都用子串命中（链式 `x && git push -f` 也拦）；deny 优先于 ask。
+// 匹配语义：deny/ask 两条都按「子串命中 **或** 词元全含」判定，deny 优先于 ask。
+//   - 子串：`cd app && git push -f` 这类链式命令照样命中；
+//   - 词元全含：规则的每个词都出现在命令里即命中（不限相邻、不限顺序）。补的是参数位置差异——
+//     `git push --force` 是子串，但 `git push origin main --force`、`git push -C x` 这类把选项
+//     写在参数之后/之中时子串对不上，规则就静默漏判（2026-10-28 实测：最常见的 force 写法恰好漏）。
+//     两边都是确定性清单匹配，不做语义猜测；词元判据要求规则至少两个词，避免单词规则满盘命中。
 // 曾有第三个 `allow` 清单（2026-10-28 移除）：它排在判定链末端、命中后返回 null，与「清单外
 // 静默放行」完全等价，是条空转配置；而它的内容（git commit / git push / node / npm run）会让
 // 读者误以为这些命令已被预先批准，还与 implementer「禁提交推送」的角色契约直接冲突。
@@ -31,7 +36,18 @@ const STDIN_MAX_CHARS = 100_000; // 与 systemone hook-io 同上限：截断即�
 // 本正则决定**调到了之后管不管**。2026-10-28 市场审查实测到这里脱节（matcher 只写
 // `Bash|Shell|Terminal` 三个名，宿主把命令交给 Command/Run/exec/pwsh 类工具时本 hook 根本不被
 // 调用，风险闸对那类调用零告警失灵）。由 test/hook.test.mjs ⑧ 机器对账，别再靠注释同步。
-const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.]|$)/i;
+const SHELL_TOOL = /(^|[_\-.\s])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.\s]|$)/i;
+
+// 驼峰宿主名先拆词再匹配（2026-10-28）：matcher 是子串正则，`RunCommand` / `ExecuteCommand` /
+// `BashTool` 都会被它命中并调用 hook；但 `Command` 前是大写 R、后是小写 T，两侧都不是边界，
+// 于是内核对不上、落进「非 shell 工具」静默放行——闸门看着在，实际不管这类调用。
+// 它与 2026-10-27 修的「matcher 太窄导致 hook 根本不被调用」是同一个洞的两个方向：
+// 那次只把 matcher 拉到与内核同宽，没锁「matcher 更宽时内核必须兜住」。
+// 拆词只作为**补充**判据：先按原样匹配（`basH` 这类大小写变体原样就命中），失败再拆驼峰重试。
+// 只拆词不原样匹配会把 `basH` 拆成 `bas H` 反而漏掉——这正是加上第二条判据的原因。
+const normalizeToolName = (toolName) => String(toolName).replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+const applies = (toolName) =>
+  typeof toolName === 'string' && (SHELL_TOOL.test(toolName) || SHELL_TOOL.test(normalizeToolName(toolName)));
 
 // 代码内最小兜底（插件种子 settings.json 也缺失时的最后防线——deny 面永不因缺文件变空）
 const BUILTIN = {
@@ -41,12 +57,23 @@ const BUILTIN = {
 
 const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
 
+// 词元化：按空白与 shell 分隔符切，供「词元全含」判据使用（保留 `--flag` 原样，不去引号——
+// 引号包裹的 `"--force"` 切出来带引号，宁漏勿误，那类写法仍走子串判据）。
+const tokensOf = (s) => norm(s).split(/[\s;&|()]+/).filter(Boolean);
+
+// 规则命中：子串命中，或（规则 ≥2 个词且每个词都作为词元出现）。
+// 后者补「选项位置」差异——`git push --force` 是子串，`git push origin main --force` 不是；
+// 而后者正是最常见的 force 写法。词元判据不求相邻/顺序：代价是极少数跨语句组合会多拦一次
+// （如 `git push a; rm --force x`），方向是 fail-safe（多问一次/多拦一次），可接受。
 function matchList(command, rules) {
   const c = norm(command);
+  const tokens = new Set(tokensOf(command));
   for (const rule of rules || []) {
     const r = norm(rule);
     if (!r) continue;
     if (c.includes(r)) return rule;
+    const words = tokensOf(rule);
+    if (words.length >= 2 && words.every((w) => tokens.has(w))) return rule;
   }
   return null;
 }
@@ -143,7 +170,7 @@ async function main() {
       },
     };
   }
-  if (!SHELL_TOOL.test(toolName)) return null;
+  if (!applies(toolName)) return null;
   if (command === null) {
     return {
       hookSpecificOutput: {

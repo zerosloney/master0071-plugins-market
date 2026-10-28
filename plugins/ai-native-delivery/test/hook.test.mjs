@@ -57,6 +57,33 @@ const mkRepo = () => {
   check('链式命令里的 git push --force 仍被 deny', decisionOf(r)?.permissionDecision === 'deny', r.stdout);
 }
 
+// ---- ①'' 选项位置差异：force 写在参数之后 / 参数夹在中间（2026-10-28 词元判据）----
+// 三种写法在 git 里等价，但只有第一种是 `git push --force` 的子串——后两种在补词元判据前
+// 静默放行（实测），而它们恰是最常见的写法。
+{
+  const cases = [
+    'git push origin main --force',
+    'git push --force origin main',
+    'git -C /repo push origin main --force',
+    'git push -f origin main',
+    'git  push   origin   main   --force',
+  ];
+  for (const command of cases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, process.cwd());
+    check(`选项位置不影响 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+}
+
+// ---- ①''' 驼峰宿主工具名必须同样受管辖（2026-10-28 内核拆词）----
+// matcher 是子串正则，这三种名字都会被它命中并调用 hook；但 `Command` 两侧都不是词边界，
+// 补拆词前内核判「非 shell 工具」静默放行——闸门被调用却什么都没拦。
+{
+  for (const toolName of ['RunCommand', 'ExecuteCommand', 'BashTool']) {
+    const r = run({ tool_name: toolName, tool_input: { command: 'git reset --hard' } }, process.cwd());
+    check(`驼峰工具名 ${toolName} → deny（不再静默放行）`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+}
+
 // ---- ② 普通命令 → 静默放行（无 stdout 决策体）----
 {
   const r = run({ tool_name: 'Bash', tool_input: { command: 'git status' } }, process.cwd());
@@ -185,6 +212,23 @@ const mkRepo = () => {
       // 反向锚：确认对账用的是宿主语义（大小写敏感正则），`Bash|Shell|Terminal` 那种窄写法必红
       check(`${label} matcher 非窄写法（不只 Bash/Shell/Terminal）`,
         new RegExp(matcher).test('Command') && new RegExp(matcher).test('pwsh'), matcher);
+      // 反向对账的另一方向（2026-10-28）：matcher 是子串正则，比代码 SHELL_TOOL 更宽。驼峰宿主名
+      // （RunCommand / ExecuteCommand / BashTool）会被 matcher 命中并调用 hook，但 `Command` 两侧都不是
+      // 词边界，内核对不上就判「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面那条断言只验
+      // 「matcher 覆盖代码名单」，方向恰好相反，锁不住这个洞。这里用真实进程跑，判的是实际行为。
+      const reg = new RegExp(matcher);
+      for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell']) {
+        check(`${label} 前提：matcher 会命中 "${hostName}"`, reg.test(hostName));
+        if (!reg.test(hostName)) continue;
+        const r = run({ tool_name: hostName, tool_input: { command: 'git reset --hard' } }, process.cwd());
+        check(`${label} 驼峰名 "${hostName}" 的 deny 命令确实被拦`,
+          decisionOf(r)?.permissionDecision === 'deny', `stdout=${r.stdout}`);
+      }
+      // 拆词不能把普通工具也拉进管辖（否则每次文件读写都发判定）
+      for (const notShell of ['Read', 'Write', 'Edit', 'Grep', 'WebFetch']) {
+        const r = run({ tool_name: notShell, tool_input: { command: 'git reset --hard' } }, process.cwd());
+        check(`${label} 非 shell 工具 "${notShell}" 不被管辖`, r.status === 0 && r.stdout.trim() === '', r.stdout);
+      }
     }
   }
 }

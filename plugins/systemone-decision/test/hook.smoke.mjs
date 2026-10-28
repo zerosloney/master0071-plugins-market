@@ -522,6 +522,19 @@ const main = async () => {
         assert.ok(riskGate.applies(variant), `内核 applies() 不认大小写变体 "${variant}"`);
       }
     }
+    // 反向对账的**另一方向**（2026-10-28）：上面只验「matcher 覆盖内核名单」，等价于假设 matcher 更窄。
+    // matcher 实际是子串正则，比内核宽——驼峰名 `RunCommand` / `ExecuteCommand` / `BashTool` 会被 matcher
+    // 命中并调用 hook，而 `Command` 两侧都不是词边界，内核对不上就判「非 shell 工具」静默放行。
+    // 这里直接把「matcher 会命中的宿主名」交给内核，要求它必须也认。
+    const camelHostNames = ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell', 'ExecCommand'];
+    for (const hostName of camelHostNames) {
+      assert.ok(matcher.test(hostName), `前提失效：matcher 本应命中 "${hostName}"（对账基准变了请更新本断言）`);
+      assert.ok(riskGate.applies(hostName), `matcher 命中但内核不认 "${hostName}"——hook 被调用却静默放行`);
+    }
+    // 管辖范围没有被放大到普通工具上（拆词不能把 Read/Write 也拉进来）
+    for (const notShell of ['Read', 'Write', 'Edit', 'Task', 'Grep', 'WebFetch']) {
+      assert.ok(!riskGate.applies(notShell), `内核误把非 shell 工具 "${notShell}" 纳入管辖——每次文件读写都会发判定请求`);
+    }
   });
 
   // stdin 截断 / 命令超 100K 上限时无法完整分析：不得走只读捷径，也不发判定请求，fail-closed 转 ask
