@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, 
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sandbox = mkdtempSync(path.join(tmpdir(), "agent-pipelines-test-"));
@@ -760,6 +760,58 @@ check(
   graphResult.status === 1 && JSON.parse(graphResult.stdout).budget.overflow === true,
   graphResult.stdout + graphResult.stderr,
 );
+
+// ---- dag.mjs 单源：graph.mjs（CLI）与 render.mjs（看板）必须给出同一份拓扑序与环 ----
+// 2026-10-28 合并前两处各写一份约 35 行同构代码，环检测一边用 Set、一边用 Array.includes。
+// 这里直接对同一份任务集跑两条路径，要求结果逐项相等——单源被拆开时会立刻报红。
+{
+  const { analyzeDependencies } = await import(pathToFileURL(path.join(root, "scripts", "dag.mjs")).href);
+  const { layoutGraph } = await import(pathToFileURL(path.join(root, "scripts", "render.mjs")).href);
+
+  const dagTasks = [
+    { id: "a", depends_on: [] },
+    { id: "b", depends_on: ["a"] },
+    { id: "c", depends_on: ["a"] },
+    { id: "d", depends_on: ["b", "c"] },
+    { id: "e", depends_on: [] },
+  ];
+  const analysis = analyzeDependencies(dagTasks);
+  // 拓扑序只保证「依赖在前」，不保证同层全局字典序（Kahn 的初始队列排序后，新入队的节点追加在尾部，
+  // 于是 a 的出边 b/c 排在初始无依赖的 e 之后）。断言按依赖关系验，别钉死字符串——
+  // 钉死会把一次合法的实现调整变成假红。
+  const posOf = new Map(analysis.order.map((id, i) => [id, i]));
+  check("dag：拓扑序覆盖全部节点", analysis.order.length === dagTasks.length, analysis.order.join(","));
+  check("dag：依赖一律排在被依赖者之后",
+    dagTasks.every((t) => (t.depends_on || []).every((d) => posOf.get(d) < posOf.get(t.id))),
+    analysis.order.join(","));
+  check("dag：分层为最长依赖链（d 在第 2 层）", analysis.layer.get("d") === 2 && analysis.layer.get("a") === 0,
+    JSON.stringify([...analysis.layer]));
+  check("dag：无环无错", analysis.cycles.length === 0 && analysis.errors.length === 0);
+
+  // 与看板路径逐项相等（两条入口共用同一实现后，这条断言防它们再次分叉）
+  const layout = layoutGraph(dagTasks);
+  check("dag ↔ layoutGraph 拓扑序一致", layout.order.join(",") === analysis.order.join(","), layout.order.join(","));
+  check("dag ↔ layoutGraph 分层一致",
+    [...analysis.layer].every(([id, l]) => layout.layer.get(id) === l), JSON.stringify([...layout.layer]));
+
+  // 环：两侧都要点名同样的节点（Array.includes 与 Set 查找口径应一致）
+  const cyclic = [{ id: "x", depends_on: ["y"] }, { id: "y", depends_on: ["x"] }, { id: "z", depends_on: [] }];
+  const cycleAnalysis = analyzeDependencies(cyclic);
+  check("dag：环内节点被点名、环外不受牵连",
+    cycleAnalysis.cycles.sort().join(",") === "x,y" && cycleAnalysis.order.join(",") === "z",
+    `${cycleAnalysis.cycles.join(",")} / ${cycleAnalysis.order.join(",")}`);
+  check("dag ↔ layoutGraph 环判定一致",
+    layoutGraph(cyclic).cycles.sort().join(",") === cycleAnalysis.cycles.join(","));
+
+  // null / 缺 id 条目：计为 error 而非崩溃（render 侧同样依赖这条）
+  const messy = [null, { depends_on: [] }, { id: "ok", depends_on: ["missing"] }];
+  const messyAnalysis = analyzeDependencies(messy);
+  check("dag：null 与缺 id 各计一条 error（共 2 条）",
+    messyAnalysis.errors.filter((e) => /without a string id/.test(e)).length === 2, messyAnalysis.errors.join(" | "));
+  check("dag：未知依赖进 errors", messyAnalysis.errors.some((e) => /unknown dependency missing/.test(e)),
+    messyAnalysis.errors.join(" | "));
+  check("dag：非数组输入退化为空", analyzeDependencies(undefined).order.length === 0);
+}
 
 rmSync(sandbox, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "./args.mjs";
+import { analyzeDependencies } from "./dag.mjs";
 
 const PIPELINES = {
   ralph: { label: "Ralph Pipeline", color: "#6366f1" },
@@ -43,54 +44,9 @@ function jsonBlock(value) {
   return `<pre class="code">${htmlEscape(JSON.stringify(value, null, 2))}</pre>`;
 }
 
-// 依赖图：拓扑排序 + 分层列（复用 graph.mjs 的算法，只读不落盘）
+// 依赖图：分层列 + 拓扑序，算法走 dag.mjs 单源（与 graph.mjs 的 CLI 共用，2026-10-28 合并）
 export function layoutGraph(tasks) {
-  const ids = tasks.map((task) => task && task.id).filter((id) => typeof id === "string");
-  const idSet = new Set(ids);
-  const indegree = new Map(ids.map((id) => [id, 0]));
-  const next = new Map(ids.map((id) => [id, []]));
-  const errors = [];
-  for (const task of tasks) {
-    if (!task || typeof task.id !== "string") {
-      errors.push("task without a string id");
-      continue;
-    }
-    for (const dep of Array.isArray(task.depends_on) ? task.depends_on : []) {
-      if (!idSet.has(dep)) {
-        errors.push(`task ${task.id}: unknown dependency ${dep}`);
-        continue;
-      }
-      next.get(dep).push(task.id);
-      indegree.set(task.id, indegree.get(task.id) + 1);
-    }
-  }
-  // 分层：层 = 最长依赖链长度；无依赖为 0 层
-  // 兜底初值必须是 -1 而不是 0：get() ?? 0 会让首次访问的节点因 0 <= 0 直接返回，
-  // layer 永远为空、全部任务挤在第 0 列（分层失效）。
-  const layer = new Map();
-  const visiting = new Set();
-  const visit = (id, depth) => {
-    const current = layer.get(id) ?? -1;
-    if (depth <= current) return;
-    if (visiting.has(id)) return; // 环防护：环内节点不再沿环加深，防止无限递归
-    visiting.add(id);
-    layer.set(id, depth);
-    for (const child of next.get(id) || []) visit(child, depth + 1);
-    visiting.delete(id);
-  };
-  for (const id of ids) if (indegree.get(id) === 0) visit(id, 0);
-  for (const id of ids) if (!layer.has(id)) visit(id, 0); // 环内节点兜底
-  const queue = ids.filter((id) => indegree.get(id) === 0).sort();
-  const order = [];
-  while (queue.length > 0) {
-    const id = queue.shift();
-    order.push(id);
-    for (const dependent of next.get(id) || []) {
-      indegree.set(dependent, indegree.get(dependent) - 1);
-      if (indegree.get(dependent) === 0) queue.push(dependent);
-    }
-  }
-  const cycles = ids.filter((id) => !order.includes(id));
+  const { layer, order, cycles, errors } = analyzeDependencies(tasks);
   return { layer, order, cycles, errors };
 }
 

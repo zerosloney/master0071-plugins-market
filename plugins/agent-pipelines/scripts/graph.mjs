@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "./args.mjs";
+import { analyzeDependencies } from "./dag.mjs";
 
 const PIPELINES = {
   ralph: { maxCycles: 10, factor: 0.8 },
@@ -30,41 +31,8 @@ function main() {
     fail(`state file is not valid JSON: ${err.message}`);
   }
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-  const ids = tasks.map((task) => task && task.id).filter((id) => typeof id === "string");
-  const idSet = new Set(ids);
-  const errors = [];
-
-  const indegree = new Map(ids.map((id) => [id, 0]));
-  const next = new Map(ids.map((id) => [id, []]));
-  for (const task of tasks) {
-    if (!task || typeof task.id !== "string") {
-      errors.push("task without a string id");
-      continue;
-    }
-    for (const dep of Array.isArray(task.depends_on) ? task.depends_on : []) {
-      if (!idSet.has(dep)) {
-        errors.push(`task ${task.id}: unknown dependency ${dep}`);
-        continue;
-      }
-      next.get(dep).push(task.id);
-      indegree.set(task.id, indegree.get(task.id) + 1);
-    }
-  }
-
-  const queue = ids.filter((id) => indegree.get(id) === 0).sort();
-  const order = [];
-  const ordered = new Set();
-  while (queue.length > 0) {
-    const id = queue.shift();
-    order.push(id);
-    ordered.add(id);
-    for (const dependent of next.get(id) || []) {
-      indegree.set(dependent, indegree.get(dependent) - 1);
-      if (indegree.get(dependent) === 0) queue.push(dependent);
-    }
-  }
-  // 环 = 拓扑排序没吐出来的节点；用 Set 查找，O(n) 而非 includes 的 O(n²)
-  const cycles = ids.filter((id) => !ordered.has(id));
+  // 依赖图分析（未知依赖 / 拓扑序 / 环）走 dag.mjs 单源——与 render.mjs 的看板分层共用同一份算法。
+  const { order, cycles, errors } = analyzeDependencies(tasks);
   const maxCycles = Number.isInteger(state.max_iterations) && state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const limit = Math.floor(maxCycles * spec.factor);
   const budget = { limit, count: tasks.length, overflow: tasks.length > limit };
