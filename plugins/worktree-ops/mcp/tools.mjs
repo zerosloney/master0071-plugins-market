@@ -127,21 +127,21 @@ const tools = [
       if (branch.startsWith("-") || branch.trim() !== branch) {
         return fail(`invalid branch name \`${branch}\`: must not start with "-" or contain surrounding whitespace.`);
       }
-// 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
-// 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
-const branchExists = Boolean(
-(git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
-);
-// 分支已存在时 baseRef 只用于新建分支，传了就是矛盾意图
-const explicitBase = args.baseRef !== undefined && args.baseRef !== null;
-if (branchExists && explicitBase && String(args.baseRef).trim() !== "") {
-return fail(
-`branch \`${branch}\` already exists, so \`baseRef\` would be ignored (it only seeds new branches).\nOmit \`baseRef\` to check the existing branch out, or pass a different \`name\`.`,
-);
-}
-const base = resolveBase(config, repo, args.baseRef);
-const baseRef = base.ref;
-const rootDir = managedRoot(config, repo);
+      // 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
+      // 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
+      const branchExists = Boolean(
+        (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
+      );
+      // 分支已存在时 baseRef 只用于新建分支，传了就是矛盾意图
+      const explicitBase = args.baseRef !== undefined && args.baseRef !== null;
+      if (branchExists && explicitBase && String(args.baseRef).trim() !== "") {
+        return fail(
+          `branch \`${branch}\` already exists, so \`baseRef\` would be ignored (it only seeds new branches).\nOmit \`baseRef\` to check the existing branch out, or pass a different \`name\`.`,
+        );
+      }
+      const base = resolveBase(config, repo, args.baseRef);
+      const baseRef = base.ref;
+      const rootDir = managedRoot(config, repo);
       // README 承诺 worktree 建在配置根目录下：显式 path 也必须落在受管根内
       const dir = args.path ? path.resolve(String(args.path)) : path.join(rootDir, slug(branch));
       if (args.path && !isInside(dir, rootDir)) {
@@ -157,7 +157,8 @@ const rootDir = managedRoot(config, repo);
           return fail(`target directory ${dir} is inside the repository's git directory ${gitDir}.\nMove the configured root outside the git directory (worktree_config), or pass \`path\` outside it.`);
         }
         // 优先忽略整个受管根（一条覆盖后续所有 worktree）；root==repo 时退化为按本次目录忽略
-        ignoreEntry = ensureInsideRepoIgnore(repo, rootDir, gitDir) ?? ensureInsideRepoIgnore(repo, dir, gitDir);      }
+        ignoreEntry = ensureInsideRepoIgnore(repo, rootDir, gitDir) ?? ensureInsideRepoIgnore(repo, dir, gitDir);
+      }
 
       const registered = listWorktrees(repo);
       // slug() 把仅大小写 / 非 ASCII 不同的分支折叠到同一目录：撞名时点名根因，而不是只报目录非空
@@ -183,26 +184,26 @@ const rootDir = managedRoot(config, repo);
       const baseLabel = branchExists ? branch : baseRef;
       // 简报与统计都对准本次真正的基线 baseRef，而不是「跟随会话当前分支」的默认值：
       // 显式传了 baseRef 时两者可能不同，旧实现会让简报里的 Base target 和 `- base:` 互相矛盾。
-const info = describe(repo, pickWorktree(repo, branch), baseRef, { includeSize: false });
-// auto 跟随的分支落后默认分支时，新 worktree 会缺默认分支上的文件。这是 auto 语义的结果
-// 而非错误，所以照常创建，但必须在返回里点名，否则用户会拿到一个「看着完整、实际缺文件」的工作区。
-const lag = base.auto === "follow" && !branchExists ? autoBaseLag(repo, baseRef) : null;
-return ok(
-[
-`Created worktree for branch \`${branch}\`${branchExists ? " (existing branch checked out)" : ""}.`,
-``,
-`- path: ${dir}`,
-`- branch: ${branch}`,
-`- base: ${baseLabel} @ ${info.head}`,
-...(!branchExists && !nameIsExistingBranch && !name.includes("/") && !/[A-Za-z0-9]/.test(name)
-? [`- note: \`${name}\` has no ASCII letters or digits; the branch uses the stable hash suffix \`${slugged}\`. Pass an explicit branch name for a readable one.`]
-: []),
-...(lag
-? [`- base lag: \`${baseRef}\` is ${lag.behind} commit(s) behind \`${lag.defaultBranch}\`; this worktree starts without those changes. To branch off the up-to-date base instead, re-create with baseRef: "${lag.defaultBranch}".`]
-: []),
-...(ignoreEntry?.wrote
-? [`- note: root is inside the repository; added \`${ignoreEntry.entry}\` to .git/info/exclude (local-only ignore) so the worktree does not pollute \`git status\`.`]
-: []),
+      const info = describe(repo, pickWorktree(repo, branch), baseRef, { includeSize: false });
+      // auto 跟随的分支落后默认分支时，新 worktree 会缺默认分支上的文件。这是 auto 语义的结果
+      // 而非错误，所以照常创建，但必须在返回里点名，否则用户会拿到一个「看着完整、实际缺文件」的工作区。
+      const lag = base.auto === "follow" && !branchExists ? autoBaseLag(repo, baseRef) : null;
+      return ok(
+        [
+          `Created worktree for branch \`${branch}\`${branchExists ? " (existing branch checked out)" : ""}.`,
+          ``,
+          `- path: ${dir}`,
+          `- branch: ${branch}`,
+          `- base: ${baseLabel} @ ${info.head}`,
+          ...(!branchExists && !nameIsExistingBranch && !name.includes("/") && !/[A-Za-z0-9]/.test(name)
+            ? [`- note: \`${name}\` has no ASCII letters or digits; the branch uses the stable hash suffix \`${slugged}\`. Pass an explicit branch name for a readable one.`]
+            : []),
+          ...(lag
+            ? [`- base lag: \`${baseRef}\` is ${lag.behind} commit(s) behind \`${lag.defaultBranch}\`; this worktree starts without those changes. To branch off the up-to-date base instead, re-create with baseRef: "${lag.defaultBranch}".`]
+            : []),
+          ...(ignoreEntry?.wrote
+            ? [`- note: root is inside the repository; added \`${ignoreEntry.entry}\` to .git/info/exclude (local-only ignore) so the worktree does not pollute \`git status\`.`]
+            : []),
           `- config: ${configSummary(config, repo)}`,
           ``,
           `The running session keeps its own working directory, so it cannot start working in the new one. To move the work into this worktree:`,

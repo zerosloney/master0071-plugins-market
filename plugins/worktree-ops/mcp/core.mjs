@@ -582,38 +582,38 @@ function repoOverrides(config, repo) {
 }
 
 /** 逐键判定生效值与来源：同一个 root 可能是环境变量注入的、单仓库覆盖的或全局配置的，
-* 用户只看最终值无法判断「为什么我在设置页改的不生效」。 */
+ *  用户只看最终值无法判断「为什么我在设置页改的不生效」。 */
 function effectiveWithSources(config, repo) {
-const o = repoOverrides(config, repo) || {};
-const env = envOverrides();
-const pick = (envKey, repoKey, globalKey, fallback) => {
-if (env[envKey] !== undefined) return { value: env[envKey], source: "env" };
-if (o[repoKey] !== undefined) return { value: o[repoKey], source: "repo" };
-if (
-  config[globalKey] !== undefined &&
-  config[globalKey] !== null &&
-  (config.sourceKeys || []).includes(globalKey)
-) {
-  return { value: config[globalKey], source: "global" };
-}
-return { value: fallback, source: "default" };
-};
-return {
-root: pick("root", "root", "root", null),
-baseRef: pick("baseRef", "baseRef", "baseRef", DEFAULT_CONFIG.baseRef),
-branchPrefix: pick("branchPrefix", "branchPrefix", "branchPrefix", DEFAULT_CONFIG.branchPrefix),
-staleDays: pick("staleDays", "staleDays", "staleDays", DEFAULT_CONFIG.staleDays),
-};
+  const o = repoOverrides(config, repo) || {};
+  const env = envOverrides();
+  const pick = (envKey, repoKey, globalKey, fallback) => {
+    if (env[envKey] !== undefined) return { value: env[envKey], source: "env" };
+    if (o[repoKey] !== undefined) return { value: o[repoKey], source: "repo" };
+    if (
+      config[globalKey] !== undefined &&
+      config[globalKey] !== null &&
+      (config.sourceKeys || []).includes(globalKey)
+    ) {
+      return { value: config[globalKey], source: "global" };
+    }
+    return { value: fallback, source: "default" };
+  };
+  return {
+    root: pick("root", "root", "root", null),
+    baseRef: pick("baseRef", "baseRef", "baseRef", DEFAULT_CONFIG.baseRef),
+    branchPrefix: pick("branchPrefix", "branchPrefix", "branchPrefix", DEFAULT_CONFIG.branchPrefix),
+    staleDays: pick("staleDays", "staleDays", "staleDays", DEFAULT_CONFIG.staleDays),
+  };
 }
 
 function effective(config, repo) {
-const s = effectiveWithSources(config, repo);
-return {
-root: s.root.value,
-baseRef: s.baseRef.value,
-branchPrefix: s.branchPrefix.value,
-staleDays: s.staleDays.value,
-};
+  const s = effectiveWithSources(config, repo);
+  return {
+    root: s.root.value,
+    baseRef: s.baseRef.value,
+    branchPrefix: s.branchPrefix.value,
+    staleDays: s.staleDays.value,
+  };
 }
 
 /** Managed root: explicit config only; null means unset — create refuses, remove
@@ -654,18 +654,18 @@ function ensureInsideRepoIgnore(repo, ignoredDir, gitDir) {
 }
 
 function defaultBranch(repo) {
-const sym = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo, { allowFail: true });
-if (sym && sym.trim()) return sym.trim().replace(/^origin\//, "");
-// 无 origin/HEAD 时不能回退「当前检出分支」：那是会话所在分支，不是仓库默认分支，
+  const sym = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo, { allowFail: true });
+  if (sym && sym.trim()) return sym.trim().replace(/^origin\//, "");
+  // 无 origin/HEAD 时不能回退「当前检出分支」：那是会话所在分支，不是仓库默认分支，
   // 会让 auto 的落后判定永远为 0。依次试本地 main / master，最后才用 symbolic-ref HEAD。
-for (const name of ["main", "master"]) {
-if ((git(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`], repo, { allowFail: true }) || "").trim()) {
-return name;
-}
-}
-const head = git(["symbolic-ref", "--quiet", "--short", "HEAD"], repo, { allowFail: true });
-if (head && head.trim() && head.trim() !== "HEAD") return head.trim();
-return null;
+  for (const name of ["main", "master"]) {
+    if ((git(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`], repo, { allowFail: true }) || "").trim()) {
+      return name;
+    }
+  }
+  const head = git(["symbolic-ref", "--quiet", "--short", "HEAD"], repo, { allowFail: true });
+  if (head && head.trim() && head.trim() !== "HEAD") return head.trim();
+  return null;
 }
 
 /** 会话仓库当前检出的分支名；detached HEAD / 解析不出时返回 null。
@@ -677,42 +677,42 @@ function currentBranch(repo) {
 }
 
 /** ref 类参数（target/baseRef 等）进 git argv 前的边界校验：
-*  非空、不以 "-" 开头、首尾无空白、无控制字符，防止被解析成 git 选项。 */
+ *  非空、不以 "-" 开头、首尾无空白、无控制字符，防止被解析成 git 选项。 */
 function assertSafeRef(value, label) {
-const s = String(value);
-if (!s || s.trim() !== s || s.startsWith("-") || /[\u0000-\u001f\u007f]/.test(s)) {
-throw new Error(`invalid ${label} \`${s}\`: ref-like arguments must not be empty, start with "-", or contain surrounding whitespace / control characters.`);
-}
-return s;
+  const s = String(value);
+  if (!s || s.trim() !== s || s.startsWith("-") || /[\u0000-\u001f\u007f]/.test(s)) {
+    throw new Error(`invalid ${label} \`${s}\`: ref-like arguments must not be empty, start with "-", or contain surrounding whitespace / control characters.`);
+  }
+  return s;
 }
 
 /** 显式传入的字符串参数：undefined/null 表示「未传」，空串表示调用方传了空值——必须报错，
-* 不能静默等同未传（否则 baseRef:"" 会悄悄走 auto，用户以为指定了基线）。 */
+ *  不能静默等同未传（否则 baseRef:"" 会悄悄走 auto，用户以为指定了基线）。 */
 function assertNonEmptyArg(value, label) {
-const s = String(value);
-if (!s.trim()) throw new Error(`invalid ${label}: pass a non-empty value, or omit the field entirely.`);
-return s;
+  const s = String(value);
+  if (!s.trim()) throw new Error(`invalid ${label}: pass a non-empty value, or omit the field entirely.`);
+  return s;
 }
 
 function resolveBase(config, repo, explicit) {
-if (explicit !== undefined && explicit !== null) return { ref: assertSafeRef(assertNonEmptyArg(explicit, "baseRef"), "baseRef"), auto: "explicit" };
-const e = effective(config, repo);
-// 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
-if (e.baseRef && e.baseRef !== "auto") return { ref: assertSafeRef(e.baseRef, "baseRef"), auto: "configured" };
-// auto：先跟随会话仓库当前检出的分支（在创建那一刻求值），detached / 解析不出分支时
-// 才回退仓库默认分支。与 resolveTarget 的默认顺序一致，只是回退值不同。
-const cur = currentBranch(repo);
-return { ref: cur || defaultBranch(repo) || "HEAD", auto: !cur ? "fallback" : "follow" };
+  if (explicit !== undefined && explicit !== null) return { ref: assertSafeRef(assertNonEmptyArg(explicit, "baseRef"), "baseRef"), auto: "explicit" };
+  const e = effective(config, repo);
+  // 配置文件 / 环境变量里的 baseRef 同样直入 argv，出口统一校验
+  if (e.baseRef && e.baseRef !== "auto") return { ref: assertSafeRef(e.baseRef, "baseRef"), auto: "configured" };
+  // auto：先跟随会话仓库当前检出的分支（在创建那一刻求值），detached / 解析不出分支时
+  // 才回退仓库默认分支。与 resolveTarget 的默认顺序一致，只是回退值不同。
+  const cur = currentBranch(repo);
+  return { ref: cur || defaultBranch(repo) || "HEAD", auto: !cur ? "fallback" : "follow" };
 }
 
 /** auto 基线的落后量：会话当前分支不是默认分支、且落后默认分支时，新 worktree 会缺
-* 默认分支上的提交（git worktree add 只检出 baseRef 的树）。返回 null 表示无需提示。
-* 只在 auto 下调用；显式 baseRef 是用户的明确选择，不打扰。 */
+ *  默认分支上的提交（git worktree add 只检出 baseRef 的树）。返回 null 表示无需提示。
+ *  只在 auto 下调用；显式 baseRef 是用户的明确选择，不打扰。 */
 function autoBaseLag(repo, baseRef) {
-const d = defaultBranch(repo);
-if (!d || d === baseRef) return null;
-const behind = counts(repo, baseRef, d).ahead;
-return behind && behind > 0 ? { defaultBranch: d, behind } : null;
+  const d = defaultBranch(repo);
+  if (!d || d === baseRef) return null;
+  const behind = counts(repo, baseRef, d).ahead;
+  return behind && behind > 0 ? { defaultBranch: d, behind } : null;
 }
 
 /** 显式传入的 target 必须真的解析得到提交，否则直接报错。
@@ -1069,14 +1069,14 @@ function bucketOf(info, staleDays, managedPath = null) {
 }
 
 function configSummary(config, repo) {
-const e = effectiveWithSources(config, repo);
-// root 为空时仍标出来源：repo 级显式 null 与「压根没配」是两回事，用户要能分辨
-const rootSource = e.root.source === "repo" && e.root.value === null ? "repo (explicitly unset)" : e.root.source;
-return [
-`root: ${managedRoot(config, repo) ?? "(unset)"} (${rootSource})`,
-`baseRef: ${e.baseRef.value} (${e.baseRef.source})`,
-`branchPrefix: ${e.branchPrefix.value} (${e.branchPrefix.source})`,
-`staleDays: ${e.staleDays.value} (${e.staleDays.source})`,
+  const e = effectiveWithSources(config, repo);
+  // root 为空时仍标出来源：repo 级显式 null 与「压根没配」是两回事，用户要能分辨
+  const rootSource = e.root.source === "repo" && e.root.value === null ? "repo (explicitly unset)" : e.root.source;
+  return [
+    `root: ${managedRoot(config, repo) ?? "(unset)"} (${rootSource})`,
+    `baseRef: ${e.baseRef.value} (${e.baseRef.source})`,
+    `branchPrefix: ${e.branchPrefix.value} (${e.branchPrefix.source})`,
+    `staleDays: ${e.staleDays.value} (${e.staleDays.source})`,
     ...(config.parseError
       ? [`config: ${config.file} (corrupted, failed to parse: ${config.parseError} — defaults in effect)`]
       : [`config: ${config.file}`]),

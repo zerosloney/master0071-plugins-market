@@ -147,6 +147,27 @@ node --version && git --version
 - **repo 级 `staleDays` 读取校验补齐正数口径**。0.4.4 的读取校验只盖了顶层，手编 `repos[*].staleDays` 写 0 / 负数仍被静默接受，audit 分桶阈值随之变负；现在与顶层同口径剔除并报告 issue，`saveConfig` 写盘时非法值归一为默认 14——读写路径不再分裂。
 - 冒烟断言增至 217 条（新增 repo 级 `staleDays` 读写同口径用例 5 条）；新增 `test/lock.mjs` 配置锁单测 8 条（直连 `mcp/core.mjs`：release 归属校验——迟到 release 不误删换主后的锁、持锁竞争等到死限报错）。
 
+**0.4.6**
+
+- **删除护栏对「状态不可得」改判 fail-closed**。`worktree_remove` 只拦 `clean === false`：`git status` 取不到时 `clean` 为 `null`，直接 fall through 被当成干净放行——恰恰是无法证明干净的时候最好删。现在与紧邻的 `ahead === null` 同口径拒绝，并保住 prunable 例外（目录已被手动删走，无未提交工作可丢）。
+- `worktree_audit` 的 `bucketOf` 同批改：`git status` 不可得不得进 `safe` 桶，否则 audit 报「safe to remove」而 remove 拒绝，照着做必然撞墙；prunable 判定前置于该条，出账仍点名 prunable。
+- **市场与垫片描述如实区分 `force` 与 `confirmDiscard`**。此前写「脏工作树、未合并提交一律拒绝删除」与代码不符（`force` 会越过这两道）；改为准确表述：默认拒绝、须 `force: true` **且** `confirmDiscard: true` 双标志才越过，锁定中与受管目录外一律拒绝且 `force` 不放开。顺带修掉 omp 市场条目「在仓库之外」的旧错（仓库内根一直支持）。
+- 新增 `test/bucket.mjs` 白盒套件（7 断言）锁住分桶口径并接入 CI——黑盒无法稳定制造「git 拒绝报告状态」的目录。
+
+**0.4.7**
+
+- 垫片元数据与能力指针形态统一（由市场级 `manifest-lint.mjs` 机器对账兜住），版本位同步至 Qoder 侧清单。
+
+**0.4.8**
+
+- **本地忽略行拒绝控制字符**。`ensureInsideRepoIgnore` 把配置来的受管根路径派生成一行写进 `.git/info/exclude`，此前不过滤控制字符：路径里带换行会把一行拆成两条规则，等于借配置往 exclude 注入任意 ignore 项，静默隐藏本该可见的未跟踪文件。合法路径不需要控制字符，故直接放弃写入——没有本地忽略只是 `git status` 多一行，比注入安全。
+- 新增 `test/exclude.mjs`（10 断言）：正常写入与幂等、含换行/制表符的路径拒绝且字节零变化、仓库外/仓库根/缺 gitDir 三条既有短路未被破坏。
+
+**0.4.9**
+
+- **路径比较解析 Windows 8.3 短名**。`samePath` / `isInside` 只做 `path.resolve` + 大小写折叠，而 GitHub Actions 的 TEMP 是 `C:\Users\RUNNER~1\...`、`git worktree list` 回的是长名 `C:\Users\runneradmin\...`——同一目录被判成两个，windows-latest 上 smoke 大面积红。改为统一走 `realpathSync.native` 归一（Windows 经句柄取真实长名，POSIX 顺带解析符号链接，一并修掉 `/tmp`→`/private/tmp`），并剥掉 Windows 返回的 `\\?\` 前缀；路径不存在时（prunable 工作树目录已被删走）退回 `resolve` 结果，取不到不能当错误。
+- 新增 `test/paths.mjs`（11 断言），含本机 8.3 别名可用时短名与长名必须判等。
+
 **0.3.0（含破坏性变更）**
 
 - `worktree_config` 的 `root` / `baseRef` / `branchPrefix` 传入空字符串现在直接报错。此前空串被静默当作"未传"，`baseRef: ""` 会悄悄退回 `auto`。要用"清空并回退默认"，改传 `null`。宿主设置页回传空串时需改传 `null` 或省略该字段。
