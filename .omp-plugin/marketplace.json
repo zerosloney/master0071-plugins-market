@@ -15,7 +15,7 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "description": "Git worktree 操作台：10 个 MCP 工具在可配置目录（仓库内外皆可，须先配置根）里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree；删除默认拒绝脏工作树与未合并提交（force=true 可越过），锁定中与受管目录外一律拒绝删除且 force 不放开。",
       "category": "productivity",
       "keywords": ["git", "worktree", "mcp", "branch"]
@@ -31,7 +31,7 @@
     {
       "name": "pstack",
       "source": "./plugins/pstack",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "description": "poteto 风格 agent 工作流栈（65 个 skill）：poteto-mode 作为路由入口，调度 architect / arena / interrogate / thermos / unslop 等工作流，含 24 条 principle 原则与 swarm 并行子代理。移植自 michael-denyer/pstack-claude（原版 Lauren Tan）。",
       "category": "productivity",
       "keywords": ["pstack", "poteto-mode", "workflow", "principles", "agent-style"]

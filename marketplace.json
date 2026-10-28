@@ -17,7 +17,7 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "description": "Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具（create / list / status / audit / remove / lock / unlock / merge_back / config / handoff）+ worktree-manager skill；根目录、分支前缀、基线策略与闲置阈值按环境变量 > 单仓库覆盖 > 全局配置的优先级解析；删除默认拒绝脏工作树与未合并提交（force=true 可越过），锁定中与受管目录外的 worktree 一律拒绝删除且 force 不放开。",
       "displayName": "Worktree Ops",
       "displayName_i18n": {
@@ -43,7 +43,7 @@
     {
       "name": "pstack",
       "source": "./plugins/pstack",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "description": "poteto 风格 agent 工作流栈：poteto-mode 作为路由入口，按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理，支持 Claude 式 hook 的宿主由 SessionStart 自动注入路由令。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan）。",
       "displayName": "pstack",
       "displayName_i18n": {
