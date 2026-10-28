@@ -119,7 +119,7 @@ ralph 域专属约束：
 3. 把请求拆解为 TaskList，每项严格按 JSON schema 的 `tasks[]` 格式。**检查 `depends_on` 是否存在循环依赖**（如 A→B→C→A），存在则报错并要求用户修正。
 4. 按上节「任务复杂度评估与拆分」逐项评估，对过大任务原地拆成子任务，`subtask_of` 标注溯源，新 `depends_on` 接入拓扑。子任务总数超预算且无法再拆时输出 `action="HOLD"`、`reason="decomposition_overflow"` 交用户。
 5. 初始化 `consecutive_failures = 0`、`stall_counter = 0`、`round = 0`、`stop_reason = null`。
-6. 设置 `MAX_CYCLES = 10`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step。
+6. 设置 `MAX_CYCLES = 10`（`round` 达到此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 3`（连续 3 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step。
 7. 确定背压验证命令。优先沿用仓库已有的测试或检查命令（package.json 的 test 脚本、Makefile 的 test 目标或 CI 验证步骤）；仓库没有可用的验证命令时询问用户，不要自行臆造。
 
 ## 委派机制
@@ -232,7 +232,7 @@ accept_criteria:
 3. BUDGET（token 或费用预算耗尽）
 4. **HOLD** —— 仅剩 `blocked` 任务，需用户决策。
 5. **STALL** —— `stall_counter >= STALL_MAX`（默认 3，连续 3 轮任务状态签名无变化）。
-6. **MAX_CYCLES** —— `=10`（或 `max_iterations`），超过仍未 DONE。
+6. **MAX_CYCLES** —— `=10`（或 `max_iterations`），`round` 达到仍未 DONE。
 7. **STOPPED** —— 用户要求停止。
 
 早停优先；满足 DONE 立即停止。停止时按 JSON schema 写入最终状态，设置 `stop_reason` 为对应枚举值。

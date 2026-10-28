@@ -126,7 +126,7 @@ DONE 必须**同时**满足：
 7. 风险评估（`low` / `medium` / `high`）。
 8. 技术栈推断（`detected_stack`）。
 9. 初始化 `consecutive_failures = 0`、`stall_counter = 0`、`round = 0`、`stop_reason = null`、`prior_cycles_summary = ""`、`critical_checkpoints = []`（按需在初始化阶段加入硬门禁检查项）。
-10. 设置 `MAX_CYCLES = 8`（超过此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 2`（连续 2 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step。
+10. 设置 `MAX_CYCLES = 8`（`round` 达到此轮次仍未 DONE 则强制停止）与 `STALL_MAX = 2`（连续 2 轮任务状态签名无变化则判 STALL）。二者均为初始化硬上限，不被 `fail_history` 或 `round` 覆盖。每轮约消耗 2-3 个 agentic step。
 
 ## 任务复杂度评估与拆分
 
@@ -304,7 +304,7 @@ value: {baseline_value}
 3. BUDGET（token 或费用预算耗尽）
 4. **HOLD** —— 需求或方案需要用户选择。
 5. **STALL** —— `stall_counter >= STALL_MAX`（默认 2，连续 2 轮任务状态签名无变化）。
-6. **MAX_CYCLES** —— `=8`（或 `max_iterations`），超过仍未 DONE。
+6. **MAX_CYCLES** —— `=8`（或 `max_iterations`），`round` 达到仍未 DONE。
 7. **STOPPED** —— 用户要求停止。
 
 早停优先；满足 DONE 立即停止。停止时按 JSON schema 写入最终状态，设置 `stop_reason` 为对应枚举值。
