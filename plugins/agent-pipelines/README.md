@@ -36,7 +36,7 @@ coding 管道额外约束：
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
 | `scripts/dag.mjs` | 依赖图分析单源（未知依赖 / 拓扑序 / 环 / 分层），`graph.mjs` 与 `render.mjs` 共用 |
 | `scripts/render.mjs` | 只读渲染：状态文件 + 事件日志 → 自包含单文件 HTML（依赖图 DAG、事件轨迹、预算） |
-| `scripts/serve.mjs` | 本地实时看板：HTTP + SSE 监听状态文件与事件日志，浏览器自动刷新（默认只绑 127.0.0.1） |
+| `scripts/serve.mjs` | 本地实时看板：HTTP + SSE 监听状态文件与事件日志，浏览器自动刷新（默认只绑 127.0.0.1，且只回答回环 Host，防 DNS rebinding） |
 
 ```bash
 node scripts/state.mjs init --pipeline coding --prompt "修复登录问题"
@@ -51,6 +51,8 @@ node scripts/serve.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.
 `render.mjs` 是只读可视化：读取状态文件与事件日志，生成**自包含单文件 HTML**（内联 CSS、无外链），含摘要卡片、按依赖分层布局的任务 DAG（状态着色）、事件时间线、预算与 `stop_reason`。`state.mjs write` 每次会对比旧状态，把任务状态变化（含新任务注册）作为 `transitions` 记录到事件日志，渲染时在事件行内联展示（如 `t2:pending→done`）。输出默认是状态文件同名 `.html`；不写状态、不追加事件、不取锁。
 
 `serve.mjs` 是实时看板：本地 HTTP 服务提供页面与 SSE（`/events`），用 `fs.watch` + 轮询兜底监听状态文件和事件日志，变化时向浏览器推送 `render` 事件自动刷新。默认只绑 `127.0.0.1`，只读不写状态。`--interval` 控制轮询间隔（默认 1000ms）。
+
+**Host 校验**：只绑回环地址并不足以防 DNS rebinding——恶意页面把自己的域名解析到 `127.0.0.1` 后，浏览器就会以同源身份向本服务取数，读走看板里的任务标题、验收标准与状态文件绝对路径。因此服务只回答 `Host` 为回环字面量（`127.0.0.1` / `localhost` / `[::1]`）的请求，其余一律 403。正常访问 `http://127.0.0.1:<port>` 与 `http://localhost:<port>` 不受影响。看板没有鉴权，同一台机器上的其他进程仍可直接访问——它面向的是「本机自己看」。
 
 scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。**判定基准是 git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径；`--cwd <dir>` 只决定从哪个目录定位 git 仓库根，不改判定基准——同一处越界改动从仓库根或从子目录调用都判 FAIL。写回状态文件用 `--apply`：`scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 把本次结论写进 `scope_drift`，`state.mjs gate` 读到的是真实判定而不是执行者自报值。通配语法：`*` 单段、`**` 跨段、`?` 单字符；前导 `**/` 不匹配仓库根目录的文件——forbidden 想覆盖根目录需并排写一条根级模式（如 `*.lock`），脚本对前导 `**/` 会打印警告。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
 

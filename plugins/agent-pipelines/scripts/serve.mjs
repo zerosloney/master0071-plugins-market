@@ -42,9 +42,29 @@ function broadcast() {
   }
 }
 
+// Host 头校验（2026-10-28）：只绑 127.0.0.1 **不防 DNS rebinding**——恶意页面把自己的域名解析到
+// 127.0.0.1，浏览器就会以「同源」的身份向本服务发请求，读走看板里的任务标题、验收标准、状态文件
+// 绝对路径与提示词。这是本地 HTTP 服务的标准攻击面，与其说「只读所以无害」，不如说「读到的正是
+// 未公开的工作内容」。
+// 判据：Host 的主机名必须是回环字面量。DNS rebinding 用的域名在任何解析阶段都不是这些字面量，
+// 因此被挡在门外；正常访问 http://127.0.0.1:port / http://localhost:port 不受影响。
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+function hostAllowed(hostHeader) {
+  const raw = String(hostHeader || "").trim().toLowerCase();
+  if (!raw) return false;
+  // 去掉端口：IPv6 字面量形如 [::1]:8787，先按最后一个冒号切
+  const host = raw.startsWith("[") ? raw.slice(0, raw.indexOf("]") + 1) : raw.split(":")[0];
+  return LOOPBACK_HOSTS.has(host);
+}
+
 function handleRequest(req, res) {
   // 兜底：畸形请求行/请求头可能让 new URL 抛错，回调内异常会打崩整个看板进程
   try {
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(`forbidden: unexpected Host header (${req.headers.host || "missing"}); this board only answers loopback names`);
+      return;
+    }
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (url.pathname === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });

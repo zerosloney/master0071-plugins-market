@@ -684,6 +684,40 @@ const page2 = await new Promise((resolve, reject) => {
 });
 check("SSE 后页面反映新状态", /badge-done/.test(page2), serveOut);
 
+// Host 头校验（2026-10-28）：只绑 127.0.0.1 不防 DNS rebinding——恶意域名解析到 127.0.0.1 后，
+// 浏览器会当作同源向本服务取数，读走任务标题 / 验收标准 / 状态文件绝对路径。这里直接发一个
+// 伪造成攻击者域名的 Host，要求 403 且不返回看板正文。
+const rebind = await new Promise((resolve) => {
+  const req = http.request(
+    { host: "127.0.0.1", port: servePort, path: "/", method: "GET", headers: { Host: "evil.example.com" } },
+    (r) => {
+      let body = "";
+      r.on("data", (c) => (body += c));
+      r.on("end", () => resolve({ status: r.statusCode, body }));
+    },
+  );
+  req.on("error", () => resolve({ status: 0, body: "" }));
+  req.end();
+});
+check("非回环 Host 的请求被 403 拒绝（防 DNS rebinding）",
+  rebind.status === 403 && !/badge-done|<html/i.test(rebind.body), `status=${rebind.status} body=${rebind.body.slice(0, 120)}`);
+
+// 反向锚：回环字面量必须照常放行，否则校验会把正常访问也挡掉
+const loopbackOk = await new Promise((resolve) => {
+  const req = http.request(
+    { host: "127.0.0.1", port: servePort, path: "/health", method: "GET", headers: { Host: `localhost:${servePort}` } },
+    (r) => {
+      let body = "";
+      r.on("data", (c) => (body += c));
+      r.on("end", () => resolve({ status: r.statusCode, body }));
+    },
+  );
+  req.on("error", () => resolve({ status: 0, body: "" }));
+  req.end();
+});
+check("localhost 字面量 Host 照常放行", loopbackOk.status === 200 && /"ok":true/.test(loopbackOk.body),
+  `status=${loopbackOk.status} body=${loopbackOk.body.slice(0, 120)}`);
+
 serveProc.kill();
 
 // 状态文件缺失时 serve 给出可读指引并以退出码 2 结束，不再裸栈崩溃（renderHtml 在监听前执行，不会占端口）

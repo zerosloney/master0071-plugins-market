@@ -1336,6 +1336,57 @@ const main = async () => {
     fileClient.close();
   }
 
+  // 环境变量入口（不带 PLUGIN_ 前缀）：README 的配置表里 SYSTEMONE_SCENARIOS 与
+  // SYSTEMONE_SCENARIOS_FILE 是正式入口，此前只有 PLUGIN_ 前缀那份有测试。两者的优先级
+  // 不同（PLUGIN_ 优先），但**裸名单独在场时必须单独生效**——缺这条断言的话，一次
+  // 「顺手把裸名从 server.mjs 的 || 链里删掉」不会有任何测试变红。
+  const envFileClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_SCENARIOS_FILE: scenarioFile,
+    SYSTEMONE_SCENARIOS: JSON.stringify([
+      {
+        id: 'env_only',
+        title: '仅环境变量',
+        questions: { ok: { type: 'noul', label: '是否可接受', instructions: '是否可接受？' } },
+      },
+    ]),
+  });
+  try {
+    const envList = toolResult(await runScenario(envFileClient, { action: 'list' }));
+    check('裸 SYSTEMONE_SCENARIOS 与 SYSTEMONE_SCENARIOS_FILE 单独在场时生效', () => {
+      assert.equal(envList.count, 17); // 15 内置 + team_gate（文件）+ env_only（环境变量 JSON）
+      const byId = new Map(envList.scenarios.map((s) => [s.id, s]));
+      assert.equal(byId.get('env_only').source, 'custom');
+      assert.equal(byId.get('env_only').title, '仅环境变量');
+      assert.equal(byId.get('team_gate').source, 'custom');
+    });
+  } finally {
+    envFileClient.close();
+  }
+
+  // 同时在场时 PLUGIN_ 前缀优先（与 endpoint / timeout / log 的既有优先级一致）
+  const bothClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_SCENARIOS: JSON.stringify([
+      { id: 'from_bare', title: '裸名', questions: { q: { type: 'noul', label: 'q', instructions: 'q ？' } } },
+    ]),
+    SYSTEMONE_PLUGIN_SCENARIOS: JSON.stringify([
+      { id: 'from_plugin', title: '前缀', questions: { q: { type: 'noul', label: 'q', instructions: 'q ？' } } },
+    ]),
+  });
+  try {
+    const bothList = toolResult(await runScenario(bothClient, { action: 'list' }));
+    check('PLUGIN_ 前缀优先于裸名（两者同时在场只取前缀那份）', () => {
+      const ids = bothList.scenarios.map((s) => s.id);
+      assert.ok(ids.includes('from_plugin'), `应含 from_plugin：${ids.join(',')}`);
+      assert.ok(!ids.includes('from_bare'), `不应含 from_bare：${ids.join(',')}`);
+    });
+  } finally {
+    bothClient.close();
+  }
+
   // 缺 Key 场景：清空两个 Key 环境变量
   const noKeyClient = new McpClient({ SYSTEMONE_API_KEY: '', UNISOUND_API_KEY: '' });
   try {
