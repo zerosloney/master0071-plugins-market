@@ -479,7 +479,7 @@ verify 全量门的 `wiki-consistency` 门依赖**项目自带**脚本（wiki �
 
 ### 12.7 skills 最终清单（6 个）
 
-`autonomous-run`（长跑合同）、`review-method`（评审方法论）、`session-resume`（会话恢复）、`show-me-your-work`（过程留痕）、`verify-ui`（UI 实测，含 features/* 验证件与生成器）、`workflow-closeout`（关单工序）。§10 验收断言落位说明：十条全部收进 `test/acceptance.mjs`（黑盒、全走 CLI/stdio 入口），样板仓端到端为 `test/e2e-fixture.mjs`；两者均接入仓根 CI。
+`autonomous-run`（长跑合同）、`review-method`（评审方法论）、`session-resume`（会话恢复）、`decision-log`（过程留痕，2026-10-28 由 `show-me-your-work` 更名以避开与 pstack 的同名冲突）、`verify-ui`（UI 实测，含 features/* 验证件与生成器）、`workflow-closeout`（关单工序）。§10 验收断言落位说明：十条全部收进 `test/acceptance.mjs`（黑盒、全走 CLI/stdio 入口），样板仓端到端为 `test/e2e-fixture.mjs`；两者均接入仓根 CI。
 
 **初始化触发接线（§5.2「首次命令执行触发」的定案形态，2026-10-27 收口）**：按命令文本驱动——`new-task.md` §1 定级前置检测项目根无 `.agents/config/engine.json` 时引导执行 `init-engine.mjs`；**不做 MCP 工具静默自动写盘**（工具面保持只读守门与显式 hint，初始化始终是用户/会话可见的显式动作）。closeout skill 与 review 命令核实无「未初始化假红」场景（其前提是 workflow 文档已在手），不加同款前置。
 

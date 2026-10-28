@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// decision-log.test.mjs — 决策 TSV 追加器套件（2026-10-22 show-me-your-work）
+// decision-log.test.mjs — 决策 TSV 追加器套件（2026-10-22；2026-10-28 skill 由 show-me-your-work 更名为 decision-log）
 // 覆盖：首用写表头 / 追加不重复表头 / tab 与换行清洗 / =+-@ 前缀转义 / 缺参 exit 2。
 import fs from 'node:fs';
 import os from 'node:os';

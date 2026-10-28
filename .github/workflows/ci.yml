@@ -121,6 +121,6 @@ jobs:
           node test/mcp-tools.test.mjs
           node skills/session-resume/scripts/worktree-audit.test.mjs
           node skills/verify-ui/scripts/gen-verify-feature.test.mjs
-          node skills/show-me-your-work/scripts/decision-log.test.mjs
+          node skills/decision-log/scripts/decision-log.test.mjs
           node test/acceptance.mjs
           node test/e2e-fixture.mjs

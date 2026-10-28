@@ -1,9 +1,13 @@
 ---
-name: show-me-your-work
+name: decision-log
 description: 长跑/无人值守的决策轨迹——append-only TSV，一行一个决策（what/why/evidence/result），证据是指针不是段落；供过夜、多阶段、用户离开后复核时使用。
 ---
 
-# show-me-your-work — 决策轨迹
+# decision-log — 决策轨迹
+
+> 2026-10-28 更名：原名 `show-me-your-work`，与同市场的 pstack 插件**同名不同实现**（那边是
+> `log.sh` + bash/perl，这边是 `decision-log.mjs` + Node），扁平命名空间下会互相覆盖。
+> 更名为 `decision-log`（与本目录脚本同名），CLI 六参数形式与 TSV 表头保持不变，历史 `decisions.tsv` 仍可直接沿用。
 
 ## 触发
 
@@ -26,7 +30,7 @@ ts	phase	decision	why	evidence	result
 - **evidence**：能证明的指针——commit SHA、PR 号、`file:line`、artifact/trace/截图路径。禁段落。
 - **result**：结果或谓词状态——`tests green` / `reverted` / `pixel-diff 0` / `INCONCLUSIVE` / `open`。
 
-模板：`skills/show-me-your-work/references/decision-log-template.tsv`。
+模板：`skills/decision-log/references/decision-log-template.tsv`。
 
 ## 记录规则
 
@@ -54,4 +58,4 @@ ts	phase	decision	why	evidence	result
 - `autonomous-run`：立约时加一条「决策留痕」。
 - 历史 `pipeline-run` 运行：每个工单签收记一行。
 - `workflow/delegations.md`：委派结果仍记台账；本 TSV 是 per-run 的决策链，不替代台账。
-- 追加一行：`node skills/show-me-your-work/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>`（自动 ts、首用表头、清洗 tab/换行、转义 `=+-@` 开头）。
+- 追加一行：`node skills/decision-log/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>`（自动 ts、首用表头、清洗 tab/换行、转义 `=+-@` 开头）。

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// decision-log.mjs — 决策 TSV 追加器（show-me-your-work 2026-10-22，pstack 借鉴）
-// 用法：node .agents/skills/show-me-your-work/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>
+// decision-log.mjs — 决策 TSV 追加器（2026-10-22 自 pstack 的 show-me-your-work 派生；2026-10-28 更名避免同名冲突）
+// 用法：node .agents/skills/decision-log/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>
 // 行为：首用写表头；ts 自动；单元格去 tab/换行；以 = + - @ 开头的单元格加单引号（防表格注入）。
 // 口径：append-only——错行不删，追加一行 supersede；证据是指针（commit/file:line/artifact），不是段落。
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 const HEADER = 'ts\tphase\tdecision\twhy\tevidence\tresult';
 const [logfile, phase, decision, why, evidence, result] = process.argv.slice(2);
 if (!logfile || !phase || !decision) {
-  console.error('用法：node .agents/skills/show-me-your-work/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>');
+  console.error('用法：node .agents/skills/decision-log/scripts/decision-log.mjs <logfile> <phase> <decision> <why> <evidence> <result>');
   process.exit(2);
 }
 const cell = (v) => {

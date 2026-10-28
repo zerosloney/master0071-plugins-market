@@ -39,3 +39,11 @@
 **已解决（2026-10-28）**：`verify.mjs` 的 `frontend-lint` / `frontend-unit-test` / `frontend-build` / `backend-build`（`dotnet build App.sln`）/ `backend-test` 五条产品门补齐 `requires` 判据，加上 E2E 条件门共六条——所需项目侧路径不在即判「不适用」SKIP 并显式出账，跳过沿依赖边传播（`backend-build` 跳过 → `backend-test` 同步跳过，不再产生「无产物却照跑」的假红）。产品段"每门必带 optional 或 requires"与"跳过传播"两条不变量由 `test/verify.test.mjs` 场景 15 锁定。消费项目空仓实测：6 门全部 SKIP，无真跑产品门。
 
 **建议后续**：`features/` 是源产品的界面地图，对消费项目无复用价值且暴露内部路由与提交历史。推荐随包只发一份 `features/_TEMPLATE.md`，由 `skills/verify-ui/scripts/gen-verify-feature.mjs --route <path>` 在使用项目里生成自己的地图；该删减动作影响面较大，留给 owner 执行。
+
+## 有意偏离源项目的命名（2026-10-28）
+
+源项目的 `show-me-your-work` skill 在本插件中更名为 **`decision-log`**。原因是市场级重名而非机制需要：同市场的 pstack 插件已提供同名 skill，且实现不同（`log.sh` + bash/perl vs 本插件的 `decision-log.mjs` + Node）。扁平命名空间下两者会互相覆盖，或第二个插件被安装器拒绝；无论谁赢，另一个插件的内部流程都会静默失去留痕步骤——而这些流程正是无人值守长跑，丢了发现不了。
+
+机械面保持不变：六参数 CLI、TSV 表头（`ts/phase/decision/why/evidence/result`）、append-only 语义、模板文件均与源项目一致，历史 `decisions.tsv` 可直接沿用。机制语义未改写，仅调用名变更。
+
+**同步注意**：从源引擎再次同步该 skill 时勿把目录名与 frontmatter `name` 改回 `show-me-your-work`，否则重名会复现。市场级检查 `scripts/manifest-lint.mjs` 现已断言「skill 名跨插件唯一」与「name 必须等于目录名」，该偏离由机器守住。

@@ -381,7 +381,7 @@ console.log(`acceptance — 设计文档 §10 验收黑盒（${TODAY}）\n`);
   const testDir = path.join(PLUGIN_ROOT, 'test');
   const files = fs.readdirSync(testDir).filter((f) => f.endsWith('.mjs') && f !== 'acceptance.mjs' && f !== 'e2e-fixture.mjs')
     .map((f) => path.join(testDir, f));
-  for (const skill of ['session-resume/scripts/worktree-audit.test.mjs', 'verify-ui/scripts/gen-verify-feature.test.mjs', 'show-me-your-work/scripts/decision-log.test.mjs']) {
+  for (const skill of ['session-resume/scripts/worktree-audit.test.mjs', 'verify-ui/scripts/gen-verify-feature.test.mjs', 'decision-log/scripts/decision-log.test.mjs']) {
     files.push(path.join(PLUGIN_ROOT, 'skills', skill));
   }
   let red = [];

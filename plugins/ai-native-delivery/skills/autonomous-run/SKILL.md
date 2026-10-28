@@ -13,7 +13,7 @@ description: 无人值守长跑合同——长任务/过夜时逐单元签收、
 2. **禁做清单**：远程 push、部署、删数据、直改 workflow 状态、`--no-verify`——仍需用户明确指令。
 3. **预算**：修复环沿用 3 次上限（原 pipeline-run 口径）；不新增预算。
 4. **停机联系人**：用户回来即停，汇报现状。
-5. **决策留痕**：长跑/过夜按 `.agents/skills/show-me-your-work/SKILL.md` 记 `decisions.tsv`（append-only，证据是指针）；提交与否按 stakes 定。
+5. **决策留痕**：长跑/过夜按 `.agents/skills/decision-log/SKILL.md` 记 `decisions.tsv`（append-only，证据是指针）；提交与否按 stakes 定。
 
 ## 逐单元签收（每个 implement / fix 工单）
 

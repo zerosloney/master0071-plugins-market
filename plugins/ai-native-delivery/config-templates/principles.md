@@ -5,7 +5,7 @@
 > 维护：只增删短名与指针；指针必须存在（`principles.test.mjs` 校验），单元格不得塞正文。
 >
 > **指针口径（2026-10-27 插件化迁移）**：本表的 `.agents/skills/<名>/SKILL.md` 指针指**宿主环境技能**——
->   部分随本插件分发（review-method / session-resume / verify-ui / show-me-your-work 等），
+>   部分随本插件分发（review-method / session-resume / verify-ui / decision-log 等），
 >   部分属**未随插件分发**的宿主技能（可能来自其他插件或用户自建，如 arena / swarm / eval / why /
 >   reflect / interrogate / blast-radius / papercut-fix / number-vetting / create-verification-skill /
 >   pause-safely）——后者未安装时**按本行短名的原则自行执行**（短名自带语义，指针只是权威正文入口）。
@@ -30,7 +30,7 @@
 | 可实验先跑 | 准备向用户提问前 | `<插件根>/commands/new-task.md` §1 提问分型 |
 | 模型按角色 | 委派实现或复核前 | `.agents/config/model-roles.json`；`<插件根>/commands/review.md` §执行流程 |
 | 爆炸半径 | 小改动但不确定还会碰坏什么时 | `.agents/skills/blast-radius/SKILL.md` |
-| 决策留痕 | 长跑/无人值守要留可复核轨迹时 | `.agents/skills/show-me-your-work/SKILL.md` |
+| 决策留痕 | 长跑/无人值守要留可复核轨迹时 | `.agents/skills/decision-log/SKILL.md` |
 | 先问为什么 | 动手改一段不理解的代码前 | `.agents/skills/why/SKILL.md` |
 | 多镜拆解 | 复核要覆盖多个风险面时 | `.agents/skills/interrogate/SKILL.md` |
 | 先建地图 | 新页面/新主链要进验证面时 | `.agents/skills/create-verification-skill/SKILL.md` |
