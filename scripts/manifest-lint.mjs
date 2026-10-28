@@ -62,9 +62,42 @@ for (const plugin of plugins) {
   }
 }
 
+// ── skill 名唯一性（2026-10-28 市场审查）───────────────────────────────────
+// 宿主按 frontmatter 的 `name` 解析 skill，且多数宿主是**扁平命名空间**：两个插件提供同名
+// skill 时，一个会被静默覆盖、或第二个插件被安装器拒绝。此前 pstack 与 ai-native-delivery
+// 都提供 `show-me-your-work`，实现还不同（log.sh + bash/perl vs decision-log.mjs + Node），
+// 谁赢另一个插件的内部流程就静默失去留痕步骤——而这类流程恰好是无人值守长跑，丢了也发现不了。
+// 已把 ai-native 那份更名为 decision-log；这里加机器检查防再次相撞。
+// 同时校验 name 与目录名一致：宿主的发现规则是 skills/<dir>/SKILL.md，两者不一致时调用名不可预期。
+const skills = [];
+for (const plugin of plugins) {
+  const dir = path.join(ROOT, 'plugins', plugin, 'skills');
+  if (!fs.existsSync(dir)) continue;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skillMd = path.join(dir, entry.name, 'SKILL.md');
+    if (!fs.existsSync(skillMd)) continue;
+    const fm = fs.readFileSync(skillMd, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const name = fm && fm[1].match(/^name:\s*(.+)$/m);
+    skills.push({ plugin, dir: entry.name, name: name ? name[1].trim() : '(缺 frontmatter name)' });
+  }
+}
+for (const s of skills) {
+  if (s.name !== s.dir) {
+    fail(`plugins/${s.plugin}/skills/${s.dir}/SKILL.md: name=${JSON.stringify(s.name)} 与目录名不一致（宿主按目录发现、按 name 调用）`);
+  }
+}
+const byName = new Map();
+for (const s of skills) byName.set(s.name, [...(byName.get(s.name) || []), `${s.plugin}/${s.dir}`]);
+for (const [name, owners] of byName) {
+  if (owners.length > 1) {
+    fail(`skill 名 ${JSON.stringify(name)} 被多个插件声明：${owners.join(' + ')}——扁平命名空间下会互相覆盖，或第二个插件被安装器拒绝`);
+  }
+}
+
 if (problems.length) {
   console.error(`✗ 垫片一致性检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
   process.exit(1);
 }
-console.log(`✓ 垫片一致性检查通过（${plugins.length} 插件 × 4 份清单）`);
+console.log(`✓ 垫片一致性检查通过（${plugins.length} 插件 × 4 份清单；${skills.length} 个 skill 名唯一）`);
