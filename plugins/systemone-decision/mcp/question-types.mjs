@@ -388,7 +388,10 @@ export function isBorderlineAnswer(a, question, raw) {
   if (a.type === 'choice') {
     if (a.value === null || a.value === 'uncertain' || a.value === 'unknown') return true;
     const allowed = question?.criteria;
-    if (allowed && !(a.value in allowed)) return true;
+    // Object.hasOwn 而非 `in`：后者沿原型链匹配，模型吐出 "constructor" / "toString" /
+    // "hasOwnProperty" 时会被当成合法选项放行——正是本函数要拦的「幻觉选项」中最容易蒙对的
+    // 那一类。与 hooks/risk-gate.mjs 的判定同口径（2026-10-28 市场审查对齐）。
+    if (allowed && !Object.hasOwn(allowed, a.value)) return true;
   }
   if (a.type === 'noul' && (a.probability === null || (a.probability > 0.45 && a.probability < 0.55))) return true;
   if (a.type === 'score') {

@@ -151,11 +151,14 @@ const mock = http.createServer((req, res) => {
     // 幻觉选项 / 越界分值：模型给出判据表里不存在的 choice，或超出量表范围的 score。
     // 两者 confidence 都很高，但前者会渲染成一个不存在的选项、后者会被 deriveFields
     // 钳成最高档（如 severity 7 → P1），都必须转人工，而不是当作合法判定放行。
-    if (parsed.state === 'mock:choice-hallucinated' || parsed.state === 'mock:score-out-of-range') {
+    if (parsed.state === 'mock:choice-hallucinated' || parsed.state === 'mock:choice-prototype' || parsed.state === 'mock:score-out-of-range') {
       const answers = {};
       for (const [qid, q] of Object.entries(parsed.questions || {})) {
         if (parsed.state === 'mock:choice-hallucinated' && q.type === 'choice') {
           answers[qid] = { type: 'choice', choice: 'vip', probabilities: { vip: 0.97 }, confidence: 0.97 };
+        } else if (parsed.state === 'mock:choice-prototype' && q.type === 'choice') {
+          // 原型链上的名字不是判据表里的选项：`value in criteria` 会把它当合法值放行
+          answers[qid] = { type: 'choice', choice: 'constructor', probabilities: { constructor: 0.97 }, confidence: 0.97 };
         } else if (parsed.state === 'mock:score-out-of-range' && q.type === 'score') {
           answers[qid] = {
             type: 'score',
@@ -500,6 +503,17 @@ const main = async () => {
       assert.equal(hallucinated.answers.department.value, 'vip');
       assert.equal(hallucinated.needs_human_review, true, '幻觉选项必须转人工');
       assert.deepEqual(hallucinated.low_confidence_questions, ['department']);
+    });
+
+    // 同类的隐蔽形态：选项名取自原型链。用 `value in criteria` 判合法时
+    // "constructor" / "toString" / "hasOwnProperty" 都会被当成合法选项放行（2026-10-28 修复）。
+    const prototypeName = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:choice-prototype' })
+    );
+    check('choice 返回原型链上的名字（constructor）同样转人工，不因 in 的继承匹配被放行', () => {
+      assert.equal(prototypeName.answers.department.value, 'constructor');
+      assert.equal(prototypeName.needs_human_review, true, '原型链名字不是判据表内的选项，必须转人工');
+      assert.ok(prototypeName.low_confidence_questions.includes('department'));
     });
 
     const outOfRange = toolResult(
