@@ -5,10 +5,23 @@
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
 | [systemone-decision](plugins/systemone-decision/) | 0.5.9 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.4.9 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 可越过），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
+| [worktree-ops](plugins/worktree-ops/) | 0.4.9 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.18 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.11 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、4 个可加载子智能体（另 10 个 effort 分级变体在 `extras/`，默认不加载）与会话启动 hook |
 | [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.5 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
+
+## 共装注意：两个 PreToolUse 风险闸
+
+`systemone-decision` 与 `ai-native-delivery` **都注册 PreToolUse shell 命令闸**，判据却不同：前者把命令文本交给带外决策模型做三问判定，后者是项目内静态 deny/ask 清单匹配（无网络、无模型）。宿主按插件各跑各的 hook，**两个闸之间没有仲裁通道**——同装时一条 shell 命令会被判两次，可能出现两道确认，或一个 `ask` 叠一个 `deny`（最终按宿主对多份 hook 输出的合并规则取严）。
+
+只留一道闸的办法（按你要的判据选）：
+
+| 想留 | 怎么让位 | 代价 |
+|------|----------|------|
+| ai-native 的清单闸（确定性、不外发） | 给 systemone 设 `SYSTEMONE_HOOK_RISK_GATE=off` | 失去语义级判定，只认清单里写死的串 |
+| systemone 的模型闸（能判语义） | 删除 `plugins/ai-native-delivery/hooks/hooks.json` 的 `PreToolUse` 段 | **命令全文会外发到所配置的第三方端点**（默认 unisound），并需在该插件设置页配 API Key |
+
+默认两者都开、都只读命令文本（不读文件内容）。要外发这件事本身就是选型依据，所以写在装之前看的那一页上，而不是埋在各自 README 里。
 
 ## 标准包结构
 

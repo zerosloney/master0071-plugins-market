@@ -334,6 +334,91 @@ for (const [key, list] of Object.entries(SHIM_COMPONENT_EXEMPTIONS)) {
   }
 }
 
+// ── 共装闸门必须在市场首页可见（2026-10-28 第二轮）─────────────────────────────
+// 两个插件都注册 PreToolUse shell 闸时，宿主各跑各的、没有仲裁通道：同装 = 一条命令判两次。
+// 这件事原本只写在**各自** README 里，而用户在装之前读的是市场首页——于是安装后才撞上双确认。
+// 规则：凡注册 PreToolUse 的插件达到 2 个，根 README 就得有一节把这些插件**全部点名**，
+// 第三个插件再加闸却不进这一节时，本规则报红（防这节随时间变成半真信息）。
+const preToolPlugins = plugins.filter((p) => {
+  const files = [`plugins/${p}/hooks/hooks.json`, ...SHIMS.map((s) => `plugins/${p}/${s}/plugin.json`)];
+  return files.some((rel) => {
+    const abs = path.join(ROOT, rel);
+    if (!fs.existsSync(abs)) return false;
+    try { return /"PreToolUse"/.test(fs.readFileSync(abs, 'utf8')); } catch { return false; }
+  });
+});
+if (preToolPlugins.length >= 2) {
+  const rootReadme = path.join(ROOT, 'README.md');
+  const text = fs.existsSync(rootReadme) ? fs.readFileSync(rootReadme, 'utf8') : '';
+  const section = text.split(/\r?\n/).filter((l) => l.includes('PreToolUse') || l.includes('共装')).join('\n');
+  if (!section) {
+    fail(`README.md: ${preToolPlugins.length} 个插件都注册了 PreToolUse 闸（${preToolPlugins.join(' + ')}），`
+      + '但市场首页没有一个字提到共装会双判——用户装之前看不到，装之后才撞');
+  } else {
+    for (const p of preToolPlugins) {
+      if (!new RegExp(p.replace(/-/g, '\\-')).test(section)) {
+        fail(`README.md 的共装/PreToolUse 段未点名 ${p}——该插件也注册了 PreToolUse 闸，漏一个就等于这节是半真信息`);
+      }
+    }
+  }
+}
+
+// ── 护栏措辞必须与实现同口径（2026-10-28 第二轮；第一轮就漏过一次）───────────────
+// worktree_remove 的丢弃护栏是**双标志**（`mcp/tools.mjs` 里 `discard = force && confirmDiscard`）。
+// 面向用户的描述只要提了 `force` 却没提 `confirmDiscard`，就是在广告一道比实现更弱的护栏：
+// 用户或 agent 照描述只传 force，必然撞二次确认，轻则流程卡死、重则误判成工具坏了。
+// 这类漂移改一处漏一处——第一轮修了 plugin.json / 垫片 / README 正文 / SKILL，却漏了带反引号的
+// 根 README 表格行（`（\`force=true\` 可越过）`），关键词 grep 也没抓到它。所以判据从**实现**取：
+// 源文件里的与关系一旦变（增删标志），本规则先自曝，不允许悄悄过期。
+const GUARDRAILS = [
+  {
+    plugin: 'worktree-ops',
+    source: 'plugins/worktree-ops/mcp/tools.mjs',
+    pairRe: /const\s+discard\s*=\s*(\w+)\s*&&\s*(\w+)/,
+    // 提到主标志、又确实在讲删除，就必须同时提到副标志
+    // 词边界判据即可覆盖 `force`（反引号）/ force / force=true 三种写法——反引号本身是非词字符，
+    // 不需要为它单列分支（第一版在这里写模板串转义直接把脚本编译打挂了，反而说明单判据更稳）
+    mentionsPrimary: (t, primary) => new RegExp(`\\b${primary}\\b`).test(t),
+  },
+];
+for (const g of GUARDRAILS) {
+  // 只校验本次检出里在场的插件（selftest 与局部检出不可能带齐全部插件；缺席时硬报错会让合法夹具判红）
+  if (!plugins.includes(g.plugin)) continue;
+  const src = fs.existsSync(path.join(ROOT, g.source)) ? fs.readFileSync(path.join(ROOT, g.source), 'utf8') : '';
+  const m = g.pairRe.exec(src);
+  if (!m) { fail(`${g.source}: 取不到「标志A && 标志B」的与关系——护栏措辞规则失去依据，请同步更新 manifest-lint 里的 GUARDRAILS`); continue; }
+  const [, primary, secondary] = m;
+  const texts = [];
+  // ① 根 README 的插件表格行
+  const rootReadme = path.join(ROOT, 'README.md');
+  if (fs.existsSync(rootReadme)) {
+    for (const line of fs.readFileSync(rootReadme, 'utf8').split(/\r?\n/)) {
+      if (line.startsWith('|') && line.includes(`[${g.plugin}](`)) texts.push(['README.md 插件表行', line]);
+    }
+  }
+  // ② 各市场目录的条目描述（含 i18n 分支）
+  for (const cat of ['marketplace.json', '.omp-plugin/marketplace.json', '.agents/plugins/marketplace.json']) {
+    if (!fs.existsSync(path.join(ROOT, cat))) continue;
+    for (const e of (read(cat).plugins || []).filter((x) => x && x.name === g.plugin)) {
+      texts.push([`${cat} · ${e.displayName || e.name}`, String(e.description || '')]);
+      for (const [loc, v] of Object.entries(e.description_i18n || {})) texts.push([`${cat} · ${loc}`, String(v || '')]);
+    }
+  }
+  // ③ 插件自身清单（根 + 三垫片）
+  for (const rel of [`plugins/${g.plugin}/plugin.json`, ...SHIMS.map((s) => `plugins/${g.plugin}/${s}/plugin.json`)]) {
+    if (fs.existsSync(path.join(ROOT, rel))) texts.push([rel, String(read(rel).description || '')]);
+  }
+  const seen = new Set();
+  for (const [where, text] of texts) {
+    if (!text || seen.has(where + text)) continue;
+    seen.add(where + text);
+    if (g.mentionsPrimary(text, primary) && !new RegExp(secondary).test(text)) {
+      fail(`${where}: 描述了 ${primary} 却没提 ${secondary}——实现是「${primary} && ${secondary}」双标志`
+        + `（${g.source}），单提 ${primary} 会让调用方只传一个标志然后撞二次确认`);
+    }
+  }
+}
+
 if (problems.length) {
   console.error(`✗ 垫片一致性检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);
