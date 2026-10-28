@@ -10,8 +10,8 @@ hash 路由 `#/mto-changes`（采购 › 需求变更）→ 点「查询」取�
 - **行操作入口在 hover 浮层里**（固定操作列已于 2026-10-22 前后的列表改造中删除）：须先 `mouseover` 到 `.ag-row`，浮层才渲染；直接查 DOM 找不到按钮。
 - **「编辑」入口是 `<a>`，且不满足资格时不再渲染**（2026-10-26 用户口径①变更；原「五按钮常驻 + `.action-disabled` 置灰」已删除——若仍按 `.action-disabled` 找入口，恒找不到）。用 `button` 选择器同样找不到它。
 - **编辑入口有「本人创建」门**（`canEdit = status === 1 && isCreator`，`isCreator` 比 `authStore.user.jobNo` 与行的 `createdByJobNo`）。未提交单（`status=1`）未必由当前账号创建，逐页翻也可能一行都不可编辑。
-  - 实测可编辑账号：`JAMTC006`（杨晋奇）/ `JAMTC002`（沈霁宇）/ `JAMTC003`（毛天宇），对应未提交单的 `createdByJobNo`（2026-10-23 实测）。
-  - `harness.seedSession(ctx, token)` 2026-10-26 起自动按 token 的 JWT claims 播种**真实登录身份**——用 `getToken('JAMTC006')` 等显式取号后直接 seedSession 即过本人门；仅当需要与 token 账号不同的身份时才手工 `localStorage.setItem('auth_user', …)` 播种（`jobNo`/`displayName`/`dept` 取自 `POST /api/v1/auth/login` 响应）。
+  - 实测可编辑账号：见**项目侧**记录（本插件不分发真实账号与人名——工号与姓名绑定属个人数据，随市场包外泄）。写法：`getToken(<有未提交单的账号>)`。
+  - `harness.seedSession(ctx, token)` 2026-10-26 起自动按 token 的 JWT claims 播种**真实登录身份**——显式取一个创建了未提交单的账号后直接 seedSession 即过本人门；仅当需要与 token 账号不同的身份时才手工播种会话用户对象（字段取自该产品自身的登录响应，字段名随项目而变，不在本插件登记）。
   - `harness.getToken(username)` 显式传用户名时**不会**补缺省密码（`password` 保持 `undefined`，请求体里被丢掉 → 401），须显式传第二参。
 
 ## 驱动

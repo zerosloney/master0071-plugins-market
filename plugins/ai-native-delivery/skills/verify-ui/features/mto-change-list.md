@@ -30,7 +30,7 @@ hash 路由 `#/mto-changes`（采购 › 需求变更）。**进入不取数**�
 
 ## Gotchas
 
-- **必须真身播种**：行操作资格含「本人创建」门（`canEdit = status === 1 && isCreator`，比 `authStore.user.jobNo` 与行 `createdByJobNo`）。`harness.seedSession(ctx, token)` 写死 Admin 身份 → 本人门恒不通过，会把「没有可操作行」误判成缺陷。须自行把 `POST /api/v1/auth/login` 响应的 `jobNo/displayName/dept` 写进 `localStorage.auth_user`，再经 `about:blank` 中转后硬导航。
+- **必须真身播种**：行操作资格含「本人创建」门（`canEdit = status === 1 && isCreator`，比当前登录身份与行的创建人字段）。`harness.seedSession(ctx, token)` 若写死管理员身份 → 本人门恒不通过，会把「没有可操作行」误判成缺陷。做法：用**该产品自己的登录接口**取一个真实创建了记录的账号，把其身份字段播种进前端会话存储后硬导航（接口路径与存储键名属项目侧信息，本插件不分发）。
 - **勾选态必须显式清**：AG Grid 未设 `getRowId`，行选中按**行索引**落地——服务端分页翻页后同索引行会「看起来被勾上」，而 `selectedRowKeys` 仍是旧页 id（按钮计数与视觉不一致）。本页把 `clearSelection()` 收进 `loadData()` 单一咽喉；`/mto-orders` 只在查询/重置/批量后清，别照抄那一版。
 - **单元格内层就是 `.ag-cell` 本体**（`ag-cell-value` 与 `ag-cell` 是同一元素同类名）：判截断直接比 `scrollWidth > clientWidth`，**内容盒 = 声明宽 − 32**，不是 −16 也不是 −24。
 - **量文本宽用隐藏 DOM span（复制 `font` / `letter-spacing`），别用 canvas 也别忘了开销常量**：本页 canvas 与 DOM span 量出同值（尺子本身没问题），真正的坑是**开销常量**——按旧口径 24 算会窄 8px，后果是正常长度也截断（实测：项目号 80px 时内容盒仅 48 < 所需 54 → 10/10 行截断）。
