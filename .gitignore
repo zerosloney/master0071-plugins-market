@@ -10,3 +10,5 @@ plugins/*/decision-cache.json*
 plugins/*/precheck-quota.json*
 # 逐插件的临时夹具/调试现场（含嵌套 .git 与写了绝对本地路径的钩子），永不入库
 .tmp-review/
+# 同类的审计夹具现场（如 .audit-tmp3/：整棵 proj 种子工程），不入库、由作者自行清理
+.audit-tmp*/
