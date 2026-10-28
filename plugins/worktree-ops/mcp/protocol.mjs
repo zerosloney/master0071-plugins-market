@@ -12,7 +12,7 @@ import { tools } from "./tools.mjs";
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/worktree-ops/plugin.json 同步，由 `node scripts/release.mjs worktree-ops <x.y.z>` 统一改
-const SERVER_INFO = { name: 'worktree-ops', version: '0.4.7' };
+const SERVER_INFO = { name: 'worktree-ops', version: '0.4.8' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 

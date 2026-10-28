@@ -531,6 +531,11 @@ function managedRoot(config, repo) {
 function ensureInsideRepoIgnore(repo, ignoredDir, gitDir) {
   const rel = path.relative(repo, path.resolve(ignoredDir));
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  // 控制字符不得进 exclude 行（2026-10-28 市场审查）：entry 由**配置来的**路径派生，
+  // 路径里带换行会把一行拆成两条规则——等于往 .git/info/exclude 注入任意 ignore 项，
+  // 静默隐藏本该可见的未跟踪文件。合法路径不需要控制字符，直接放弃写入：
+  // 没有本地忽略只是 git status 多一行，比注入安全。
+  if (/[\u0000-\u001f\u007f]/.test(rel)) return null;
   if (!gitDir) return null;
   const excludePath = path.join(gitDir, "info", "exclude");
   const entry = `/${rel.split(path.sep).join("/")}/`;
