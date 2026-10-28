@@ -323,9 +323,14 @@ function gateFor(state, pipeline) {
   const stallMax = spec.stallMax;
   if (state.stop_reason) return { stop_reason: state.stop_reason, reason: "already stopped" };
   const tasks = state.tasks;
-  // coding 零容忍：scope_drift=FAIL 时不允许 DONE（任何越界都必须人工裁决，落到下方 ESCALATE）
-  const scopeBlocked = pipeline === "coding" && state.scope_drift === "FAIL";
-  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && !scopeBlocked) {
+  // coding 零容忍：DONE 要求 scope_drift === "PASS"（2026-10-28 对齐文档）。
+  // 此前只拦 FAIL，未跑 / 未自报（undefined / null）会被当作通过——而
+  // commands/coding-pipeline.md 与 skills/coding-pipeline/SKILL.md 列的 DONE 条件都是
+  // 「scope_drift == "PASS"」，代码比文档松，等于「零容忍」在未判定时静默放行。
+  // 未判定时既不 DONE 也不 ESCALATE：落到末尾的 continue，补跑 scope 检查即可；
+  // 真越界仍由下方 FAIL 分支即时 ESCALATE。
+  const scopeNotPassed = pipeline === "coding" && state.scope_drift !== "PASS";
+  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && !scopeNotPassed) {
     return { stop_reason: "DONE", reason: "all tasks are done" };
   }
   if (state.consecutive_failures >= state.max_failures) {

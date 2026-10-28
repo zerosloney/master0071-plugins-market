@@ -239,6 +239,15 @@ try {
     "ESCALATE",
   );
 
+  // 文档口径是「scope_drift == "PASS"」才允许 DONE（commands/coding-pipeline.md / SKILL.md）。
+  // 修复前代码只拦 FAIL，未跑 / 未自报（undefined / null）被当成通过——零容忍在未判定时静默放行。
+  const allDone = [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }];
+  expectStop("coding 全部 done + scope_drift=PASS → DONE", "coding", { scope_drift: "PASS", tasks: allDone }, "DONE");
+  expectStop("coding 全部 done + scope_drift 未判定（undefined）→ 不 DONE，继续循环", "coding", { tasks: allDone }, null);
+  expectStop("coding 全部 done + scope_drift=null → 不 DONE，继续循环", "coding", { scope_drift: null, tasks: allDone }, null);
+  // ralph 不受该判据影响（scope 只对 coding 定义）
+  expectStop("ralph 全部 done + 无 scope_drift → 仍 DONE", "ralph", { tasks: allDone }, "DONE");
+
   // 预算耗尽（无更高优先级规则触发时）
   expectStop("token 预算耗尽判 BUDGET", "ralph", { budget: { max_tokens: 100, spent_tokens: 100 } }, "BUDGET");
   expectStop("费用预算耗尽判 BUDGET", "coding", { budget: { max_cost_usd: 2, spent_cost_usd: 2 } }, "BUDGET");

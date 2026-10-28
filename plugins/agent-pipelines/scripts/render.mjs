@@ -203,7 +203,7 @@ export function loadEvents(file) {
   return events;
 }
 
-export function buildHtml({ pipeline, file, state, events, graph, warnings }) {
+export function buildHtml({ pipeline, file, state, events, graph, warnings, live = false }) {
   const spec = PIPELINES[pipeline];
   // 与 layoutGraph 的畸形条目口径一致：null/缺 id 的任务不进渲染（layoutGraph 已把它们记入 graph.errors），
   // 否则下方 rowsPerLayer 与 renderTaskGraph 对 null 条目取 task.id 直接 TypeError
@@ -283,6 +283,15 @@ ${events.length ? `<ul class="events">${events.map(renderEventRow).join("")}</ul
 <h2>状态 JSON</h2>
 ${jsonBlock(state)}
 </div>
+${live ? `<script>
+// 实时看板客户端（2026-10-28）：serve.mjs 在状态/事件变化时推送 \`render\` 事件，这里只负责重载。
+// 此前服务端 SSE 与事件都写好了，页面里却没有客户端——README 宣称的「浏览器自动刷新」实际不生效。
+// 仅 serve 模式注入：静态导出（render --out）没有 /events，EventSource 会反复重连并刷控制台错误。
+(() => {
+  const es = new EventSource('/events');
+  es.addEventListener('render', () => location.reload());
+})();
+</script>` : ''}
 </body>
 </html>`;
 }

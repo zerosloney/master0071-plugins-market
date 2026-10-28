@@ -25,7 +25,7 @@ function renderHtml() {
   const events = loadEvents(file);
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const graph = layoutGraph(tasks);
-  return buildHtml({ pipeline, file, state, events, graph });
+  return buildHtml({ pipeline, file, state, events, graph, live: true });
 }
 
 function broadcast() {

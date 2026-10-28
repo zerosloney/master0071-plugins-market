@@ -434,6 +434,8 @@ check("HTML 含状态徽标", /badge-done/.test(html) && /badge-in_progress/.tes
 // round/tasks/ts 是事件行独有的标记，占位文案与静态页面都不含，才能真正证明事件被渲染
 check("HTML 含事件日志", /执行轨迹/.test(html) && /round=0/.test(html) && /round=1/.test(html) && /tasks 1\/2/.test(html) && /2026-01-01T00:01:00\.000Z/.test(html));
 check("HTML 含预算", /100\/1000/.test(html));
+// 静态导出没有 /events 端点：不得注入 SSE 客户端，否则浏览器会反复重连并刷控制台错误
+check("静态导出不含 EventSource 客户端（serve 专有）", !html.includes("new EventSource"), "静态页面不应注入实时客户端");
 check("HTML 依赖图无环", !/存在环/.test(html));
 check("HTML 自包含无外链", !/src="http|href="http/.test(html));
 // .task 绝对定位必须显式设 top：t1/t3 同层（第 0 层两行），t3 应在第 1 行（18 + 110px）
@@ -638,6 +640,11 @@ const page = await new Promise((resolve, reject) => {
     .on("error", reject);
 });
 check("serve 返回看板 HTML（含种子事件行）", page.includes('class="task"') && page.includes("t1") && page.includes("round=0") && page.includes("tasks 0/1"), serveOut);
+
+// 2026-10-28：服务端 SSE 与事件此前都齐备，但页面里没有客户端，README 宣称的「浏览器自动刷新」
+// 实际不生效。此断言锁住「推送 + 重载」这条链路的客户端一半。
+check("serve 页面注入 EventSource 客户端（自动刷新实际生效）",
+  page.includes("new EventSource('/events')") && page.includes("addEventListener('render'"), serveOut);
 
 // SSE 连接 + 写入新状态 → 收到 render 事件
 const ssePromise = fetchSseEvent(`http://127.0.0.1:${servePort}/events`, "event: render", 5000);
