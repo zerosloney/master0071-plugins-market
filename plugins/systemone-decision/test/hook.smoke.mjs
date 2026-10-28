@@ -36,6 +36,14 @@ const SCENARIOS = {
     missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
     proceed: { type: 'noul', noul: 0.91 },
   },
+  // 幻觉 missing：choice 值不在判据表（goal/scope/acceptance/constraint/none）内，
+  // confidence 再高结论文案也不可信——按响应不完整 fail-open 静默跳过
+  //（与 risk-gate 的 verdict 幻觉判定、MCP 侧 isBorderlineAnswer 同口径）
+  unclearHallucinatedMissing: {
+    clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 1, confidence: 0.92 },
+    missing: { type: 'choice', choice: 'timeline', probabilities: { timeline: 0.96 }, confidence: 0.96 },
+    proceed: { type: 'noul', noul: 0.42 },
+  },
 };
 let scenario = 'clear';
 
@@ -167,6 +175,16 @@ const main = async () => {
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.equal(received.length, 1, '静默发生在判定之后');
+  });
+
+  // 2b. missing 幻觉出判据表外的选项 → 结论文案不可信，按响应不完整 fail-open 静默跳过
+  scenario = 'unclearHallucinatedMissing';
+  received = [];
+  r = await run('帮我把这个项目优化一下，尽快弄好');
+  check('missing 幻觉选项时静默跳过，不渲染空心结论', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 1, '判定请求照发，幻觉在归一化后才被识破');
+    assert.equal(r.stdout, '', '不得输出「最需要澄清：timeline（）」这类空心结论');
   });
 
   // 3. 寒暄捷径 → 不发请求直接放行

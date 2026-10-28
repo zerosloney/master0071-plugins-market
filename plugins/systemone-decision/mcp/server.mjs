@@ -31,7 +31,12 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.9' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.10' };
+
+// 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
+// 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
+//（口径同 worktree-ops/mcp/protocol.mjs）。
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2024-11-05'];
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
@@ -862,7 +867,10 @@ async function dispatch(msg) {
     case 'initialize': {
       const requested = msg.params && msg.params.protocolVersion;
       return {
-        protocolVersion: typeof requested === 'string' ? requested : '2024-11-05',
+        protocolVersion:
+          typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+            ? requested
+            : SUPPORTED_PROTOCOL_VERSIONS[0],
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
