@@ -98,5 +98,31 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// ---- S13 非 git 目录下加载脚本不得崩溃（2026-10-28）----
+// ROOT 解析的回退分支曾引用一个**从未定义**的 `SCRIPT_DIR`：git 目录里 findProjectRoot() 短路成功，
+// 回退分支永远不执行，所以这个问题一直没暴露；在非 git 目录（合法形态：就地操作）跑时脚本直接
+// `ReferenceError: SCRIPT_DIR is not defined` 崩溃。这里在临时非 git 目录加载模块，锁住「能加载」。
+{
+  const { spawnSync } = await import('node:child_process');
+  const { pathToFileURL } = await import('node:url');
+  const { fileURLToPath } = await import('node:url');
+  const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'qc-nongit-'));
+  try {
+    const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'check-query-contract.mjs');
+    const r = spawnSync(process.execPath, ['-e',
+      `import(${JSON.stringify(pathToFileURL(script).href)}).then(() => console.log('loaded')).catch((e) => { console.error(e.message); process.exit(1); })`,
+    ], {
+      cwd: nonGit,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(nonGit) },
+    });
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    check('S13 非 git 目录下加载不抛 ReferenceError',
+      r.status === 0 && /loaded/.test(out) && !/ReferenceError/.test(out), out.slice(0, 300));
+  } finally {
+    fs.rmSync(nonGit, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

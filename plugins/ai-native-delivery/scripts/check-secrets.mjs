@@ -20,16 +20,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { findProjectRoot } from './paths.mjs';
+import { findProjectRoot, projectRoot } from './paths.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-// ROOT 解析（2026-10-27 插件化改道）：env 注入（测试夹具契约）→ 项目 git 根（findProjectRoot；
-// 插件形态脚本居插件安装缓存目录，锚脚本上两级会指错地方）→ 旧锚 <script>/../..（源仓形态 /
-// 夹具把本脚本复制进 <tmp>/.agents/scripts/ 时行为不变）。
+// ROOT 解析（2026-10-28 收口）：env 注入（测试夹具契约）→ 项目 git 根（findProjectRoot）→ cwd。
+// 此前回退是旧锚 <script>/../..：插件形态下解析到市场仓的 plugins/，基线文件与本地 gitleaks
+// 都去那里找，结果是「基线缺失 → exit 2 拒跑」的误报原因难以归因。源仓夹具复制进
+// <tmp>/.agents/scripts/ 且 cwd=<tmp> 时，cwd 回退与旧锚等价。
 const ROOT = process.env.CHECK_SECRETS_ROOT
   || findProjectRoot()
-  || path.resolve(SCRIPT_DIR, '..', '..');
+  || projectRoot();
 const STAGED = process.argv.includes('--staged');
 const BASELINE = path.join(ROOT, '.gitleaks-baseline.json');
 

@@ -16,14 +16,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLUGIN_ROOT, PLUGIN_SCRIPTS_DIR, PLUGIN_CONFIG_TEMPLATES_DIR, findProjectRoot } from './paths.mjs';
+import { PLUGIN_ROOT, PLUGIN_SCRIPTS_DIR, PLUGIN_CONFIG_TEMPLATES_DIR, findProjectRoot, projectRoot } from './paths.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-// ROOT 解析（2026-10-27 插件化改道，与 check-query-contract / gen-effective-policy 同口径）：
-//   项目 git 根（findProjectRoot）→ 旧锚 <script>/../..（源仓形态行为不变）。
-// 旧锚在插件形态下=插件目录的上级（市场仓 plugins/）——虽不参与判定（插件面走 PLUGIN_*），
-// 但留着当默认值等于埋雷：谁传一次就落到别人的目录。
-const ROOT = findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-28 收口）：项目 git 根（findProjectRoot）→ cwd（projectRoot 的回退）。
+// 旧锚 <script>/../.. 在插件形态下=插件目录的上级（市场仓 plugins/）——虽不参与判定（插件面走
+// PLUGIN_*），但留着当默认值等于埋雷：谁传一次就落到别人的目录。
+const ROOT = findProjectRoot() || projectRoot();
 const SCRIPTS_DIR = '.agents/scripts';
 const EXEMPTIONS = '.agents/config/scripts-test-exempt.txt';
 // 规范键前缀：豁免表与判据口径恒用源仓形态路径（保真），只有解析随形态变化。

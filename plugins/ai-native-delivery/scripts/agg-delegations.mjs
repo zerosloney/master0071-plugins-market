@@ -18,15 +18,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { findProjectRoot } from './paths.mjs';
+import { pathToFileURL } from 'node:url';
+import { findProjectRoot, projectRoot } from './paths.mjs';
 import { readLedger as readLedgerShards } from './ledger-shards.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-// ROOT 解析（2026-10-27 插件化改道）：项目 git 根（findProjectRoot；插件形态脚本居插件安装缓存
-// 目录，锚脚本上两级会指错地方）→ 旧锚 <script>/../..（源仓形态 / 夹具复制进 <tmp>/.agents/scripts/
-// 后以 cwd=<tmp> 运行时行为不变）。
-const ROOT = findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-28 收口）：项目 git 根（findProjectRoot）→ cwd（projectRoot 的回退）。
+// 此前回退是旧锚 <script>/../..：插件形态下它解析到市场仓的 plugins/，台账读错目录却不报错；
+// projectRoot() 的回退是 cwd，源仓夹具（复制进 <tmp>/.agents/scripts/ 且 cwd=<tmp>）行为不变。
+const ROOT = findProjectRoot() || projectRoot();
 
 const argMonth = (process.argv.find((a) => a.startsWith('--month=')) || '').split('=')[1] || null;
 const WRITE = process.argv.includes('--write');

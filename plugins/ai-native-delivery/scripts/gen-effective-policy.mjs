@@ -14,19 +14,18 @@
 // 测试：node <插件根>/test/gen-effective-policy.test.mjs（fixture 注入 --root）
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { findProjectRoot } from './paths.mjs';
+import { findProjectRoot, projectRoot } from './paths.mjs';
 import { POLICIES, loadKitPolicy } from './policy.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const argOf = (k) => {
   const i = argv.indexOf(k);
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : '';
 };
-// ROOT 解析（2026-10-27 插件化改道）：--root 注入（测试夹具契约）→ 项目 git 根（findProjectRoot，
-// 插件形态不锚脚本上两级）→ 旧锚 <script>/../..（源仓形态行为不变）。
-const ROOT = argOf('--root') || findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-28 收口）：--root 注入（测试夹具契约）→ 项目 git 根（findProjectRoot）→ cwd。
+// 此前回退是旧锚 <script>/../..：插件形态下解析到市场仓的 plugins/，生成的 effective-policy.md
+// 会写进别人的目录（且 --check 会据此报漂移）。
+const ROOT = argOf('--root') || findProjectRoot() || projectRoot();
 const OUT = path.join(ROOT, 'workflow', 'effective-policy.md');
 
 // 键 → 消费检查项与分级说明（单源 check-loop 检查清单编号；说明文本与本脚本共同演进）

@@ -18,16 +18,16 @@
 // 测试：node <插件根>/test/agg-judgments.test.mjs（纯函数 aggFromRows / retireCandidates 进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 // 路径收口（2026-10-27 插件化改道 paths.mjs）：项目根锚定单源。
-import { findProjectRoot } from './paths.mjs';
+import { findProjectRoot, projectRoot } from './paths.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-// ROOT 解析（2026-10-27 插件化改道，与 check-query-contract / gen-effective-policy 同口径）：
-//   项目 git 根（findProjectRoot）→ 旧锚 <script>/../..（源仓形态行为不变）。
-// 修复前恒用旧锚：插件形态下 <plugin>/scripts/../.. = **插件目录的上级**（市场仓 plugins/）——
-// 台账（项目级资产）读写到别人的 .agents/ 下，退役判据喂错数据面。
-const ROOT = findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-28 收口，与 check-query-contract / gen-effective-policy 同口径）：
+//   项目 git 根（findProjectRoot）→ cwd（projectRoot 的回退）。
+// 此前回退是旧锚 <script>/../..：源仓形态下等于 <repo>（因为脚本在 <repo>/scripts/），但**插件形态下
+// 它解析到插件目录的上级**（市场仓的 plugins/）——台账是项目级资产，读写到那里等于对别人的数据面
+// 出手，且不会有任何报错。projectRoot() 的回退是 cwd：源仓测试夹具（脚本被复制进 <tmp>/.agents/scripts/
+// 并以 cwd=<tmp> 运行）行为不变，插件形态则落在调用者所在的项目里。
+const ROOT = findProjectRoot() || projectRoot();
 const LEDGER = path.join(ROOT, '.agents', 'judgments.jsonl');
 
 const argMonth = (process.argv.find((a) => a.startsWith('--month=')) || '').split('=')[1] || null;

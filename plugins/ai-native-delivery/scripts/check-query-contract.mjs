@@ -21,12 +21,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findProjectRoot } from './paths.mjs';
+import { findProjectRoot, projectRoot } from './paths.mjs';
 
-// ROOT 解析（2026-10-27 插件化改道）：项目 git 根（findProjectRoot；插件形态不锚脚本上两级）
-// → 旧锚 <script>/../..（源仓形态行为不变）。前后端目录位（frontend/src/api、backend）为
-// 项目布局适配点，随使用项目自有布局调整。
-const ROOT = findProjectRoot() || path.resolve(SCRIPT_DIR, '..', '..');
+// ROOT 解析（2026-10-28 收口）：项目 git 根（findProjectRoot）→ cwd（projectRoot 的回退）。
+// 注意：这行此前引用了一个**从未定义**的 `SCRIPT_DIR`——非 git 目录（回退分支被执行）时直接
+// `ReferenceError: SCRIPT_DIR is not defined` 崩溃，git 目录里则因短路从不执行到它，所以一直没被发现。
+// 前后端目录位（frontend/src/api、backend）为项目布局适配点，随使用项目自有布局调整。
+const ROOT = findProjectRoot() || projectRoot();
 const FRONTEND_API_DIR = path.join(ROOT, 'frontend', 'src', 'api');
 const BACKEND_DIR = path.join(ROOT, 'backend');
 
