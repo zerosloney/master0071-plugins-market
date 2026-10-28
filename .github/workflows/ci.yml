@@ -36,6 +36,8 @@ jobs:
           git config --global user.name "CI"
       - name: Version consistency (release.mjs --check)
         run: node scripts/release.mjs --check
+      - name: Manifest / shim consistency (manifest-lint.mjs)
+        run: node scripts/manifest-lint.mjs
       - name: systemone-decision tests
         run: |
           node plugins/systemone-decision/test/smoke.mjs
