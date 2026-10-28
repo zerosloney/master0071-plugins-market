@@ -30,6 +30,8 @@ Before spawning reviewers, state the intent in one clear paragraph from the user
 
 Launch all reviewers in a single message with the `Agent` tool, one per entry on the `interrogate reviewers` line in `pstack-models.md`, labeled Reviewer A, B, and so on to match the entry count. If the sheet or that line is missing, use the table defaults.
 
+Defaults are stamped from `models.json` at the plugin root (role `interrogate reviewers`, tier `panel`). Edit there and mirror this table — this port ships no generator. Other skills carry the same note under a `## Models` heading; this one keeps the table inline because the steps above read from it.
+
 | Subagent | Default model |
 |----------|---------------|
 | Reviewer A | `opus` |

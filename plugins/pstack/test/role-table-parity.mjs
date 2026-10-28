@@ -94,5 +94,51 @@ for (const [a, b] of dupPairs) {
   }
 }
 
+// ③ 反方向对账：models.json 的每个 skill 归属，都要在对应 SKILL.md 里能找到那份模型值
+// （2026-10-28）。上面 ①② 只对「角色名集合与顺序」，锁不住「值」。实测漏了一处：
+// models.json 为角色 interrogate reviewers 指定了 skill=interrogate，而 interrogate/SKILL.md
+// 把默认模型写成表格、既无 ## Models 节也不提 models.json——`grep models.json` 找不到它，
+// 于是「改 models.json 要同步 mirror」这条约定对它不成立，它是一份没人对账的第四份副本。
+// 判据：models.json 里每个 (role, skill) 的期望模型值序列，必须出现在该 skill 的 SKILL.md 中
+// （按 `a`, `b` 反引号形态逐项出现即可；不要求特定标题，表格与列表都算）。
+console.log('\nmodels.json → 各 skill 的模型值对账：');
+const tierOf = models.tiers || {};
+// tiers 的值有两种形态：字符串（default → "opus"）与数组（panel → ["opus", "fable", ...]）。
+// 统一摊平成字符串数组——第一版写成 [tierOf[m] ?? m]，panel 就解成了嵌套数组，三处误红。
+const resolveTier = (m) => {
+  const v = Array.isArray(m) ? m : [m ?? null];
+  return v.flatMap((x) => {
+    const t = tierOf[x];
+    if (t === undefined) return x === null ? [] : [x];
+    return Array.isArray(t) ? t : [t];
+  });
+};
+const rolesBySkill = new Map();
+for (const r of models.roles || []) {
+  const role = typeof r === 'string' ? r : r.role;
+  const skill = typeof r === 'string' ? 'poteto-mode' : r.skill;
+  if (!rolesBySkill.has(skill)) rolesBySkill.set(skill, []);
+  rolesBySkill.get(skill).push({ role, expected: resolveTier(typeof r === 'string' ? null : r.models) });
+}
+check('models.json 的 roles[] 带 skill 归属', rolesBySkill.size > 0, JSON.stringify([...rolesBySkill.keys()]));
+for (const [skill, entries] of rolesBySkill) {
+  const rel = `skills/${skill}/SKILL.md`;
+  const abs = path.join(PLUGIN, rel);
+  if (!fs.existsSync(abs)) {
+    check(`${rel} 存在（models.json 声明了 skill=${skill}）`, false);
+    continue;
+  }
+  const text = fs.readFileSync(abs, 'utf8');
+  const quoted = (v) => `\`${v}\``;
+  const missing = entries.filter(({ expected }) => !expected.every((v) => text.includes(quoted(v))));
+  check(
+    `${rel} 承载 models.json 为 skill=${skill} 声明的全部模型值`,
+    missing.length === 0,
+    missing.map(({ role, expected }) => `${role} 期望 ${expected.join(', ')}`).join('；'),
+  );
+  // 值都在场还不够：文件得说明这些值是 models.json 的镜像，否则改 models.json 的人不知道要同步它
+  check(`${rel} 说明这些模型值来自 models.json`, /models\.json/.test(text));
+}
+
 console.log(`\n${fail.length ? `${fail.length} 项失败：${fail.join('；')}` : '全部通过'}：${pass} 断言`);
 process.exit(fail.length ? 1 : 0);
