@@ -56,6 +56,11 @@ if (process.platform === 'win32' && existsSync('C:\\PROGRA~1')) {
   check('8.3 短名与长名指向同一目录 → 相等', samePath('C:\\PROGRA~1', longForm) === true, longForm);
   // 短名写法作父路径时，长名写法作子路径也必须判「在内」——受管根与 worktree 路径正是这样混用的
   check('短名父 / 长名子 → 判为「在内」', isInside(`${longForm}\\Windows`, 'C:\\PROGRA~1') === true, longForm);
+  // 0.4.10：叶子不存在（即将创建的 worktree 目录、被手动删走的 prunable 目录）时不得
+  // 整条放弃解析——旧实现退回未解析短名，与已解析长名的受管根判不等，CI 的 RUNNER~1
+  // 环境上「显式 path 误判越界 / .git 内目录护栏被绕过 / 本地忽略不写」三个口子全中过
+  check('叶子不存在时短名前缀仍归一到长名', samePath(`C:\\PROGRA~1\\no-such-leaf\\x`, `${longForm}\\no-such-leaf\\x`) === true, longForm);
+  check('叶子不存在的长名子 / 短名父 → 判为「在内」', isInside(`${longForm}\\no-such-leaf\\x`, 'C:\\PROGRA~1') === true, longForm);
 } else {
   console.log('  · 8.3 别名不可用（非 Windows 或未启用短名）——跳过两项，回归由 windows-latest 矩阵验证');
 }

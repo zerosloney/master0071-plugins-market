@@ -10,13 +10,17 @@
 // 退出码非 0 表示有断言失败。
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'server.mjs');
-const sandbox = mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-'));
+// 夹具根起点即归一为长名（realpath 剥 \\?\ 前缀）：CI 的 TEMP 是 8.3 短名（RUNNER~1），
+// 而工具回显 / git worktree list 报的都是长名——夹具若沿用短名，所有 includes(路径)
+// 断言都会因同一目录两种写法而误判（比较语义本身由 core 的 samePath/isInside 保证，
+// 这里只消掉测试侧的裸字符串比较脆弱性）。
+const sandbox = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-'))).replace(/^\\\\\?\\/, '');
 const cfgHome = path.join(sandbox, 'cfg');
 const repo = path.join(sandbox, 'myrepo');
 const root = path.join(sandbox, 'custom-root');

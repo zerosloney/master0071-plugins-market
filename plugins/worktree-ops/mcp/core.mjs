@@ -448,15 +448,32 @@ const CASE_INSENSITIVE_FS = detectCaseInsensitiveFs();
 *  `C:\Users\runneradmin\...`。纯字符串比较会把同一目录判成两个不同目录——在 CI 上表现为
 *  「refusing to remove a worktree outside the managed root（RUNNER~1 版）」与
 *  「worktree not found（列出的是 runneradmin 版）」，而两者其实是同一个 worktree。
-*  realpathSync.native 走句柄取真实长名（POSIX 上则解析符号链接，顺带修掉 /tmp→/private/tmp 这类）；
-*  路径不存在时（prunable 工作树目录已被手动删走）退回 resolve 结果——取不到不能当错误。 */
+*  realpathSync.native 走句柄取真实长名（POSIX 上则解析符号链接，顺带修掉 /tmp→/private/tmp 这类）。
+*  路径不存在时（prunable 工作树目录已被手动删走、**即将创建的 worktree 目录**）不能整条放弃：
+*  放弃会退回未解析的短名写法，与已解析成长名的受管根永远判不等——受管根判定误报越界、
+*  .git 内目录的创建拒绝护栏被绕过、仓库内 root 的本地忽略不写（主检出变脏），三个口子
+*  在 CI 的 RUNNER~1 环境上全部命中过。改为解析「最长已存在祖先」的 realpath，
+*  把不存在的尾巴原样接回：短名前缀照样归一到长名，纯虚构路径仍退回 resolve 结果。 */
 function canonicalPath(p) {
   const resolved = path.resolve(p);
   try {
     // Windows 的 native realpath 会带 \\?\ 前缀，比较前剥掉
     return fs.realpathSync.native(resolved).replace(/^\\\\\?\\/, '');
   } catch {
-    return resolved;
+    const tail = [];
+    let dir = path.dirname(resolved);
+    tail.push(path.basename(resolved));
+    for (;;) {
+      try {
+        const realDir = fs.realpathSync.native(dir).replace(/^\\\\\?\\/, '');
+        return path.join(realDir, ...tail.reverse());
+      } catch {
+        const parent = path.dirname(dir);
+        if (parent === dir) return resolved; // 到盘符根仍解析不出（如盘符不存在）：退回 resolve 结果
+        tail.push(path.basename(dir));
+        dir = parent;
+      }
+    }
   }
 }
 
