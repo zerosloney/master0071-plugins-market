@@ -84,6 +84,21 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。
 
+### 与 systemone-decision 共装时（双风险闸，2026-10-28 说明）
+
+同一市场里的 `systemone-decision` 也注册 PreToolUse 风险闸，matcher 同为 shell 类、判定同样输出
+`ask` / `deny`。宿主按插件各跑各的 hook，**两个闸之间没有仲裁通道**——插件内部看不到另一个插件
+是否在场，也没有宿主 API 能让一个 hook 让位于另一个。所以共装时的实际行为是：
+
+- 危险命令会被**两个闸各判一次**，可能出现两道确认提示，或一个 `ask` 叠一个 `deny`（最终按宿主
+  对多个 hook 输出的合并规则取严）；
+- 两套拒/允清单彼此独立（本插件读项目侧 `.agents/settings.json`，systemone 读自己的设置页），
+  同一个命令在两边可能得到不同结论。
+
+**约定**：只保留一道闸。保留本插件（它同时管 git hooks，语义更完整）时，把 systemone 的闸关掉
+（`SYSTEMONE_HOOK_RISK_GATE=off`）；反过来则删除本插件 `hooks/hooks.json` 的 PreToolUse 段。
+不做自动让位——靠猜安装布局去检测对方会让行为随目录结构漂移，比双提示更难排查。
+
 ### 门禁的适用性判据（`verify.mjs`，2026-10-28）
 
 `verify.mjs` 的 20 门里有 6 门只对**特定技术栈**成立（前端 `npm run lint:check` / Vitest / vue-tsc、后端 `dotnet build App.sln` / 后端测试、Playwright E2E、wiki 一致性脚本）。这类门带一条适用性判据，缺失时判 **SKIP** 并显式出账，不挡关单、不计入通过数（没跑 ≠ 过了）：
