@@ -31,8 +31,10 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { projectRoot } from './paths.mjs';
 
-const root = process.cwd();
+// 根锚定 git root（paths.mjs 单源）：wiki/ 是仓库级目录，子目录调用仍扫仓库根的那一份。
+const root = projectRoot();
 const base = path.join(root, 'wiki', '数据维护', 'schema变更');
 const verbose = process.argv.includes('--verbose');
 const SKIP = new Set(['CONSTRAINT', 'PRIMARY', 'UNIQUE', 'INDEX', 'CHECK', 'FOREIGN', 'NONCLUSTERED', 'CLUSTERED', 'KEY', 'COLUMN', 'ADD', 'DROP']);

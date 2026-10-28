@@ -92,3 +92,31 @@ const lastRow = { doc: DOC, stage: 'done', prev, fingerprint: '0'.repeat(64) }; 
   assert.equal(pickLastRow(rows, DOC, 'superseded'), null);
   console.log('PASS 场景 5：末次行选取');
 }
+
+// 场景 6：非 git 目录里 import check-loop-kit 不得静默 exit 0（2026-10-28 市场审查 P0-3 根因）
+// 本套件的存在理由就是这条历史坑：append-compensation.mjs 曾因 `import { bindingSha256 } from
+// './check-loop-kit.mjs'` 继承 kit 顶层的「不在 git 仓库内 → 跳过扫描 → exit 0」，于是在临时目录
+// 连 `--help` 都返回成功而主逻辑从未跑过——典型的假绿。它已改走零副作用的 binding.mjs，但**根因
+// 在 kit 本块**：任何后来者再 import kit 都会重新中招。这里钉死两条相反的语义，防止「一视同仁改成
+// 抛错」把物理闸门（pre-commit / pre-push 在非 git 目录本就该 no-op）也一起弄红。
+{
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const kit = new URL('../scripts/check-loop-kit.mjs', import.meta.url).href; // import() 只认 file:// URL
+  const checkLoop = fileURLToPath(new URL('../scripts/check-loop.mjs', import.meta.url));
+  const bareEnv = { ...process.env };
+  delete bareEnv.CHECK_LOOP_ROOT; // 让 kit 走真实的 resolveProjectRoot 分支，不走 fixture 注入
+  const noGit = fs.mkdtempSync(path.join(os.tmpdir(), 'kit-nogit-'));
+
+  // ① 非主入口 import（node -e 时 argv[1] 不是 check-loop.mjs）→ 必须非零退出 + 指名原因
+  const imp = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(kit)});`],
+    { cwd: noGit, encoding: 'utf8', env: bareEnv });
+  assert.notEqual(imp.status, 0, `import kit 竟 exit 0（假绿复发）：stdout=${imp.stdout} stderr=${imp.stderr}`);
+  assert.match(imp.stderr + imp.stdout, /拒绝沿用/, `import kit 失败原因未指名：${imp.stderr}`);
+
+  // ② check-loop 主入口在非 git 目录仍是「跳过扫描 + exit 0」——物理闸门契约不得被我等收紧弄坏
+  const main = spawnSync(process.execPath, [checkLoop], { cwd: noGit, encoding: 'utf8', env: bareEnv });
+  assert.equal(main.status, 0, `check-loop 主入口在非 git 目录应 no-op 退出 0，实得 ${main.status}：${main.stderr}`);
+  assert.match(main.stderr, /不在 git 仓库内,跳过扫描/, `主入口语义变了：${main.stderr}`);
+  console.log('PASS 场景 6：kit 非主入口 import 抛错 / check-loop 主入口仍 exit 0（语义分叉成立）');
+}

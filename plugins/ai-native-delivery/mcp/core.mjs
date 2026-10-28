@@ -12,11 +12,13 @@ import { spawnSync } from 'node:child_process';
 
 import {
   findProjectRoot,
+  resolveProjectRoot,
   engineDir,
   ledgerDir,
   scriptPath,
   configDir,
   PLUGIN_CONFIG_TEMPLATES_DIR,
+  PLUGIN_ROOT,
 } from '../scripts/paths.mjs';
 import { gradeTask } from '../scripts/grade-task.mjs';
 import { readContext } from '../scripts/read-context.mjs';
@@ -29,8 +31,62 @@ const OUTPUT_CLIP = 8 * 1024;       // verify_gate 回传 stdout/stderr 摘要�
 /** 工具级业务错误：message 原样作为 isError 文本回给客户端（带 hint，不 crash）。 */
 export class ToolError extends Error {}
 
-/** 项目根解析：git root 锚定（不锚 cwd 语义见 paths.mjs）。找不到 → 带 hint 的工具错误。 */
-export function requireRoot() {
+// 插件根守卫（2026-10-28，审计 P0）。
+// 背景：本插件 mcp.json 声明 `"cwd": "${PLUGIN_ROOT}"`——按 Agent Plugins 规范，宿主会把 MCP
+//   服务进程起在**插件安装目录**里。此时 findProjectRoot(process.cwd()) 解析出的是「插件自己所在
+//   的那个 git 仓库」：它确实存在，却完全不是用户要操作的对象。实测后果（审计 P0-2）：update_ledger
+//   把台账写进插件仓库、confirm 把 .agents/confirmations.jsonl 写进插件仓库（正是 paths.mjs 明令
+//   禁止的「跨项目绿凭证互相污染」）、verify_gate 对插件仓库跑门禁——全程 initialized=true，无任何告警。
+// 取舍：宁可硬失败，也不猜。落错仓库的写操作事后极难分辨（插件目录被别的项目一读就串味），
+//   而一次明确报错只损失一次调用。
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+
+// canonicalPath(p)：比较用路径归一——解析真实路径（解符号链接、消除 Windows 短名/长名差异），
+//   取不到时退回 resolve（路径不存在不是错误，不能因此判错归属）。
+function canonicalPath(p) {
+  const resolved = path.resolve(p);
+  try {
+    return fs.realpathSync.native(resolved).replace(/^\\\\\?\\/, '');
+  } catch {
+    return resolved;
+  }
+}
+
+/** cwdInsidePluginRoot(cwd)：进程工作目录是否落在插件根内（宿主把服务起在插件安装目录的形态）。 */
+export function cwdInsidePluginRoot(cwd = process.cwd()) {
+  const root = canonicalPath(PLUGIN_ROOT);
+  const target = canonicalPath(cwd);
+  const r = CASE_INSENSITIVE_FS
+    ? path.relative(root.toLowerCase(), target.toLowerCase())
+    : path.relative(root, target);
+  if (r === '') return true;                                   // 就是插件根本身
+  if (path.isAbsolute(r)) return false;                        // 跨盘符 → 不在插件根内
+  return !(r === '..' || r.startsWith(`..${path.sep}`));        // 以 .. 开头 → 在插件根之外
+}
+
+/**
+ * 项目根解析：显式项目根优先；否则要求进程 cwd 不在插件根内。
+ * 找不到 → 带 hint 的工具错误（isError 回客户端，不 crash）。
+ */
+export function requireRoot(explicitRoot) {
+  // 显式项目根（调用方给的使用项目路径）：宿主把服务起在插件根时的唯一可靠出口。
+  if (explicitRoot) {
+    const r = resolveProjectRoot(explicitRoot);
+    if (!r.root) {
+      throw new ToolError(
+        `显式项目根解析失败（${r.status}）：${explicitRoot}\n` +
+        'hint: 请给使用项目的 git 仓库根（或其子目录）；台账与绿凭证只落使用项目的仓库根。',
+      );
+    }
+    return r.root;
+  }
+  if (cwdInsidePluginRoot()) {
+    throw new ToolError(
+      `MCP 服务进程的工作目录落在插件根内（${process.cwd()}）——那是插件的安装位置，不是你的项目。\n` +
+      'hint: 请在调用工具时传入 root=<使用项目的 git 仓库根>，或把宿主启动本服务时的工作目录设为项目根；' +
+      '不要让它解析到插件自己所在的仓库——台账与绿凭证落进插件目录会被别的项目当成关单凭证。',
+    );
+  }
   const root = findProjectRoot(process.cwd());
   if (!root) {
     throw new ToolError(
@@ -67,14 +123,14 @@ function spawnNode(script, args, { cwd, timeout = SPAWN_TIMEOUT_MS } = {}) {
 /* ------------------------------------------------------------ grade_task */
 
 export function toolGradeTask(args) {
-  const root = requireRoot();
+  const root = requireRoot(args?.root);
   return ok(gradeTask(String(args.description ?? ''), root));
 }
 
 /* ----------------------------------------------------------- read_context */
 
-export function toolReadContext() {
-  const root = requireRoot();
+export function toolReadContext(args = {}) {
+  const root = requireRoot(args?.root);
   return ok(readContext(root));
 }
 
@@ -127,7 +183,7 @@ function writeAtomic(target, text) {
 }
 
 export function toolUpdateLedger(args) {
-  const root = requireRoot();
+  const root = requireRoot(args?.root);
   const mode = args.mode;
   if (mode !== 'create' && mode !== 'append') {
     throw new ToolError(`invalid mode \`${String(mode)}\`：只接受 "create" 或 "append"。`);
@@ -161,7 +217,7 @@ export function toolUpdateLedger(args) {
 /* ---------------------------------------------------------------- confirm */
 
 export function toolConfirm(args) {
-  const root = requireRoot();
+  const root = requireRoot(args?.root);
   const task = String(args.task ?? '').trim();
   const decision = String(args.decision ?? '').trim();
   const evidence = String(args.evidence ?? '').trim();
@@ -175,9 +231,20 @@ export function toolConfirm(args) {
   // 不要求 doc/stage；无 kind 的存量行走原 doc 绑定校验（行为零变化）。
   const fingerprint = computeFingerprint(JSON.stringify({ task, decision, evidence }));
   const entry = { ts: new Date().toISOString(), kind: 'task', task, decision, evidence, fingerprint };
+  // 写前置（与 update_ledger 同口径）：先跑 check-ledger-invariant。此前 confirm 是 MCP 面唯一
+  // 不过前置就落账的写点——台账若已带结构性违规，append 会把它进一步固化（2026-10-28 市场审查对齐）。
+  // 注意：kind:"task" 行不带 doc/stage，进不了 §15 的文档配对集（VALID_STAGES 只认文档态），
+  // 因此它无法用来伪造「某文档已确认/已关单」——这里补前置是为写入口径一致，不是堵伪造。
+  const pre = ledgerInvariantPrecheck(root);
+  if (!pre.passed) {
+    return ok({ written: false, ledger: '.agents/confirmations.jsonl', reason: pre.reason });
+  }
   const agents = engineDir(root);
   fs.mkdirSync(path.join(agents, 'confirmations.d'), { recursive: true });
   const ledger = path.join(agents, 'confirmations.jsonl');
+  // 保持 appendFileSync（O_APPEND 原子追加），不改成 update_ledger 那种 read→concat→writeAtomic：
+  // 对 append-only 台账，read-modify-write 的并发窗口会让后写者整体覆盖先写者而**丢行**，而丢行比
+  // 半行更隐蔽（半行会被解析器当坏行跳过并出账）。append 语义在此更安全。
   fs.appendFileSync(ledger, `${JSON.stringify(entry)}\n`, 'utf8');
   return ok({ written: true, ledger: '.agents/confirmations.jsonl', entry });
 }
@@ -191,7 +258,7 @@ const LANES = {
 };
 
 export function toolVerifyGate(args) {
-  const root = requireRoot();
+  const root = requireRoot(args?.root);
   const lane = args.lane === undefined || args.lane === null ? 'hard' : args.lane;
   if (!Object.prototype.hasOwnProperty.call(LANES, lane)) {
     throw new ToolError(`invalid lane \`${String(lane)}\`：只接受 "hard"（默认）、"hygiene"、"all"。`);
@@ -270,8 +337,8 @@ const jsonlStats = (file) => {
   }
 };
 
-export function toolLedgerStats() {
-  const root = requireRoot();
+export function toolLedgerStats(args = {}) {
+  const root = requireRoot(args?.root);
   const wf = ledgerDir(root);
   const workflow = fs.existsSync(wf) ? walkStats(wf) : null;
   const agents = engineDir(root);
@@ -323,8 +390,8 @@ function ratchetStatus(root) {
   return { file: budgetsFile, entries };
 }
 
-export function toolPolicyStatus() {
-  const root = requireRoot();
+export function toolPolicyStatus(args = {}) {
+  const root = requireRoot(args?.root);
   // policyVersion：项目侧 engine.json 优先（清单单源），未初始化回退插件种子并如实标注来源
   let policy;
   const projEngine = path.join(engineDir(root), 'config', 'engine.json');

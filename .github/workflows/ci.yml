@@ -1,6 +1,7 @@
 # 全仓库测试门禁：
 #   1. 版本位一致性（scripts/release.mjs --check：5 插件 × 各 7-8 处版本位）
-#   2. 五个插件的全部 node 测试套件（共 65 个文件，零依赖，Node ≥ 18 即可跑）
+#   2. 垫片一致性 + skill 名唯一性 + CI 引用「已入库」对账（scripts/manifest-lint.mjs，含其反证自测）
+#   3. 五个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
 # pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
 #（见 plugins/pstack/extras/README.md），待其适配后再纳入。
 # windows 用 bash shell：sheet-parity 依赖 awk（Git Bash 自带），node 命令本身无 shell 依赖。
@@ -38,10 +39,15 @@ jobs:
         run: node scripts/release.mjs --check
       - name: Manifest / shim consistency (manifest-lint.mjs)
         run: node scripts/manifest-lint.mjs
+      # 守护自身的反证测试：manifest-lint 的「CI 引用文件必须已入库」若在某个改动下静默失效
+      #（解析口径与 ci.yml 写法脱节是真实风险），本步会在临时 git 仓里造出违规并断言被拦下。
+      - name: manifest-lint tracking guard (selftest)
+        run: node scripts/manifest-lint.selftest.mjs
       - name: systemone-decision tests
         run: |
           node plugins/systemone-decision/test/smoke.mjs
           node plugins/systemone-decision/test/hook.smoke.mjs
+          node plugins/systemone-decision/test/contract.smoke.mjs
       - name: worktree-ops tests
         run: |
           node plugins/worktree-ops/test/smoke.mjs
@@ -49,16 +55,21 @@ jobs:
           node plugins/worktree-ops/test/bucket.mjs
           node plugins/worktree-ops/test/exclude.mjs
           node plugins/worktree-ops/test/paths.mjs
+          node plugins/worktree-ops/test/inside.mjs
+          node plugins/worktree-ops/test/merge-main.mjs
+          node plugins/worktree-ops/test/timeout.mjs
       - name: agent-pipelines tests
         run: |
           node plugins/agent-pipelines/test/contract.mjs
           node plugins/agent-pipelines/test/pipeline.mjs
           node plugins/agent-pipelines/test/equivalence.mjs
+          node plugins/agent-pipelines/test/regression.mjs
       - name: pstack tests
         run: |
           cd plugins/pstack
           node test/run-hook-tests.mjs
           node test/sheet-parity.mjs
+          node test/role-table-parity.mjs
       - name: ai-native-delivery tests
         run: |
           cd plugins/ai-native-delivery
@@ -105,6 +116,7 @@ jobs:
           node test/workflow-enums.test.mjs
           node test/verify.test.mjs
           node test/verify-scope.test.mjs
+          node test/verify-engine-gates.test.mjs
           node test/kb-search.test.mjs
           node test/rewrite-file.test.mjs
           node test/append-compensation.test.mjs

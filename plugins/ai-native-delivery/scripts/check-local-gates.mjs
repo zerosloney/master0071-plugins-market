@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // check-local-gates.mjs — 门卫上岗自检（eli5 卡片 4，2026-10-08）
-// 本机两条 clone 必做配置 + 钩子文件在位 + 工具链（node/dotnet）在位七项检测；--fix 自动修配置项（文件类缺失给恢复指引，不代修）。
+// 本机两条 clone 必做配置 + 钩子文件在位 + 工具链（node 必查 / dotnet 仅当项目有 App.sln）在位检测；--fix 自动修配置项（文件类缺失给恢复指引，不代修）。
 // ⑥ 起工具链按「环境变量（仅浏览器 CHROME_PATH）→ 本机登记 runtime-env.local.md → 标准安装位置探测」解析并回显路径（机理 runtime-env.md §6.3，
 // 2026-10-10 本机事实出库——绝对路径不再入库登记，新机按回显补登记即可）。
 // 鸡生蛋约束：钩子没挂时任何钩子面检测不可达，故自检必须是独立脚本 + 显著入口（README 入门节 / AGENTS.md 头部）。
@@ -10,7 +10,7 @@
 import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { deploymentMode, gitHooksDir, scriptPath } from './paths.mjs';
+import { deploymentMode, gitHooksDir, projectRoot, scriptPath } from './paths.mjs';
 
 const fix = process.argv.includes('--fix');
 const git = (args) => {
@@ -25,7 +25,9 @@ const check = (ok, name, detail, fixCmd) => results.push({ ok, name, detail, fix
 //   plugin     ：治理脚本留插件内（市场分发形态）→ 判 git 实际会执行的两个执法点（pre-commit / pre-push）在位。
 // 两套判据互斥：插件形态下绝不给「设 core.hooksPath」的修复指引——core.hooksPath 会整体接管 git 的
 // 钩子查找，init-engine 装到 git 默认钩子目录的钩子会因此静默失效（钩子文件仍在但不再执行）。
-const ROOT = process.cwd();
+// 根锚定 git root（paths.mjs 单源）：子目录调用时判据看的是仓库根事实（钩子目录 / core.hooksPath
+// 都是仓库级的），不是调用者恰好所在的那个子目录。
+const ROOT = projectRoot();
 const MODE = deploymentMode(ROOT);
 
 // ① 钩子挂载面
@@ -123,11 +125,19 @@ const resolveOnDisk = (name, probes, envVar) => {
   const reg = localTool(name);
   return [envVal, reg, ...probes].filter(Boolean).find((p) => fs.existsSync(p)) ?? null;
 };
-const dotnetPath = resolveOnDisk('dotnet', ['C:/Program Files/dotnet/dotnet.exe']);
-const dotnetVer = dotnetPath ? (() => { try { return execFileSync(dotnetPath, ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })() : '';
-check(dotnetVer !== '', 'dotnet 在位且可执行（静态门 build/test 依赖；标准位置无则登记 runtime-env.local.md）',
-  dotnetPath ? `路径 ${dotnetPath} 无法执行 --version` : '未找到：标准位置与 runtime-env.local.md 登记均无（模板 runtime-env.local.example.md）',
-  null);
+// dotnet 只在**本项目确实有 .NET 后端**时才是上岗前提（与 verify.mjs 的 requires 判据同口径）。
+// 探测顺序补 PATH：旧实现只探 Windows 标准安装位置，Linux / macOS 上 dotnet 即便在 PATH 里也
+// 一律判「未找到」——ubuntu CI 因此把「源仓形态配置齐全 → 应 exit 0」的两个用例拖红。
+const needsDotnet = fs.existsSync(path.join(ROOT, 'App.sln'));
+const dotnetVer = (() => { try { return execFileSync('dotnet', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })();
+const dotnetPath = dotnetVer ? 'PATH' : resolveOnDisk('dotnet', ['C:/Program Files/dotnet/dotnet.exe']);
+if (needsDotnet) {
+  check(dotnetVer !== '', 'dotnet 在位且可执行（本项目有 App.sln，静态门 build/test 依赖）',
+    dotnetPath ? `路径 ${dotnetPath} 无法执行 --version` : '未找到：PATH、标准位置与 runtime-env.local.md 登记均无（模板 runtime-env.local.example.md）',
+    null);
+} else {
+  console.log(`  [提示] dotnet ${dotnetVer ? `→ ${dotnetVer}（PATH）` : '未解析到'}——本项目无 App.sln，不作上岗前提`);
+}
 const browserPath = resolveOnDisk('browser', [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',

@@ -11,12 +11,20 @@
 // 退出码非 0 表示有不一致。
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIMS = ['.codex-plugin', '.omp-plugin', '.zcode-plugin'];
 // 每份清单都必须带的元数据键（author 额外要求 url，见下）
 const META = ['homepage', 'repository', 'license', 'keywords'];
+// Agent Plugins 1.0.0 的 plugin.schema.json 允许的顶层字段全集（additionalProperties: false）。
+// Node 下限不在其中：规范没有 engines 这个键，宿主按规范读清单时会把它当未知字段忽略，
+// 于是"清单已声明 Node 下限"只是错觉。Node ≥ 18 的要求由各插件 README 与运行期自检承担。
+const MANIFEST_KEYS = [
+  '$schema', 'name', 'version', 'description', 'author',
+  'homepage', 'repository', 'license', 'keywords', 'extensions',
+];
 
 const plugins = fs.readdirSync(path.join(ROOT, 'plugins'), { withFileTypes: true })
   .filter((e) => e.isDirectory() && fs.existsSync(path.join(ROOT, 'plugins', e.name, 'plugin.json')))
@@ -31,10 +39,15 @@ for (const plugin of plugins) {
   const manifestRel = `plugins/${plugin}/plugin.json`;
   const manifest = read(manifestRel);
 
-  // 标准清单承担权威元数据：engines 只在这里声明（垫片是宿主专用，不重复）
-  if (!manifest.engines || !manifest.engines.node) {
-    fail(`${manifestRel}: 缺 engines.node（Node 下限必须显式声明，否则宿主无法预检）`);
+  // 标准清单的顶层字段受规范封闭约束（Agent Plugins 1.0.0 的 plugin.schema.json 是
+  // additionalProperties: false）：规范外的字段宿主会直接忽略——写进去等于没写，还会让
+  // "清单已声明 Node 下限"之类的错觉成立。这里按规范白名单对账，越界即报错。
+  const extra = Object.keys(manifest).filter((k) => !MANIFEST_KEYS.includes(k));
+  if (extra.length) {
+    fail(`${manifestRel}: 顶层字段越界（规范封闭集不含）——${extra.join(', ')}`);
   }
+  if (!manifest.$schema) fail(`${manifestRel}: 缺 $schema`);
+  if (!manifest.name) fail(`${manifestRel}: 缺 name`);
   if (!manifest.author || !manifest.author.url) fail(`${manifestRel}: author 缺 url`);
 
   for (const shim of SHIMS) {
@@ -60,6 +73,96 @@ for (const plugin of plugins) {
       fail(`${rel}: hooks=${JSON.stringify(m.hooks)}，字符串形态应为 "./hooks"`);
     }
   }
+}
+
+// ── 组件面必须在固定位置、不得写进根清单（2026-10-28 市场审查，据 Agent Plugins 1.0.0 §6.1）──
+// 规范原文（agent-plugins.org/specification §6.1 Fixed locations）：
+//   "Clients MUST discover each supported component type from its fixed location. `plugin.json` cannot
+//    override these locations or contain inline component configuration."
+//   Skills → `skills/`（子目录含 SKILL.md）；MCP servers → `mcp.json`。
+// §5.2 的封闭字段集里没有 skills/mcpServers/hooks/commands/agents——把它们写进根 plugin.json 属越界
+// 未知字段（会被报并忽略），且违反 §6.1「不得内联组件配置」。本仓的约定正是：根清单只放元数据，
+// 组件走固定位置；`skills` / `mcpServers` 这类内联声明只出现在各宿主垫片里（垫片非标准，不受 §5.2 约束）。
+// 这条检查把该约定固化为机器对账：根 plugin.json 出现这些键即报错（防日后「顺手加一个」）。
+const FORBIDDEN_ROOT_KEYS = ['skills', 'mcpServers', 'hooks', 'commands', 'agents'];
+for (const plugin of plugins) {
+  const manifestRel = `plugins/${plugin}/plugin.json`;
+  const manifest = read(manifestRel);
+  const inline = FORBIDDEN_ROOT_KEYS.filter((k) => k in manifest);
+  if (inline.length) {
+    fail(`${manifestRel}: 内联声明了组件面（${inline.join(', ')}）——Agent Plugins 1.0.0 §6.1 规定组件只在固定位置被发现，根清单不得内联；请删掉（垫片里可以声明）`);
+  }
+  // 反向锚：声明了 skills/ 就必须真有 skills/ 目录，声明了 mcp.json 就必须真有该文件
+  if (fs.existsSync(path.join(ROOT, 'plugins', plugin, 'skills'))) {
+    const hasSkill = fs.readdirSync(path.join(ROOT, 'plugins', plugin, 'skills'), { withFileTypes: true })
+      .some((e) => e.isDirectory() && fs.existsSync(path.join(ROOT, 'plugins', plugin, 'skills', e.name, 'SKILL.md')));
+    if (!hasSkill) fail(`${manifestRel}: 有 skills/ 目录但无任何 skills/<name>/SKILL.md（规范要求每个 skill 是含 SKILL.md 的直属子目录）`);
+  }
+  // mcp.json 若在场：必须是含 $schema 与 mcpServers 的对象，且无其他顶层字段（§7.2.1）
+  const mcpRel = `plugins/${plugin}/mcp.json`;
+  if (fs.existsSync(path.join(ROOT, mcpRel))) {
+    let mcp;
+    try {
+      mcp = read(mcpRel);
+    } catch (e) {
+      fail(`${mcpRel}: JSON 解析失败（${e.message}）`);
+      continue;
+    }
+    if (!mcp.$schema) fail(`${mcpRel}: 缺 $schema（§7.2.1 必填）`);
+    if (!mcp.mcpServers || typeof mcp.mcpServers !== 'object') fail(`${mcpRel}: 缺 mcpServers 对象（§7.2.1 必填）`);
+    const mcpExtra = Object.keys(mcp).filter((k) => !['$schema', 'mcpServers'].includes(k));
+    if (mcpExtra.length) fail(`${mcpRel}: 顶层字段越界——${mcpExtra.join(', ')}（§7.2.1 只允许 $schema 与 mcpServers）`);
+  }
+}
+
+// ── CI 引用对账（2026-10-28 市场审查；同日第二轮收紧到「必须已入库」）────────────
+// .github/workflows/ci.yml 里每个 `node <path>` 都是一条测试门。这些文件若被改名/删除却忘了同步
+// ci.yml，或反之（新测试文件没入库、ci.yml 先引用了它），失败会在 CI 那一刻才暴露，且报错形态是
+// 「文件不存在」而非「哪条门失配」。这里在本地/CI 前置一步对账：ci.yml 引用的每个 node 目标必须
+// 真实存在（按 `cd <dir>` 上下文解析相对路径）。
+//
+// 为什么只看 fs.existsSync 不够（2026-10-28 实测踩坑）：本地跑 CI 的脚本时工作树是完整的，未入库
+// 的文件照样存在、照样过——于是这批修复可以一路「本地全绿」提交，而 CI 在 actions/checkout 的干净
+// 工作树上因文件缺失全红。本次就攒出了 8 个这样的文件（7 个 CI 引用的测试 + 被 check-loop-kit
+// 再导出的 scripts/binding.mjs，后者断的是运行路径不是测试）。所以判据换成 git 索引：未跟踪即红。
+const ciRel = '.github/workflows/ci.yml';
+if (fs.existsSync(path.join(ROOT, ciRel))) {
+  const lines = fs.readFileSync(path.join(ROOT, ciRel), 'utf8').split(/\r?\n/);
+  let cwd = '.';
+  let refs = 0;
+  const targets = [];
+  lines.forEach((raw, idx) => {
+    const line = raw.trim();
+    const cd = line.match(/^cd\s+(\S+)\s*$/);
+    if (cd) { cwd = cd[1]; return; }
+    const m = line.match(/^node\s+(\S+\.mjs)\s*$/);
+    if (!m) return;
+    refs += 1;
+    targets.push({ lineNo: idx + 1, rel: path.posix.normalize(path.posix.join(cwd, m[1])) });
+  });
+  for (const t of targets) {
+    if (!fs.existsSync(path.join(ROOT, t.rel))) {
+      fail(`${ciRel}:${t.lineNo} 引用的测试不存在——${t.rel}（改名/删除后未同步 ci.yml）`);
+    }
+  }
+  // 入库对账：git 不可用时 loud-skip（明确说出来，不当成通过）
+  let tracked = null;
+  const probe = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+  if (probe.status !== 0) {
+    process.stderr.write(`! git ls-files 失败（${(probe.stderr || probe.error && probe.error.message || '').trim()}）`
+      + `——跳过「CI 引用文件必须已入库」对账，此项未验证，不代表通过\n`);
+  } else {
+    tracked = new Set(String(probe.stdout).split('\0').filter(Boolean).map((p) => p.split(path.sep).join('/')));
+  }
+  if (tracked) {
+    for (const t of targets) {
+      if (!fs.existsSync(path.join(ROOT, t.rel))) continue; // 已在上面报过
+      if (!tracked.has(t.rel)) {
+        fail(`${ciRel}:${t.lineNo} 引用的文件在磁盘上存在但**未入库**——${t.rel}（本地全绿、CI 干净检出必红；请 git add）`);
+      }
+    }
+  }
+  if (refs === 0) fail(`${ciRel}: 未解析到任何 \`node <path>\` 测试门——解析口径可能已与文件格式脱节`);
 }
 
 // ── skill 名唯一性（2026-10-28 市场审查）───────────────────────────────────

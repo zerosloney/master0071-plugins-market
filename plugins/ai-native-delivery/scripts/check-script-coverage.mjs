@@ -48,9 +48,42 @@ export function resolveLayout(root = ROOT) {
   };
 }
 
-// 规范键 → 实际文件：键恒为 `.agents/scripts/<basename>`（豁免表登记口径），按形态解析落位。
-const resolveScript = (layout, canonical) => path.join(layout.scriptsDir, path.basename(canonical));
-const resolveTest = (layout, canonical) => path.join(layout.testDir, path.basename(canonical));
+// 规范键 → 实际文件：键恒为 `.agents/scripts/<相对路径>`（豁免表登记口径），按形态解析落位。
+// 子目录脚本的键形如 `.agents/scripts/check-loop-sections/s01-x.mjs`——basename 会丢目录，故这里
+// 用「剥掉规范前缀再 join」而不是 basename（2026-10-28 纳入 check-loop-sections 后必须支持）。
+const stripKeyPrefix = (canonical) => canonical.startsWith(KEY_PREFIX) ? canonical.slice(KEY_PREFIX.length) : path.basename(canonical);
+const resolveScript = (layout, canonical) => path.join(layout.scriptsDir, stripKeyPrefix(canonical));
+const resolveTest = (layout, canonical) => path.join(layout.testDir, stripKeyPrefix(canonical));
+
+// 递归列出脚本目录下的 .mjs（相对 scriptsDir 的 posix 相对路径）。此前只 readdirSync 顶层，
+// check-loop-sections/ 下 22 个分段检查器不在覆盖对账面（2026-10-28 市场审查补齐）。
+function listScripts(dir, base = dir) {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    const abs = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...listScripts(abs, base));
+    else if (e.name.endsWith('.mjs') && !e.name.endsWith('.test.mjs')) {
+      out.push(path.relative(base, abs).split(path.sep).join('/'));
+    }
+  }
+  return out;
+}
+
+// 豁免登记键可为「目录前缀」（以 / 结尾，如 `.agents/scripts/check-loop-sections/`），
+// 表示该目录下全部脚本由同一份测试覆盖——避免为 22 个分段检查器写 22 行重复登记。
+function findExemption(map, rel) {
+  if (map.has(rel)) return map.get(rel);
+  for (const [key, val] of map) {
+    if (key.endsWith('/') && rel.startsWith(key)) return val;
+  }
+  return null;
+}
 
 function loadExemptions(file) {
   const map = new Map();
@@ -91,8 +124,7 @@ export function scanCoverage(root = ROOT, { exemptionsFile = null } = {}) {
       counts: { direct: 0, indirect: 0, exempt: 0, uncovered: 0, total: 0 },
     };
   }
-  const scripts = fs.readdirSync(layout.scriptsDir)
-    .filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs'))
+  const scripts = listScripts(layout.scriptsDir)
     .sort()
     .map((f) => `${KEY_PREFIX}${f}`);
   const { map, malformed } = loadExemptions(exemptions);
@@ -100,7 +132,7 @@ export function scanCoverage(root = ROOT, { exemptionsFile = null } = {}) {
   for (const rel of scripts) {
     const direct = rel.replace(/\.mjs$/, '.test.mjs');
     if (fs.existsSync(resolveTest(layout, direct))) { rows.push({ path: rel, status: 'direct', detail: direct }); continue; }
-    const ex = map.get(rel);
+    const ex = findExemption(map, rel);
     if (ex && ex.mode === 'indirect') {
       if (!fs.existsSync(resolveTest(layout, ex.test))) {
         malformed.push(`间接测试不存在：${rel} → ${ex.test}`);
@@ -113,7 +145,12 @@ export function scanCoverage(root = ROOT, { exemptionsFile = null } = {}) {
     if (ex && ex.mode === 'exempt') { rows.push({ path: rel, status: 'exempt', detail: ex.reason }); continue; }
     rows.push({ path: rel, status: 'uncovered', detail: '' });
   }
+  // stale 检查：目录前缀键只要该目录下仍有脚本就不算 stale；精确键必须命中
   for (const rel of map.keys()) {
+    if (rel.endsWith('/')) {
+      if (!scripts.some((s) => s.startsWith(rel))) malformed.push(`豁免登记指向不存在的目录：${rel}（stale 条目须删除）`);
+      continue;
+    }
     if (!scripts.includes(rel)) malformed.push(`豁免登记指向不存在的脚本：${rel}（stale 条目须删除）`);
   }
   const uncovered = rows.filter((r) => r.status === 'uncovered');

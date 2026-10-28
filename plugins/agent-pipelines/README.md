@@ -12,7 +12,7 @@
 两条管道共享同一套骨架，参数不同：
 
 - **状态持久化**：`.loop-cli/state/ralph-pipeline.json` / `.loop-cli/state/coding-pipeline.json`（version=1，原子写入 tmp + rename，可断点恢复）。路径按仓库固定：并发跑同类管道需把其中一条改成会话专属 `--file` 路径，否则互相覆盖状态。
-- **背压熔断**：连续失败达阈值 ESCALATE；**单任务失败达 `max_attempts`（默认 4）立即 ESCALATE**；任务状态签名连续无变化判 STALL；轮次达 MAX_CYCLES 强制停止（ralph=10 / coding=8，`max_iterations > 0` 可覆盖）。
+- **背压熔断**：连续失败达阈值 ESCALATE（默认 `max_failures` = 3）；**单任务失败达 `max_attempts`（默认 4）立即 ESCALATE**；任务状态签名连续无变化判 STALL（STALL_MAX：ralph=3 / coding=2）；轮次达 MAX_CYCLES 强制停止（ralph=10 / coding=8，`max_iterations > 0` 可覆盖）。
 - **失败教训回填**：每轮委派执行者时，把 `fail_history` 聚合为"失败教训"注入 worker/builder 上下文，避免重复踩坑。
 - **并行委派就绪任务**：每轮把全部 `pending` 且依赖已 `done` 的任务按拓扑顺序委派，多个就绪任务并行执行，不串行等待。
 - **停止枚举**：`DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED`。
@@ -23,7 +23,7 @@ coding 管道额外约束：
 - **scope 零容忍**：hard_scope 必做、soft_scope 可做、forbidden_scope 禁碰；diff 一行越界即 `scope_drift="FAIL"`，不允许 DONE。
 - **根因分组修复**：多 issue 先归并根因组，一组一次最小修复，禁止逐条打补丁。
 - **零证据禁令**：detected_stack 非空且验证脚本 MISSING 时禁止 PASS。
-- **完成铁律**：动态检查无 FAIL + 审查 PASS + 零 critical/major + scope_drift PASS。
+- **完成铁律**：动态检查无 FAIL + 审查 PASS + 零 critical/major + scope_drift PASS + critical checkpoints 全通过。
 
 这些机制默认由 Markdown 指令驱动；插件另附零依赖脚本，宿主能执行 shell 时优先使用，不能执行时按文本规则继续，行为不变。
 
@@ -31,8 +31,8 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init`（非空状态需 `--force` 覆盖）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志） |
-| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；默认排除 `.loop-cli/**` |
+| `scripts/state.mjs` | `init`（非空状态需 `--force` 覆盖）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志，含轮转段） |
+| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--apply` 把结论写回状态文件的 `scope_drift`；默认排除 `.loop-cli/**` |
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
 | `scripts/render.mjs` | 只读渲染：状态文件 + 事件日志 → 自包含单文件 HTML（依赖图 DAG、事件轨迹、预算） |
 | `scripts/serve.mjs` | 本地实时看板：HTTP + SSE 监听状态文件与事件日志，浏览器自动刷新（默认只绑 127.0.0.1） |
@@ -40,7 +40,7 @@ coding 管道额外约束：
 ```bash
 node scripts/state.mjs init --pipeline coding --prompt "修复登录问题"
 node scripts/state.mjs gate --pipeline coding --file .loop-cli/state/coding-pipeline.json --json
-node scripts/scope.mjs --base <base-commit> --file .loop-cli/state/coding-pipeline.json --json
+node scripts/scope.mjs --base <base-commit> --file .loop-cli/state/coding-pipeline.json --apply --json
 node scripts/graph.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json --json
 node scripts/state.mjs events --pipeline coding --tail 20
 node scripts/render.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.json --out .loop-cli/state/coding-pipeline.html
@@ -51,15 +51,19 @@ node scripts/serve.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.
 
 `serve.mjs` 是实时看板：本地 HTTP 服务提供页面与 SSE（`/events`），用 `fs.watch` + 轮询兜底监听状态文件和事件日志，变化时向浏览器推送 `render` 事件自动刷新。默认只绑 `127.0.0.1`，只读不写状态。`--interval` 控制轮询间隔（默认 1000ms）。
 
-scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。通配语法：`*` 单段、`**` 跨段、`?` 单字符；前导 `**/` 不匹配仓库根目录的文件——forbidden 想覆盖根目录需并排写一条根级模式（如 `*.lock`），脚本对前导 `**/` 会打印警告。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
+scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。**判定基准是 git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径；`--cwd <dir>` 只决定从哪个目录定位 git 仓库根，不改判定基准——同一处越界改动从仓库根或从子目录调用都判 FAIL。写回状态文件用 `--apply`：`scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 把本次结论写进 `scope_drift`，`state.mjs gate` 读到的是真实判定而不是执行者自报值。通配语法：`*` 单段、`**` 跨段、`?` 单字符；前导 `**/` 不匹配仓库根目录的文件——forbidden 想覆盖根目录需并排写一条根级模式（如 `*.lock`），脚本对前导 `**/` 会打印警告。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
+
+脚本参数只认各脚本登记过的开关：未登记的 `--xxx` 直接报错退出 2（附已知开关清单），值开关缺值也报错；值本身以 `--` 开头时 `--key=--value` 与 `--key --value` 两种写法等价，不会再被静默吞掉。
 
 预算：状态文件可写可选 `budget` 对象 `{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。Reviewer 的 PASS 必须附 `evidence`（`file:line`、命令与输出摘要、accept_criteria 对照），无证据按 NEEDS_FIX 处理。
 
-加锁与事件日志：`init` / `write` / `gate --apply` 会取 `<state>.lock`（30 秒陈旧锁自动清理，最多等 2 秒），并向 `<state>.events.jsonl` 追加事件。事件日志由 `state.mjs` 自动记录（含相对路径，不含本机绝对路径）；宿主无法执行 shell 走手写路径时，断点恢复以状态文件为准，事件日志为空不影响恢复。事件日志用于事后审计，写失败不影响主流程。
+加锁与事件日志：`init` / `write` / `gate --apply` 会取 `<state>.lock`（30 秒陈旧锁自动清理，最多等 2 秒），并向 `<state>.events.jsonl` 追加事件。事件日志由 `state.mjs` 自动记录（含相对路径，不含本机绝对路径）；宿主无法执行 shell 走手写路径时，断点恢复以状态文件为准，事件日志为空不影响恢复。事件日志用于事后审计，写失败不影响主流程。日志到 5 MiB 即轮转为 `<state>.events.jsonl.1`（覆盖旧 `.1`，最坏占用约 2×上限），`events` 子命令按时间序合并读轮转段与当前段——避免无人值守长跑把日志撑到无界。
+
+**写入用户仓库的副作用（须知）**：状态落在本仓 `.loop-cli/` 下时，`state.mjs` 会向**本仓的 `.git/info/exclude`** 追加一行 `.loop-cli/`（仅在尚无该行时），让状态与事件日志不被 `git add -A` 卷进提交。选 `.git/info/exclude` 而非 `.gitignore` 是刻意的：本地生效、不改跟踪文件、不给 PR 制造 diff 噪声。但它确实改动了 `.git/info/exclude`（git 的内部文件，非工作区文件）。只读仓库 / 无 git 权限时静默跳过，不影响主流程；`--file` 指到 `.loop-cli/` 之外时不做任何登记。
 
 宿主加载矩阵（0.1.3 首次实测，机制未变；0.1.14 起脚本为 `scripts/` 目录共享 `args.mjs`）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（104 断言），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（109 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定。三者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（118 断言，含角色文件与 references 注入段落一致性），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志（含轮转）、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（115 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定（84 断言），`test/regression.mjs` 锁住审计实测过的缺陷回归（scope 判定锚 git 根 / DONE 校验 critical_checkpoints / scope 接入门禁 / args 不吞 `--` 开头的值，14 断言）。四者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
@@ -111,7 +115,7 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 > `commands/<pipeline>.md`、`skills/<pipeline>/SKILL.md`、对应 `agents/<pipeline>-orchestrator.md`、本 README 的「机制」表。
 > 改完运行 `node test/contract.mjs`，它会拦截参数漂移、缺失的角色文件、垫片漏声明 skills 与版本不一致。
 
-**ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`node scripts/release.mjs --check` 校验）。代价：规范要求包内有且仅有一个根 `plugin.json`。
+**ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 与仓库根 `marketplace.json` 保留，ZCode 装法不变。两处版本必须一致（`scripts/release.mjs` 是**仓库级脚本，不在插件目录里**：从插件目录跑用 `node ../../scripts/release.mjs --check`，从仓库根跑用 `node scripts/release.mjs --check`）。代价：规范要求包内有且仅有一个根 `plugin.json`。
 
 **Codex 兼容垫片**：`.codex-plugin/plugin.json`（配合仓库根 `.agents/plugins/marketplace.json`）。Codex 只声明 `skills`，不加载 `commands/` 与 `agents/`，所以在 Codex 上用 skill 入口而不是斜杠命令；skill 以 `agent-pipelines:` 命名空间出现（如 `agent-pipelines:ralph-pipeline`）。skill 本身是自足的（角色契约内联在 `references/`），不会因缺 agents 而退化。
 
@@ -139,6 +143,7 @@ skill 是**自足**的：不引用 `agents/` 与 `commands/`，角色契约内�
 node test/contract.mjs
 node test/pipeline.mjs
 node test/equivalence.mjs
+node test/regression.mjs
 ```
 
-零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。它们不执行管道，也不替代真实宿主上的端到端验证。
+零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致、orchestrator 的 `tools` 白名单含子代理派发工具与 Bash。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举 / `action` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。`regression.mjs` 在临时 git 仓里复现审计实测过的缺陷（scope 判定基准、critical checkpoint 门禁、scope→gate 串联、`--` 开头参数值），防止它们回归。它们不执行管道，也不替代真实宿主上的端到端验证。

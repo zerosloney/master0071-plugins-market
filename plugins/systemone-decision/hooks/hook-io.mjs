@@ -6,6 +6,12 @@
 /** stdin 字符上限：与 MCP 侧 server.mjs 的 state 上限（STATE_MAX_CHARS = 100K）对齐。 */
 export const STDIN_MAX_CHARS = 100_000;
 
+/** hook 进程的总预算（毫秒）：与 hooks.json 的 handler 15s 超时对齐，留 1s 收尾余量。 */
+export const HOOK_BUDGET_MS = 14_000;
+
+/** 预算耗尽时传给内核的 timeout 哨兵：没有时间发远端请求，内核只能按「输入不可信」fail-closed。 */
+export const NO_BUDGET_MS = 1;
+
 /** 读 stdin 为字符串；达到 STDIN_MAX_CHARS 即停止读取并以 truncated 标记返回（不等流到 EOF）。 */
 export function readStdin() {
   return new Promise((resolve, reject) => {
@@ -45,11 +51,15 @@ export function readStdin() {
  * stdin 异常挂起时的兜底自毁，避免每次输入都吃满 hook 进程超时。
  *
  * @param {(input: object, timeoutMs: number, truncated: boolean) => Promise<object|null>} handle
- *   truncated = stdin 超过上限被截断，input 不可信，由调用方决定走向（预检放行、风险闸 fail-closed）
- * @returns {Promise<object|null>} handle 的返回值；stdin 已耗尽预算时为 null（fail-open）
+ *   truncated = 输入不可信（stdin 超限**或**时间预算耗尽），由调用方决定走向
+ *   （预检放行、风险闸 fail-closed）
+ * @param {object} [opts] - { budgetMs, now }：预算上限与取时函数（测试注入用，生产取默认值）
+ * @returns {Promise<object|null>} handle 的返回值；handle 判定放行时为 null（fail-open）
  */
-export async function runHook(handle) {
-  const startedAt = Date.now();
+export async function runHook(handle, opts = {}) {
+  const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : HOOK_BUDGET_MS;
+  const now = typeof opts.now === 'function' ? opts.now : Date.now;
+  const startedAt = now();
   const killer = setTimeout(() => process.exit(0), 14000);
   let stdin;
   try {
@@ -65,8 +75,11 @@ export async function runHook(handle) {
       input = {};
     }
   }
-  const left = 14_000 - (Date.now() - startedAt) - 1_000;
-  if (left <= 0) return null; // stdin 已耗尽预算：fail-open，不再发判定请求
+  const left = budgetMs - (now() - startedAt) - 1_000;
+  // 预算耗尽**不能**直接放行：这里 return null 会让宿主收到空输出 = 静默放行，
+  // 而「stdin 到达过慢」恰恰是宿主管道背压/超大上下文的那一次，最需要闸门。
+  // 仍然走 handle，把 truncated 置 true，由风险闸既有的 fail-closed 分支转人工确认。
+  if (left <= 0) return handle(input, NO_BUDGET_MS, true);
   return handle(input, left, stdin.truncated);
 }
 

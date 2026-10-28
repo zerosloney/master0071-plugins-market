@@ -297,7 +297,7 @@ ${live ? `<script>
 }
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), { boolean: ["json"], value: ["pipeline", "file", "out"] });
   const pipeline = pipelineOf(args);
   const file = stateFile(args, pipeline);
   let state;

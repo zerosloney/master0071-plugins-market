@@ -27,6 +27,7 @@
 // 测试：node <插件根>/test/ledger-shards.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
+import { projectRoot } from './paths.mjs';
 
 // 受管台账清单（单源）：键 = 台账基名，值 = 数据行判定
 // - 表格式台账（delegations/papercuts）：整文件数据行按月迁出
@@ -318,7 +319,8 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
 // ---- CLI：巡检 / 迁移 ----
 function main() {
   const argv = process.argv.slice(2);
-  const root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：子目录调用时台账仍落仓库根，不落进子目录。
+  const root = projectRoot();
   if (argv.includes('--check')) {
     let bad = 0;
     for (const name of Object.keys(LEDGERS)) {
@@ -373,7 +375,9 @@ function main() {
       console.error(`追加失败：${err.message}`);
       process.exit(1);
     }
-    console.log(`✓ 追加 1 行 → ${written.map((p) => path.relative(root, p).split(path.sep).join('/')).join(', ')}`);
+    // 落点打绝对路径：相对路径在子目录调用时看不出台账到底落在仓库根还是子目录（曾把
+    // 追加行落进 <repo>/sub/workflow/ 而仓库根 workflow/ 根本不存在，用户无从察觉）。
+    console.log(`✓ 追加 1 行 → ${written.map((p) => path.resolve(p)).join(', ')}`);
     return;
   }
   console.error('用法：node <插件根>/scripts/ledger-shards.mjs --check | --split <ledger> [--dry-run] | --append <ledger> --row "<行>" [--month YYYY-MM] [--section <节标题>]');

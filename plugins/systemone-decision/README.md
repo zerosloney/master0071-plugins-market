@@ -211,6 +211,8 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
 
+**非标准命令字段的处置（2026-10-28 加固）**：命令字段只认 `command` / `cmd` / `script` / `execution_input`。宿主若用别的字段承载命令（如把命令塞进 `args` 数组），判定模型只会收到「字段名 + 截断值摘要」，**看不到命令内容**——此时模型判「放行」不构成安全信号，故一律升级为 `"ask"` 转人工确认，不自动放行（判定为拒绝/需确认的照常生效，拦截不会因看不到命令而漏）。摘要路径只发字段名、不外发整个 `tool_input`（防把大段文件内容或凭据片段送到端点）。
+
 `hooks.json` 的 matcher 与内核的 `SHELL_TOOL_NAMES` **必须同宽**（由 `test/hook.smoke.mjs` 对账锁死）：过去 matcher 只写 `Bash|Shell|Terminal`，而内核认 12 个名字，宿主把命令交给 `cmd` / `exec` / `run_*` / `pwsh` 类工具时 hook 根本不被调用——闸门对着这些调用完全失效。
 
 已知未覆盖的窄口子：`git log` / `git diff` / `git show` 仍算只读捷径，但仓库自带配置里的 `core.pager` / `pager.log` / `diff.external` 是**仓库可控**的，恶意仓库可借它在 `git diff` 时执行外部程序。把这三条移出白名单会让每次 git 读取都付一次判定请求，代价过大，故交由宿主自身的目录信任与权限系统兜底，这里如实标注而非声称已覆盖。
@@ -232,11 +234,27 @@ setx SYSTEMONE_API_KEY "对应的Key"
 - `confidenceThreshold` 默认 0.7：任一答案 confidence 低于阈值、判定值不可用（choice 无选项、noul 无概率、score 无分值，或 choice 返回 `uncertain`/`unknown` 哨兵）、判定值越界（choice 选中的选项不在该题判据表内、score 分值超出量表范围）、或 noul 概率落在 0.45~0.55 模糊区间时，`needs_human_review = true` 并列出 `low_confidence_questions`。判定值缺失或越界时**即便 confidence 很高也会转人工**——模型对结构性坏响应同样会给高分。
 - **低置信度时不要硬套判定结果**——转人工或改写判据后重试。流程分支建议同时参考 `probabilities` 的次优选项差距。
 
+## 错误码
+
+工具失败时返回 `isError: true`，并带结构化 `errorCode`——**按码归类，不要解析中文文案**（文案会改，码才是契约）：
+
+| errorCode | 含义 | 处置 |
+|---|---|---|
+| `invalid_params` | 参数/用法非法：校验失败、未知场景、动作不支持 | 按错误文案修正调用 |
+| `missing_api_key` | 未配置 API Key | 设置 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`） |
+| `not_configured` | 依赖的功能未启用（如未配置审计日志） | 按提示启用或忽略 |
+| `insecure_endpoint` | 端点非加密（非回环的 `http://`），拒绝携带 Key 外发 | 改用 `https://` 端点 |
+| `upstream_error` | 上游返回错误或响应不可用 | 查看文案里的上游信息，必要时重试 |
+| `timeout` | 请求超时 | 调大 `SYSTEMONE_TIMEOUT_MS` 或重试 |
+| `budget_exhausted` | 批量总预算用尽，该条未执行 | 调大 `SYSTEMONE_BATCH_BUDGET_MS` 或分批 |
+| `internal_error` | 未预期异常 | 附带文案上报 |
+
 ## 开发与测试
 
 ```
 node test/smoke.mjs
 node test/hook.smoke.mjs
+node test/contract.smoke.mjs
 ```
 
 冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错 / 批量 / 精简模式 / 缓存 / 审计统计 / 场景文件），不需要真实 API Key。`hook.smoke.mjs` 覆盖需求预检与风险闸两个 hook 的全部行为路径。

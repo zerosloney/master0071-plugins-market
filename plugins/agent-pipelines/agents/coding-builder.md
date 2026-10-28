@@ -32,6 +32,7 @@ test: ...
 === Risk Level ===
 === Detected Stack ===
 === Scripts Gap ===
+=== Critical Checkpoints ===
 ```
 
 ## 执行规则

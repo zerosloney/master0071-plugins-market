@@ -7,11 +7,47 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+// 开发机上可能残留 SYSTEMONE_* 变量（场景、端点、超时、缓存 TTL、开关……）。
+// CI 环境干净所以 CI 全绿，本地开发者只要设了其中一个就会莫名红、且极难定位：
+// 例如设了 SYSTEMONE_SCENARIOS，自定义场景就顶掉了内置场景，场景数断言直接失败。
+// 这里统一把这组变量清空，测试自己需要的值一律显式传入（cleanEnv 的 extra 优先）。
+const POLLUTING_ENV_KEYS = [
+  'PLUGIN_DATA',
+  'SYSTEMONE_API_KEY',
+  'UNISOUND_API_KEY',
+  'SYSTEMONE_BASE_URL',
+  'SYSTEMONE_PLUGIN_BASE_URL',
+  'SYSTEMONE_MODEL',
+  'SYSTEMONE_PLUGIN_MODEL',
+  'SYSTEMONE_TIMEOUT_MS',
+  'SYSTEMONE_PLUGIN_TIMEOUT_MS',
+  'SYSTEMONE_SCENARIOS',
+  'SYSTEMONE_PLUGIN_SCENARIOS',
+  'SYSTEMONE_SCENARIOS_FILE',
+  'SYSTEMONE_PLUGIN_SCENARIOS_FILE',
+  'SYSTEMONE_LOG_FILE',
+  'SYSTEMONE_PLUGIN_LOG_FILE',
+  'SYSTEMONE_CACHE_TTL_MS',
+  'SYSTEMONE_PLUGIN_CACHE_TTL_MS',
+  'SYSTEMONE_BATCH_BUDGET_MS',
+  'SYSTEMONE_PLUGIN_BATCH_BUDGET_MS',
+  'SYSTEMONE_HOOK_PRECHECK',
+  'SYSTEMONE_PLUGIN_HOOK_PRECHECK',
+  'SYSTEMONE_HOOK_RISK_GATE',
+  'SYSTEMONE_PLUGIN_HOOK_RISK_GATE',
+];
+const cleanEnv = (extra = {}) => {
+  const base = { ...process.env };
+  for (const key of POLLUTING_ENV_KEYS) delete base[key];
+  return { ...base, ...extra };
+};
 // 在临时目录跑被测插件：端点共享文件（.endpoint.json）写在插件根目录，直接跑仓库
 // 副本会污染工作区，也让「写文件的用例」与「依赖环境变量的用例」互相串扰端点。
 const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-hook-smoke-'));
@@ -23,6 +59,22 @@ rmSync(path.join(runRoot, '.endpoint.json'), { force: true });
 const hookPath = path.join(runRoot, 'hooks', 'requirement-clarity.mjs');
 
 const LEVELS = ['模糊：目标都不清楚', '偏低：目标清楚但范围或关键约束不明', '较高：目标范围清楚，细节可自行决策', '明确：目标、范围、验收都清楚'];
+
+// 一个名字的全部大小写变体（工具名的大小写由宿主决定，插件挑不了）
+const caseVariants = (name) => {
+  const out = [];
+  const walk = (i, acc) => {
+    if (i === name.length) {
+      out.push(acc);
+      return;
+    }
+    const ch = name[i];
+    walk(i + 1, acc + ch.toLowerCase());
+    walk(i + 1, acc + ch.toUpperCase());
+  };
+  walk(0, '');
+  return out;
+};
 
 // 按场景固定三问答案；测试进程切换 scenario 变量，hook 子进程通过 HTTP 感知
 const SCENARIOS = {
@@ -89,16 +141,18 @@ const mock = http.createServer((req, res) => {
 const run = (prompt, envExtra = {}, payloadExtra = {}) =>
   new Promise((resolve) => {
     const child = spawn(process.execPath, [hookPath], {
-      env: {
-        ...process.env,
+      env: cleanEnv({
         SYSTEMONE_API_KEY: 'test-key',
         UNISOUND_API_KEY: '',
         // 端点共享文件位置由 PLUGIN_DATA 决定；用例默认走插件根旧路径，
         // 需要时由 envExtra 显式覆盖，避免继承开发机环境导致结果漂移。
         PLUGIN_DATA: '',
         SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+        // 判定缓存默认关（用例逐一断言请求次数，缓存命中会让计数漂移）；
+        // 缓存行为在文末专门小节显式开启验证。
+        SYSTEMONE_CACHE_TTL_MS: process.env.SYSTEMONE_CACHE_TTL_MS ?? '0',
         ...envExtra,
-      },
+      }),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -282,7 +336,12 @@ const main = async () => {
   const gateRun = (payload, envExtra = {}) =>
     new Promise((resolve) => {
       const child = spawn(process.execPath, [path.join(runRoot, 'hooks', 'pretool-risk.mjs')], {
-        env: { ...process.env, ...hookEnv, ...envExtra },
+        env: cleanEnv({
+          ...hookEnv,
+          PLUGIN_DATA: '',
+          SYSTEMONE_CACHE_TTL_MS: process.env.SYSTEMONE_CACHE_TTL_MS ?? '0',
+          ...envExtra,
+        }),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       let stdout = '';
@@ -335,6 +394,77 @@ const main = async () => {
     assert.equal(received.length, 0);
   });
 
+  // git branch / git remote 是命令族：里面有会改状态的子命令。首 token 白名单命中就跳过判定，
+  // 等于风险闸对最该拦的一类命令完全失灵（`git remote set-url origin https://evil…`
+  // 会把后续 push 的代码送到攻击者端点，而宿主连一次提示都收不到）。
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：git branch / git remote 的改状态子命令不走只读捷径（发判定请求）', async () => {
+    const mutating = [
+      'git branch -D feature',
+      'git branch -d feature',
+      'git branch feature',
+      'git remote remove origin',
+      'git remote set-url origin https://evil.example/x',
+      'git remote add evil https://evil.example/x',
+      'git remote rename origin upstream',
+      'git remote prune origin',
+      'git remote update',
+    ];
+    for (const command of mutating) {
+      const v = await assess('Bash', { command }, hookEnv);
+      assert.equal(v?.decision, 'deny', `应发判定并 deny，而非静默放行：${command}`);
+    }
+    assert.equal(received.length, mutating.length, '每条改状态的 git 命令都应发出一次判定请求');
+  });
+
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：git branch / git remote 的显式只读形式仍走捷径（不发请求）', async () => {
+    for (const command of ['git branch', 'git branch --list', 'git branch -v', 'git remote', 'git remote -v', 'git remote show origin']) {
+      assert.equal(await assess('Bash', { command }, hookEnv), null, `应走只读捷径：${command}`);
+    }
+    assert.equal(received.length, 0, '只读形式不应发判定请求');
+  });
+
+  // 退化路径：宿主用了别的字段名承载命令时，不能把整个 tool_input 外发出去
+  // （里面可能是大段文件内容、凭据片段），只发字段名摘要。
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：退化路径只发入参摘要，不外发整个 tool_input', async () => {
+    const bulk = 'S'.repeat(5000);
+    const v = await assess('Bash', { file_path: '/etc/passwd', content: bulk }, hookEnv);
+    assert.equal(v?.decision, 'deny');
+    assert.equal(received.length, 1);
+    const sent = received[0].state;
+    assert.ok(!sent.includes(bulk), '不得把整个 tool_input 原样外发');
+    assert.ok(sent.includes('file_path'), '摘要应保留字段名，便于判断这条命令在干什么');
+    assert.ok(sent.includes('/etc/passwd'), '短字段值应保留');
+    assert.ok(sent.includes('已截断'), '超长字段值应截断并注明');
+  });
+
+  // 非标准命令字段 + 模型判「放行」：模型看不到命令内容，放行不构成安全信号 → 必须升级为 ask，
+  // 不得静默放行（否则把命令塞进 args 等非标准字段即可绕过风险闸）。
+  gateScenario = 'allow';
+  received = [];
+  await checkA('风险闸内核：非标准字段下模型判放行仍升级为 ask（看不到命令内容不得自动放行）', async () => {
+    const v = await assess('Bash', { args: ['rm', '-rf', '/'] }, hookEnv);
+    assert.equal(v?.decision, 'ask', '非标准字段下不得自动放行');
+    assert.ok(/看不到命令内容|非标准命令字段/.test(v.reason), `理由应点明看不到命令内容：${v.reason}`);
+    assert.equal(received.length, 1, '仍应发一次判定请求（只发摘要，不外发整个入参）');
+    const sent = received[0].state;
+    assert.ok(!sent.includes('rm'), '摘要不得把数组元素内容外发');
+  });
+
+  // 非标准字段也不得因「摘要文本恰好命中只读前缀」而走捷径（摘要不是命令）
+  gateScenario = 'allow';
+  received = [];
+  await checkA('风险闸内核：非标准字段的摘要不走只读捷径', async () => {
+    const v = await assess('Bash', { note: 'git status' }, hookEnv);
+    assert.equal(v?.decision, 'ask', '摘要含 git status 字样也不得当只读命令放行');
+    assert.equal(received.length, 1);
+  });
+
   // 只读白名单的 argv 副作用口子：首 token 只读不代表整条只读。
   gateScenario = 'deny';
   received = [];
@@ -366,21 +496,30 @@ const main = async () => {
   });
 
   // matcher 与内核名单同宽：宿主要么不调用 hook，内核认得再多也没用（本仓真实踩过的洞）。
-  await checkA('hooks.json 的 PreToolUse matcher 覆盖内核 SHELL_TOOL_NAMES 全部成员', () => {
+  await checkA('hooks.json 的 PreToolUse matcher 覆盖内核 SHELL_TOOL_NAMES 的全部大小写变体', () => {
     const manifest = JSON.parse(readFileSync(path.join(runRoot, 'hooks', 'hooks.json'), 'utf8'));
     const entries = manifest.hooks.PreToolUse;
     assert.ok(Array.isArray(entries) && entries.length > 0, 'PreToolUse 应有条目');
-    const matcher = new RegExp(entries[0].matcher, 'i');
+    // 刻意不带 'i' 标志：大小写不敏感地匹配会把「matcher 缺小写 bash/shell/powershell」的缺口掩盖掉，
+    // 宿主用小写工具名（bash / shell / powershell）时 hook 压根不被调用，风险闸形同虚设。
+    const matcher = new RegExp(entries[0].matcher);
     const hostForms = (n) => [n, n.charAt(0).toUpperCase() + n.slice(1), `run_${n}`, `mcp__h__${n}_command`];
     for (const name of riskGate.SHELL_TOOL_NAMES) {
       for (const form of hostForms(name)) {
         assert.ok(matcher.test(form), `matcher 漏掉宿主工具名 "${form}"（内核名单 ${name}）——该调用不会进风险闸`);
+      }
+      // 工具名的大小写由宿主决定，插件挑不了：每个字母的大小写组合都必须命中
+      for (const variant of caseVariants(name)) {
+        assert.ok(matcher.test(variant), `matcher 漏掉大小写变体 "${variant}"（内核名单 ${name}）`);
       }
     }
     // 反向：内核 applies() 也必须认得这些宿主名，否则 matcher 拦了、内核放了，同样形同虚设
     for (const name of riskGate.SHELL_TOOL_NAMES) {
       for (const form of hostForms(name)) {
         assert.ok(riskGate.applies(form), `内核 applies() 不认宿主名 "${form}"`);
+      }
+      for (const variant of caseVariants(name)) {
+        assert.ok(riskGate.applies(variant), `内核 applies() 不认大小写变体 "${variant}"`);
       }
     }
   });
@@ -465,6 +604,47 @@ const main = async () => {
     assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
     assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
     assert.match(out.hookSpecificOutput.permissionDecisionReason, /截断/);
+  });
+
+  // 慢 stdin 的回归：stdin 到达过慢吃光时间预算时，旧实现直接 return null（fail-open），
+  // 宿主收到空输出 = 命令被静默放行——而「stdin 到达过慢」恰恰是宿主管道背压/超大上下文的那一次。
+  // 用注入的时钟模拟「stdin 花了 13.6s」：真等十几秒会让整个套件不可用。
+  await checkA('风险闸：stdin 慢达耗尽预算时 fail-closed 转人工（不得空输出放行）', async () => {
+    const { runHook, NO_BUDGET_MS } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'hook-io.mjs')).href);
+    const originalStdin = Object.getOwnPropertyDescriptor(process, 'stdin');
+    const fake = new PassThrough();
+    Object.defineProperty(process, 'stdin', { configurable: true, value: fake });
+    try {
+      fake.end(JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }));
+      const before = received.length;
+      let clock = Date.now();
+      const out = await runHook(
+        async (input, timeoutMs, truncated) => {
+          // 与 pretool-risk.mjs 同一套口径：预算耗尽也按「输入不可信」处理
+          const budgetExhausted = timeoutMs <= NO_BUDGET_MS;
+          const verdict = await assess(input.tool_name, input.tool_input, hookEnv, {
+            timeoutMs,
+            truncated: truncated || budgetExhausted,
+            budgetExhausted,
+          });
+          if (!verdict) return null;
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: verdict.decision,
+              permissionDecisionReason: verdict.reason,
+            },
+          };
+        },
+        { now: () => (clock += 13_600) }
+      );
+      assert.ok(out, '预算耗尽时不得返回 null（null = 空输出 = 宿主收不到任何提示）');
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'ask', '预算耗尽必须转人工确认，不能静默放行');
+      assert.match(out.hookSpecificOutput.permissionDecisionReason, /预算/);
+      assert.equal(received.length, before, '预算耗尽时没有时间发判定请求，但必须给出人工确认');
+    } finally {
+      Object.defineProperty(process, 'stdin', originalStdin);
+    }
   });
 
   r = await gateRun(

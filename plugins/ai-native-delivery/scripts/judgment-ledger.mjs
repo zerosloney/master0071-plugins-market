@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { GIT } from './git-core.mjs';
 
 export const LEDGER_REL = path.join('.agents', 'judgments.jsonl');
 
@@ -40,7 +41,9 @@ export function tallyJudgments(blockers = [], warnings = []) {
 
 const shortRev = (root) => {
   try {
-    const r = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    // 统一走 git-core 的 GIT 常量（Windows 上 'git.exe'）——裸 'git' 在部分受限环境解析不到可执行文件，
+    // 会让 rev 恒为 null（观测面静默降级）。与仓内其余 git 调用同口径。
+    const r = spawnSync(GIT, ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
     return r.status === 0 ? String(r.stdout).trim() || null : null;
   } catch {
     return null;

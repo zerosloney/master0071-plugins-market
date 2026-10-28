@@ -26,6 +26,7 @@
 import * as kit from './check-loop-kit.mjs';
 import { formatWarnings, WARN_LOG_REL } from './warn-format.mjs';
 import { recordRun } from './judgment-ledger.mjs';
+import { scriptPath } from './paths.mjs';
 
 // 基础设施解构铺平（4a）：段体自单文件时代逐字保留，名字由本解构供给——零漂移迁移
 const {
@@ -103,13 +104,15 @@ recordRun({ root: ROOT, mode: kit.LOOP_MODE, blockers, warnings });
 // 动机（实测）：一次 --all 跑出 17 条 WARN + 19 条 NOTE，其中同类多行 + 多行告警把 actionable 项淹掉——
 // 告警不精确比告警多更伤，输出一旦不可读，门禁即退化形式。折叠后逐条明细仍完整落
 // tmp/check-loop-warn.log（供排障与事后对质），不丢信息、不降判据。
-// 开关口径：只在「真引擎自跑」时折叠——判据取 ROOT 下是否有脚本本体（.agents/scripts/check-loop.mjs），
-// 夹具/临时仓从不落引擎副本（场景 91 用真 git 仓但无脚本本体），断言面因此零变化；
-// CHECK_LOOP_VERBOSE=1 强制逐条（排障用）。worktree 检出同样带脚本，正常折叠。
-// 实现落位：.agents/scripts/warn-format.mjs——本文件无 isMain 守卫（被 import 即全量执行并 exit），
+// 开关口径：只在「真引擎自跑」时折叠——判据取**本项目实际会跑的**引擎脚本本体是否存在：
+//   scriptPath(ROOT, 'check-loop.mjs') 项目侧副本优先、回退插件内本体（paths.mjs 单源）。
+//   此前判据写死 ROOT/.agents/scripts/check-loop.mjs → 插件形态下该路径恒不存在 → 恒 false →
+//   「门禁收敛批 2」的折叠对插件用户永不触发（信噪比机制整族失效）。
+//   CHECK_LOOP_VERBOSE=1 强制逐条（排障用；测试夹具也用它把告警保持在逐条形态，断言不依赖折叠）。
+// 实现落位：warn-format.mjs——本文件无 isMain 守卫（被 import 即全量执行并 exit），
 // 聚合逻辑不可在此直接单测；抽成无副作用模块后由 warn-format.test.mjs 锁住折叠规则（S1-S7）。
 const WARN_LOG = path.join(ROOT, 'tmp', 'check-loop-warn.log');
-const selfRun = fs.existsSync(path.join(ROOT, '.agents', 'scripts', 'check-loop.mjs'));
+const selfRun = fs.existsSync(scriptPath(ROOT, 'check-loop.mjs'));
 const compactOn = selfRun && process.env.CHECK_LOOP_VERBOSE !== '1';
 const renderWarnings = (list) => formatWarnings(list, { enabled: compactOn, logPath: WARN_LOG, logNote: WARN_LOG_REL });
 if (blockers.length) {

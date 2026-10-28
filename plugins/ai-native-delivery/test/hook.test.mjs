@@ -2,8 +2,9 @@
 // hook.test.mjs — PreToolUse 风险闸可测化（设计文档 §10.1 第 5 条；spawn hook 进程喂 stdin JSON）
 // 断言：①deny 清单命令（git push -f）→ 阻断（permissionDecision='deny'，退出码 0 = 宿主协议——
 //       阻断语义在 stdout 决策体，照 systemone hook 同款）；②普通命令（git status）→ 静默放行；
-//       ③settings.json 损坏 → 放行 + stderr WARN（fail-open）；④ask 清单 / 项目侧清单单源 /
-//       非 shell 工具不管辖。
+//       ③settings.json 损坏 → WARN + 内置 deny 地板继续执法；④项目侧 ask 整体接管 / deny 不可
+//       下调；⑤ask 清单 / 非 shell 工具不管辖；⑥deny 键缺失或空数组 → 地板仍拦；⑦坏 JSON 输入
+//       → fail-closed 转 ask；⑧声明面 matcher 与代码 SHELL_TOOL 同口径（防风险闸静默不被调用）。
 // 零依赖，Node ≥ 18 直接运行：node test/hook.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -63,34 +64,44 @@ const mkRepo = () => {
   check('git status → 无 permissionDecision（静默）', r.stdout.trim() === '', `stdout=${r.stdout}`);
 }
 
-// ---- ③ settings.json 损坏 → fail-open（放行 + stderr WARN）----
+// ---- ③ settings.json 损坏 → WARN + 内置 deny 地板继续执法（2026-10-28 收紧）----
+// 此前损坏即整体 fail-open 放行：把 .agents/settings.json 写坏就能解除风险闸，与被治理对象
+// 「自写空清单」是同一类旁路。现在坏文件只让它自己的追加项失效，地板照拦。
 {
   const repo = mkRepo();
   fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.agents', 'settings.json'), '{broken json!!', 'utf8');
   const r = run({ tool_name: 'Bash', tool_input: { command: 'git push -f' } }, repo);
-  check('损坏 settings → 放行（无阻断决策体）', r.status === 0 && r.stdout.trim() === '', `exit=${r.status} stdout=${r.stdout}`);
-  check('损坏 settings → stderr WARN', /settings\.json 损坏/.test(r.stderr || ''), r.stderr);
+  check('损坏 settings → 地板仍拦（decision=deny，不再整体放行）',
+    r.status === 0 && decisionOf(r)?.permissionDecision === 'deny', `exit=${r.status} stdout=${r.stdout}`);
+  check('损坏 settings → stderr WARN 点明地板执法', /deny 面按内置地板继续执法/.test(r.stderr || ''), r.stderr);
+  check('损坏 settings → WARN 点名是哪个文件', /settings\.json/.test(r.stderr || ''), r.stderr);
+  const r2 = run({ tool_name: 'Bash', tool_input: { command: 'git status' } }, repo);
+  check('损坏 settings → 普通命令不受影响（仍静默放行）', r2.status === 0 && r2.stdout.trim() === '', r2.stdout);
   fs.rmSync(repo, { recursive: true, force: true });
 }
 
-// ---- ④ 清单单源 = 项目侧 .agents/settings.json（文件在场即整体单源，含空清单；不与内置默认合并）----
+// ---- ④ 项目侧 .agents/settings.json：ask 可整体接管，deny 只能追加（内置地板不可下调）----
 {
   const repo = mkRepo();
   fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
   fs.writeFileSync(path.join(repo, '.agents', 'settings.json'), JSON.stringify({
     permissions: {
       deny: ['ship-explode-cmd', 'git push -f'],
-      ask: [],
-      allow: ['git push -f'],
+      ask: ['git push -f'],
     },
   }), 'utf8');
   const r = run({ tool_name: 'Bash', tool_input: { command: 'ship-explode-cmd --now' } }, repo);
   check('项目侧 deny 条目生效', decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  // 关键反证：项目侧 deny 里**没有** git reset --hard，仍必须被拦——deny 是地板 ∪ 追加，
+  // 被治理项目不能靠重写清单把内置拦阻删掉（2026-10-28 市场审查修复的就是这一点）。
+  const rFloor = run({ tool_name: 'Bash', tool_input: { command: 'git reset --hard HEAD~3' } }, repo);
+  check('项目侧未列内置地板项 → 地板仍拦（deny 不可下调）',
+    decisionOf(rFloor)?.permissionDecision === 'deny', rFloor.stdout);
   const r2 = run({ tool_name: 'Bash', tool_input: { command: 'rm -rf build/output' } }, repo);
-  check('项目侧文件在场即单源（ask:[] → rm -rf 不再 ask，不合并内置默认）', r2.status === 0 && r2.stdout.trim() === '', r2.stdout);
+  check('ask 仍可被项目侧整体接管（ask 里无 rm -rf → 不再 ask）', r2.status === 0 && r2.stdout.trim() === '', r2.stdout);
   const r3 = run({ tool_name: 'Bash', tool_input: { command: 'git push -f origin main' } }, repo);
-  check('deny 优先于 allow（同命令两清单并存 → deny）', decisionOf(r3)?.permissionDecision === 'deny', r3.stdout);
+  check('deny 优先于 ask（同命令两清单并存 → deny）', decisionOf(r3)?.permissionDecision === 'deny', r3.stdout);
   fs.rmSync(repo, { recursive: true, force: true });
 }
 
@@ -104,10 +115,9 @@ const mkRepo = () => {
   check('shell 工具缺 command 字段 → fail-closed 转 ask', decisionOf(r3)?.permissionDecision === 'ask', r3.stdout);
 }
 
-// ---- ⑥ deny 键缺失 = 损坏（2026-10-27 插件化修复）----
-// 此前只要 permissions 是对象就采信其清单：deny 键缺失 → deny 面为空数组，且「文件在场且合法」
-// 使内置兜底不触发——**静默降级、零告警**。现在 deny 键缺失即视为损坏：按既有契约 fail-open
-// 放行 + stderr WARN（至少从「静默失效」变为「可见失效」；配置问题绝不卡死用户的既有语义不变）。
+// ---- ⑥ deny 键缺失 / deny 写成空数组 = 想清空 deny（2026-10-28 地板修复）----
+// 这两种形态以前都会把 deny 面清空：缺键判损坏 → fail-open 整体放行；空数组判合法 → deny 面为空。
+// 现在两者都只是「没有追加项」，地板项照拦，并留一条 WARN 让降级可见。
 {
   const repo = mkRepo();
   fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
@@ -115,9 +125,14 @@ const mkRepo = () => {
     permissions: { ask: ['rm -rf'] }, // 无 deny 键
   }), 'utf8');
   const r = run({ tool_name: 'Bash', tool_input: { command: 'git push -f origin main' } }, repo);
-  check('deny 键缺失 → stderr WARN（判损坏，不再静默失效）', /settings\.json 损坏/.test(r.stderr || ''), r.stderr);
-  check('deny 键缺失 → exit 0（fail-open，不卡死用户）', r.status === 0 && r.stdout.trim() === '',
-    `exit=${r.status} stdout=${r.stdout}`);
+  check('deny 键缺失 → stderr WARN（降级可见）', /deny 键缺失/.test(r.stderr || ''), r.stderr);
+  check('deny 键缺失 → 地板仍拦（不再 fail-open 放行）',
+    r.status === 0 && decisionOf(r)?.permissionDecision === 'deny', `exit=${r.status} stdout=${r.stdout}`);
+  fs.writeFileSync(path.join(repo, '.agents', 'settings.json'), JSON.stringify({
+    permissions: { deny: [], ask: [] }, // 显式清空
+  }), 'utf8');
+  const r2 = run({ tool_name: 'Bash', tool_input: { command: 'drop database prod_users' } }, repo);
+  check('deny 写成空数组 → 地板仍拦（清空无效）', decisionOf(r2)?.permissionDecision === 'deny', r2.stdout);
   fs.rmSync(repo, { recursive: true, force: true });
 }
 
@@ -135,6 +150,43 @@ const mkRepo = () => {
   check('坏 JSON 输入 → fail-closed 转 ask（非静默放行）', d && d.permissionDecision === 'ask', r.stdout);
   check('坏 JSON 输入 → 理由点明「不是合法 JSON」', d && /不是合法 JSON/.test(d.permissionDecisionReason || ''),
     d && d.permissionDecisionReason);
+}
+
+// ---- ⑧ 声明面 matcher 与代码 SHELL_TOOL 同口径（2026-10-28 市场审查新增）----
+// matcher 决定「hook 会不会被调到」，代码正则决定「调到之后管不管」。两者脱节时风险闸对某类
+// shell 工具**静默不存在**——零告警、零现象，比判错更危险。本仓实测踩过：matcher 只写
+// `Bash|Shell|Terminal` 三名，代码认 12 名。这里机器对账，不再靠注释与人工同步。
+{
+  const hookSrc = fs.readFileSync(HOOK, 'utf8').replace(/\r/g, ''); // CRLF 会让 $ 锚失配
+  const literal = hookSrc.match(/^const SHELL_TOOL\s*=\s*\/(.*)\/[a-z]*;/m); // 尾部有正则标志与分号
+  check('能从 hook 源码解析 SHELL_TOOL 字面量', !!literal);
+  const groups = literal ? [...literal[1].matchAll(/\(([^)]*)\)/g)].map((m) => m[1]) : [];
+  const namesGroup = groups.find((g) => /^[a-z]+(\|[a-z]+)*$/.test(g));
+  check('SHELL_TOOL 内可取到工具名交替组', !!namesGroup, groups.join(' | '));
+  const names = namesGroup ? namesGroup.split('|') : [];
+  check('工具名覆盖数 ≥ 12（防交替组被改写后对账空转）', names.length >= 12, `实际 ${names.length}：${names.join(',')}`);
+
+  const decls = [
+    ['hooks/hooks.json', path.join(TEST_DIR, '..', 'hooks', 'hooks.json')],
+    ['.codex-plugin/plugin.json', path.join(TEST_DIR, '..', '.codex-plugin', 'plugin.json')],
+  ];
+  for (const [label, file] of decls) {
+    const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const holder = obj.hooks && obj.hooks.hooks ? obj.hooks.hooks : obj.hooks;
+    const entries = (holder && holder.PreToolUse) || [];
+    const matchers = entries.map((e) => e.matcher).filter((m) => typeof m === 'string' && m);
+    check(`${label} 声明了 PreToolUse matcher`, matchers.length > 0, JSON.stringify(entries));
+    for (const matcher of matchers) {
+      // names 为空时下面的 missing 会空转通过——显式判红，别让对账退化成假绿
+      check(`${label} 对账有实义（SHELL_TOOL 名单非空）`, names.length > 0, '名单为空，覆盖率断言无意义');
+      const missing = names.filter((n) => !new RegExp(matcher).test(n[0].toUpperCase() + n.slice(1)));
+      check(`${label} matcher 覆盖代码认的全部 ${names.length} 个 shell 工具名`,
+        missing.length === 0, `漏：${missing.join(', ')}｜matcher=${matcher}`);
+      // 反向锚：确认对账用的是宿主语义（大小写敏感正则），`Bash|Shell|Terminal` 那种窄写法必红
+      check(`${label} matcher 非窄写法（不只 Bash/Shell/Terminal）`,
+        new RegExp(matcher).test('Command') && new RegExp(matcher).test('pwsh'), matcher);
+    }
+  }
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

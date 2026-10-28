@@ -37,7 +37,7 @@ node --version && git --version
 | `worktree_list` | 列出全部 worktree：分支、HEAD、是否干净、领先/落后、是否已合并、闲置天数 |
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中（标准客户端下传 `sessionCwd` 可确认） |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
-| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（可显式 `force`）；受管目录外一律拒绝，`force` 也不放宽 |
+| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；受管目录外一律拒绝，`force` 也不放宽 |
 | `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
 | `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还 |
@@ -161,7 +161,7 @@ node --version && git --version
 这些是有意为之的拒绝，不是 bug：
 
 - 删主工作树：永远拒绝。
-- 删脏工作树 / 有未合并提交的 worktree：拒绝，必须显式 `force`。
+- 删脏工作树 / 有未合并提交的 worktree：拒绝，必须同时传 `force: true` **与** `confirmDiscard: true`（两个独立标志，单给 `force` 会被拒并提示补第二个——防一个误注入或误传的 `force` 独自毁掉未提交的工作）。
 - 删受管根目录之外的 worktree：一律拒绝，`force` 只覆盖脏工作树 / 未合并提交，不放宽受管根边界。
 - 合并时主工作树检出的不是目标分支：拒绝，并告知先 `git checkout`。
 - rebase / merge 冲突：停下并列出冲突文件，不自动解决。

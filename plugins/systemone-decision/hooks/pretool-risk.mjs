@@ -5,12 +5,19 @@
 // 异常）一律静默 exit 0（fail-open）——绝不阻塞工具调用，诊断走 stderr。
 // stdin/stdout 协议壳在 hooks/hook-io.mjs；判定内核（门限 / 三问 / 理由文案）在 hooks/risk-gate.mjs。
 
-import { main } from './hook-io.mjs';
+import { main, NO_BUDGET_MS } from './hook-io.mjs';
 import { assess } from './risk-gate.mjs';
 
 main(async (input, timeoutMs, truncated) => {
   // truncated 透传给内核：stdin 被截断时输入不可信，风险闸必须 fail-closed（不得按只读捷径放行）
-  const verdict = await assess(input.tool_name, input.tool_input, process.env, { timeoutMs, truncated });
+  // 预算耗尽（stdin 到达过慢）同样按「输入不可信」处理：没有时间发判定请求，
+  // 只能转人工确认，绝不静默放行（空输出 = 宿主看不到任何提示）。
+  const budgetExhausted = timeoutMs <= NO_BUDGET_MS;
+  const verdict = await assess(input.tool_name, input.tool_input, process.env, {
+    timeoutMs,
+    truncated: truncated || budgetExhausted,
+    budgetExhausted,
+  });
   if (!verdict) return null;
   return {
     hookSpecificOutput: {

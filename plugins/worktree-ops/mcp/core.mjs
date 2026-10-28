@@ -115,6 +115,12 @@ function normalizeRepoOverride(key, value, issues) {
       issues.push(`repos["${key}"].${field}: expected a string, got ${typeof v}`);
       continue;
     }
+    // 空 branchPrefix 会让分支名退化成裸 slug(name)：name 为 ".." 时落点直接逃出受管根一层。
+    // 源头拒绝，不让空前缀流到「拼路径」那一步。
+    if (field === "branchPrefix" && v === "") {
+      issues.push(`repos["${key}"].branchPrefix: expected a non-empty string, got ""`);
+      continue;
+    }
     // 相对 root 会按宿主 cwd 解析（标准客户端下是插件根），把受管根指到错误位置。
     if (field === "root" && !path.isAbsolute(v)) {
       issues.push(`repos["${key}"].root: expected an absolute path, got ${JSON.stringify(v)}`);
@@ -154,6 +160,11 @@ function loadConfig() {
     issues.push(`staleDays: expected a positive number, got ${JSON.stringify(source.staleDays)}`);
     // 连键一起删掉：否则来源标注仍按「配置文件里定义过」显示 (global)，值却是默认 14，自相矛盾
     delete source.staleDays;
+  }
+  // branchPrefix 同理：空串会让分支名退化成裸 slug，name 为 ".." 时落点逃出受管根一层。
+  if (source.branchPrefix === "") {
+    issues.push(`branchPrefix: expected a non-empty string, got ""`);
+    delete source.branchPrefix;
   }
   const config = {
     file,
@@ -253,7 +264,10 @@ function saveConfig(changes = {}) {
     const body = {
       root: typeof disk.root === "string" ? disk.root : null,
       baseRef: typeof disk.baseRef === "string" ? disk.baseRef : DEFAULT_CONFIG.baseRef,
-      branchPrefix: typeof disk.branchPrefix === "string" ? disk.branchPrefix : DEFAULT_CONFIG.branchPrefix,
+      branchPrefix:
+        typeof disk.branchPrefix === "string" && disk.branchPrefix !== ""
+          ? disk.branchPrefix
+          : DEFAULT_CONFIG.branchPrefix,
       // 与读取路径（loadConfig）同口径：手编的 0 / 负数若原样保留，会在下次任意写盘时被
       // 延续下去，读路径拒绝、写路径放行形成分裂。归一为默认值而非拒绝写入：saveConfig
       // 落盘的是整份合法化快照，因个别坏值中断会把其他合法字段的修改一并挡下。
@@ -321,7 +335,12 @@ let gitAvailability = null;
 function ensureGitAvailable() {
   if (gitAvailability !== null) return gitAvailability;
   try {
-    execFileSync("git", ["--version"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    execFileSync("git", ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      timeout: getGitTimeoutMs(),
+      killSignal: "SIGKILL",
+    });
     gitAvailability = true;
   } catch (err) {
     if (err && err.code === "ENOENT") {
@@ -337,23 +356,62 @@ function ensureGitAvailable() {
   return gitAvailability;
 }
 
-function git(args, cwd, { allowFail = false } = {}) {
-  // 放在 try 之外：git 缺失不是「命令合法地失败了」，allowFail 不该把它吞掉。
-  // 吞掉的话上层会把「git 没装」误判成「不在 git 工作树内」，排查方向完全跑偏。
-  ensureGitAvailable();
+/** git 子进程的默认超时上限（毫秒）。
+ *  一次挂住的 git（超大仓库、Windows 文件锁、网络盘）会永久阻塞整个 MCP 服务：
+ *  工具实现是同步的，宿主只能看到「工具无响应」，且进行中的状态不确定。 */
+const DEFAULT_GIT_TIMEOUT_MS = 30000;
+
+let gitTimeoutMs = DEFAULT_GIT_TIMEOUT_MS;
+
+/** 覆盖 git 超时上限（测试注入点；生产路径不调用）。 */
+function setGitTimeoutMs(ms) {
+  const n = Number(ms);
+  gitTimeoutMs = Number.isFinite(n) && n > 0 ? n : DEFAULT_GIT_TIMEOUT_MS;
+  return gitTimeoutMs;
+}
+
+function getGitTimeoutMs() {
+  return gitTimeoutMs;
+}
+
+/** 子进程是不是被超时杀掉的：Node 在 kill 之后抛出的错误带 killed / signal。 */
+function isTimeoutError(err) {
+  return Boolean(err && (err.killed === true || err.signal === "SIGKILL" || err.signal === "SIGTERM" || err.code === "ETIMEDOUT"));
+}
+
+/** 唯一的 git 子进程出口：统一超时与错误翻译。
+ *  file 与 args 分开传，是为了让测试能用「可控的慢命令」（node -e "setTimeout(...)"）验证
+ *  超时行为——Windows 上没有可移植的假 git 可执行文件可造。 */
+function runGitProcess(file, args, { cwd, timeoutMs = getGitTimeoutMs(), allowFail = false } = {}) {
+  const started = Date.now();
   try {
-    return execFileSync("git", args, {
+    return execFileSync(file, args, {
       cwd,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
     });
   } catch (err) {
     if (allowFail) return null;
+    if (isTimeoutError(err)) {
+      throw new Error(
+        `${file} ${args.join(" ")} timed out after ${Date.now() - started}ms in ${cwd} (limit ${timeoutMs}ms).\n` +
+          `The command was killed. Check whether the repository sits on a slow or network drive, or is locked by another process, then retry.`,
+      );
+    }
     const detail = String((err && (err.stderr || err.message)) || err).trim();
-    throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${detail}`);
+    throw new Error(`${file} ${args.join(" ")} failed in ${cwd}: ${detail}`);
   }
+}
+
+function git(args, cwd, { allowFail = false, timeoutMs = getGitTimeoutMs() } = {}) {
+  // 放在 try 之外：git 缺失不是「命令合法地失败了」，allowFail 不该把它吞掉。
+  // 吞掉的话上层会把「git 没装」误判成「不在 git 工作树内」，排查方向完全跑偏。
+  ensureGitAvailable();
+  return runGitProcess("git", args, { cwd, timeoutMs, allowFail });
 }
 
 /** 仓库定位起点：显式传入 repoPath 优先；省略时用服务端进程自己的工作目录。
@@ -452,11 +510,22 @@ const CASE_INSENSITIVE_FS = detectCaseInsensitiveFs();
 *  路径不存在时（prunable 工作树目录已被手动删走）退回 resolve 结果——取不到不能当错误。 */
 function canonicalPath(p) {
   const resolved = path.resolve(p);
-  try {
-    // Windows 的 native realpath 会带 \\?\ 前缀，比较前剥掉
-    return fs.realpathSync.native(resolved).replace(/^\\\\\?\\/, '');
-  } catch {
-    return resolved;
+  // 归一到**最长的已存在祖先**，再把不存在的尾巴拼回去（2026-10-28 第二次修）。
+  // 只对整条路径 realpath 不够：新建工作树的落点、即将写入的 .git 子目录都还不存在，
+  // 取不到就退回原样，于是短名/长名照旧对不上——CI 上「.git 内 root 应被拒绝」等用例正是这样漏判。
+  let head = resolved;
+  const tail = [];
+  for (;;) {
+    try {
+      // Windows 的 native realpath 会带 \\?\ 前缀，比较前剥掉
+      const real = fs.realpathSync.native(head).replace(/^\\\\\?\\/, '');
+      return tail.length ? path.join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = path.dirname(head);
+      if (parent === head) return resolved; // 到达卷根仍失败（如不存在的盘符）
+      tail.push(path.basename(head));
+      head = parent;
+    }
   }
 }
 
@@ -477,7 +546,15 @@ function samePath(a, b) {
 const MAIN_WT_CACHE = new Map();
 function mainWorktreePath(repo) {
   const key = path.resolve(repo);
-  if (MAIN_WT_CACHE.has(key)) return MAIN_WT_CACHE.get(key);
+  const cached = MAIN_WT_CACHE.get(key);
+  if (cached) {
+    // 缓存命中要同时满足两个条件，否则重算：
+    //  · 记下的主检出路径还在 —— 仓库被移走/删掉后旧路径已不存在；
+    //  · 该 repo 路径现在仍解析到同一个真实目录 —— 仓库被移动/复制后，旧路径可能
+    //    已经指向别的目录，沿用旧记录就会把操作作用到错误的工作树上。
+    if (cached.main && fs.existsSync(cached.main) && cached.repoReal === canonicalPath(key)) return cached.main;
+    MAIN_WT_CACHE.delete(key);
+  }
   let entries = [];
   try {
     entries = listWorktrees(key);
@@ -485,8 +562,13 @@ function mainWorktreePath(repo) {
     return key;
   }
   const main = entries.length > 0 ? path.resolve(entries[0].path) : key;
-  MAIN_WT_CACHE.set(key, main);
+  MAIN_WT_CACHE.set(key, { main, repoReal: canonicalPath(key) });
   return main;
+}
+
+/** 清空主检出路径缓存（仓库被移动/复制后调用，或测试里强制重算）。 */
+function clearMainWorktreeCache() {
+  MAIN_WT_CACHE.clear();
 }
 
 function repoKey(config, repo) {
@@ -547,7 +629,9 @@ function managedRoot(config, repo) {
 *  内、或拿不到 gitDir 时返回 null。gitDir 是主仓库的 --git-common-dir
 *  （exclude 属于主仓库，link worktree 共享它）。 */
 function ensureInsideRepoIgnore(repo, ignoredDir, gitDir) {
-  const rel = path.relative(repo, path.resolve(ignoredDir));
+  // 两侧都先归一（2026-10-28）：repo 来自 git（长名），ignoredDir 来自配置（CI 上是 RUNNER~1 短名），
+  // 直接 path.relative 会算出跨盘的相对路径 → 条目不写、主检出 status 变脏，而实际在同一棵树下。
+  const rel = path.relative(canonicalPath(repo), canonicalPath(ignoredDir));
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
   // 控制字符不得进 exclude 行（2026-10-28 市场审查）：entry 由**配置来的**路径派生，
   // 路径里带换行会把一行拆成两条规则——等于往 .git/info/exclude 注入任意 ignore 项，
@@ -682,6 +766,9 @@ function slug(value) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .toLowerCase();
+  // "." / ".." 是路径原语：拼进受管根就是「上一层目录」。在源头拒绝，不靠下游兜底
+  //（目标目录非空、git 拒绝非法分支名）——下游兜底会随实现调整而失效。
+  if (s === "." || s === "..") return createHash("sha1").update(String(value).trim()).digest("hex").slice(0, 8);
   // 非 ASCII 任务名（如纯中文）剥完可能为空：用原名的稳定短哈希兜底，避免不同名字都落到 "worktree" 互相撞目录
   return s || createHash("sha1").update(String(value).trim()).digest("hex").slice(0, 8);
 }
@@ -768,16 +855,9 @@ function counts(repo, target, branch) {
 }
 
 function isAncestor(repo, branch, target) {
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", branch, target], {
-      cwd: repo,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  // 退出码 1 = 不是祖先（正常结果），非 0 的其他失败（ref 不存在等）同样按「不是祖先」处理，
+  // 与旧实现一致；超时会杀掉子进程而不是挂住整个服务。
+  return runGitProcess("git", ["merge-base", "--is-ancestor", branch, target], { cwd: repo, allowFail: true }) !== null;
 }
 
 function lastCommit(dir) {
@@ -844,11 +924,57 @@ function human(bytes) {
   return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }
 
-function describe(repo, entry, target, { includeSize = false, sizeDeadline = null } = {}) {
+/** 目录是否仍是一个可用的 git 工作树目录。
+ *  旧实现逐个工作树跑 `git log -1`（cwd = 工作树目录）：目录被移走（prunable）或
+ *  已不是工作树时命令跑不起来 → lastCommit 为 null。批量取提交信息时必须保住这个语义，
+ *  不能凭空给出一个提交。裸仓库的 git 目录里没有 .git，但有 HEAD，故两者都认。 */
+function isWorktreeDir(dir) {
+  try {
+    return fs.existsSync(path.join(dir, ".git")) || fs.existsSync(path.join(dir, "HEAD"));
+  } catch {
+    return false;
+  }
+}
+
+/** 一次 git log 取多个工作树 HEAD 的提交信息。
+ *  `git log --no-walk=unsorted --format=... <sha>...` 一次输出多个提交，
+ *  省掉「每个工作树各起一个 git 进程」的固定开销（N 个工作树省 N-1 次 spawn）。 */
+function lastCommits(repo, entries) {
+  const out = new Map();
+  const wanted = entries.filter((e) => e && e.head && isWorktreeDir(e.path));
+  if (!wanted.length) return out;
+  const shas = [...new Set(wanted.map((e) => e.head))];
+  const raw = git(["log", "--no-walk=unsorted", "--format=%H%x09%h%x09%an%x09%cI%x09%s", ...shas], repo, {
+    allowFail: true,
+  });
+  if (raw === null) {
+    // 批量调用失败（sha 不可解析等）→ 退回逐个取，语义与旧实现一致
+    for (const e of wanted) {
+      const c = lastCommit(e.path);
+      if (c) out.set(e.head, c);
+    }
+    return out;
+  }
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [full, short, author, date, ...rest] = line.split("\t");
+    if (!full) continue;
+    const ts = Date.parse(date || "");
+    out.set(full, {
+      sha: short,
+      author,
+      date,
+      subject: rest.join("\t"),
+      ageDays: Number.isFinite(ts) ? Math.floor((Date.now() - ts) / DAY_MS) : null,
+    });
+  }
+  return out;
+}
+
+function describeEntry(repo, entry, target, { includeSize = false, sizeDeadline = null, commit = null } = {}) {
   const dir = entry.path;
   const isMain = samePath(path.resolve(dir), mainWorktreePath(repo));
   const status = statusOf(dir);
-  const commit = lastCommit(dir);
   // branch 恒为「真实分支名」：detached 工作树没有分支，值为 null。
   // 展示用的合成名（detached@<sha>）单独放在 label 里。下游的判定——是否已合并、
   // 能不能删分支、合并该用哪个 ref——一律看 branch，避免把展示串当 ref 传给 git：
@@ -861,7 +987,11 @@ function describe(repo, entry, target, { includeSize = false, sizeDeadline = nul
   // （unknown revision）→ ahead/behind/merged 全变未知，删除护栏被静默绕过。
   const rev = entry.branch || entry.head || null;
   const counter = rev && !isMain ? counts(repo, target, rev) : { ahead: null, behind: null };
-  const merged = rev && !isMain ? isAncestor(repo, rev, target) : null;
+  // mergedIntoTarget 与 ahead === 0 等价：rev-list --left-right --count 的右半边就是
+  // 「rev 有而 target 没有」的提交数，为 0 即 rev 的历史全在 target 上（rev 是 target 的祖先）。
+  // 据此省掉每个工作树一次 git merge-base 进程；counts 本身失败时退回 merge-base 判定，
+  // 语义与旧实现完全一致。
+  const merged = rev && !isMain ? (counter.ahead === null ? isAncestor(repo, rev, target) : counter.ahead === 0) : null;
   const age = commit && commit.ageDays !== null ? commit.ageDays : dirAgeDays(dir);
   const size = includeSize ? dirSize(dir, sizeDeadline) : null;
   return {
@@ -886,6 +1016,23 @@ function describe(repo, entry, target, { includeSize = false, sizeDeadline = nul
     sizeTimedOut: size ? size.timedOut : false,
     lastCommit: commit,
   };
+}
+
+/** 批量描述若干工作树。提交信息一次 git log 取回（见 lastCommits），
+ *  其余字段逐个工作树取，字段与语义与逐个 describe() 完全一致。 */
+function describeMany(repo, entries, target, { includeSize = false, sizeDeadline = null } = {}) {
+  const commits = lastCommits(repo, entries);
+  return entries.map((entry) =>
+    describeEntry(repo, entry, target, {
+      includeSize,
+      sizeDeadline,
+      commit: commits.get(entry.head) || null,
+    }),
+  );
+}
+
+function describe(repo, entry, target, opts = {}) {
+  return describeMany(repo, [entry], target, opts)[0];
 }
 
 function dirAgeDays(dir) {
@@ -977,6 +1124,11 @@ export {
   acquireConfigLock,
   resolveRepoKey,
   saveConfig,
+  DEFAULT_GIT_TIMEOUT_MS,
+  setGitTimeoutMs,
+  getGitTimeoutMs,
+  isTimeoutError,
+  runGitProcess,
   git,
   repoStart,
   cwdInsidePluginRoot,
@@ -987,6 +1139,7 @@ export {
   samePath,
   MAIN_WT_CACHE,
   mainWorktreePath,
+  clearMainWorktreeCache,
   repoKey,
   repoOverrides,
   effectiveWithSources,
@@ -1008,9 +1161,12 @@ export {
   counts,
   isAncestor,
   lastCommit,
+  isWorktreeDir,
+  lastCommits,
   dirSize,
   human,
   describe,
+  describeMany,
   dirAgeDays,
   bucketOf,
   configSummary,

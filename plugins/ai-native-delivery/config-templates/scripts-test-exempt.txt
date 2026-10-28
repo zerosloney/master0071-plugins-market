@@ -11,10 +11,12 @@
 # papercut-debt-sensor、wiki-search 未随迁，行删除；check-loop-rev-fixture（测试夹具生成器）
 # 随迁落 test/ 而非 scripts/，不再是扫描面内的引擎脚本，行删除（原「exempt」登记已 stale）。
 indirect | .agents/scripts/check-loop-kit.mjs | .agents/scripts/check-loop.test.mjs | 基础设施层（路径/git/枚举解构），check-loop 全场景用例覆盖
+indirect | .agents/scripts/check-loop-sections/ | .agents/scripts/check-loop.test.mjs | 门禁分段检查器（22 段）：每段的判据都经 check-loop 全场景 fixture 黑盒覆盖（2026-10-28 纳入扫描面；目录前缀键 = 该目录下全部脚本共用同一份测试）
+indirect | .agents/scripts/binding.mjs | .agents/scripts/append-compensation.test.mjs | done 内容绑定指纹复原重算（bindingSha256）经补偿行用例正反例覆盖（2026-10-28 自 check-loop-kit 切出为纯函数模块）
 indirect | .agents/scripts/check-metric-claims.mjs | .agents/scripts/check-loop.test.mjs | §16 指标签名对账经 check-loop fixture 场景黑盒覆盖
 exempt | .agents/scripts/check-schema-residue.mjs | 需连 dev 库做 schema 残留审计，本地/CI 手工执行，无库环境不可测
-exempt | .agents/scripts/ci-install-gitleaks.mjs | CI-only 安装器：下载/解压面不可测（网络 + 平台二进制）；幂等探针分支（既有二进制版本核验→跳过下载）属可测未测，登记待补（2026-10-24 复核 D4 理由订正）
-exempt | .agents/scripts/ci-push-before.mjs | CI-only 薄壳（解析 CI 平台构建关联提交），主干由 lane-surface CI 用例覆盖
+exempt | .agents/scripts/ci-install-gitleaks.mjs | CI-only 安装器：下载/解压/sha256 校验面不可测（网络 + 平台二进制）；幂等探针分支（既有二进制版本核验→跳过下载）属可测未测，登记待补（2026-10-28 补 sha256 完整性校验后同步理由）
+exempt | .agents/scripts/ci-push-before.mjs | CI-only 薄壳（解析 CI 平台构建关联提交，只取 JSON 元数据、不取可执行文件，无 checksum 面）；主干由 lane-surface CI 用例覆盖
 indirect | .agents/scripts/quote-grounding.mjs | .agents/scripts/confirm-doc.test.mjs | 委托引文接地纯函数经确认门用例覆盖
 indirect | .agents/scripts/stage-gates.mjs | .agents/scripts/check-loop.test.mjs | entryConfirmed 与检查 19 交叉一致性用例覆盖
 indirect | .agents/scripts/grade-task.mjs | .agents/scripts/grade.test.mjs | 两问定级判级面：L1/L2/L3 三态与 L2 触达面命中用例经本用例覆盖

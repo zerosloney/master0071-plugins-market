@@ -18,12 +18,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { aggFromRows, readAllJudgments } from './agg-judgments.mjs';
+import { findProjectRoot } from './paths.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const argOf = (k) => { const i = argv.indexOf(k); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : ''; };
 const asJson = argv.includes('--json');
-const ROOT = path.resolve(argOf('--root') || path.join(SCRIPT_DIR, '..', '..'));
+// ROOT 解析（2026-10-28 插件化修复，与 agg-judgments / check-query-contract / gen-effective-policy 同口径）：
+//   项目 git 根（findProjectRoot）→ 旧锚 <script>/../..（源仓形态行为不变）。
+//   旧锚在插件形态下 = 插件目录的上级（市场仓 plugins/）——台账落使用项目 git 根的不变量（README §台账
+//   项目级不变量）在此处被绕过：机制台账恒报「不存在」且 exit 0，月度退役催办整体失效（假绿）。
+const ROOT = path.resolve(argOf('--root') || findProjectRoot() || path.join(SCRIPT_DIR, '..', '..'));
 const NOW = argOf('--now') ? new Date(argOf('--now')) : new Date();
 const MODEL = argOf('--model') || process.env.MODEL_FAMILY || '';
 

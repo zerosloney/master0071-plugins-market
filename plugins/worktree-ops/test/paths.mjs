@@ -56,6 +56,13 @@ if (process.platform === 'win32' && existsSync('C:\\PROGRA~1')) {
   check('8.3 短名与长名指向同一目录 → 相等', samePath('C:\\PROGRA~1', longForm) === true, longForm);
   // 短名写法作父路径时，长名写法作子路径也必须判「在内」——受管根与 worktree 路径正是这样混用的
   check('短名父 / 长名子 → 判为「在内」', isInside(`${longForm}\\Windows`, 'C:\\PROGRA~1') === true, longForm);
+  // CI 上真正踩的形态：工作树落点**尚不存在**，只有祖先带短名。整条 realpath 会失败，
+  // 必须归一到最长已存在祖先再拼接，否则短名/长名照旧对不上。
+  check(
+    '短名祖先下的不存在路径 → 与长名写法判等',
+    samePath('C:\\PROGRA~1\\no-such-dir\\x', path.join(longForm, 'no-such-dir', 'x')) === true,
+    `C:\\PROGRA~1\\no-such-dir\\x vs ${path.join(longForm, 'no-such-dir', 'x')}`,
+  );
 } else {
   console.log('  · 8.3 别名不可用（非 Windows 或未启用短名）——跳过两项，回归由 windows-latest 矩阵验证');
 }

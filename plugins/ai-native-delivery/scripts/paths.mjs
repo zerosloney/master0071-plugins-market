@@ -53,6 +53,15 @@ export function findProjectRoot(startDir = process.cwd()) {
   return resolveProjectRoot(startDir).root;
 }
 
+// projectRoot(startDir)：脚本默认根的**单源锚定**（git root 优先，解析不到回退 startDir）。
+// 为什么不让各脚本各自写 `findProjectRoot(process.cwd()) || process.cwd()`：锚定口径一旦分散，
+// 漏一处就出现「在子目录调用 → 台账落进子目录」的漂移（实测 ledger-shards --append 曾落
+// <repo>/sub/workflow/ 而仓库根 workflow/ 根本不存在，且输出只印相对路径，用户看不出落错位置）。
+// 回退而非报错：非 git 目录是合法形态（就地操作），各调用方按各自语义降级，不在此处替它们改裁决。
+export function projectRoot(startDir = process.cwd()) {
+  return findProjectRoot(startDir) || startDir;
+}
+
 // ledgerRoot({ fixture, explicit, startDir })：审计账与凭证的**可写根**（2026-10-27 P0 修复）。
 // 与 scriptPath/configDir 刻意不同：这里不回退 PLUGIN_ROOT。插件安装目录跨项目共享，
 // 把 verifications.jsonl / workflow/verify-evidence.md 落进去，A 处跑出的绿凭证会被 B 处

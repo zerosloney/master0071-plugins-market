@@ -45,7 +45,11 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
     { "task_id": "t1", "round": 1, "reason": "<失败原因>" }
   ],
   "round": 0,
-  "stop_reason": null
+  "stop_reason": null,
+  "budget": {
+    "max_tokens": 100000,
+    "spent_tokens": 0
+  }
 }
 ```
 
@@ -55,7 +59,7 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
-- budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
+- budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成"上限为 0"立刻 BUDGET）。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 - `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
 

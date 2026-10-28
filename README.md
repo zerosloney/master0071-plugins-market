@@ -7,8 +7,8 @@
 | [systemone-decision](plugins/systemone-decision/) | 0.5.9 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
 | [worktree-ops](plugins/worktree-ops/) | 0.4.9 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 可越过），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.18 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
-| [pstack](plugins/pstack/) | 0.1.11 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体与会话启动 hook |
-| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.3 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
+| [pstack](plugins/pstack/) | 0.1.11 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、4 个可加载子智能体（另 10 个 effort 分级变体在 `extras/`，默认不加载）与会话启动 hook |
+| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.4 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
 
 ## 标准包结构
 
@@ -57,6 +57,8 @@ LICENSE                     # 本仓库自身作品的 MIT 许可（pstack 的�
 
 根 `plugin.json` 的顶层字段受规范封闭约束，只有：`$schema`、`name`（前两项必填）、`version`、`description`、`author`（`{name, email, url}` 对象）、`homepage`、`repository`、`license`、`keywords`、`extensions`。组件路径不写在这里——放进去会被判为未知字段（报告并忽略，不致命但无意义）。
 
+注意规范**没有** `engines` 这个键：`additionalProperties: false` 的封闭集里没有它，写进去宿主只会忽略，于是"清单已声明 Node 下限"只是错觉（此前五个插件的根清单都带了这个越界字段，现已移除）。Node 版本要求写在各插件 README 与下面的「配置」一节，并由运行期自检兜住——`scripts/manifest-lint.mjs` 现在按规范白名单对账顶层字段，越界即报错。
+
 `skills/<name>/SKILL.md` 的 frontmatter 按 [Agent Skills 规范](https://agentskills.io/specification) 写：只出现规范字段——`name`（必填，与目录名一致）、`description`（必填）、`license`、`compatibility`、`metadata`、`allowed-tools`。`compatibility` 只在确有环境依赖时写（外部命令、运行时、凭据、网络），没有就不写。客户端专有的 frontmatter 键（`user-invocable`、`paths` 等）一律不写。
 
 skill 正文同样不写死某一家的路径与清单名：需要项目级 skill 目录、用户级 skill 目录、按项目 transcript 目录或 agent store 时，正文用宿主中立表述（"the host's project-skill directory" 等），具体路径由各宿主的映射文件 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表给出。
@@ -79,6 +81,8 @@ Agent Plugins 只规范化 skills 与 MCP 两类组件，以下内容超出标�
 | 根 `marketplace.json` | **非标准 ZCode 兼容垫片** | ZCode 的 `/plugin marketplace add` 发现入口 |
 | 根 `.agents/plugins/marketplace.json` | **非标准 Codex 兼容垫片** | Codex 的市场发现入口（Codex 市场 schema：`name` / `interface` / `plugins[]`，条目不带版本） |
 | 根 `.omp-plugin/marketplace.json` | **非标准 Oh My Pi 兼容垫片** | Oh My Pi 的市场目录（`name` / `owner` / `plugins[]`，条目带版本） |
+
+三份市场目录的**字段集合不同是各宿主 schema 决定的**，不是不一致：ZCode 条目带 `displayName` / `displayName_i18n` / `description_i18n`，omp 条目带 `category` / `keywords`（无 i18n），Codex 条目按其 schema 只有 `name` / `source` / `policy` / `category`、**不带版本**（版本从各插件的 `.codex-plugin/plugin.json` 读）。要守住的是**事实一致**：同一插件在两份目录里描述的能力、数字与边界条件必须对得上——措辞可以按各宿主的展示位置裁剪，事实不能各自漂移。
 
 保留垫片是为了**不破坏 ZCode 现有的安装方式**。严格意义上一个包内有且仅有一个 `plugin.json`，垫片那份会让包不再是纯粹的单清单形态——这是为兼容性做的自觉取舍，不是疏忽。
 
@@ -169,7 +173,7 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
-带 MCP 服务的三个插件（systemone-decision / worktree-ops / ai-native-delivery）要求 **Node.js ≥ 18**，且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。自检：`node --version && git --version`（worktree-ops 与 ai-native-delivery 另需 git）。
+五个插件都要求 **Node.js ≥ 18**（脚本与 MCP 服务均为零依赖纯 Node），且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。带 MCP 服务的三个插件（systemone-decision / worktree-ops / ai-native-delivery）另需 git。自检：`node --version && git --version`。
 
 worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_config`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
 

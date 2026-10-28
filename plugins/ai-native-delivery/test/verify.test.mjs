@@ -475,10 +475,15 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   const ev = fs.existsSync(path.join(root, 'workflow', 'verify-evidence.md'))
     ? fs.readFileSync(path.join(root, 'workflow', 'verify-evidence.md'), 'utf8') : '';
-  check('场景 12b：stub+scope 全绿 → entry.scope 落台账（mode/base/skipped=5 + fastTests）',
+  check('场景 12b：stub+scope 全绿 → entry.scope 落台账（mode/base/skipped=5）',
     r2.status === 0 && lines.length === 1 && lines[0].exitCode === 0 && lines[0].scope
       && lines[0].scope.mode === 'diff' && Array.isArray(lines[0].scope.skipped) && lines[0].scope.skipped.length === 5
-      && !lines[0].scope.skipped.includes('engine-tests') && lines[0].fastTests === true
+      && !lines[0].scope.skipped.includes('engine-tests')
+      // 2026-10-28 gateNotApplicable 收紧后的新语义：夹具无 `.agents/scripts` → engine-tests 判
+      // 「不适用（没跑）」而非「跑了但降档」，故**不挂 fastTests**。旧断言要求 fastTests===true 把
+      // 两种形态混成了一个标记（后果是消费项目永远拿不到全量锚资格）。
+      // 留一条审计缺口待补：该行也不把 engine-tests 记进 skipped，绿行未说明这门为何没跑。
+      && lines[0].fastTests === undefined
       && typeof lines[0].scope.base === 'string',
     `exit=${r2.status} lines=${JSON.stringify(lines)}\n${r2.stderr}`);
   check('场景 12b：摘要行渲染 scope=diff(base=…,skip=5)',
@@ -527,10 +532,14 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     `exit=${r.status} line=${JSON.stringify(last)}\n${r.stderr}`);
   fs.rmSync(root, { recursive: true, force: true });
 }
-// ---- 场景 12e：双面触+引擎未触 → fast-only 绿行（无 scope 标记）不得作全量锚（2026-10-24 复核 P1-5）----
-// 46564eb2 起该形态 skipped 为空 → 绿行不挂 scope 但 fastTests=true（engine-tests 用了 --fast）；
-// 不排除则被当 lastFull 基线，后续增量担保建立在漏跑慢套件的树上。修复后：台账候选排除
-// fastTests 行、仓库凭证解析排除 fast= 行 → 第二跑基线必须回落（不吃 fast 行的 head）。
+// ---- 场景 12e：engine-tests「不适用」vs「跑了但降档」是两种形态（2026-10-24 复核 P1-5 立；
+// 2026-10-28 gateNotApplicable 收紧后按新语义拆分）----
+// 立测时的世界：双面触 + 引擎未触 → engine-tests 用 --fast 跑 → 绿行无 scope 标记但 fastTests=true，
+// 该形态禁作全量锚（否则增量担保建立在漏跑慢套件的树上）。
+// 现在的世界：夹具没有 `.agents/scripts`，engine-tests 由 requires 判「不适用（根本没跑）」，
+// 既不该挂 fastTests，也就是一条该项目的合法全量绿——**旧写法把「没跑」标成「降档跑过」，会让
+// 消费项目永远失去锚资格**。12e-1 钉住这个正向翻转，12e-2 / 12e-3 用手工台账行把「fastTests 行
+// 不作锚」这条仍然成立的规则隔离到判据本身（锚点候选只看标记、不看实跑门数，见 verify.mjs 候选过滤）。
 {
   const root = mkfix();
   const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -540,7 +549,6 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   fs.writeFileSync(path.join(root, 'README.md'), 'base\n');
   git(['add', '-A']);
   git(['commit', '-qm', 'base']);
-  const baseShort = git(['rev-parse', '--short', 'HEAD']).stdout.trim();
   git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'HEAD']).stdout.trim()]);
 
   fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
@@ -549,31 +557,75 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   fs.writeFileSync(path.join(root, 'frontend', 'd.ts'), 'export {};\n');
   git(['add', '-A']);
   git(['commit', '-qm', 'both faces']);
-  const fastHead = git(['rev-parse', '--short', 'HEAD']).stdout.trim();
 
   const r1 = run(['--stub-gate', `node ${mkCmd(0)}`, '--scope'], { env: { ...process.env, RUN_E2E: '', CHECK_LOOP_ROOT: root } });
   const vp1 = path.join(root, '.agents', 'verifications.jsonl');
   const rows1 = fs.existsSync(vp1) ? fs.readFileSync(vp1, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   const last1 = rows1[rows1.length - 1];
-  check('场景 12e：双面触+引擎未触 → 绿行 fastTests=true 且无 scope 标记（裁剪绿的伪装形态成立）',
-    r1.status === 0 && last1 && last1.exitCode === 0 && last1.fastTests === true && !('scope' in last1),
+  check('场景 12e-1：engine-tests 不适用 → 绿行既不挂 fastTests 也不挂 scope（该项目的全量绿形态）',
+    r1.status === 0 && last1 && last1.exitCode === 0 && last1.fastTests === undefined && !('scope' in last1),
     `exit=${r1.status} line=${JSON.stringify(last1)}\n${r1.stderr}`);
 
-  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'workflow', 'plans', '2026-10-21-after-fast.md'), '# after\n');
-  // 撤走双面触文件：base..HEAD 树差只剩 workflow 文档 → 第二跑为纯文档面（scope 落 base 可观测；
-  // 不删则第二跑仍双面触、又落一条 fast 行，基线选择不可见）
-  git(['rm', '-q', 'backend/D.cs', 'frontend/d.ts']);
-  git(['add', '-A']);
-  git(['commit', '-qm', 'doc after fast']);
-  const r2 = run(['--stub-gate', `node ${mkCmd(0)}`, '--scope'], { env: { ...process.env, RUN_E2E: '', CHECK_LOOP_ROOT: root } });
-  const rows2 = fs.existsSync(vp1) ? fs.readFileSync(vp1, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-  const last2 = rows2[rows2.length - 1];
-  check('场景 12e：fast-only 绿行不作全量锚——第二跑基线回落 merge-base（base ≠ fast 行 head）',
-    r2.status === 0 && last2 && last2.scope && typeof last2.scope.base === 'string'
-      && last2.scope.base !== fastHead && last2.scope.base === baseShort,
-    `exit=${r2.status} fastHead=${fastHead} line=${JSON.stringify(last2)}\n${r2.stderr}`);
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 12e-2 / 12e-3：fastTests 标记本身是否决定锚资格（正/负同形对照）----
+// 12e-1 之后夹具里再也产不出 fastTests 行（引擎判不适用），而 `--stub-gate` 的绿行还要受 testCmd
+// 等非 fastTests 规则影响——拿它验锚资格会测到别的东西。这里改用 12f 同款手法：手工落一条除
+// fastTests 外**完全符合锚点候选**的绿行（exitCode 0 / suite all-gates / 带 headShort / 无 scope
+// 无 envSkips 无 testCmd 无 engineOnly），同构跑两遍——带标记的不被吃、不带标记的被吃。
+// 只差一个标记，规则正反两面都钉住，同时证明上一条不是空转（2026-10-24 复核 P1-5 的原意）。
+{
+  const probe = (extra) => {
+    const root = mkfix();
+    const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    git(['init', '-q']);
+    git(['config', 'user.email', 't@t']);
+    git(['config', 'user.name', 't']);
+    fs.writeFileSync(path.join(root, 'README.md'), 'base\n');
+    git(['add', '-A']);
+    git(['commit', '-qm', 'base']);
+    const baseShort = git(['rev-parse', '--short', 'HEAD']).stdout.trim();
+    git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'HEAD']).stdout.trim()]);
+
+    fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'backend', 'slow.cs'), 'class S { }\n');
+    git(['add', '-A']);
+    git(['commit', '-qm', 'row head']);
+    const rowHead = git(['rev-parse', '--short', 'HEAD']).stdout.trim();
+
+    const vp = path.join(root, '.agents', 'verifications.jsonl');
+    fs.mkdirSync(path.dirname(vp), { recursive: true });
+    fs.writeFileSync(vp, `${JSON.stringify({
+      ts: new Date().toISOString(), exitCode: 0, suite: 'all-gates', gates: 15,
+      headShort: rowHead, passed: 15, failed: 0, ...extra,
+    })}\n`, 'utf8');
+
+    fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'workflow', 'plans', '2026-10-28-after-row.md'), '# probe\n');
+    git(['add', '-A']);
+    git(['commit', '-qm', 'doc after row']);
+    const r = run(['--stub-gate', `node ${mkCmd(0)}`, '--scope'], { env: { ...process.env, RUN_E2E: '', CHECK_LOOP_ROOT: root } });
+    const rows = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const last = rows[rows.length - 1];
+    const out = {
+      status: r.status,
+      base: last && last.scope && last.scope.base,
+      rowHead, baseShort, line: JSON.stringify(last), stderr: r.stderr,
+    };
+    fs.rmSync(root, { recursive: true, force: true });
+    return out;
+  };
+
+  const marked = probe({ fastTests: true });
+  check('场景 12e-2：带 fastTests 的绿行不作全量锚——基线不吃该行 head（回落 origin/main）',
+    marked.status === 0 && marked.base === marked.baseShort && marked.base !== marked.rowHead,
+    JSON.stringify(marked));
+
+  const unmarked = probe({});
+  check('场景 12e-3：同形但不带 fastTests 的绿行确被当作全量锚——证明是标记本身在决定（12e-2 非空转）',
+    unmarked.status === 0 && unmarked.base === unmarked.rowHead && unmarked.base !== unmarked.baseShort,
+    JSON.stringify(unmarked));
 }
 // ---- 场景 12f：envSkips 绿行不得作全量锚（2026-10-27 anchor-envskip）----
 // 形态：本地 diff 档 loud-skip 了 CI-only 门（ledger-invariant）→ 绿行 gates < 门表、无 scope、带 envSkips。

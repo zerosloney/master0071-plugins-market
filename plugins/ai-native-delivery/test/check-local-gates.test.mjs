@@ -48,6 +48,9 @@ try {
 
   const ok = run(tmp);
   check('S1 源仓形态配置齐全 → exit 0 且打印 PASS', ok.status === 0 && /\[PASS\]/.test(ok.stdout), ok.stdout.slice(-200) + ok.stderr.slice(-200));
+  // 2026-10-28：dotnet 只在项目有 App.sln 时才是上岗前提。此前无条件要求，且探测只查 Windows
+  // 标准安装位置——ubuntu CI 上没有 dotnet，把这条「应全绿」用例与 S4 一起拖红。
+  check('S1 无 App.sln → dotnet 仅提示，不作上岗前提', /\[提示\] dotnet/.test(ok.stdout), ok.stdout.slice(-240));
 
   git(tmp, ['config', '--unset', 'core.hooksPath']);
   const missing = run(tmp);

@@ -46,7 +46,10 @@ rl.on("line", (line) => {
   let message;
   try {
     message = JSON.parse(trimmed);
-  } catch {
+  } catch (err) {
+    // 畸形 JSON 必须回 -32700：静默丢弃会让客户端一直等到宿主超时，
+    // 分不清是「服务端没收到」还是「服务端卡住了」。id 用 null（JSON-RPC 对解析错误的约定）。
+    replyError(null, -32700, `Parse error: ${err && err.message ? err.message : String(err)}`);
     return;
   }
   Promise.resolve(handle(message)).catch((err) => {

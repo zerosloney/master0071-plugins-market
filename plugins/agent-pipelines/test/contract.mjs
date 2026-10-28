@@ -200,6 +200,21 @@ for (const rel of [
   check(`${rel} 并行委派就绪任务`, /并行|全部可执行任务|全部发出/.test(source));
 }
 
+// Orchestrator 必须能派发子代理 + 跑脚本。
+// 白名单缺派发工具或 Bash 时，文档要求的「用子代理执行 + 用 scripts/ 判门禁」根本跑不起来
+// （审计确认过 coding-orchestrator 的白名单两者都缺，与正文自相矛盾）。
+// 工具名沿用仓库既有约定：白名单里已有的是 Claude Code 风格工具名（Read/Grep/Glob/…），
+// 仓库文档里的派发工具名是 `Task`（ZCode 叫 `task`）。
+const toolNamesOf = (rel) => {
+  const source = read(rel);
+  const block = source.match(/^tools:\r?\n((?:\s*-\s*\S+\r?\n?)+)/m);
+  return block ? [...block[1].matchAll(/-\s*(\S+)/g)].map((m) => m[1]) : [];
+};
+const orchestratorTools = toolNamesOf("agents/coding-orchestrator.md");
+check("agents/coding-orchestrator.md 声明 tools 白名单", orchestratorTools.length > 0);
+check("agents/coding-orchestrator.md tools 含子代理派发工具 Task", orchestratorTools.includes("Task"), orchestratorTools.join(", "));
+check("agents/coding-orchestrator.md tools 含 Bash（跑 scripts/ 门禁脚本）", orchestratorTools.includes("Bash"), orchestratorTools.join(", "));
+
 // 状态文件默认路径：脚本默认值必须与全部文档声明的 <pipeline>-pipeline.json 一致
 for (const rel of ["scripts/state.mjs", "scripts/render.mjs", "scripts/graph.mjs"]) {
   const source = read(rel);
@@ -224,6 +239,33 @@ for (const rel of ["commands/ralph-pipeline.md", "commands/coding-pipeline.md"])
   check(`${rel} 声明可视化命令`, /render\.mjs/.test(source));
   check(`${rel} 可视化支持 .html 输出`, /\.html/.test(source));
   check(`${rel} 声明实时看板命令`, /serve\.mjs/.test(source));
+}
+
+// A4：角色文件的注入段落必须与 references 的角色契约一致（2026-10-28 市场审查）
+// 背景：`agents/` 与 `skills/<pipeline>/references/` 是同一角色契约的两份载体——前者被加载
+// agents/ 的宿主（omp）用，后者被可移植宿主（Codex 等不加载 agents/）靠 Orchestrator 注入用。
+// 两份的「Orchestrator 必须注入这些段落」清单此前靠人工同步，实测漂移过：coding-builder.md 与
+// coding-reviewer.md 都漏了 `=== Critical Checkpoints ===`（该段是 DONE 判据之一，缺了 builder 就
+// 收不到硬门禁清单）。这里把「同角色的两份段落清单必须逐项一致」变成机器对账。
+const SECTION_RE = /^===\s*(.+?)\s*===$/gm;
+const sectionsOf = (rel) => [...read(rel).matchAll(SECTION_RE)].map((m) => m[1].trim());
+for (const [agentRel, refRel] of [
+  ["agents/coding-builder.md", "skills/coding-pipeline/references/builder-role.md"],
+  ["agents/coding-reviewer.md", "skills/coding-pipeline/references/reviewer-role.md"],
+  ["agents/ralph-worker.md", "skills/ralph-pipeline/references/worker-role.md"],
+  ["agents/ralph-reviewer.md", "skills/ralph-pipeline/references/reviewer-role.md"],
+]) {
+  const a = sectionsOf(agentRel);
+  const r = sectionsOf(refRel);
+  check(`${agentRel} 声明了注入段落`, a.length > 0);
+  check(`${refRel} 声明了注入段落`, r.length > 0);
+  const missingInAgent = r.filter((s) => !a.includes(s));
+  const missingInRef = a.filter((s) => !r.includes(s));
+  check(
+    `${agentRel} ↔ ${refRel} 注入段落一致`,
+    missingInAgent.length === 0 && missingInRef.length === 0,
+    `agents 缺 ${JSON.stringify(missingInAgent)}；references 缺 ${JSON.stringify(missingInRef)}`,
+  );
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -12,6 +12,7 @@
   "keywords": ["mcp", "decision", "systemone", "productivity"],
   "mcpServers": {
     "systemone": {
+      "type": "stdio",
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
       "env": {
@@ -20,7 +21,9 @@
         "SYSTEMONE_PLUGIN_TIMEOUT_MS": "${user_config.timeout_ms}",
         "SYSTEMONE_PLUGIN_SCENARIOS": "${user_config.scenarios}",
         "SYSTEMONE_PLUGIN_SCENARIOS_FILE": "${user_config.scenarios_file}",
-        "SYSTEMONE_PLUGIN_LOG_FILE": "${user_config.log_file}"
+        "SYSTEMONE_PLUGIN_LOG_FILE": "${user_config.log_file}",
+        "SYSTEMONE_PLUGIN_HOOK_PRECHECK": "${user_config.hook_precheck}",
+        "SYSTEMONE_PLUGIN_HOOK_RISK_GATE": "${user_config.hook_risk_gate}"
       }
     }
   },
@@ -62,6 +65,18 @@
       "title": "Decision Log (JSONL)",
       "default": "",
       "description": "审计日志 JSONL 文件路径，每次决策逐条追加（判定值、置信度、延迟），systemone_scenario 的 action=stats 消费。留空不记录。改动后重启 ZCode 生效"
+    },
+    "hook_precheck": {
+      "type": "string",
+      "title": "Hook: Requirement Precheck",
+      "default": "on",
+      "description": "需求明确度预检开关：on / off / first:N（每会话只对前 N 条输入做预检）。映射到环境变量 SYSTEMONE_PLUGIN_HOOK_PRECHECK（等价于 SYSTEMONE_HOOK_PRECHECK）。off = 停掉提示外发。不生效时改用环境变量 SYSTEMONE_HOOK_PRECHECK。改动后重启 ZCode 生效"
+    },
+    "hook_risk_gate": {
+      "type": "string",
+      "title": "Hook: Shell Risk Gate",
+      "default": "on",
+      "description": "shell 命令风险闸开关：on / off。映射到环境变量 SYSTEMONE_PLUGIN_HOOK_RISK_GATE（等价于 SYSTEMONE_HOOK_RISK_GATE）。off = 一律放行且不发判定请求（等于停掉命令外发）。不生效时改用环境变量 SYSTEMONE_HOOK_RISK_GATE。改动后重启 ZCode 生效"
     }
   }
 }

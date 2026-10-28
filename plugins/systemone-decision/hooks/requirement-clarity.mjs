@@ -7,15 +7,20 @@
 // hooks/clarity.mjs；开关与会话配额（on / off / first:N）在 hooks/precheck-quota.mjs；
 // 插件根目录变量 ${CLAUDE_PLUGIN_ROOT} 由 hooks.json 清单展开，不在代码里区分。
 
-import { main } from './hook-io.mjs';
+import { main, NO_BUDGET_MS } from './hook-io.mjs';
 import { precheck } from './clarity.mjs';
 import { precheckMode, quotaAllows } from './precheck-quota.mjs';
 
 main(async (input, timeoutMs, truncated) => {
   // stdin 超过 100K 上限：读到的输入不完整，无法判定也不假装判定——按既有失败路径
   // 静默放行（不发请求、不阻塞），诊断注明 input too large，stdout 契约不变。
+  // 时间预算耗尽（stdin 到达过慢）走同一条路径：没有时间发请求，静默跳过。
   if (truncated) {
-    process.stderr.write('[systemone-decision hook] 预检跳过：input too large（stdin 超过 100K 字符上限，已截断）\n');
+    const why =
+      timeoutMs <= NO_BUDGET_MS
+        ? '时间预算已耗尽（输入到达过慢）'
+        : 'input too large（stdin 超过 100K 字符上限，已截断）';
+    process.stderr.write(`[systemone-decision hook] 预检跳过：${why}\n`);
     return null;
   }
   // 开关/配额门（fail-open：off 或 first:N 用尽时静默跳过，不发请求）

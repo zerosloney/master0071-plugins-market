@@ -35,6 +35,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
 === Risk Level ===
 === Detected Stack ===
 === Scripts Gap ===
+=== Critical Checkpoints ===
 === prior_cycles_summary ===
 ```
 

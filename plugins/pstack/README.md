@@ -48,7 +48,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口）。`hooks/copilot-hooks.json` **未被任何清单引用**，Copilot 上需手工登记，见下 |
 | `models.json` | skill 内多处引用它说明模型分工的出处；改它需要同步更新各 skill 的 Models 列表（各文件已注明，本移植未附带生成脚本） |
 
-Codex 侧实测结论（codex-cli 0.163.0，2026-10-23）：`.codex-plugin` 里修正为 `hooks.hooks.SessionStart` 的嵌套结构后，用 `--dangerously-bypass-hook-trust` 运行 `codex exec` 仍未在系统上下文看到 `You have pstack.`，说明本机 Codex **没有执行插件的 SessionStart hook**，自动路由未生效。同一轮实测中 MCP 的 `${PLUGIN_ROOT}` 可以正常展开（systemone 的 `systemone_scenario` 已注册并可发起调用），所以问题不在变量展开，而在 Codex 对插件 hook 的加载/注入契约。结论：Codex 上请手动调用 `/poteto-mode`；`hooks` 字段保留为正确的嵌套声明，等宿主支持后无需再改插件。hook 脚本自身不依赖插件根环境变量（插件根由脚本路径推出），可零变量手工运行验证。
+Codex 侧实测结论（codex-cli 0.163.0，2026-10-23）：`.codex-plugin` 里修正为 `hooks.hooks.SessionStart` 的嵌套结构后，用 `--dangerously-bypass-hook-trust` 运行 `codex exec` 仍未在系统上下文看到 `You have pstack.`，说明本机 Codex **没有执行插件的 SessionStart hook**，自动路由未生效。同一轮实测中 MCP 的 `${PLUGIN_ROOT}` 可以正常展开（systemone 的 `systemone_scenario` 已注册并可发起调用），所以问题不在变量展开，而在 Codex 对插件 hook 的加载/注入契约。结论：Codex 上请手动调用 `/poteto-mode`；`hooks` 字段保留为正确的嵌套声明，等宿主支持后无需再改插件。hook 脚本自身不依赖插件根环境变量（插件根由脚本路径推出），可零变量手工运行验证。**注意**：那份内联 hook 的命令用的是 `${CLAUDE_PLUGIN_ROOT}`（照 Claude 式宿主的变量名占位）——若 Codex 日后支持插件 hook 而契约要求别的变量名，需要按届时契约改这一处；脚本本身不读该变量，改与不改都不影响脚本行为。
 
 hook 行为：会话开始时读取运行时的模型表（Claude Code `~/.claude/pstack-models.md`，`$CLAUDE_CONFIG_DIR` 可改；ZCode `~/.zcode/`，`$ZCODE_HOME` 可改；Codex `~/.codex/`；Copilot `~/.copilot/`）。若文件里含 `session hook: off` 一行，则不注入路由令——**关掉自动路由的方式就是这个**，比删 hook 干净。
 
@@ -56,7 +56,7 @@ ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理
 
 **全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode 四运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。**实际被宿主接上的注册有两份**：`hooks/hooks.json`（Claude 式宿主 + ZCode 约定路径）与 `.codex-plugin` 内联那一份，两者都改为 `node` 调用。测试见 `test/run-hook-tests.mjs`（hook 契约与表解码，在插件根执行）与 `test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。原 `session-start.sh`、`pre-tool-use.sh`、`session-start.ps1` 与四个 `hooks/*.awk` 共 7 个文件移入 `extras/upstream-reference/` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
 
-**`hooks/copilot-hooks.json` 目前无人注册（0.1.8 已知缺口）**：本仓库的四份清单（根 `plugin.json`、`.codex-plugin`、`.omp-plugin`、`.zcode-plugin`）都不引用它，仓库里也没有 Copilot 专用的垫片目录，所以 **GitHub Copilot 宿主上 `pre-tool-use.mjs` 权限闸不会自动生效**——脚本本身有测试（`run-hook-tests.mjs` 覆盖其 view/task/bash 规则与解析器），只是缺一条把它交给宿主的注册路径。上游 pstack 的 Copilot 集成走的是宿主自有配置而非本仓库清单，具体登记方式本移植未实测，故不臆造 manifest 结构。要让它在你的 Copilot 上生效：按你所用 Copilot 客户端的 hook 配置约定，把 `hooks/copilot-hooks.json` 的内容登记进去（脚本根用 `${COPILOT_PLUGIN_ROOT}` 展开）。在那之前，请把 Copilot 视为 **skills-only 安装**：SessionStart 路由令可用（`session-start.mjs` 有 copilot 分支），脚本权限闸不可用。
+**`hooks/copilot-hooks.json` 目前无人注册（已知缺口）**：本仓库的四份清单（根 `plugin.json`、`.codex-plugin`、`.omp-plugin`、`.zcode-plugin`）都不引用它，仓库里也没有 Copilot 专用的垫片目录，所以 **GitHub Copilot 宿主上 `pre-tool-use.mjs` 权限闸不会自动生效**——脚本本身有测试（`run-hook-tests.mjs` 覆盖其 view/task/bash 规则与解析器），只是缺一条把它交给宿主的注册路径。上游 pstack 的 Copilot 集成走的是宿主自有配置而非本仓库清单，具体登记方式本移植未实测，故不臆造 manifest 结构。要让它在你的 Copilot 上生效：按你所用 Copilot 客户端的 hook 配置约定，把 `hooks/copilot-hooks.json` 的内容登记进去（脚本根用 `${COPILOT_PLUGIN_ROOT}` 展开）。在那之前，请把 Copilot 视为 **skills-only 安装**：SessionStart 路由令可用（`session-start.mjs` 有 copilot 分支），脚本权限闸不可用。
 
 ## extras/（按需启用的非核心组件）
 
@@ -82,7 +82,7 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 
 ## 升级上游
 
-本插件版本号只表示本仓库的移植包版本（当前 `0.1.8`），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
+本插件版本号只表示本仓库的移植包版本（当前版本见 [`plugin.json`](plugin.json)，`release.mjs --check` 保证四份清单一致），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
 
 ```bash
 gh api "repos/cursor/plugins/compare/<上次同步提交>...HEAD" --jq '.files[] | select(.filename | test("^pstack/skills/")) | .filename'

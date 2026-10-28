@@ -1,7 +1,7 @@
 {
-  "fullMs": 240000,
-  "scopeMs": 120000,
+  "fullMs": 30000,
+  "scopeMs": 15000,
   "flakyRetry": true,
   "flakyRetryGates": ["backend-test", "engine-tests"],
-  "note": "墙钟预算（ms），advisory：超限只告警不阻断；连续两月超限由 owner 裁决降档/退役一门（一进一出）。fullMs 依据 workflow/metrics.md 2026-10 均值 217s + 余量；scopeMs 为增量关单目标。flakyRetry：仅对 flakyRetryGates 且首跑命中 flaky 签名（Msg 1205/死锁/Execution Timeout/syscall: rm）的门隔离重跑一次；重跑绿记入绿行 flaky 字段，重跑红照常红。"
+  "note": "墙钟预算（ms），advisory：超限只告警不阻断；连续两月超限由 owner 裁决降档/退役一门（一进一出）。【标定依据 2026-10-28 实测，插件形态】临时 git 仓 + init-engine 后逐门跑 3 轮取中位：scripts-syntax 4408ms（最慢门，80 个引擎脚本逐个 node --check，随脚本数线性增长）、rule-budget 474ms、local-gate-config 481ms、check-loop 446ms、lane-surface-ci 258ms、ledger-invariant 336ms、workflows-check 185ms、ledger-doc-presence 171ms、secrets-scan 142ms；四道生成物漂移门另计 172/295/94/357ms。13 门中位合计 7819ms；verify --full 实测进程墙钟 3894ms（并发）/ 4219ms（串行）。据此标定 fullMs=30000（约实测墙钟 6.8 倍）、scopeMs=15000（约 3.4 倍）：余量留给「最慢门随引擎脚本数增长」与「CI 机器比本机慢 2~3 倍」两项——超出即视为成本异动，须退役一门而非默默变慢。【口径变更】此前 fullMs=240000（依据源项目 workflow/metrics.md 2026-10 均值 217s）取自源项目形态：那边有 .NET 后端 + Vue 前端 + 业务测试套件，插件形态的消费项目没有那套栈（相关门判不适用 SKIP），照搬该值会让预算比真实值大约 53 倍——「成本超预算→退役一门」的自治理机制永不触发。flakyRetry：仅对 flakyRetryGates 且首跑命中 flaky 签名（Msg 1205/死锁/Execution Timeout/syscall: rm）的门隔离重跑一次；重跑绿记入绿行 flaky 字段，重跑红照常红。"
 }

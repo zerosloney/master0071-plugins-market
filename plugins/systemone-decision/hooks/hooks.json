@@ -13,7 +13,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Shell|Terminal|Command|command|Cmd|cmd|Exec|exec|Process|process|Run|run|Pwsh|pwsh|PowerShell|zsh|fish",
+        "matcher": "[bB][aA][sS][hH]|[sS][hH][eE][lL][lL]|[tT][eE][rR][mM][iI][nN][aA][lL]|[cC][oO][mM][mM][aA][nN][dD]|[cC][mM][dD]|[eE][xX][eE][cC]|[pP][rR][oO][cC][eE][sS][sS]|[rR][uU][nN]|[pP][oO][wW][eE][rR][sS][hH][eE][lL][lL]|[pP][wW][sS][hH]|[zZ][sS][hH]|[fF][iI][sS][hH]",
         "hooks": [
           {
             "type": "command",

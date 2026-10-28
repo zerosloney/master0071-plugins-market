@@ -7,10 +7,45 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, wri
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
-import { rejectDataPath } from '../endpoint-config.mjs';
+import { rejectDataPath, isInsecureBaseUrl } from '../endpoint-config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
+
+// 开发机上可能残留 SYSTEMONE_* 变量（场景、端点、超时、缓存 TTL、日志路径……）。
+// CI 环境干净所以 CI 全绿，本地开发者只要设了其中一个就会莫名红、且极难定位：
+// 例如设了 SYSTEMONE_SCENARIOS，自定义场景就顶掉了内置场景，「列出 15 个内置场景」直接失败。
+// 这里统一把这组变量清空，测试自己需要的值一律显式传入（cleanEnv 的 extra 优先）。
+const POLLUTING_ENV_KEYS = [
+  'PLUGIN_DATA',
+  'SYSTEMONE_API_KEY',
+  'UNISOUND_API_KEY',
+  'SYSTEMONE_BASE_URL',
+  'SYSTEMONE_PLUGIN_BASE_URL',
+  'SYSTEMONE_MODEL',
+  'SYSTEMONE_PLUGIN_MODEL',
+  'SYSTEMONE_TIMEOUT_MS',
+  'SYSTEMONE_PLUGIN_TIMEOUT_MS',
+  'SYSTEMONE_SCENARIOS',
+  'SYSTEMONE_PLUGIN_SCENARIOS',
+  'SYSTEMONE_SCENARIOS_FILE',
+  'SYSTEMONE_PLUGIN_SCENARIOS_FILE',
+  'SYSTEMONE_LOG_FILE',
+  'SYSTEMONE_PLUGIN_LOG_FILE',
+  'SYSTEMONE_CACHE_TTL_MS',
+  'SYSTEMONE_PLUGIN_CACHE_TTL_MS',
+  'SYSTEMONE_BATCH_BUDGET_MS',
+  'SYSTEMONE_PLUGIN_BATCH_BUDGET_MS',
+  'SYSTEMONE_HOOK_PRECHECK',
+  'SYSTEMONE_PLUGIN_HOOK_PRECHECK',
+  'SYSTEMONE_HOOK_RISK_GATE',
+  'SYSTEMONE_PLUGIN_HOOK_RISK_GATE',
+];
+const cleanEnv = (extra = {}) => {
+  const base = { ...process.env };
+  for (const key of POLLUTING_ENV_KEYS) delete base[key];
+  return { ...base, ...extra };
+};
 // 在临时目录跑被测插件：服务器启动会把已解析端点落盘到插件根 .endpoint.json，
 // 直接跑仓库副本会污染工作区，并与 hook 冒烟测试互相串扰端点。
 const runRoot = mkdtempSync(path.join(os.tmpdir(), 'systemone-smoke-'));
@@ -88,11 +123,26 @@ function answerFor(qid, q) {
 
 const received = [];
 const mock = http.createServer((req, res) => {
+  // 客户端超时断开后，服务端仍会按定时器写响应：吞掉这类 socket 错误，
+  // 别让未处理的 error 事件把测试进程带崩（用例里模拟的就是超时断开）。
+  req.on('error', () => {});
+  res.on('error', () => {});
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
     const parsed = JSON.parse(body);
     received.push({ url: req.url, headers: req.headers, body: parsed });
+    // 慢条目夹具：延迟 2.5s 才响应——用于验证 batch 的单条超时上限不会被整批预算吞掉
+    if (parsed.state === 'mock:slow') {
+      setTimeout(() => {
+        if (res.destroyed || res.writableEnded) return; // 客户端可能已超时断开
+        res.setHeader('content-type', 'application/json');
+        const slowAnswers = {};
+        for (const [qid, q] of Object.entries(parsed.questions || {})) slowAnswers[qid] = answerFor(qid, q);
+        res.end(JSON.stringify({ ...FIXTURE, answers: slowAnswers }));
+      }, 2500);
+      return;
+    }
     if (parsed.state === 'mock:permission-error') {
       res.statusCode = 404;
       res.setHeader('content-type', 'application/json');
@@ -236,7 +286,7 @@ class McpClient {
     this.child = spawn(process.execPath, [serverPath], {
       // PLUGIN_DATA 决定端点共享文件落在哪；默认为空即走插件根旧路径，
       // 避免继承开发机环境导致结果漂移（需要时由调用方显式传入）。
-      env: { ...process.env, PLUGIN_DATA: '', ...env },
+      env: cleanEnv({ PLUGIN_DATA: '', ...env }),
       stdio: ['pipe', 'pipe', 'inherit'],
     });
     this.nextId = 1;
@@ -320,6 +370,15 @@ const main = async () => {
     check('initialize 返回 serverInfo 与协议版本', () => {
       assert.equal(init.result.serverInfo.name, 'systemone-decision');
       assert.equal(init.result.protocolVersion, '2024-11-05');
+    });
+
+    // 协议版本必须白名单协商：客户端报一个没实现的版本时，服务端不能照单回显
+    // （那等于对不支持的版本说「我支持」，客户端随后按新协议发消息，服务端按旧协议解析）。
+    const bogusInit = await client.call('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
+    const modernInit = await client.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
+    check('initialize 只回显支持集内的协议版本，未知版本回服务端自己的版本', () => {
+      assert.equal(bogusInit.result.protocolVersion, '2024-11-05', '未知版本不得被回显');
+      assert.equal(modernInit.result.protocolVersion, '2025-06-18', '支持集内的版本应原样回显');
     });
 
     const list = await client.call('tools/list', {});
@@ -839,6 +898,35 @@ const main = async () => {
       budgetClient.close();
     }
 
+    // 单条超时必须收敛到「剩余预算按剩余条目均分」：只取 min(单条上限, 剩余预算) 时，
+    // 第 1 条最坏能吃光整批预算（单条上限 30s > 整批 25s），后面 9 条全被标 budget_exhausted，
+    // 用户拿到的结果只剩 1 条。mock:slow 让第 1 条延迟 2.5s 响应，稳定触发这条路径。
+    const slowBatchClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      SYSTEMONE_PLUGIN_BATCH_BUDGET_MS: '3000',
+    });
+    try {
+      const slowBatch = toolResult(
+        await runScenario(slowBatchClient, {
+          action: 'batch',
+          scenario: 'customer_service',
+          states: ['mock:slow', '慢批二', '慢批三'],
+        })
+      );
+      check('batch 单条超时按剩余预算均分：慢条目吃不掉整批，后续条目仍拿到预算', () => {
+        assert.equal(slowBatch.results[0].ok, false, '第 1 条应在均分份额内超时，而不是独占整批预算');
+        assert.match(slowBatch.results[0].error, /请求超时（1000ms）/, '单条超时上限应是 3000/3 的均分份额');
+        assert.equal(slowBatch.results[0].errorCode, 'timeout');
+        assert.equal(slowBatch.results[1].ok, true, '第 2 条仍应拿到预算并完成判定');
+        assert.equal(slowBatch.results[2].ok, true, '第 3 条仍应拿到预算并完成判定');
+        assert.equal(slowBatch.budget_exhausted, false, '没有条目应因预算耗尽被跳过');
+        assert.ok(slowBatch.elapsed_ms <= 3000, `整批耗时应不超过批量预算，实际 ${slowBatch.elapsed_ms}ms`);
+      });
+    } finally {
+      slowBatchClient.close();
+    }
+
     const statsOff = await runScenario(client, { action: 'stats' });
     check('未启用审计日志时 stats 报错并给配置指引', () => {
       assert.equal(statsOff.result.isError, true);
@@ -999,9 +1087,10 @@ const main = async () => {
       SYSTEMONE_BASE_URL: `http://127.0.0.1:${hanging.address().port}/v1`,
       SYSTEMONE_PLUGIN_TIMEOUT_MS: '500',
     });
+    let hung;
     try {
       const started = Date.now();
-      const hung = await timeoutClient.call('tools/call', {
+      hung = await timeoutClient.call('tools/call', {
         name: 'systemone_decide',
         arguments: { state: '响应体挂起探测', questions: { q1: { type: 'noul', instructions: '是吗？' } } },
       });
@@ -1014,6 +1103,17 @@ const main = async () => {
       timeoutClient.close();
       hanging.close();
     }
+
+    // 错误契约：isError 结果必须带结构化 errorCode，调用方按码归类而不是解析中文文案。
+    // batch 路径早就有 budget_exhausted 结构化标记，顶层却没有——同一份插件两套契约。
+    check('isError 结果带结构化 errorCode（参数非法 / 上游错误 / 超时）', () => {
+      assert.equal(unknown.result.errorCode, 'invalid_params', '未知场景属参数非法');
+      assert.equal(noState.result.errorCode, 'invalid_params', '缺 state 属参数非法');
+      assert.equal(serverError.result.errorCode, 'upstream_error', '上游 5xx');
+      assert.equal(nonJson.result.errorCode, 'upstream_error', '响应体非 JSON');
+      assert.equal(noAnswers.result.errorCode, 'upstream_error', '响应缺 answers');
+      assert.equal(hung.result.errorCode, 'timeout', '响应体读取超时');
+    });
   } finally {
     client.close();
   }
@@ -1051,11 +1151,11 @@ const main = async () => {
     { id: 'bad_aliases', title: '坏别名', aliases: ['合规别名', 123], questions: { q1: { type: 'noul', instructions: '?' } } },
     { id: 'bad_derive', title: '坏派生', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'q1' } } },
     // derive 与 questions 的对应关系：qid 必须存在、values 只配 score / map 只配 choice、
-    // values 长度须与分级数一致、空数组会让模板条件恒真——全部在校验层拦截
+    // values 档数超过分级数、空数组会让模板条件恒真——全部在校验层拦截
     { id: 'bad_qid', title: '坏派生 qid', questions: { q1: { type: 'noul', instructions: '?' } }, derive: { x: { question: 'ghost', values: ['a'] } } },
     { id: 'bad_values_type', title: 'values 挂在 choice 上', questions: { q1: { type: 'choice', instructions: '?', criteria: { a: 'A', b: 'B' } } }, derive: { x: { question: 'q1', values: ['低', '高'] } } },
     { id: 'bad_map_type', title: 'map 挂在 score 上', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', map: { 0: '低' } } } },
-    { id: 'bad_values_len', title: 'values 长度不匹配', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', values: ['P1', 'P2', 'P3'] } } },
+    { id: 'bad_values_len', title: 'values 档数超过分级数', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', values: ['P1', 'P2', 'P3'] } } },
     { id: 'bad_values_empty', title: 'values 空数组', questions: { q1: { type: 'score', instructions: '?', criteria: ['低', '高'] } }, derive: { x: { question: 'q1', values: [] } } },
     // 模板增强语法：then-only 条件、AND 条件、花括号转义
     {
@@ -1068,6 +1168,17 @@ const main = async () => {
       },
       recommendation: '条款 {clause}，{lawyer?需法务|自审}，{risk&lawyer?双真|非双真}，\\{字面\\}',
     },
+    // 派生档数少于分级数：4 级量表只想映射到 3 档优先级是合法表达（取前 3 档，
+    // 超出部分钳到最后一档）。原先要求长度严格相等，整条场景被跳过、用户无从自查。
+    {
+      id: 'short_values',
+      title: '派生档数少于分级数',
+      questions: {
+        severity: { type: 'score', label: '严重程度', instructions: '有多严重？', criteria: ['轻微', '一般', '严重', '致命'] },
+      },
+      derive: { priority: { question: 'severity', values: ['P3', 'P2', 'P1'] } },
+      recommendation: '优先级 {priority}',
+    },
   ]);
   const customClient = new McpClient({
     SYSTEMONE_API_KEY: 'test-key',
@@ -1077,7 +1188,7 @@ const main = async () => {
   try {
     const customList = toolResult(await runScenario(customClient, { action: 'list' }));
     check('自定义场景：新增生效、同 id 覆盖内置、非法条目被跳过', () => {
-      assert.equal(customList.count, 17); // 15 内置 + legal_review + tmpl_test；customer_service 原位覆盖；bad_* 跳过
+      assert.equal(customList.count, 18); // 15 内置 + legal_review + tmpl_test + short_values；customer_service 原位覆盖；bad_* 跳过
       const byId = new Map(customList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('legal_review').source, 'custom');
       assert.equal(byId.get('customer_service').source, 'custom');
@@ -1085,12 +1196,27 @@ const main = async () => {
       assert.ok(!byId.has('bad_one'));
       assert.ok(!byId.has('bad_aliases'));
       assert.ok(!byId.has('bad_derive'));
-      // derive 与 questions 不对应（qid 不存在 / 题型不配 / 长度不符 / 空数组）一律整条跳过，
+      // derive 与 questions 不对应（qid 不存在 / 题型不配 / 档数超过分级数 / 空数组）一律整条跳过，
       // 不允许「校验放行、运行时静默产出空建议或恒真条件」
       for (const id of ['bad_qid', 'bad_values_type', 'bad_map_type', 'bad_values_len', 'bad_values_empty', 'bad_null_option', 'bad_null_level']) {
         assert.ok(!byId.has(id), `${id} 应被校验器跳过，实际混进了场景库`);
       }
+      // 被跳过的条目要说清楚「哪条、为什么」：原因随 action=list 的结果一起返回，
+      // 不能只留在启动日志里（用户只看到场景凭空消失，无从自查）
+      assert.ok(Array.isArray(customList.problems) && customList.problems.length > 0, '应返回被跳过场景的原因');
+      assert.ok(customList.problems.some((p) => /bad_one/.test(p)), '原因里应指明被跳过的是哪条');
+      assert.match(customList.summary, /条场景定义被跳过/, '摘要应提示有场景被跳过');
       assert.ok(customList.summary.includes('（自定义）'));
+    });
+
+    // 派生档数少于分级数：合法，不得整条丢弃
+    const shortValuesRun = toolResult(await runScenario(customClient, { action: 'run', scenario: 'short_values', state: '派生档数夹具' }));
+    check('派生 values 档数少于分级数时场景照常生效（4 级量表 → 3 档优先级）', () => {
+      assert.equal(shortValuesRun.ok, true);
+      assert.equal(shortValuesRun.scenario, 'short_values');
+      // mock 的 severity 答案分值 2.000796 → 取整 2 → values[2]（3 档里的最后一档）
+      assert.equal(shortValuesRun.derived.priority, 'P1');
+      assert.equal(shortValuesRun.recommendation, '优先级 P1');
     });
 
     const legalRun = toolResult(await runScenario(customClient, { action: 'run', scenario: '法务', state: '甲方免责条款过于宽泛的采购合同' }));
@@ -1151,6 +1277,10 @@ const main = async () => {
       assert.equal(stats.scenarios.software_dev.count, 1);
       assert.equal(stats.cached, 1, '顶层 cached 应等于全部缓存命中数');
       assert.ok(stats.summary.includes('决策统计'));
+      // 审计日志的绝对路径不得进模型上下文（带出用户名与目录结构，对判定没有增量信息）
+      assert.equal(stats.log_file, path.basename(logFile), '结构化字段只回显文件名');
+      assert.ok(!stats.summary.includes(logFile), '摘要不得回显绝对路径');
+      assert.ok(stats.summary.includes(path.basename(logFile)), '摘要应显示文件名');
     });
   } finally {
     logClient.close();
@@ -1216,6 +1346,7 @@ const main = async () => {
     check('缺 API Key 返回 isError 与配置指引', () => {
       assert.equal(noKey.result.isError, true);
       assert.match(noKey.result.content[0].text, /SYSTEMONE_API_KEY/);
+      assert.equal(noKey.result.errorCode, 'missing_api_key', '缺 Key 必须是可区分的结构化错误码');
     });
     // 缺 Key 报错是独立 client 产出的，不在上面 surfaces 里；它曾写着「重启 ZCode」，
     // 在其他三个宿主上是指示了一个不存在的动作，所以单独收一遍。
@@ -1298,6 +1429,40 @@ const main = async () => {
     assert.match(rejectDataPath(`${scratchRoot}\u0000audit.jsonl`, ['.jsonl']) || '', /控制字符/, '含 NUL 应被拒');
     assert.equal(rejectDataPath(path.join(scratchRoot, 'decisions-audit.jsonl'), ['.jsonl']), null, '合规路径不应被拒');
   });
+
+  // 不安全端点护栏（isInsecureBaseUrl + server.mjs 的拒绝分支）：非 https 且非本机回环的端点
+  // 携带 Bearer Key 等于明文外泄凭据，必须在发请求前拒绝。此前该分支零测试覆盖（2026-10-28 市场审查补）。
+  // 用不可达的公网 http 地址：若护栏失效而真发了请求，会因连不上而报 upstream_error/timeout，
+  // 与预期的 insecure_endpoint 区分得开，断言不会假绿。
+  {
+    const insecureClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: 'http://insecure.example.invalid/v1',
+    });
+    try {
+      const r = await insecureClient.call('tools/call', {
+        name: 'systemone_scenario',
+        arguments: { action: 'run', scenario: 'customer_service', state: 'insecure-endpoint' },
+      });
+      check('非 https 且非回环的端点：拒绝发请求并回报 insecure_endpoint', () => {
+        assert.equal(r.result?.isError, true, '应为 isError 结果');
+        // errorCode 是结果对象上的结构化字段（契约），不在中文文案里——按码断言，不按文案
+        assert.equal(r.result?.errorCode, 'insecure_endpoint', `应为 insecure_endpoint：${JSON.stringify(r.result)}`);
+        const text = (r.result?.content || []).map((c) => c.text).join('\n');
+        assert.match(text, /不是加密端点/, `文案应说明端点不安全：${text}`);
+      });
+    } finally {
+      insecureClient.close();
+    }
+    // 反向锚：本机回环的 http 端点不算不安全（不得被这条护栏误伤）
+    check('本机回环的 http 端点不被判为不安全', () => {
+      assert.equal(isInsecureBaseUrl('http://127.0.0.1:8080/v1'), false);
+      assert.equal(isInsecureBaseUrl('http://localhost:8080/v1'), false);
+      assert.equal(isInsecureBaseUrl('https://api.example.com/v1'), false);
+      assert.equal(isInsecureBaseUrl('http://insecure.example.invalid/v1'), true);
+      assert.equal(isInsecureBaseUrl('http://10.0.0.5:8080/v1'), true, '内网明文也携 Key，仍应拒');
+    });
+  }
   rmSync(runRoot, { recursive: true, force: true });
   rmSync(scratchRoot, { recursive: true, force: true });
 

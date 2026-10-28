@@ -16,7 +16,7 @@ function fail(message) {
 }
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), { boolean: ["json"], value: ["pipeline", "file"] });
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
   const spec = PIPELINES[pipeline];
   if (!spec) fail(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);

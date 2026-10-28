@@ -115,11 +115,13 @@ Neither deletes anything. Report the table, then ask before removing anything, e
 
 ## Removing
 
-`worktree_remove` refuses dirty worktrees and unmerged commits unless `force: true`. Worktrees
-outside the managed root are always refused — `force` never widens that boundary. Pass `force`
-only when the user has explicitly said to discard uncommitted or unmerged work, and say in your
-answer that data was destroyed. After removing, offer `deleteBranch: true` when the branch is
-fully merged.
+`worktree_remove` refuses dirty worktrees and unmerged commits unless you pass **both**
+`force: true` **and** `confirmDiscard: true`. The two flags are separate on purpose: a single
+stray or injected `force` cannot destroy uncommitted work on its own, so pass `confirmDiscard`
+only when the user has explicitly said to discard uncommitted or unmerged work — and say in your
+answer that data was destroyed. Worktrees outside the managed root are always refused — neither
+flag widens that boundary. After removing, offer `deleteBranch: true` when the branch is fully
+merged.
 
 Lock a worktree someone else is working in with `worktree_lock` (release it with `worktree_unlock`);
 `worktree_remove` refuses to touch locked worktrees, `worktree_merge_back` refuses only when asked

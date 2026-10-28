@@ -326,6 +326,22 @@ check("无进度状态允许直接 init", allowedFresh.status === 0, allowedFres
 const readEvents = () => JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", lockFile, "--json"]).stdout).events;
 check("init 写入事件日志", readEvents().some((event) => event.event === "init"));
 
+// 事件日志轮转（2026-10-28 市场审查）：到上限即改名为 .1，events 子命令须能跨轮转段读到历史，
+// 否则轮转后「历史消失」——比不轮转更难排查。这里直接造一个超限的 .events.jsonl，再触发一次 write。
+{
+  const rotFile = path.join(sandbox, "rot.json");
+  const rotLog = path.join(sandbox, "rot.events.jsonl");
+  run("state.mjs", ["write", "--pipeline", "ralph", "--file", rotFile], JSON.stringify(valid));
+  const filler = `${JSON.stringify({ ts: "2020-01-01T00:00:00.000Z", event: "filler", pipeline: "ralph" })}\n`;
+  writeFileSync(rotLog, filler.repeat(Math.ceil((5 * 1024 * 1024) / filler.length) + 10), "utf8");
+  run("state.mjs", ["write", "--pipeline", "ralph", "--file", rotFile], JSON.stringify(valid));
+  check("超限后事件日志轮转为 .1", existsSync(`${rotLog}.1`));
+  const rotEvents = JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", rotFile, "--json"]).stdout).events;
+  check("轮转后 events 仍能读到轮转段历史", rotEvents.some((e) => e.event === "filler"));
+  check("轮转后 events 读到新写入", rotEvents.some((e) => e.event === "write"));
+  check("轮转后事件仍在时间序（filler 段在前）", rotEvents.findIndex((e) => e.event === "filler") < rotEvents.findLastIndex((e) => e.event === "write"));
+}
+
 // 防误覆盖：已有非空任务列表的状态是带进度的管道，init 必须拒绝，--force 才放行
 const guardFile = path.join(sandbox, "guard.json");
 run("state.mjs", ["write", "--pipeline", "ralph", "--file", guardFile], JSON.stringify(valid));

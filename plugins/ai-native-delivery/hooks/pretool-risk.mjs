@@ -1,56 +1,71 @@
 #!/usr/bin/env node
-// pretool-risk.mjs — PreToolUse hook：shell 类命令风险闸，deny / ask / allow 三清单静态匹配
+// pretool-risk.mjs — PreToolUse hook：shell 类命令风险闸，deny / ask 两清单静态匹配
 //（设计文档 §3.2 L-hook 层。接线照本仓 systemone-decision/hooks/pretool-risk.mjs 的宿主协议；
 // 与其「判定模型三问」不同，本闸是确定性清单匹配——无网络、无模型、零依赖，15s 超时绰绰有余）。
 // 契约（严格照 systemone hook 的宿主协议）：
 //   stdin = hook JSON（取 tool_name / tool_input 字段）；
 //   deny → stdout 输出 hookSpecificOutput.permissionDecision='deny'（宿主阻断），exit 0；
 //   ask  → 同格式 permissionDecision='ask'（宿主向用户确认），exit 0；
-//   allow / 非 shell 工具 / 取不到命令 → 静默 exit 0；
-//   settings.json 损坏（含 permissions 形状非法、deny 键缺失）→ fail-open：放行 + stderr WARN
-//     （配置问题绝不卡死用户）；清单回退插件种子，种子也缺则代码内最小 deny 兜底；
+//   其余（非 shell 工具 / 取不到命令 / 清单外）→ 静默 exit 0；
+//   settings.json 损坏（不可解析 / permissions 形状非法 / deny 键缺失）→ stderr WARN +
+//     **按内置 deny 地板继续执法**（2026-10-28 收紧：此前整体 fail-open 放行，等于「把配置文件
+//     写坏」就能解除风险闸）；ask 回退内置默认；
 //   输入截断 / 坏 JSON → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令）；
 //   任何异常 → stderr 后 exit 0，绝不阻塞工具调用。
-// 清单单源：项目侧 .agents/settings.json（permissions.deny/ask/allow，§5.2）——缺该文件回退
-// 插件内置默认（config-templates/settings.json 种子；再缺则代码内最小 deny 兜底）。
-// 匹配语义：deny/ask 用子串命中（链式 `x && git push -f` 也拦）；allow 用前缀命中（防
-// 「git add」白名单放行「git add-remote …」这类意外前缀）。deny > ask > allow 优先级裁决。
-// 测试：node test/hook.test.mjs（deny 阻断 / 普通放行 / 损坏 fail-open / 项目侧清单单源）
+// 清单来源：项目侧 .agents/settings.json（permissions.deny / ask，§5.2）→ 插件种子
+// （config-templates/settings.json）→ 代码内最小兜底；其中 **deny 取「内置地板 ∪ 来源追加」，
+// 被治理项目只能加严、不能放宽**（ask 仍可被项目侧整体接管）。
+// 匹配语义：deny/ask 都用子串命中（链式 `x && git push -f` 也拦）；deny 优先于 ask。
+// 曾有第三个 `allow` 清单（2026-10-28 移除）：它排在判定链末端、命中后返回 null，与「清单外
+// 静默放行」完全等价，是条空转配置；而它的内容（git commit / git push / node / npm run）会让
+// 读者误以为这些命令已被预先批准，还与 implementer「禁提交推送」的角色契约直接冲突。
+// 测试：node test/hook.test.mjs（deny 阻断 / 普通放行 / 损坏时地板执法 / deny 不可下调 / matcher 同口径）
 import fs from 'node:fs';
 import path from 'node:path';
 import { findProjectRoot, PLUGIN_CONFIG_TEMPLATES_DIR } from '../scripts/paths.mjs';
 
 const STDIN_MAX_CHARS = 100_000; // 与 systemone hook-io 同上限：截断即转 ask（fail-closed）
 
-// 只对 shell 类工具生效（与 systemone risk-gate 同一正则——宿主对终端类工具的常见命名全覆盖）
+// 只对 shell 类工具生效（与 systemone risk-gate 同一正则——宿主对终端类工具的常见命名全覆盖）。
+// 注意两道门必须同口径：hooks.json / .codex-plugin 的 matcher 决定**本 hook 会不会被调到**，
+// 本正则决定**调到了之后管不管**。2026-10-28 市场审查实测到这里脱节（matcher 只写
+// `Bash|Shell|Terminal` 三个名，宿主把命令交给 Command/Run/exec/pwsh 类工具时本 hook 根本不被
+// 调用，风险闸对那类调用零告警失灵）。由 test/hook.test.mjs ⑧ 机器对账，别再靠注释同步。
 const SHELL_TOOL = /(^|[_\-.])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.]|$)/i;
 
 // 代码内最小兜底（插件种子 settings.json 也缺失时的最后防线——deny 面永不因缺文件变空）
 const BUILTIN = {
   deny: ['git reset --hard', 'git push --force', 'git push -f', 'drop database'],
   ask: ['git checkout', 'git clean', 'git branch -D', 'rm -rf'],
-  allow: [],
 };
 
 const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
 
-function matchList(command, rules, { prefix = false } = {}) {
+function matchList(command, rules) {
   const c = norm(command);
   for (const rule of rules || []) {
     const r = norm(rule);
     if (!r) continue;
-    if (prefix ? (c === r || c.startsWith(`${r} `)) : c.includes(r)) return rule;
+    if (c.includes(r)) return rule;
   }
   return null;
 }
 
-// 清单加载：项目侧 .agents/settings.json 优先（清单单源），缺文件回退插件种子，再缺代码兜底。
-// 「损坏」= 文件在场但不可解析 / permissions 形状非法 / **deny 键缺失或非数组**——
-//   2026-10-27 修复：此前只要 permissions 是对象就采信其清单，deny 键缺失时 deny 面为空数组，
-//   且「文件在场且合法」使代码内 BUILTIN 兜底**不触发**——静默降级、零告警（与「deny 面永不因缺
-//   文件变空」的承诺相反）。现在 deny 键缺失 = 损坏 → 按既有契约 fail-open 放行 + stderr WARN
-//   （配置问题绝不卡死用户）；至少从「静默失效」变为「可见失效」。
+// 清单来源：项目侧 .agents/settings.json（§5.2）→ 插件种子 config-templates/settings.json → 代码内
+// 最小兜底。但 **deny 面有一道不可下调的内置地板**（2026-10-28 市场审查修复）：
+//   此前「清单单源」= 项目侧文件一在场，deny 面就整体换成项目侧那一份。被治理的仓库正是 agent
+//   能写文件的仓库：自写 `permissions:{deny:["x"],ask:[]}` 就能把 git reset --hard / rm -rf 这类
+//   拦阻清零，或把 settings.json 写成非法 JSON 触发 fail-open 整体解除——「两层拦截」中的一层
+//   可由被治理对象单方面解除，这不是治理引擎该有的信任边界。
+//   现在：deny = 内置地板 ∪ 该来源的追加项（只能加不能删）；文件损坏/不可解析不再整体放行，
+//   而是 WARN + 按地板继续执法。ask 仍单源（ask 只是多问一句，项目自定合理，语义与既有测试不变）。
 function loadLists(root) {
+  const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
+  const floor = () => ({ deny: [...BUILTIN.deny], ask: [...BUILTIN.ask], source: 'builtin-default' });
+  const degraded = (why, file) => ({
+    ...floor(),
+    warn: `${why}（${file}）——deny 面按内置地板继续执法，ask 回退内置默认`,
+  });
   const candidates = [
     ...(root ? [path.join(root, '.agents', 'settings.json')] : []),
     path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'settings.json'),
@@ -59,15 +74,19 @@ function loadLists(root) {
     if (!fs.existsSync(file)) continue;
     let parsed = null;
     try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {
-      return { broken: file };
+      return degraded('JSON 不可解析', file);
     }
     const p = parsed && typeof parsed === 'object' ? parsed.permissions : null;
-    if (!p || typeof p !== 'object') return { broken: file };
-    if (!Array.isArray(p.deny)) return { broken: file }; // deny 键缺失/非数组 → 损坏（见上注）
-    const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
-    return { deny: arr(p.deny), ask: arr(p.ask), allow: arr(p.allow), source: file };
+    if (!p || typeof p !== 'object') return degraded('permissions 形状非法', file);
+    const deny = arr(p.deny);
+    for (const b of BUILTIN.deny) {
+      if (!deny.some((d) => norm(d) === norm(b))) deny.push(b); // 地板项不可被项目侧删掉
+    }
+    const lists = { deny, ask: Array.isArray(p.ask) ? arr(p.ask) : [...BUILTIN.ask], source: file };
+    if (!Array.isArray(p.deny)) lists.warn = 'deny 键缺失或非数组' + `（${file}）` + '——按内置地板执法';
+    return lists;
   }
-  return { ...BUILTIN, source: 'builtin-default' };
+  return floor();
 }
 
 function commandOf(toolInput) {
@@ -111,8 +130,8 @@ async function main() {
   const command = commandOf(input.tool_input);
   // 管辖外（非 shell 工具）与输入不可信的走向：
   //   输入不可信（截断 / 坏 JSON）→ fail-closed 转 ask，**先于非 shell 判定**——
-  //     宿主已用 matcher（Bash|Shell|Terminal）把本 hook 限定在 shell 工具上，输入不可信时
-  //     连 tool_name 都读不出，不能拿「读不出名字」当「非 shell 工具」静默放行；
+  //     宿主已用 matcher 把本 hook 限定在 shell 工具上，输入不可信时连 tool_name 都读不出，
+  //     不能拿「读不出名字」当「非 shell 工具」静默放行；
   //   非 shell 工具 → 静默放行；shell 工具但缺 command 字段 → fail-closed 转 ask。
   if (truncated || jsonBroken) {
     const why = truncated ? '输入截断' : 'hook 输入不是合法 JSON';
@@ -137,10 +156,7 @@ async function main() {
 
   const root = findProjectRoot();
   const lists = loadLists(root);
-  if (lists.broken) {
-    process.stderr.write(`[ai-native-delivery hook] settings.json 损坏（${lists.broken}）——fail-open 放行本条命令；请修复该文件后风险闸自动恢复\n`);
-    return null;
-  }
+  if (lists.warn) process.stderr.write(`[ai-native-delivery hook] ${lists.warn}\n`);
 
   const denyHit = matchList(command, lists.deny);
   if (denyHit) {
@@ -148,7 +164,7 @@ async function main() {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
-        permissionDecisionReason: `[ai-native-delivery 风险闸] 命中 deny 清单「${denyHit}」（单源 ${lists.source}）——高风险/破坏性命令已阻断；如确需执行请由用户手动运行。`,
+        permissionDecisionReason: `[ai-native-delivery 风险闸] 命中 deny 清单「${denyHit}」（清单源 ${lists.source}，内置地板不可下调）——高风险/破坏性命令已阻断；如确需执行请由用户手动运行。`,
       },
     };
   }
@@ -158,11 +174,10 @@ async function main() {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'ask',
-        permissionDecisionReason: `[ai-native-delivery 风险闸] 命中 ask 清单「${askHit}」（单源 ${lists.source}）——有一定风险，请先向用户确认再执行。`,
+        permissionDecisionReason: `[ai-native-delivery 风险闸] 命中 ask 清单「${askHit}」（清单源 ${lists.source}）——有一定风险，请先向用户确认再执行。`,
       },
     };
   }
-  if (matchList(command, lists.allow, { prefix: true })) return null; // allow：静默放行，零噪音
   return null; // 清单外：静默放行（清单闸只拦已知风险，不做语义猜测）
 }
 

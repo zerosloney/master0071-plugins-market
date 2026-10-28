@@ -52,6 +52,16 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
   ],
   "round": 0,
   "stop_reason": null,
+  "scope_drift": "PASS | FAIL",
+  "scope": {
+    "hard": ["src/**"],
+    "soft": ["docs/**"],
+    "forbidden": ["dist/**"]
+  },
+  "budget": {
+    "max_tokens": 100000,
+    "spent_tokens": 0
+  },
   "prior_cycles_summary": "",
   "critical_checkpoints": [
     { "id": "<checkpoint id>", "description": "<人类可读描述>", "passed": false }
@@ -65,10 +75,13 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
-- budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。
+- `scope_drift`：本轮 scope 判定结论 `"PASS"` / `"FAIL"`；未判定时为 `null`（DONE 要求 `"PASS"`，`"FAIL"` 直接 ESCALATE）。
+- `scope`：可选的 `{ hard: [], soft: [], forbidden: [] }` 规则集，路径按 **git 仓库根相对**解释；`scripts/scope.mjs --file` 可直接读它，命令行 `--hard/--soft/--forbidden` 优先。
+- budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成「上限为 0」立刻 BUDGET）。
 - `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 - `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
+- `critical_checkpoints`：coding 专属的硬门禁清单；全部 `passed` 为 `true` 才允许 DONE，未通过时 `state.mjs gate` 不判 DONE 并在 reason 里点名是哪一条没过。
 
 ### 写入规则
 
@@ -76,7 +89,8 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"BUDGET"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算「任务状态签名」（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
-- 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json` 得到 scope_drift；脚本不可用时按本节规则手写。
+- 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 得到 scope_drift 并写回状态文件（`--apply` 把结论写进 `scope_drift`，gate 读到的是真实判定而不是执行者自报值）；脚本不可用时按本节规则手写。
+- scope 判定基准是 **git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径，从哪个目录调用结论一致——子目录调用不再漏判仓库其它目录的未跟踪改动。
 
 ### 读取规则
 
@@ -95,6 +109,7 @@ DONE 必须**同时**满足：
 - 审查者 `verdict == "PASS"`。
 - 零 critical / major。
 - **`scope_drift == "PASS"`**（任何越界都不允许 DONE）。
+- 全部 `critical_checkpoints` 的 `passed` 为 `true`（未通过的硬门禁不允许 DONE；`state.mjs gate` 会点名是哪一条没过）。
 - **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，禁止 DONE。
 - 无未处理的人工确认项。
 
@@ -305,10 +320,19 @@ value: {baseline_value}
 
 ```json
 {
-  "action": "DELEGATE | WAIT_REVIEW | DONE | ESCALATE | HOLD | STALL",
+  "action": "DELEGATE | WAIT_REVIEW | DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED",
   "task_id": "<下一任务 id，DELEGATE 时必填>",
   "root_cause_group": "<当前修复的根因组 id，DELEGATE 时必填>",
   "scope_drift": "PASS | FAIL",
+  "scope": {
+    "hard": ["<hard scope 规则>"],
+    "soft": ["<soft scope 规则>"],
+    "forbidden": ["<forbidden scope 规则>"]
+  },
+  "budget": {
+    "max_tokens": 100000,
+    "spent_tokens": 0
+  },
   "verification_snapshot": {
     "lint_pass": true,
     "typecheck_pass": true,
@@ -318,6 +342,10 @@ value: {baseline_value}
   "reason": "<简短说明>"
 }
 ```
+
+- `action` 取值与 `stop_reason` 枚举对齐：`DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED` 七个停止原因都能从这里表达。
+- `scope`：本轮生效的边界声明，规则路径按 git 仓库根相对解释（与 `scripts/scope.mjs` 同一基准）。
+- `budget`：本轮读到的预算快照，未设预算时省略该字段；上面的数值是占位示例。
 
 ## 红线
 

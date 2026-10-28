@@ -6,7 +6,9 @@
 // 供应商配置见插件 README.md：SYSTEMONE_API_KEY / SYSTEMONE_BASE_URL / SYSTEMONE_MODEL / SYSTEMONE_TIMEOUT_MS。
 // stdout 只输出 JSON-RPC 消息，诊断信息一律走 stderr。
 
-import { appendFileSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import path from 'node:path';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
 import { writeEndpointConfig, isInsecureBaseUrl, rejectDataPath } from '../endpoint-config.mjs';
 import {
@@ -78,7 +80,26 @@ for (const problem of [...scenarioLoadProblems, ...scenarioProblems]) {
 // config() 是函数声明，已提升，此处可先调用。
 writeEndpointConfig(config());
 
-class ToolError extends Error {}
+/** 结构化错误码（与 README「错误码」一节一一对应）。 */
+const ERROR_CODES = {
+  invalidParams: 'invalid_params', // 参数/用法非法：校验失败、未知场景、动作不支持
+  missingApiKey: 'missing_api_key', // 未配置 API Key
+  notConfigured: 'not_configured', // 依赖的功能未启用（如未配置审计日志）
+  insecureEndpoint: 'insecure_endpoint', // 端点非加密，拒绝携带 Key 外发
+  upstream: 'upstream_error', // 上游返回错误或响应不可用
+  timeout: 'timeout', // 请求超时
+  budgetExhausted: 'budget_exhausted', // 批量总预算用尽，该条未执行
+  internal: 'internal_error', // 未预期异常
+};
+
+class ToolError extends Error {
+  // code 是结构化错误码：isError 结果里带 errorCode，调用方按码归类，不去解析中文文案。
+  // 文案会改（改文案不该翻转归类），错误码才是契约。
+  constructor(message, code = ERROR_CODES.invalidParams) {
+    super(message);
+    this.code = code;
+  }
+}
 class RpcError extends Error {
   constructor(code, message) {
     super(message);
@@ -111,8 +132,23 @@ const CACHE_TTL_MS = (() => {
 const CACHE_MAX = 200;
 const decisionCache = new Map(); // key → { at, data }；Map 迭代序即插入序，尾部为最近使用
 
+// 稳定的 JSON 序列化：对象的键按字典序排。
+// 缓存 key 用 JSON.stringify 时，逻辑相同的输入只要键序不同就落到不同 key 上，
+// 缓存被白白打散——同一个 state 换个字段顺序就重新发一次远端请求，白付一次延迟与外发。
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  const parts = [];
+  for (const key of Object.keys(value).sort()) {
+    const v = value[key];
+    if (v === undefined) continue; // 与 JSON.stringify 一致：undefined 值的键不出现
+    parts.push(`${JSON.stringify(key)}:${stableStringify(v)}`);
+  }
+  return `{${parts.join(',')}}`;
+}
+
 function cacheKey(model, state, request) {
-  return `${model}\u0000${JSON.stringify(state)}\u0000${JSON.stringify(request)}`;
+  return `${model}\u0000${stableStringify(state)}\u0000${stableStringify(request)}`;
 }
 
 // ---------- 审计日志：LOG_FILE 指向 JSONL 文件时逐条追加，action=stats 消费 ----------
@@ -234,11 +270,10 @@ async function callSystemone(state, questions, timeoutMsOverride) {
   if (!cfg.apiKey) {
     throw new ToolError(
       '缺少 API Key：请设置环境变量 SYSTEMONE_API_KEY（或 UNISOUND_API_KEY）后重启宿主。' +
-        'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。'
+        'Key 只能走环境变量（各宿主都没有安全的凭据存储），unisound 的 Key 在 https://maas.unisound.com/admin/project/api-key 管理。',
+      ERROR_CODES.missingApiKey
     );
   }
-  // 与 hooks 侧 decide-client 同口径：调用方传入的剩余预算只收缩、不放大已配置的单条超时
-  const timeoutMs = Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;
   const key = cacheKey(cfg.model, state, questions);
   if (CACHE_TTL_MS > 0) {
     const hit = decisionCache.get(key);
@@ -259,10 +294,12 @@ async function callSystemone(state, questions, timeoutMsOverride) {
   if (isInsecureBaseUrl(cfg.baseUrl)) {
     throw new ToolError(
       `baseUrl ${cfg.baseUrl} 不是加密端点（https 或本机回环），为避免 API Key 明文外泄已拒绝请求。` +
-        '请改用 https 端点（SYSTEMONE_BASE_URL 或插件设置页）。本机调试可用 http://127.0.0.1:<port>。'
+        '请改用 https 端点（SYSTEMONE_BASE_URL 或插件设置页）。本机调试可用 http://127.0.0.1:<port>。',
+      ERROR_CODES.insecureEndpoint
     );
   }
   // 与 hooks 侧 decide-client 同口径：调用方传入的剩余预算只收缩、不放大已配置的单条超时
+  const timeoutMs = Number.isFinite(timeoutMsOverride) && timeoutMsOverride > 0 ? Math.min(cfg.timeoutMs, timeoutMsOverride) : cfg.timeoutMs;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   let res;
@@ -275,9 +312,9 @@ async function callSystemone(state, questions, timeoutMsOverride) {
     });
   } catch (e) {
     if (ac.signal.aborted) {
-      throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${url}`);
+      throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${url}`, ERROR_CODES.timeout);
     }
-    throw new ToolError(`systemone 请求失败：POST ${url}，原因：${e.message}`);
+    throw new ToolError(`systemone 请求失败：POST ${url}，原因：${e.message}`, ERROR_CODES.upstream);
   }
   // 响应头之后 body 仍可能缓慢滴流：读取阶段继续受同一 timer 保护——若收到响应头就清掉
   // timer，故障端点会让 tools/call 在 await res.text() 上无限挂起
@@ -286,7 +323,7 @@ async function callSystemone(state, questions, timeoutMsOverride) {
     text = await res.text();
   } catch (e) {
     if (ac.signal.aborted) {
-      throw new ToolError(`systemone 响应体读取超时（${timeoutMs}ms）：POST ${url}`);
+      throw new ToolError(`systemone 响应体读取超时（${timeoutMs}ms）：POST ${url}`, ERROR_CODES.timeout);
     }
     throw e; // 非 abort 的读取失败维持原样上抛（dispatch 归为工具异常）
   } finally {
@@ -300,16 +337,16 @@ async function callSystemone(state, questions, timeoutMsOverride) {
         '请到 MaaS 控制台确认该 Key 所属项目已开通对应模型；' +
         '若是刚更换过 SYSTEMONE_API_KEY，注意运行中的进程持有启动时的环境变量快照，需重启宿主程序后生效';
     }
-    throw new ToolError(`systemone HTTP ${res.status}：${snippet(text)}（POST ${url}）${hint}`);
+    throw new ToolError(`systemone HTTP ${res.status}：${snippet(text)}（POST ${url}）${hint}`, ERROR_CODES.upstream);
   }
   let data;
   try {
     data = JSON.parse(text);
   } catch {
-    throw new ToolError(`systemone 响应不是合法 JSON：${snippet(text)}`);
+    throw new ToolError(`systemone 响应不是合法 JSON：${snippet(text)}`, ERROR_CODES.upstream);
   }
   if (!data || typeof data !== 'object' || !data.answers || typeof data.answers !== 'object') {
-    throw new ToolError(`systemone 响应缺少 answers 字段：${snippet(text)}`);
+    throw new ToolError(`systemone 响应缺少 answers 字段：${snippet(text)}`, ERROR_CODES.upstream);
   }
   if (CACHE_TTL_MS > 0) {
     decisionCache.set(key, { at: Date.now(), data });
@@ -456,6 +493,9 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
 
 function listScenarios(keyword) {
   const needle = typeof keyword === 'string' ? keyword.trim().toLowerCase() : '';
+  // 被跳过的场景定义（非法条目 / 场景文件读不到）：原因随结果一起返回，
+  // 别只留在启动日志的 stderr 里——用户在 action=list 里看不到就无从判断自己写错了什么。
+  const skipped = [...scenarioLoadProblems, ...scenarioProblems];
   const items = SCENARIOS.filter((s) => {
     if (!needle) return true;
     return [s.id, s.title, s.description, ...s.aliases].join(' ').toLowerCase().includes(needle);
@@ -473,10 +513,15 @@ function listScenarios(keyword) {
     ...items.map(
       (s) => `- **${s.id}**${s.source === 'custom' ? '（自定义）' : ''}：${s.title} — ${s.description}（${s.questions.join('，')}）`
     ),
+    // 被跳过的场景定义要说清楚「哪条、为什么」：原先只写进启动日志的 stderr，
+    // 用户在 action=list 里看不到，只能靠猜（整条场景消失，且没有解释）。
+    skipped.length
+      ? `\n⚠ ${skipped.length} 条场景定义被跳过（原因见 problems 字段）：${skipped.slice(0, 3).join('；')}${skipped.length > 3 ? ' …' : ''}`
+      : '',
     '',
     '用 action=describe 查看场景问题定义，用 action=run 执行决策。',
   ].join('\n');
-  return { ok: true, action: 'list', count: items.length, scenarios: items, summary };
+  return { ok: true, action: 'list', count: items.length, scenarios: items, problems: skipped, summary };
 }
 
 function describeScenario(ref) {
@@ -607,8 +652,7 @@ function runScenario(args) {
 
 const BATCH_MAX = 10;
 // 整批聚合预算：串行判定 10 条若各吃满单条超时（默认 30s）会到 300s，而宿主 MCP 客户端
-// 对单次工具调用的超时通常在 30s 量级，客户端先断则已完成结果全丢。留 25s 收口，
-// 并把剩余预算作为单条上限传下去，保证不会出现「一条把整批拖爆」的长尾。
+// 对单次工具调用的超时通常在 30s 量级，客户端先断则已完成结果全丢。留 25s 收口。
 // 预算可用环境变量注入（SYSTEMONE_BATCH_BUDGET_MS，0 = 全部条目直接标记未执行），
 // 供测试真实触发 budget_exhausted 分支，无需 mock 时钟。
 const BATCH_BUDGET_MS = (() => {
@@ -633,6 +677,7 @@ async function runBatch(args) {
   const questions = applyParams(scenario, args.params);
   const threshold = thresholdOf(args, scenario.confidenceThreshold ?? 0.7);
   const meta = scenarioMeta(scenario);
+  const cfg = config();
   const startedAt = Date.now();
   const results = [];
   for (const [index, state] of args.states.entries()) {
@@ -640,15 +685,34 @@ async function runBatch(args) {
     if (left <= 0) {
       // 预算耗尽：逐条标出未执行并提示分批，已完成的结果照常返回，不让客户端超时把成果全吞掉。
       // budget_exhausted 是结构化标记：判定不得依赖 error 文案，改文案不该翻转归类
-      results.push({ index, ok: false, budget_exhausted: true, error: `批量总预算 ${BATCH_BUDGET_MS}ms 已用尽，该条未执行，请分批重试` });
+      results.push({
+        index,
+        ok: false,
+        budget_exhausted: true,
+        errorCode: ERROR_CODES.budgetExhausted,
+        error: `批量总预算 ${BATCH_BUDGET_MS}ms 已用尽，该条未执行，请分批重试`,
+      });
       continue;
     }
+    // 单条超时 = min(配置的单条上限, 剩余预算按剩余条目均分)。
+    // 只取 min(cfg.timeoutMs, 剩余预算) 时第 1 条最坏能吃满整批预算（单条上限 30s > 整批 25s），
+    // 后面 9 条全被标 budget_exhausted——用户拿到的结果只剩 1 条。均分后没有哪一条能独占预算：
+    // 批次总耗时仍锁在 BATCH_BUDGET_MS 内，且每条都有一次被判定的机会。
+    // 代价（如实说明）：端点本身慢于均分份额时，本批每条都会超时——报错一致、可按更小批次重试，
+    // 好过「一条慢的拖死其余、其余连跑都没跑」。
+    const share = Math.max(1, Math.floor(left / (args.states.length - index)));
+    const timeoutMs = Math.min(cfg.timeoutMs, share);
     try {
       // batch 走精简形状（不含逐题明细/摘要/原始响应），避免批量返回撑爆上下文
-      const r = await executeDecision(state, questions, { threshold, meta, format: 'brief', timeoutMs: left });
+      const r = await executeDecision(state, questions, { threshold, meta, format: 'brief', timeoutMs });
       results.push({ index, ...r, ok: true }); // ok 显式置后：brief 结果本就带 ok:true，展开后仍须保住
     } catch (e) {
-      results.push({ index, ok: false, error: e.message });
+      results.push({
+        index,
+        ok: false,
+        errorCode: e instanceof ToolError ? e.code : ERROR_CODES.internal,
+        error: e.message,
+      });
     }
   }
   const failed = results.filter((r) => !r.ok);
@@ -681,50 +745,62 @@ async function runBatch(args) {
 
 // ---------- 决策统计：消费审计日志（LOG_FILE），按场景汇总复核率与判定分布 ----------
 
-function readStats() {
+// 流式逐行读取，不整文件读进内存再 split/parse：
+// 审计日志轮转上限 5MB（可达 5 万行），一次 readFileSync + split('\n') + 逐行 JSON.parse
+// 会同步阻塞事件循环几百毫秒——MCP 服务是单线程 stdio 进程，期间所有工具调用都排队。
+// 统计口径不变：总条数、按场景聚合、缓存命中、平均延迟、高频判定都照旧。
+async function readStats() {
   if (!LOG_FILE) {
     throw new ToolError(
       '未启用审计日志：设置环境变量 SYSTEMONE_LOG_FILE（或插件设置项）指向一个 JSONL 文件路径后，' +
-        '每次决策会逐条落盘，action=stats 才有数据可统计'
+        '每次决策会逐条落盘，action=stats 才有数据可统计',
+      ERROR_CODES.notConfigured
     );
   }
-  let text;
-  try {
-    text = readFileSync(LOG_FILE, 'utf8');
-  } catch {
-    throw new ToolError(`审计日志不存在或不可读：${LOG_FILE}（还没有决策落盘？）`);
-  }
-  const entries = text
-    .split('\n')
-    .filter((l) => l.trim() !== '')
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  if (entries.length === 0) {
-    throw new ToolError(`审计日志为空：${LOG_FILE}（还没有决策落盘？）`);
-  }
   const byScenario = new Map();
+  let total = 0;
   let cached = 0;
-  for (const e of entries) {
-    const id = e.scenario ?? '(通用决策)';
-    const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
-    s.count += 1;
-    if (e.needs_human_review) s.review += 1;
-    if (e.cached) {
-      s.cached += 1;
-      cached += 1;
+  let readable = true;
+  const lines = createInterface({
+    input: createReadStream(LOG_FILE, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+  try {
+    for await (const line of lines) {
+      if (line.trim() === '') continue;
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue; // 坏行跳过（与旧实现一致：解析失败不当条目）
+      }
+      if (!e) continue; // 与旧实现的 filter(Boolean) 一致：JSON null 不计入
+      total += 1;
+      const id = e.scenario ?? '(通用决策)';
+      const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
+      s.count += 1;
+      if (e.needs_human_review) s.review += 1;
+      if (e.cached) {
+        s.cached += 1;
+        cached += 1;
+      }
+      s.latency_total += Number(e.latency_ms) || 0;
+      for (const [qid, v] of Object.entries(e.decision || {})) {
+        const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
+        s.decisions[key] = (s.decisions[key] ?? 0) + 1;
+      }
+      byScenario.set(id, s);
     }
-    s.latency_total += Number(e.latency_ms) || 0;
-    for (const [qid, v] of Object.entries(e.decision || {})) {
-      const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
-      s.decisions[key] = (s.decisions[key] ?? 0) + 1;
-    }
-    byScenario.set(id, s);
+  } catch (e) {
+    readable = false;
+  } finally {
+    lines.close();
+  }
+  if (!readable) {
+    throw new ToolError(`审计日志不存在或不可读：${LOG_FILE}（还没有决策落盘？）`, ERROR_CODES.notConfigured);
+  }
+  if (total === 0) {
+    throw new ToolError(`审计日志为空：${LOG_FILE}（还没有决策落盘？）`, ERROR_CODES.notConfigured);
   }
   const scenarios = {};
   for (const [id, s] of byScenario) {
@@ -736,8 +812,11 @@ function readStats() {
       top_decisions: Object.fromEntries(Object.entries(s.decisions).sort((a, b) => b[1] - a[1]).slice(0, 8)),
     };
   }
+  // 摘要与结果都只回显文件名，不回显绝对路径：工具结果整体进模型上下文，
+  // 绝对路径会带出用户名与目录结构（对模型判定没有增量信息）。
+  const logName = path.basename(LOG_FILE);
   const summary = [
-    `## SystemOne 决策统计（${entries.length} 条，日志 ${LOG_FILE}）`,
+    `## SystemOne 决策统计（${total} 条，日志 ${logName}）`,
     ...Object.entries(scenarios).map(([id, s]) => {
       const top = Object.entries(s.top_decisions)
         .slice(0, 3)
@@ -746,7 +825,7 @@ function readStats() {
       return `- **${id}**：${s.count} 次，复核率 ${(s.review_rate * 100).toFixed(1)}%，缓存命中 ${s.cached}，平均延迟 ${s.avg_latency_ms}ms${top ? `；高频判定：${top}` : ''}`;
     }),
   ].join('\n');
-  return { ok: true, action: 'stats', log_file: LOG_FILE, total: entries.length, cached, scenarios, summary };
+  return { ok: true, action: 'stats', log_file: logName, total, cached, scenarios, summary };
 }
 
 // ---------- 工具定义 ----------
@@ -835,7 +914,8 @@ const TOOLS = [
           type: 'object',
           description:
             '问题映射 {问题ID: 问题对象}。问题对象：{type: "choice", instructions, criteria: {选项ID: 描述}} | ' +
-            '{type: "noul", instructions}（回答是/否类，返回 0~1 概率）| {type: "score", instructions, criteria: [等级描述...]}（索引即分值）',
+            '{type: "noul", instructions}（回答是/否类，返回 0~1 概率）| {type: "score", instructions, criteria: [等级描述...]}（索引即分值）。' +
+            'label 可选（本地展示名，用于逐题明细与摘要；不发给 API）',
         },
         confidenceThreshold: { type: 'number', description: '低置信度判定阈值，默认 0.7' },
         format: {
@@ -853,6 +933,13 @@ const TOOLS = [
 
 // ---------- stdio JSON-RPC 主循环 ----------
 
+// MCP 协议版本协商：只回显自己真能跑的版本。
+// 无条件回显客户端请求的版本 = 对没实现的版本说「我支持」——客户端据此按新协议发消息，
+// 服务端按旧协议解析，行为不可预期（本服务只实现核心方法：initialize / tools/list /
+// tools/call / ping，这几个方法的报文形状在下列三个版本间没有变化，且不声明任何可选能力）。
+const SERVER_PROTOCOL_VERSION = '2024-11-05';
+const SUPPORTED_PROTOCOL_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'];
+
 function reply(msg) {
   process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
@@ -861,8 +948,12 @@ async function dispatch(msg) {
   switch (msg.method) {
     case 'initialize': {
       const requested = msg.params && msg.params.protocolVersion;
+      const protocolVersion =
+        typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+          ? requested
+          : SERVER_PROTOCOL_VERSION;
       return {
-        protocolVersion: typeof requested === 'string' ? requested : '2024-11-05',
+        protocolVersion,
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
@@ -881,10 +972,20 @@ async function dispatch(msg) {
         const result = await tool.handler(params.arguments || {});
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (e) {
+        // isError 结果带结构化 errorCode：调用方按码归类（参数非法 / 缺 Key / 上游错误 / 超时…），
+        // 不去解析中文文案——文案会改，改文案不该翻转归类。
         if (e instanceof ToolError) {
-          return { content: [{ type: 'text', text: `工具 ${tool.name} 失败：${e.message}` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `工具 ${tool.name} 失败：${e.message}` }],
+            isError: true,
+            errorCode: e.code,
+          };
         }
-        return { content: [{ type: 'text', text: `工具 ${tool.name} 异常：${e.message || e}` }], isError: true };
+        return {
+          content: [{ type: 'text', text: `工具 ${tool.name} 异常：${e.message || e}` }],
+          isError: true,
+          errorCode: ERROR_CODES.internal,
+        };
       }
     }
     default:
@@ -924,4 +1025,9 @@ process.stdin.on('end', () => process.exit(0));
 
 process.on('uncaughtException', (e) => {
   process.stderr.write(`[systemone-decision] uncaught: ${e.stack || e}\n`);
+  // 记完日志必须退出：进程带未知状态继续跑，宿主 MCP 客户端会一直等那条永远不会到的响应，
+  // 只能耗到自己的超时才发现出了问题——中间这段时间里会话是「假活」的。
+  // stdio 模式下重启子进程是廉价且安全的（服务无状态，每次调用都是一次独立判定），
+  // 退出码 1 让宿主看到明确失败，而不是一个静默卡住的会话。
+  process.exit(1);
 });

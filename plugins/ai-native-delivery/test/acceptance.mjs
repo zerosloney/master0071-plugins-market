@@ -91,7 +91,8 @@ const jsonOf = (reply) => {
 };
 
 // check-loop 夹具（git 模式，cwd 注入——门禁经 git toplevel 锚定根）
-const runCheckLoop = (root, args = []) => runCli('check-loop.mjs', args, { cwd: root });
+// CHECK_LOOP_VERBOSE=1：断言按告警逐条原文匹配；插件形态下折叠默认生效（2026-10-28 修复），故走逐条出口。
+const runCheckLoop = (root, args = []) => runCli('check-loop.mjs', args, { cwd: root, env: { CHECK_LOOP_VERBOSE: '1' } });
 
 const planDoc = (name, fm, body = '') => `---\n${fm}\n---\n# PLAN — ${name}\n${body}`;
 const w = (root, rel, content) => {

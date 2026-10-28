@@ -160,7 +160,8 @@ export function run() {
   //   - 只查「缺失」：settings 每条 deny/ask 必须在「允许 bash」的 agent 里有对应规则（pattern 去掉全部
   //     * 后与 settings 条目相等）；agent 可有额外角色级规则（implementer 额外禁 commit/push）。
   //   - permission.bash 为标量 deny（全禁）视为天然满足下限，跳过。
-  //   - 不镜像 allow：settings.allow 含 git commit/push，与 implementer 角色契约（禁提交推送）冲突。
+  //   - allow 清单已于 2026-10-28 从模板与闸里移除（它在判定链末端空转，且内容含 git commit/push，
+  //     与 implementer 角色契约（禁提交推送）直接冲突），故此处不再有「不镜像 allow」这一条。
   {
     let settings = null;
     try { settings = JSON.parse(fs.readFileSync(path.join(ROOT, '.agents', 'settings.json'), 'utf8')); } catch { /* 缺失/坏 JSON → 跳过 */ }

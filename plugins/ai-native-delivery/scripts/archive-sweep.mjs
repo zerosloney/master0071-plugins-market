@@ -21,6 +21,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadAllConfirmations } from './ledger-loader.mjs';
+import { projectRoot } from './paths.mjs';
 
 const DIRS = ['intents', 'specs', 'plans', 'incidents'];
 export const TERMINAL = new Set(['done', 'superseded', 'cancelled', 'closed']);
@@ -228,7 +229,8 @@ function main() {
     console.error('archive-sweep: --window 须为非负数字');
     process.exit(2);
   }
-  const root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：子目录调用时归档面仍是仓库根的 workflow/ 树。
+  const root = projectRoot();
   const docs = buildDocList(root);
   const r = analyze({
     docs,

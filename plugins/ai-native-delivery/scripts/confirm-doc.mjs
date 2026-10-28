@@ -121,6 +121,7 @@ export function applyTransition(text, targetStage, fingerprint16) {
 
 import { writeConfirmation, loadAllConfirmations } from './ledger-loader.mjs';
 import { delegationRowsOf, rowCovers } from './delegation-presence.mjs';
+import { projectRoot } from './paths.mjs';
 
 // appendLedger(root, entry, opts)：追加一行 JSON（默认写 .agents/confirmations.d/<doc>.jsonl 分片；
 // opts.shard === false 或 CONFIRM_SHARDED=0 时写主台账 .agents/confirmations.jsonl）
@@ -144,7 +145,9 @@ export function fmLevel(nl) {
 const isMain = process.argv[1] && process.argv[1].endsWith('confirm-doc.mjs');
 if (isMain) {
   const argv = process.argv.slice(2);
-  let root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：--root 显式指定仍优先；不指定时子目录调用也落仓库根，
+  // 不把台账写进调用时的子目录（台账是项目级资产，位置必须唯一）。
+  let root = projectRoot();
   let delegatedQuote = null; // null = TTY 模式；字符串 = 委托代录的用户对话原话
   let toTarget = null; // null = 默认前向跳转；superseded|cancelled = 放弃态显式目标
   let autoMode = false; // AI 自治模式（信任等级授权，2026-09-30 ai-autonomy-trust）
@@ -305,6 +308,7 @@ if (isMain) {
       continue;
     }
     const abs = path.join(root, doc);
+    let ledgerFile = ''; // 本份台账落点（绝对路径）——输出打绝对路径，用户才看得出台账落在哪个仓
     let text;
     try { text = fs.readFileSync(abs, 'utf8'); }
     catch { console.error(`跳过 ${doc}：文件不可读`); continue; }
@@ -359,7 +363,7 @@ if (isMain) {
         continue;
       }
       fs.writeFileSync(abs, rtext);
-      appendLedger(root, {
+      ledgerFile = appendLedger(root, {
         ts: new Date().toISOString(), doc, stage: 'approved', fingerprint: rfp, prev: st,
         commit: rcommit,
         source: 'chat-delegated', quote: String(delegatedQuote),
@@ -367,7 +371,7 @@ if (isMain) {
         batch, seq, of: docs.length,
         reconfirm: true, // 重新确认标记（纯增字段、向后兼容）：区别于首次批准行
       }, { shard: shardMode });
-      console.log(`✓ ${doc} 重新确认（状态仍为 approved；内容指纹 ${rfp.slice(0, 16)}，承诺面指纹 ${rcommit}）`);
+      console.log(`✓ ${doc} 重新确认（状态仍为 approved；内容指纹 ${rfp.slice(0, 16)}，承诺面指纹 ${rcommit}；台账 → ${ledgerFile}）`);
       confirmed++;
       seq++;
       continue;
@@ -548,13 +552,13 @@ if (isMain) {
         continue;
       }
       fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-      appendLedger(root, {
+      ledgerFile = appendLedger(root, {
         ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: `ai-auto-trust-L${trustConfig.level}`, quote: `AI 自治放行 (Trust Level ${trustConfig.level})`,
         batch, seq, of: docs.length,
       }, { shard: shardMode });
-      console.log(`✓ ${doc} ${st} → ${target}（指纹 ${fp.slice(0, 16)}，AI 自治已记账：source=ai-auto-trust-L${trustConfig.level}）`);
+      console.log(`✓ ${doc} ${st} → ${target}（指纹 ${fp.slice(0, 16)}，AI 自治已记账：source=ai-auto-trust-L${trustConfig.level}；台账 → ${ledgerFile}）`);
       confirmed++;
       seq++;
       continue;
@@ -589,7 +593,7 @@ if (isMain) {
         console.error(`⚠️  ${doc} ${detail}——advisory 放行，台账行进记 quoteGrounding=${grounding.reason} 供事后对质`);
       }
       fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-      appendLedger(root, {
+      ledgerFile = appendLedger(root, {
         ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: 'chat-delegated', quote: String(delegatedQuote),
@@ -603,8 +607,8 @@ if (isMain) {
         ...(low ? { brief: true } : {}),
       }, { shard: shardMode });
       console.log(low
-        ? `✓ ${doc} ${st} → ${target} [${lvl} 协作道/异步审计]（指纹 ${fp.slice(0, 16)}）`
-        : `✓ ${doc} ${st} → ${target}（指纹 ${fp.slice(0, 16)}，代录已记账：source=chat-delegated）`);
+        ? `✓ ${doc} ${st} → ${target} [${lvl} 协作道/异步审计]（指纹 ${fp.slice(0, 16)}；台账 → ${ledgerFile}）`
+        : `✓ ${doc} ${st} → ${target}（指纹 ${fp.slice(0, 16)}，代录已记账：source=chat-delegated；台账 → ${ledgerFile}）`);
       confirmed++;
       seq++;
       continue;
@@ -620,13 +624,13 @@ if (isMain) {
       continue;
     }
     fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-    appendLedger(root, {
+    ledgerFile = appendLedger(root, {
       ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
       commit: commitFp,
       source: 'tty',
       batch, seq, of: docs.length, // 调用事实（形态无关：TTY 多文档天然逐件过目，of>1 不构成违规）
     }, { shard: shardMode });
-    console.log(`✓ ${doc} → ${target}（指纹 ${fp.slice(0, 16)}，台账已记）`);
+    console.log(`✓ ${doc} → ${target}（指纹 ${fp.slice(0, 16)}，台账已记 → ${ledgerFile}）`);
     confirmed++;
     seq++;
   }

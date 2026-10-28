@@ -26,13 +26,13 @@
 // 表解析：取首个表头含 id+after+gate 的表格，列名归一（task / params → task、files（授权）→ files），
 //        到首个非 `|` 行截止；仅此一张表——编排脚本按机制文档只允许一张 stages 表。
 // 用法：node <插件根>/scripts/workflows-check.mjs [--root <目标根>] [--json]
-// 默认根 = process.cwd()（仓库根直跑即自扫）
+// 默认根 = 项目 git 仓库根（paths.mjs projectRoot 锚定，不锚 cwd——子目录调用仍扫仓库根的 workflow/ 树）
 // 零依赖；只报告不修复（B-b 决策口径，同 check-loop 的 advisory 面）
 // 测试：node <插件根>/test/workflows-check.test.mjs（fixture + 真实仓库 baseline）
 import fs from 'node:fs';
 import path from 'node:path';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：角色契约随插件分发，词表并集见 lintWorkflows。
-import { PLUGIN_ROOT } from './paths.mjs';
+import { PLUGIN_ROOT, projectRoot } from './paths.mjs';
 
 function fail(msg) { console.error('❌ ' + msg); process.exit(1); }
 
@@ -243,7 +243,8 @@ function printResult(result) {
 
 const isMain = process.argv[1] && process.argv[1].endsWith('workflows-check.mjs');
 if (isMain) {
-  let root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：--root 显式指定仍优先；编排文件在仓库根的 workflow/ 树。
+  let root = projectRoot();
   let json = false;
   for (let i = 2; i < process.argv.length; i++) {
     const a = process.argv[i];

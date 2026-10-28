@@ -16,6 +16,16 @@ import {
   toolPolicyStatus,
 } from "./core.mjs";
 
+// 显式项目根参数（2026-10-28 插件根守卫配套）：宿主按 Agent Plugins 规范把 MCP 服务起在插件根里时，
+//   进程 cwd 反映的是插件安装位置，据此推断「用户要操作哪个仓库」不可靠（守卫会硬失败）。
+//   root 是那时的唯一可靠出口——调用方显式指明使用项目的 git 仓库根。
+const ROOT_PROP = {
+  root: {
+    type: "string",
+    description: "可选：使用项目的 git 仓库根（绝对路径）。缺省按服务进程的工作目录解析；该目录若落在插件安装目录内，工具会明确报错而不猜。",
+  },
+};
+
 const tools = [
   {
     name: "grade_task",
@@ -26,6 +36,7 @@ const tools = [
       additionalProperties: false,
       properties: {
         description: { type: "string", description: "任务描述（自由文本；一句话即可，判据按词面与触达面清单匹配）。" },
+        ...ROOT_PROP,
       },
       required: ["description"],
     },
@@ -38,9 +49,9 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: {},
+      properties: { ...ROOT_PROP },
     },
-    handler: () => toolReadContext(),
+    handler: (args) => toolReadContext(args),
   },
   {
     name: "update_ledger",
@@ -53,6 +64,7 @@ const tools = [
         file: { type: "string", description: "workflow/ 树内的相对路径（如 workflow/papercuts.md）。" },
         content: { type: "string", description: "要写入（create）或追加（append）的内容文本。" },
         mode: { type: "string", enum: ["create", "append"], description: "create=建文件（已存在拒绝）；append=追加行（自动补行尾换行）。" },
+        ...ROOT_PROP,
       },
       required: ["file", "content", "mode"],
     },
@@ -69,6 +81,7 @@ const tools = [
         task: { type: "string", description: "任务标识（一句话，含文件名更佳）。" },
         decision: { type: "string", description: "确认决定（如 用户放行 / draft→approved / 拒绝及理由）。" },
         evidence: { type: "string", description: "证据原文（用户对话原话/放行依据），供事后对质。" },
+        ...ROOT_PROP,
       },
       required: ["task", "decision", "evidence"],
     },
@@ -83,6 +96,7 @@ const tools = [
       additionalProperties: false,
       properties: {
         lane: { type: "string", enum: ["hard", "hygiene", "all"], description: "缺省 hard（硬门车道）。" },
+        ...ROOT_PROP,
       },
     },
     handler: (args) => toolVerifyGate(args),
@@ -94,9 +108,9 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: {},
+      properties: { ...ROOT_PROP },
     },
-    handler: () => toolLedgerStats(),
+    handler: (args) => toolLedgerStats(args),
   },
   {
     name: "policy_status",
@@ -105,9 +119,9 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: {},
+      properties: { ...ROOT_PROP },
     },
-    handler: () => toolPolicyStatus(),
+    handler: (args) => toolPolicyStatus(args),
   },
 ];
 

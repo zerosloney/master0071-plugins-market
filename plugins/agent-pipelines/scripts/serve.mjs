@@ -8,7 +8,7 @@ import path from "node:path";
 import { buildHtml, layoutGraph, loadEvents, loadState, pipelineOf, stateFile } from "./render.mjs";
 import { parseArgs } from "./args.mjs";
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), { boolean: ["json"], value: ["pipeline", "file", "port", "interval"] });
 const pipeline = pipelineOf(args);
 const file = stateFile(args, pipeline);
 const eventsFile = file.replace(/\.json$/, ".events.jsonl");

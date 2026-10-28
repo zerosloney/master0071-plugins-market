@@ -135,6 +135,22 @@ for (const [pipeline, files] of Object.entries(docFiles)) {
   }
 }
 
+// action 枚举必须能表达全部 stop_reason：实现能判出的停止原因，文档输出格式里都得有对应取值，
+// 否则宿主按文档路由时会遇到没有对应 action 的停止原因。
+const actionDocs = [
+  "agents/ralph-orchestrator.md",
+  "agents/coding-orchestrator.md",
+  "skills/ralph-pipeline/SKILL.md",
+  "skills/coding-pipeline/SKILL.md",
+];
+for (const rel of actionDocs) {
+  const doc = readFileSync(path.join(root, rel), "utf8");
+  const matched = doc.match(/"action":\s*"([^"]+)"/);
+  const members = matched ? matched[1].split("|").map((item) => item.trim()).filter(Boolean) : [];
+  const missing = [...stopReasons].filter((reason) => reason !== null && !members.includes(reason));
+  check(`${rel} action 枚举覆盖全部 stop_reason`, members.length > 0 && missing.length === 0, `missing: ${JSON.stringify(missing)}`);
+}
+
 console.log("\n== 判停行为与优先级（gate） ==");
 // 构造可通过 validateState 校验的最小合法状态（schema 见 commands/coding-pipeline.md 的 JSON 块；
 // coding 需额外 prior_cycles_summary / critical_checkpoints，tasks 元素需 id/title/status/depends_on/accept_criteria/failures）。

@@ -621,7 +621,7 @@ export function validateScenario(spec) {
     } else {
       // 逐项校验到 deriveFields 真正消费的形状：校验放行但运行时静默丢弃的定义（缺 values/map、
       // values 非数组被 Array.isArray 分支跳过、question 指向不存在的 qid、values/map 与题型不配、
-      // values 长度与分级数不等）在这里拦截，走统一的「整条跳过并告警」路径
+      // values 档数超过分级数）在这里拦截，走统一的「整条跳过并告警」路径
       for (const [name, d] of Object.entries(spec.derive)) {
         if (!d || typeof d !== 'object' || Array.isArray(d)) {
           problems.push(`派生 ${name} 必须是 {question, values|map} 对象`);
@@ -648,8 +648,12 @@ export function validateScenario(spec) {
               problems.push(`派生 ${name} 的 values 不能为空数组`);
             } else if (!supportsDerive(target.type, 'values')) {
               problems.push(`派生 ${name} 的 values 按分值下标取值，只能用于 score 问题（${d.question} 是 ${target.type}）`);
-            } else if (Array.isArray(target.criteria) && d.values.length !== target.criteria.length) {
-              problems.push(`派生 ${name} 的 values 长度 ${d.values.length} 与问题 ${d.question} 的分级数 ${target.criteria.length} 不一致`);
+            } else if (Array.isArray(target.criteria) && d.values.length > target.criteria.length) {
+              // values 比分级数还多：多出来的档位永远取不到，是写错了——整条拦截。
+              // 反过来（values 比分级数少，如 4 级量表只想映射到 3 档优先级）允许存在：
+              // 按前 N 档映射，超出部分由 deriveFields 钳到最后一档。原先要求长度严格相等，
+              // 4 级量表想给 3 档优先级就只能整条场景被跳过——失败方式隐蔽且难自查。
+              problems.push(`派生 ${name} 的 values 长度 ${d.values.length} 超过问题 ${d.question} 的分级数 ${target.criteria.length}`);
             }
           }
           if (d.map !== undefined) {

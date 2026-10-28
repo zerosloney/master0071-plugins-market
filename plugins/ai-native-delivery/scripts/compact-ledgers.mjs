@@ -8,8 +8,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeJsonlLines } from './git-merge-jsonl.mjs';
+import { projectRoot } from './paths.mjs';
 
-const root = process.cwd();
+// 根锚定 git root（paths.mjs 单源）：在子目录调用时台账仍归仓库根，不落进子目录。
+const root = projectRoot();
 const mainLedger = path.join(root, '.agents', 'confirmations.jsonl');
 const shardDir = path.join(root, '.agents', 'confirmations.d');
 

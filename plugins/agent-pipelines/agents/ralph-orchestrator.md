@@ -123,11 +123,18 @@ consecutive_failures: N
 
 ```json
 {
-  "action": "DELEGATE | WAIT_REVIEW | DONE | ESCALATE | HOLD | STALL",
+  "action": "DELEGATE | WAIT_REVIEW | DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED",
   "task_id": "<下一任务 id，DELEGATE 时必填>",
+  "budget": {
+    "max_tokens": 100000,
+    "spent_tokens": 0
+  },
   "reason": "<简短说明>"
 }
 ```
+
+- `action` 取值与 `stop_reason` 枚举对齐：`DONE | ESCALATE | BUDGET | HOLD | STALL | MAX_CYCLES | STOPPED` 七个停止原因都能从这里表达。
+- `budget`：本轮读到的预算快照，未设预算时省略该字段；上面的数值是占位示例。
 
 ## 红线
 - 不直接执行业务产出。

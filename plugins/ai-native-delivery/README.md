@@ -75,11 +75,16 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 | `ledger_stats` | 台账体量与不变量状态，供 compact 决策 |
 | `policy_status` | 治理进化可见性：policyVersion / 预算实测 / 退役候选（诚实口径）/ 棘轮计数 |
 
+> **`root` 参数（重要）**：本插件的 `mcp.json` 声明 `cwd: "${PLUGIN_ROOT}"`，即宿主默认把服务起在**插件安装目录**。此时服务进程的 cwd 落在插件根内，`requireRoot` 会**直接拒绝**并提示——这是刻意的 fail-closed（台账若落进插件目录，会被别的项目当成关单凭证）。因此在这种部署形态下，**每次工具调用都要显式传 `root=<使用项目的 git 仓库根>`**。想让工具免传 root，就把宿主启动本服务时的工作目录设为项目根（部分宿主可配）。
+
 ## hooks
 
-两层拦截，均**fail-open**（配置损坏放行 + stderr WARN，绝不卡死用户）：
+两层拦截，配置问题不卡死正常操作，但**deny 面有一道不可下调的内置地板**（2026-10-28 收紧，见下）：
 
-- **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask / allow 三清单静态匹配；清单**单源项目侧 `.agents/settings.json`**（`permissions.deny/ask/allow`），缺文件回退插件种子，再缺代码内最小 deny 兜底。
+- **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask 两清单静态匹配（曾有的 `allow` 清单已于 2026-10-28 移除——它在判定链末端空转，且列着 `git commit`/`git push`，容易让人误以为这些命令已被预先批准）。清单来源为项目侧 `.agents/settings.json`（`permissions.deny` / `permissions.ask`）→ 插件种子 `config-templates/settings.json` → 代码内兜底，但两清单的信任边界不同：
+  - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `drop database` 四项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
+  - **ask 仍可被项目侧整体接管**（ask 只是多问一句，由项目自定是合理的；不写 `ask` 键则回退内置默认）。
+  - 想放宽地板只能由**人**在宿主侧关掉这个插件的 hook，不提供项目内配置位——这是刻意的：治理引擎的门不该由被治理的仓库拆。
 - **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
 
 不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。

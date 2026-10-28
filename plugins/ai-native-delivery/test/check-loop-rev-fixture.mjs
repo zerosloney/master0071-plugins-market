@@ -30,7 +30,9 @@ export function gitRun(cwd, args) {
 export function loop(cwd, args = [], env = {}) {
   return spawnSync(process.execPath, [LOOP, ...args], {
     cwd, encoding: 'utf8', timeout: 120000,
-    env: { ...process.env, ...env },
+    // CHECK_LOOP_VERBOSE=1：夹具断言按告警逐条原文匹配（折叠会把同类告警并成「×N 条同类」）；
+    // 插件形态下折叠默认生效（2026-10-28 修复），故此处显式走引擎自带的逐条出口。调用方可覆盖。
+    env: { ...process.env, CHECK_LOOP_VERBOSE: '1', ...env },
   });
 }
 export const outOf = (r) => `${r.stdout || ''}${r.stderr || ''}`;

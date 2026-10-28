@@ -109,6 +109,21 @@ function eventsFile(file) {
   return path.join(path.dirname(file), `${base}.events.jsonl`);
 }
 
+// 事件日志上限（2026-10-28 市场审查）：无人值守长跑会让 <file>.events.jsonl 无界增长，而 readEvents
+// 每次都全量读+解析。到上限即轮转：把当前文件改名为 .1（覆盖旧 .1），新行写新文件——最坏占用约
+// 2×MAX，且保留最近一段历史供 `events` 子命令回看。轮转失败一律静默（观测面不得挡住主流程）。
+const EVENTS_MAX_BYTES = 5 * 1024 * 1024;
+
+function rotateEventsIfNeeded(log) {
+  try {
+    if (!existsSync(log)) return;
+    if (statSync(log).size < EVENTS_MAX_BYTES) return;
+    renameSync(log, `${log}.1`);
+  } catch {
+    /* 权限/竞态：跳过轮转，继续追加（宁可超限也不丢事件） */
+  }
+}
+
 function logEvent(file, pipeline, event, state, extra = {}) {
   try {
     const line = JSON.stringify({
@@ -126,21 +141,32 @@ function logEvent(file, pipeline, event, state, extra = {}) {
       pid: process.pid,
       ...extra,
     });
-    appendFileSync(eventsFile(file), `${line}\n`, "utf8");
+    const log = eventsFile(file);
+    rotateEventsIfNeeded(log);
+    appendFileSync(log, `${line}\n`, "utf8");
   } catch {}
 }
 
 function readEvents(file, tail) {
   const log = eventsFile(file);
-  if (!existsSync(log)) return [];
-  const events = [];
-  for (const line of readFileSync(log, "utf8").split("\n")) {
-    if (!line.trim()) continue;
+  // 轮转文件（.1）在前、当前文件在后，保持时间序（.1 是较早的一段）。两者都可能不存在。
+  const parts = [];
+  for (const p of [`${log}.1`, log]) {
+    if (!existsSync(p)) continue;
+    let text;
     try {
-      events.push(JSON.parse(line));
-    } catch {}
+      text = readFileSync(p, "utf8");
+    } catch {
+      continue; // 读失败跳过该段，不因观测面挡住 events 输出
+    }
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        parts.push(JSON.parse(line));
+      } catch {}
+    }
   }
-  return tail > 0 ? events.slice(-tail) : events;
+  return tail > 0 ? parts.slice(-tail) : parts;
 }
 
 // 对比旧状态与新状态，输出任务状态迁移列表 [{ id, from, to }]。
@@ -317,20 +343,34 @@ function validateState(state, pipeline) {
   return { errors, warnings };
 }
 
+// coding 硬门禁：scope 零容忍 + critical checkpoints 全部通过。
+// 两条规则共用一条判定链——DONE 必须同时满足，否则给出可读原因（哪个 checkpoint 没通过），不静默放行。
+// 此前 DONE 只看任务状态流转，passed=false 的硬门禁被跨过，流程提前进入收尾态。
+// scope 未判定（undefined / null）不算越界，但同样不允许 DONE：判停依据不足就继续本轮补跑 scope。
+function codingGateBlockers(state) {
+  const blockers = [];
+  const checkpoints = Array.isArray(state.critical_checkpoints) ? state.critical_checkpoints : [];
+  const failed = checkpoints
+    .filter((checkpoint) => !isObject(checkpoint) || checkpoint.passed !== true)
+    .map((checkpoint) => (isObject(checkpoint) && typeof checkpoint.id === "string" ? checkpoint.id : "(未命名)"));
+  if (failed.length > 0) blockers.push(`critical checkpoints 未通过: ${failed.join(", ")}`);
+  const drift = state.scope_drift ?? null;
+  if (drift === "FAIL") blockers.push("scope_drift=FAIL（scope 越界）");
+  else if (drift !== "PASS") blockers.push('scope_drift 尚未判定（DONE 需要 scope_drift == "PASS"）');
+  return blockers;
+}
+
 function gateFor(state, pipeline) {
   const spec = PIPELINES[pipeline];
   const maxCycles = state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const stallMax = spec.stallMax;
   if (state.stop_reason) return { stop_reason: state.stop_reason, reason: "already stopped" };
   const tasks = state.tasks;
-  // coding 零容忍：DONE 要求 scope_drift === "PASS"（2026-10-28 对齐文档）。
-  // 此前只拦 FAIL，未跑 / 未自报（undefined / null）会被当作通过——而
-  // commands/coding-pipeline.md 与 skills/coding-pipeline/SKILL.md 列的 DONE 条件都是
-  // 「scope_drift == "PASS"」，代码比文档松，等于「零容忍」在未判定时静默放行。
+  // coding 零容忍 + 硬门禁：DONE 要求 scope_drift == "PASS" 且 critical_checkpoints 全通过。
   // 未判定时既不 DONE 也不 ESCALATE：落到末尾的 continue，补跑 scope 检查即可；
   // 真越界仍由下方 FAIL 分支即时 ESCALATE。
-  const scopeNotPassed = pipeline === "coding" && state.scope_drift !== "PASS";
-  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && !scopeNotPassed) {
+  const blockers = pipeline === "coding" ? codingGateBlockers(state) : [];
+  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && blockers.length === 0) {
     return { stop_reason: "DONE", reason: "all tasks are done" };
   }
   if (state.consecutive_failures >= state.max_failures) {
@@ -346,7 +386,7 @@ function gateFor(state, pipeline) {
     }
   }
   if (pipeline === "coding" && state.scope_drift === "FAIL") {
-    return { stop_reason: "ESCALATE", reason: "scope_drift is FAIL" };
+    return { stop_reason: "ESCALATE", reason: "scope_drift=FAIL（scope 越界，零容忍）" };
   }
   if (state.budget) {
     const budget = state.budget;
@@ -365,7 +405,8 @@ function gateFor(state, pipeline) {
   if (state.round >= maxCycles) {
     return { stop_reason: "MAX_CYCLES", reason: `round ${state.round} >= ${maxCycles}` };
   }
-  return { stop_reason: null, reason: "continue" };
+  // 继续本轮：把未通过的硬门禁写进 reason，调用方能直接看到卡在哪一条
+  return { stop_reason: null, reason: blockers.length > 0 ? blockers.join("；") : "continue" };
 }
 
 function applyGate(file, state, result) {
@@ -377,7 +418,7 @@ function applyGate(file, state, result) {
 
 function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const args = parseArgs(rest);
+  const args = parseArgs(rest, { boolean: ["force", "json", "apply"], value: ["pipeline", "file", "prompt", "tail"] });
   if (!command || !["init", "validate", "write", "gate", "events"].includes(command)) {
     fail("usage: state.mjs init|validate|write|gate|events --pipeline ralph|coding [--file <path>] [--json]");
   }

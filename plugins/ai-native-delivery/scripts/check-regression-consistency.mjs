@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { projectRoot } from './paths.mjs';
 
 // 提取清单里引用的标识符（纯函数）。
 //   classes: `*Tests` 类名（门禁/单测/集成用例的标准命名）
@@ -211,7 +212,9 @@ export function scanVerifyScriptAnchors(root) {
 const isMain = process.argv[1] && process.argv[1].endsWith('check-regression-consistency.mjs');
 if (isMain) {
   const argv = process.argv.slice(2);
-  let root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：--root 显式指定仍优先；清单与地图都在仓库根，子目录调用
+  // 不该扫到子目录里那一小片。
+  let root = projectRoot();
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--root') root = path.resolve(argv[++i]);
     else if (argv[i] === '--help' || argv[i] === '-h') {

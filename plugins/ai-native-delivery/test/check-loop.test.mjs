@@ -97,10 +97,16 @@ ${refs ? '     - 是 → ../intents/2026-09-12-ghost.md\n' : ' - 否 → 理由:
 // run：默认 CHECK_LOOP_ROOT 注入（fixture 模式）；{git:true} 时 cwd 注入（真 git 模式，测 tracked 过滤）；
 // opts.args 替换默认 `--all`（套件覆盖卫生段）。硬门默认入口用 { args: [] }。未知参数仍走用法退出。
 // opts.env 增量覆盖子进程 env（CHECK_LOOP_GIT 替身注入用，2026-10-05-gitout-fail-open）
+// 夹具跑法：告警保持**逐条**形态。插件形态下引擎脚本在插件内（scriptPath 回退），折叠开关随之生效
+// （2026-10-28 修复：判据写死 ROOT/.agents/scripts 时插件形态恒 false → 折叠对插件用户永不触发）。
+// 折叠会把同类告警并成「×N 条同类」单行、细节移进 tmp/check-loop-warn.log——本套件的断言按告警原文匹配，
+// 故显式用引擎自带的逐条出口 CHECK_LOOP_VERBOSE=1（同一开关也供排障用）。折叠规则本身由
+// warn-format.test.mjs（S1-S7）单测锁住，端到端折叠形态另由 test/warn-fold-plugin.test.mjs 锁住。
+const FIXTURE_ENV = { CHECK_LOOP_VERBOSE: '1' };
 const run = (root, opts = {}) => spawnSync(process.execPath, [CHECK_LOOP, ...(opts.args ?? ['--all'])], {
   ...(opts.git
-    ? { cwd: root, ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}) }
-    : { cwd: ROOT_CWD, env: { ...process.env, ...(opts.env || {}), CHECK_LOOP_ROOT: root } }),
+    ? { cwd: root, env: { ...process.env, ...FIXTURE_ENV, ...(opts.env || {}) } }
+    : { cwd: ROOT_CWD, env: { ...process.env, ...FIXTURE_ENV, ...(opts.env || {}), CHECK_LOOP_ROOT: root } }),
   encoding: 'utf8',
 });
 const ROOT_CWD = process.cwd();

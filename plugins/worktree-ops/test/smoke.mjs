@@ -10,13 +10,16 @@
 // 退出码非 0 表示有断言失败。
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'server.mjs');
-const sandbox = mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-'));
+// 沙箱路径先归一到真实长名（2026-10-28）：GitHub Actions 的 TEMP 是 C:\Users\RUNNER~1\...，
+// 而 `git worktree list` / `rev-parse --show-toplevel` 回长名，字面 includes 比较会假红。
+// realpath 一次即可让后续所有派生的 repo / root / worktree 路径与 git 的口径一致。
+const sandbox = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-')));
 const cfgHome = path.join(sandbox, 'cfg');
 const repo = path.join(sandbox, 'myrepo');
 const root = path.join(sandbox, 'custom-root');
@@ -190,7 +193,7 @@ try {
     !cnName.isError && /wt\/[0-9a-f]{8}/.test(cnName.text) && /no ASCII letters or digits/.test(cnName.text),
     cnName.text,
   );
-  const cnRemoved = await session.tool('worktree_remove', { repoPath: repo, name: '中文任务', force: true, deleteBranch: true });
+  const cnRemoved = await session.tool('worktree_remove', { repoPath: repo, name: '中文任务', force: true, confirmDiscard: true, deleteBranch: true });
   check('中文任务名创建的 worktree 可正常清理', !cnRemoved.isError, cnRemoved.text);
 
   const listed = await session.tool('worktree_list', { repoPath: repo });
@@ -257,7 +260,7 @@ try {
   const keepBack = await session.tool('worktree_merge_back', { repoPath: repo, name: 'keepme', remove: true });
   check('未合并时 remove=true 不再强删', !keepBack.isError && /kept worktree/.test(keepBack.text), keepBack.text);
   check('跳过删除后目录与提交原样保留', existsSync(path.join(keepDir, 'keep.txt')), keepBack.text);
-  const keepGone = await session.tool('worktree_remove', { repoPath: repo, name: 'keepme', force: true, deleteBranch: true });
+  const keepGone = await session.tool('worktree_remove', { repoPath: repo, name: 'keepme', force: true, confirmDiscard: true, deleteBranch: true });
   check('确认意图后仍可用 worktree_remove 删除', !keepGone.isError && /Removed worktree/.test(keepGone.text), keepGone.text);
 
   section('merge_back 受管根外拒绝删除');
@@ -330,7 +333,7 @@ try {
     unmergedRemove.isError && /not merged into/.test(unmergedRemove.text),
     unmergedRemove.text,
   );
-  const guardForced = await session.tool('worktree_remove', { repoPath: repo, name: 'target-guard', force: true, deleteBranch: true });
+  const guardForced = await session.tool('worktree_remove', { repoPath: repo, name: 'target-guard', force: true, confirmDiscard: true, deleteBranch: true });
   check('用户显式 force 仍可清理', !guardForced.isError && /Removed worktree/.test(guardForced.text), guardForced.text);
 
   // detached 工作树没有分支可与 target 比，不该被上面那条「无法判断是否合并」误拦
@@ -360,7 +363,7 @@ try {
     dgRemove.text,
   );
   check('被拒后未合并的文件原样保留', existsSync(path.join(dgDir, 'lost.txt')), dgRemove.text);
-  const dgForced = await session.tool('worktree_remove', { repoPath: repo, name: dgDir, force: true });
+  const dgForced = await session.tool('worktree_remove', { repoPath: repo, name: dgDir, force: true, confirmDiscard: true });
   check('显式 force 仍可删除 detached 工作树', !dgForced.isError && /Removed worktree/.test(dgForced.text), dgForced.text);
 
   section('清理保护');
@@ -406,14 +409,14 @@ try {
     [labelA, fileA, labelB, fileB].every((v) => v >= 0) && labelA < fileA && fileA < labelB && labelB < fileB,
     dirtyList.text,
   );
-  await session.tool('worktree_remove', { repoPath: repo, name: 'pair-a', force: true, deleteBranch: true });
-  await session.tool('worktree_remove', { repoPath: repo, name: 'pair-b', force: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'pair-a', force: true, confirmDiscard: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'pair-b', force: true, confirmDiscard: true, deleteBranch: true });
 
  section('受管目录与锁定保护');
  await session.tool('worktree_create', { repoPath: repo, name: 'locked-one' });
  const lockedDir = path.join(root, 'wt-locked-one');
  git(['worktree', 'lock', lockedDir], repo);
- const lockedRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'locked-one', force: true, deleteBranch: true });
+ const lockedRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'locked-one', force: true, confirmDiscard: true, deleteBranch: true });
  check('force 不能删除锁定 worktree', lockedRemove.isError && /locked worktree/.test(lockedRemove.text), lockedRemove.text);
  const stillThere = await session.tool('worktree_status', { repoPath: repo, name: 'locked-one' });
  check('被拒绝的锁定 worktree 仍在登记中', /primary worktree: no/.test(stillThere.text) && existsSync(lockedDir), stillThere.text);
@@ -427,7 +430,7 @@ try {
  await session.tool('worktree_create', { repoPath: repo, name: 'outside-one' });
  await session.tool('worktree_create', { repoPath: repo, name: 'root-prefix' });
  git(['worktree', 'move', path.join(root, 'wt-outside-one'), path.join(sandbox, 'outside-one')], repo);
- const outside = await session.tool('worktree_remove', { repoPath: repo, name: 'outside-one', force: true, deleteBranch: true });
+ const outside = await session.tool('worktree_remove', { repoPath: repo, name: 'outside-one', force: true, confirmDiscard: true, deleteBranch: true });
  check('force 不能删除受管根目录外的 worktree', outside.isError && /outside the managed root/.test(outside.text), outside.text);
  check('根目录外被拒绝的 worktree 原样保留', existsSync(path.join(sandbox, 'outside-one', 'README.md')), outside.text);
  await session.tool('worktree_config', { action: 'set', scope: 'repo', repoPath: repo, root: `${root}-x` });
@@ -443,7 +446,14 @@ try {
 
   const dirty = await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-one' });
   check('脏 worktree 拒绝删除', dirty.isError && /uncommitted/.test(dirty.text), dirty.text);
-  const forced = await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-one', force: true, deleteBranch: true });
+  // 回归：force 只有一半时不得删除。「须用户明确要求」不能只写在提示层（skill 提示词），
+  // 服务端要能挡住模型误判或被注入文本诱导时的一次性 force=true。
+  const halfForce = await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-one', force: true });
+  check('只传 force 不删（缺二次确认）', halfForce.isError && /confirmDiscard/.test(halfForce.text), halfForce.text);
+  check('只传 force 时脏工作树与文件原样保留', existsSync(path.join(root, 'wt-dirty-one', 'junk.txt')), halfForce.text);
+  const confirmOnly = await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-one', confirmDiscard: true });
+  check('只传 confirmDiscard 也不删（缺 force）', confirmOnly.isError && /uncommitted/.test(confirmOnly.text), confirmOnly.text);
+  const forced = await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-one', force: true, confirmDiscard: true, deleteBranch: true });
   check('显式 force 可删除', !forced.isError && /Removed worktree/.test(forced.text), forced.text);
 
   const primary = await session.tool('worktree_remove', { repoPath: repo, name: 'main' });
@@ -480,7 +490,7 @@ try {
     !ovCreated.isError && ovCreated.text.includes(path.join(overrideRoot, 'wt-ovr-check')),
     ovCreated.text,
   );
-  await session.tool('worktree_remove', { repoPath: repo, name: 'ovr-check', force: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'ovr-check', force: true, confirmDiscard: true, deleteBranch: true });
 
   // 单仓库覆盖 overrideRoot 仍留在配置文件里；WORKTREE_ROOT 必须压过它与全局 custom-root
   const envSession = openSession({ WORKTREE_ROOT: envRoot });
@@ -488,7 +498,7 @@ try {
     await envSession.ready;
     const envCreated = await envSession.tool('worktree_create', { repoPath: repo, name: 'env-check' });
     check('优先级链④：环境变量压过单仓库覆盖与全局配置', !envCreated.isError && envCreated.text.includes(envRoot), envCreated.text);
-    const envRemoved = await envSession.tool('worktree_remove', { repoPath: repo, name: 'env-check', force: true, deleteBranch: true });
+    const envRemoved = await envSession.tool('worktree_remove', { repoPath: repo, name: 'env-check', force: true, confirmDiscard: true, deleteBranch: true });
     check('按环境变量位置清理干净', !envRemoved.isError, envRemoved.text);
   } finally {
     envSession.close();
@@ -609,8 +619,8 @@ try {
   const cb = await session.tool('worktree_create', { repoPath: repo, name: 'create-base-probe', baseRef: 'handoff-base-ref' });
   check('create 的 - base 用显式 baseRef', /- base: handoff-base-ref @ [0-9a-f]{7,}/.test(cb.text), cb.text);
   check('create 简报的 Base target 与 - base 同一基线', /Base target: handoff-base-ref/.test(cb.text), cb.text);
-  await session.tool('worktree_remove', { repoPath: repo, name: 'handoff-probe', force: true, deleteBranch: true });
-  await session.tool('worktree_remove', { repoPath: repo, name: 'create-base-probe', force: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'handoff-probe', force: true, confirmDiscard: true, deleteBranch: true });
+  await session.tool('worktree_remove', { repoPath: repo, name: 'create-base-probe', force: true, confirmDiscard: true, deleteBranch: true });
 
   section('检出既有分支与 prunable 清理');
   // A1 回归：分支已存在时曾恒用 -b 重建而必然失败；应改为直接检出（如检出 PR 分支做验证）
@@ -672,7 +682,7 @@ try {
     paRemove.isError && /not merged into/.test(paRemove.text),
     paRemove.text,
   );
-  const paForced = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-ahead', force: true, deleteBranch: true });
+  const paForced = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-ahead', force: true, confirmDiscard: true, deleteBranch: true });
   check('确认意图后 force 可清理', !paForced.isError && /Removed worktree/.test(paForced.text), paForced.text);
 
   section('仓库内 root 自动写入本地忽略');
@@ -778,7 +788,7 @@ try {
     check('audit 把 submodule 主检出归入 hold', /^hold\s+main\b/.test(subRow) && /primary worktree/.test(subRow), subRow);
     check('audit 不再把 submodule 主检出列为 safe to remove', /safe to remove: 0/.test(subAudit.text), subAudit.text);
 
-    const subRemove = await subSession.tool('worktree_remove', { repoPath: subPath, name: 'main', force: true });
+    const subRemove = await subSession.tool('worktree_remove', { repoPath: subPath, name: 'main', force: true, confirmDiscard: true });
     check('submodule 主检出拒绝删除', subRemove.isError && /primary worktree/.test(subRemove.text), subRemove.text);
     const subLock = await subSession.tool('worktree_lock', { repoPath: subPath, name: 'main' });
     check('submodule 主检出拒绝加锁', subLock.isError && /primary worktree/.test(subLock.text), subLock.text);
@@ -836,7 +846,7 @@ try {
   const ncDir = path.join(root, 'wt-no-checkout-one');
   check('noCheckout 创建成功', !ncCreated.isError, ncCreated.text);
   check('工作树未检出文件', !existsSync(path.join(ncDir, 'README.md')), ncCreated.text);
-  const ncRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'no-checkout-one', force: true, deleteBranch: true });
+  const ncRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'no-checkout-one', force: true, confirmDiscard: true, deleteBranch: true });
   check('no-checkout worktree 以 force 删除', !ncRemove.isError && /Removed worktree/.test(ncRemove.text), ncRemove.text);
 
   section('lock / unlock 工具');
@@ -844,7 +854,7 @@ try {
   await session.tool('worktree_create', { repoPath: repo, name: 'lockable' });
   const locked = await session.tool('worktree_lock', { repoPath: repo, name: 'lockable', reason: 'agent session working' });
   check('lock 成功并带 reason', !locked.isError && /agent session working/.test(locked.text), locked.text);
-  const lockRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'lockable', force: true, deleteBranch: true });
+  const lockRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'lockable', force: true, confirmDiscard: true, deleteBranch: true });
   check('锁定后 remove 被拒', lockRemove.isError && /locked worktree/.test(lockRemove.text), lockRemove.text);
   const mainLock = await session.tool('worktree_lock', { repoPath: repo, name: repo });
   check('主检出不可加锁', mainLock.isError && /primary worktree/.test(mainLock.text), mainLock.text);
@@ -878,7 +888,7 @@ try {
     );
     const envFullAudit = await envFull.tool('worktree_audit', { repoPath: repo });
     check('链④：WORKTREE_STALE_DAYS 压过全局配置的 5', /idle threshold: 3d/.test(envFullAudit.text), envFullAudit.text);
-    const envFullRemoved = await envFull.tool('worktree_remove', { repoPath: repo, name: 'prefix-probe', force: true, deleteBranch: true });
+    const envFullRemoved = await envFull.tool('worktree_remove', { repoPath: repo, name: 'prefix-probe', force: true, confirmDiscard: true, deleteBranch: true });
     check('按环境变量前缀清理干净', !envFullRemoved.isError, envFullRemoved.text);
 } finally {
  envFull.close();
@@ -930,10 +940,10 @@ check(
 check('落后提示给出可执行的 baseRef 建议', /baseRef: "main"/.test(lagCreated.text), lagCreated.text);
 const lagWt = path.join(root, 'wt-lag-probe');
 check('worktree 确实缺少默认分支上的文件（提示不是误报）', !existsSync(path.join(lagWt, 'lag-main.txt')), lagWt);
-await session.tool('worktree_remove', { repoPath: repo, name: 'lag-probe', force: true, deleteBranch: true });
+await session.tool('worktree_remove', { repoPath: repo, name: 'lag-probe', force: true, confirmDiscard: true, deleteBranch: true });
 const lagExplicit = await session.tool('worktree_create', { repoPath: repo, name: 'lag-explicit', baseRef: 'lag/feature' });
 check('显式 baseRef 时不打扰（用户已明确选择基线）', !lagExplicit.isError && !/base lag/.test(lagExplicit.text), lagExplicit.text);
-await session.tool('worktree_remove', { repoPath: repo, name: 'lag-explicit', force: true, deleteBranch: true });
+await session.tool('worktree_remove', { repoPath: repo, name: 'lag-explicit', force: true, confirmDiscard: true, deleteBranch: true });
 git(['checkout', '-q', 'main'], repo);
 check('lag 场景的 HEAD 与初始一致（测试自身未污染分支）', Boolean(lagSha), lagSha);
 
@@ -1041,7 +1051,7 @@ check(
 check('歧义时两个 worktree 都原样保留', existsSync(ambA) && existsSync(ambSibling), `${ambA} / ${ambSibling}`);
 const ambByPath = await session.tool('worktree_remove', { repoPath: repo, name: ambA, deleteBranch: true });
 check('给出绝对路径后可以精确删除', !ambByPath.isError && /Removed worktree/.test(ambByPath.text), ambByPath.text);
-await session.tool('worktree_remove', { repoPath: repo, name: ambSibling, force: true, deleteBranch: true });
+await session.tool('worktree_remove', { repoPath: repo, name: ambSibling, force: true, confirmDiscard: true, deleteBranch: true });
 
 section('P1：并发写配置不互相截断');
 // 回归：固定的 config.json.tmp 让并发写者争抢同一临时文件，可能出现截断或 EPERM。
@@ -1161,7 +1171,7 @@ section('P1：detached 工作树的 merge / remove / handoff');
  check('已合并的 detached 工作树能被 merge_back remove 清理', !mb2.isError && /removed worktree/.test(mb2.text), mb2.text);
  check('清理后目录确实消失', !existsSync(mergedDet), mb2.text);
 
- const rm = await session.tool('worktree_remove', { repoPath: repo, name: detDir, force: true, deleteBranch: true });
+ const rm = await session.tool('worktree_remove', { repoPath: repo, name: detDir, force: true, confirmDiscard: true, deleteBranch: true });
  check('detached 工作树 remove 不谎称「分支被保留」', !rm.isError && /detached HEAD/.test(rm.text) && !/was kept/.test(rm.text), rm.text);
 }
 
@@ -1178,7 +1188,7 @@ section('P2：detached rebase 后按最新 HEAD 判断删除');
  const mb = await session.tool('worktree_merge_back', { repoPath: repo, name: rebaseDet, rebase: true, remove: true });
  check('detached rebase 后的未合并 HEAD 不会被误删', !mb.isError && /kept worktree/.test(mb.text), mb.text);
  check('detached rebase 工作树仍在', existsSync(rebaseDet), mb.text);
- await session.tool('worktree_remove', { repoPath: repo, name: rebaseDet, force: true });
+ await session.tool('worktree_remove', { repoPath: repo, name: rebaseDet, force: true, confirmDiscard: true });
 }
 
 section('P1：精确分支名命中不被下层 slug 歧义误伤');
@@ -1193,8 +1203,8 @@ section('P1：精确分支名命中不被下层 slug 歧义误伤');
  git(['worktree', 'add', d2, 'ambexact'], repo);
  const r = await session.tool('worktree_status', { repoPath: repo, name: 'amb/exact' });
  check('精确分支名唯一命中时不再被 slug 层歧义误伤', !r.isError && r.text.includes(d1), r.text);
- await session.tool('worktree_remove', { repoPath: repo, name: d1, force: true, deleteBranch: true });
- await session.tool('worktree_remove', { repoPath: repo, name: d2, force: true, deleteBranch: true });
+ await session.tool('worktree_remove', { repoPath: repo, name: d1, force: true, confirmDiscard: true, deleteBranch: true });
+ await session.tool('worktree_remove', { repoPath: repo, name: d2, force: true, confirmDiscard: true, deleteBranch: true });
 }
 
 section('P1：repo 级 root=null 表达「本仓库不用全局 root」');
@@ -1231,7 +1241,7 @@ section('P1：audit 的 safe 桶与 remove 的受管根护栏一致');
  check('受管根外的工作树不再被 audit 判为 safe', !/^safe\s/.test(row), row);
  check('受管根外的工作树被标为 review 并说明原因', /outside the managed root/.test(row), row);
  check('受管根外的工作树不计入 safe to remove', !/^safe\s.*outside-wt/m.test(a.text), a.text);
- const rm = await session.tool('worktree_remove', { repoPath: repo, name: 'wt/outside-probe', force: true });
+ const rm = await session.tool('worktree_remove', { repoPath: repo, name: 'wt/outside-probe', force: true, confirmDiscard: true });
  check('受管根外的工作树 remove 仍然被拒绝（护栏未放宽）', rm.isError && /outside the managed root/.test(rm.text), rm.text);
 }
 
@@ -1274,7 +1284,11 @@ section('P2：staleDays 覆盖值的正数校验');
  // 显式传了但不是数字：此前被 numArg 静默当未传、回落配置值，与 worktree_config 的
  // 响亮报错待遇不一致。空串沿用 worktree_config 的「不改」语义（此处全局值是 5）。
  const rJunk = await session.tool('worktree_audit', { repoPath: repo, staleDays: 'abc' });
- check('audit 拒绝非数字 staleDays', rJunk.isError && /positive number of days/.test(rJunk.text), rJunk.text);
+ check(
+  'audit 拒绝非数字 staleDays',
+  rJunk.isError && (/positive number of days/.test(rJunk.text) || /expected number/.test(rJunk.text)),
+  rJunk.text,
+ );
  const rEmpty = await session.tool('worktree_audit', { repoPath: repo, staleDays: '' });
  check('audit 对空串 staleDays 沿用不改语义', !rEmpty.isError && /idle threshold: 5d/.test(rEmpty.text), rEmpty.text);
 }
@@ -1315,7 +1329,7 @@ section('P2：主检出有未提交改动时 merge 被提前拦下');
  check('拒绝时没有产生 merge 提交', !git(['log', '--format=%s', '-1'], repo).includes('Merge wt/dirty-main'), r.text);
  // 清理
  try { unlinkSync(path.join(repo, 'uncommitted.txt')); } catch { /* 已清理 */ }
- await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-main', force: true, deleteBranch: true });
+ await session.tool('worktree_remove', { repoPath: repo, name: 'dirty-main', force: true, confirmDiscard: true, deleteBranch: true });
 }
 
 section('P2：handoff 的 task 文本被明确标记为不受信任');

@@ -34,6 +34,7 @@ import {
   isAncestor,
   human,
   describe,
+  describeMany,
   bucketOf,
   configSummary,
   table,
@@ -43,6 +44,24 @@ import {
 
 const ok = (text) => ({ content: [{ type: "text", text }] });
 const fail = (text) => ({ content: [{ type: "text", text: `Error: ${text}` }], isError: true });
+
+/** merge_back 清理失败时的回执。
+ *  合并已落地 → 报成功：合并结果在共享 ref 上，报 isError 会让客户端把整次调用重做一遍；
+ *  没发生合并（没请求合并，或合并被跳过）→ 如实报错。
+ *  措辞只说事实：旧文案一律写「after the merge step」，而那次调用可能根本没合并过。 */
+function cleanupFailedReply(steps, err, { mergeLanded = false, mainPath = null, info = {} } = {}) {
+  const detail = [
+    steps.join("\n"),
+    ``,
+    mergeLanded
+      ? `Worktree cleanup FAILED; the merge itself landed in ${mainPath}:`
+      : `Worktree cleanup FAILED (no merge was performed):`,
+    `${err && err.message ? err.message : String(err)}`,
+    `The worktree ${info.path} was left in place${info.branch ? `; branch \`${info.branch}\` was left in place` : ""}.`,
+    `Fix the cause above (e.g. unlock it), then run worktree_remove.`,
+  ].join("\n");
+  return mergeLanded ? ok(detail) : fail(detail);
+}
 
 /* ------------------------------------------------------------------- tools */
 
@@ -232,7 +251,8 @@ return ok(
       const includeSize = boolArg(args.includeSize);
       // 所有工作树共用一份 size 预算（默认 20s 总量），而不是每个目录各拿 5s
       const sizeDeadline = includeSize ? Date.now() + 20000 : null;
-      const infos = entries.map((e) => describe(repo, e, target, { includeSize, sizeDeadline }));
+      // 批量描述：提交信息一次 git log 取回，省掉「每个工作树各起一个 git 进程」的固定开销
+      const infos = describeMany(repo, entries, target, { includeSize, sizeDeadline });
 
       // 列只在 includeSize 时追加/省略 SIZE；禁用 filter(Boolean)，否则 ahead=0 / ageDays=0 这类有效零值会被丢掉导致列错位
       const rows = [["WORKTREE", "PATH", "BRANCH", "CLEAN", "AHEAD", "BEHIND", "MERGED", "AGE(d)", ...(includeSize ? ["SIZE"] : [])].map(String)];
@@ -275,7 +295,7 @@ return ok(
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
         target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
-        includeSize: { type: "boolean" },
+        includeSize: { type: "boolean", description: "Also compute on-disk size for this worktree. Slower (walks the directory); default false." },
         sessionCwd: { type: "string", description: "Absolute working directory of the calling session. Use it when the host starts this server in the plugin root; the server then reports whether that directory is inside the requested worktree. Omit when the host already runs the server in the session directory." },
       },
       required: ["name"],
@@ -337,7 +357,7 @@ return ok(
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
         staleDays: { type: "number", description: "Override the configured idle threshold." },
-        includeSize: { type: "boolean" },
+        includeSize: { type: "boolean", description: "Also compute on-disk size for each worktree (reclaimable-space figure). Slower; default false." },
       },
     },
     handler: (args) => {
@@ -359,7 +379,7 @@ return ok(
       const includeSize = boolArg(args.includeSize);
       // 所有工作树共用一份 size 预算（默认 20s 总量），而不是每个目录各拿 5s
       const sizeDeadline = includeSize ? Date.now() + 20000 : null;
-      const infos = listWorktrees(repo).map((e) => describe(repo, e, target, { includeSize, sizeDeadline }));
+      const infos = describeMany(repo, listWorktrees(repo), target, { includeSize, sizeDeadline });
       const rated = infos.map((i) => ({ info: i, ...bucketOf(i, staleDays, managedRoot(config, repo)) }));
       const order = { hold: 0, review: 1, safe: 2 };
       rated.sort((a, b) => order[a.bucket] - order[b.bucket] || (b.info.sizeBytes || 0) - (a.info.sizeBytes || 0));
@@ -405,7 +425,7 @@ return ok(
   {
     name: "worktree_remove",
     description:
-      "Remove a worktree and optionally its branch. Refuses to delete when the worktree has uncommitted changes or unmerged commits unless `force` is true.",
+      "Remove a worktree and optionally its branch. Refuses to delete when the worktree has uncommitted changes or unmerged commits. `force` alone does nothing: discarding uncommitted work or unmerged commits additionally requires `confirmDiscard: true`, so a stray or injected `force` cannot destroy work on its own.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -414,7 +434,8 @@ return ok(
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
         target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
         deleteBranch: { type: "boolean", description: "Also delete the branch after removal. Default false." },
-        force: { type: "boolean", description: "Delete even with uncommitted changes or unmerged commits. Default false." },
+        force: { type: "boolean", description: "First half of the discard confirmation: delete even with uncommitted changes or unmerged commits. Only takes effect together with confirmDiscard: true. Default false." },
+        confirmDiscard: { type: "boolean", description: "Second half of the discard confirmation: explicit consent that uncommitted changes and unmerged commits may be lost. Required in addition to force: true; on its own it does nothing. Default false." },
       },
       required: ["name"],
     },
@@ -428,6 +449,15 @@ return ok(
       const target = resolveTarget(repo, args.target);
       const info = describe(repo, entry, target, {});
       const force = boolArg(args.force);
+      const confirmDiscard = boolArg(args.confirmDiscard);
+      // force 只是确认的一半：服务端要求两个显式参数同时出现。
+      // 旧实现里 force=true 一次性越过脏工作树与未合并提交两道护栏，而「须用户明确要求」
+      // 只写在提示层（skill 提示词）里——模型误判或被注入文本诱导时，未提交改动与未合并
+      // 提交会被不可逆丢弃。护栏必须在服务端，不只在提示层。
+      // 只有两个标志都在时才真正放行
+      const discard = force && confirmDiscard;
+      // 不放宽的两道边界先报：锁定中与受管根外，force 与否都拒绝，
+      // 没必要让调用方先解决二次确认、再撞上这两条更硬的边界。
       if (entry.locked) {
         return fail(`refusing to remove a locked worktree (${entry.locked}).\nUnlock it with worktree_unlock (or \`git worktree unlock ${entry.path}\`), then re-run.`);
       }
@@ -436,10 +466,16 @@ return ok(
       if (!managedPath || !isInside(info.path, path.resolve(managedPath))) {
         return fail(`refusing to remove a worktree outside the managed root ${managedPath ?? "(none configured)"}.\nSet that root with worktree_config, or remove this worktree yourself.`);
       }
+      if (force && !confirmDiscard) {
+        return fail(
+          `force needs a second, explicit confirmation: call again with force: true and confirmDiscard: true.\n` +
+            `The two flags are separate on purpose — \`force\` alone does not discard uncommitted changes or unmerged commits.`,
+        );
+      }
 
-      if (!force) {
+      if (!discard) {
         if (info.clean === false) {
-          return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force=true if the user explicitly asked to discard them.`);
+          return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force: true and confirmDiscard: true if the user explicitly asked to discard them.`);
         }
         // clean 为 null = `git status` 本身没跑成。与紧邻的 `ahead === null` 同口径 fail-closed：
         // 无法证明干净就不能当干净删——状态取不到时恰恰是护栏最该拦住的时候。
@@ -447,7 +483,7 @@ return ok(
         // 但那里已无未提交工作可丢，删除等价于 prune（旧实现靠 `=== false` 放行整个 null 类，
         // 连带把「git 拒绝报告状态」也当成干净）。
         if ((info.clean === null || info.clean === undefined) && !entry.prunable) {
-          return fail(`refusing to remove: cannot determine whether the worktree is clean (git status returned nothing).\nResolve why git cannot report status there, or call again with force=true if the user accepts losing uncommitted work.`);
+          return fail(`refusing to remove: cannot determine whether the worktree is clean (git status returned nothing).\nResolve why git cannot report status there, or call again with force: true and confirmDiscard: true if the user accepts losing uncommitted work.`);
         }
         // 数不出 ahead 就拒绝：合并没有验证成，不能因为 null 而当成「已合并」放行。
         // 这里不再要求 entry.branch——detached 工作树同样可能带未合并提交，而 describe()
@@ -455,14 +491,14 @@ return ok(
         // `entry.branch && info.ahead === null`，detached 时 entry.branch 为 null 导致本句永假，
         // 叠加 `null > 0` 亦为假，两道护栏同时失效，未合并提交被静默删除。
         if (info.ahead === null) {
-          return fail(`refusing to remove: cannot determine whether ${info.label} is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force=true if the user accepts losing unmerged commits.`);
+          return fail(`refusing to remove: cannot determine whether ${info.label} is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force: true and confirmDiscard: true if the user accepts losing unmerged commits.`);
         }
         if (info.ahead > 0) {
-          return fail(`refusing to remove: ${info.ahead} commit(s) are not merged into ${target}.\nMerge first (worktree_merge_back), or call again with force=true if the user accepts losing them.`);
+          return fail(`refusing to remove: ${info.ahead} commit(s) are not merged into ${target}.\nMerge first (worktree_merge_back), or call again with force: true and confirmDiscard: true if the user accepts losing them.`);
         }
       }
 
-      git(["worktree", "remove", ...(force ? ["--force"] : []), info.path], repo);
+      git(["worktree", "remove", ...(discard ? ["--force"] : []), info.path], repo);
       git(["worktree", "prune"], repo, { allowFail: true });
       let branchNote = "";
       // 只有真实分支才谈得上删分支。detached 工作树没有分支：旧实现拿展示名
@@ -477,7 +513,7 @@ return ok(
       return ok(
         [
           `Removed worktree ${info.path}${info.branch ? ` (branch ${info.branch})` : info.detached ? ` (detached HEAD ${info.head})` : ""}.`,
-          ...(force ? ["Note: forced removal — uncommitted work or unmerged commits may be gone."] : []),
+          ...(discard ? ["Note: forced removal — uncommitted work or unmerged commits may be gone."] : []),
           // 目录早被手动删/移走的登记：这里清掉的只有 git 的过期登记，没有文件可删——
           // 不点名的话回执读起来像刚删掉了一个真实目录。
           ...(entry.prunable ? ["Note: the directory was already gone (prunable); only the stale registration was cleaned."] : []),
@@ -508,7 +544,13 @@ return ok(
         return fail("refusing to lock the primary worktree.");
       }
       const reason = stringArg(args.reason).trim();
-      git(["worktree", "lock", ...(reason ? ["--reason", reason] : []), entry.path], repo);
+      // 用 `--reason=<值>` 固定形态：`git worktree lock --reason <值>` 里若值以 `-` 开头，git 会把它
+      // 当成下一个选项解析（值本身丢失或报错）。`=` 形式让 git 明确「这是 reason 的值」。
+      // 另拒控制字符（含换行）——它们会污染 `git worktree list -v` 的单行输出。
+      if (/[\u0000-\u001f\u007f]/.test(reason)) {
+        return fail("`reason` must not contain control characters (including newlines).");
+      }
+      git(["worktree", "lock", ...(reason ? [`--reason=${reason}`] : []), entry.path], repo);
       return ok(
         `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove now refuses to touch it, and worktree_merge_back refuses when asked to remove after the merge; unlock with worktree_unlock.`,
       );
@@ -536,19 +578,19 @@ return ok(
   {
     name: "worktree_merge_back",
     description:
-      "Report-only by default. With rebase/merge/remove enabled it rebases the worktree branch onto the target, merges it into the repository's target branch, and cleans up. Stops and reports on any conflict instead of resolving it.",
+      "Report-only by default. With rebase/merge/remove enabled it rebases the worktree branch onto the target, merges it into the target branch in the repository's primary checkout, and cleans up. Stops and reports on any conflict instead of resolving it.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
-        target: { type: "string", description: "Branch to land on. Defaults to the current checked-out branch, falling back to origin/<default branch> when detached." },
+        target: { type: "string", description: "Branch to land on. Defaults to the branch checked out in the primary checkout, falling back to origin/<default branch> when that checkout is detached." },
         rebase: { type: "boolean", description: "Run `git -C <worktree> rebase <target>`. Default false." },
         ff: { type: "boolean", description: "With merge: fast-forward only (linear history, no merge commit); refuses when the branches diverged. Default false (--no-ff merge commit)." },
-        merge: { type: "boolean", description: "Run `git merge` in the main worktree. Default false." },
+        merge: { type: "boolean", description: "Run `git merge` in the primary checkout. Default false." },
         remove: { type: "boolean", description: "Remove the worktree (and optionally the branch) after a clean merge. Default false." },
-        deleteBranch: { type: "boolean" },
+        deleteBranch: { type: "boolean", description: "With remove: also delete the branch once the merge landed. Default false." },
       },
       required: ["name"],
     },
@@ -556,20 +598,40 @@ return ok(
       const { config } = loadConfig();
       const repo = repoRoot(args.repoPath);
       const entry = pickWorktree(repo, args.name);
-      if (samePath(entry.path, mainWorktreePath(repo))) {
+      // 合并目标固定为主检出：会话可能在 link worktree 里，此时 repo 解析到的是那个
+      // worktree，在它里面 merge 会把结果落到会话分支上（把 feature 分支当 target 时
+      // 甚至静默合进 feature）。主检出路径由 git worktree list 首条给出。
+      const mainPath = mainWorktreePath(repo);
+      if (samePath(entry.path, mainPath)) {
         return fail("this is the primary worktree; nothing to merge back from it.");
       }
       if (boolArg(args.remove) && entry.locked) {
         return fail(`this worktree is locked (${entry.locked}), so it cannot be removed after merge.\nUnlock it with worktree_unlock (or \`git worktree unlock ${entry.path}\`), or re-run without remove=true.`);
       }
-      const target = resolveTarget(repo, args.target);
+      // target 的默认值取自主检出的当前分支：会话在 link worktree 里时，默认合回主检出
+      // 正在检出的分支，而不是会话所在分支。
+      const target = resolveTarget(mainPath, args.target);
       let info = describe(repo, entry, target, {});
-      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${info.clean ? "yes" : `no (${info.dirtyCount} uncommitted)`}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`];
+      const cleanLabel =
+        info.clean === null || info.clean === undefined
+          ? "unknown (git status unavailable)"
+          : info.clean
+            ? "yes"
+            : `no (${info.dirtyCount} uncommitted)`;
+      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`];
       if (info.clean === false) return fail(`${steps.join("\n")}\nUncommitted changes block merge-back. Commit, stash, or discard them first.`);
+      // 与 worktree_remove 同口径：状态不可得（clean=null）时不能当作干净继续，
+      // 恰恰是护栏最该拦住的时候。prunable 例外与 remove 一致（目录已被移走，无未提交工作可丢）。
+      if ((info.clean === null || info.clean === undefined) && !entry.prunable) {
+        return fail(`${steps.join("\n")}\nCleanliness is unknown (git status returned nothing), so merge-back refuses to run.\nResolve why git cannot report status there, then re-run.`);
+      }
 
       const doRebase = boolArg(args.rebase);
       const doMerge = boolArg(args.merge);
       const doRemove = boolArg(args.remove);
+      // 记录「合并真的落地了没有」：清理失败时的回执口径取决于此——
+      // 合并已落地就不该报成普通失败（客户端会重试整次调用），没落地则必须如实报错。
+      let mergeLanded = false;
       if (!doRebase && !doMerge && !doRemove) return ok(`${steps.join("\n")}\n\nReport-only. Pass rebase/merge/remove=true to execute.`);
 
       if (doRebase && (info.ahead || 0) > 0 && !info.mergedIntoTarget) {
@@ -601,22 +663,31 @@ return ok(
         if (!branch) {
           steps.push(`- merge: skipped, this worktree is on a detached HEAD (${info.head}) — commit onto a branch first, then merge that branch.`);
         } else {
-        const checkedOut = currentBranch(repo) || "HEAD";
+        // 校验对象是主检出：合并落在主检出里，检出的分支也必须是主检出自己的。
+        // 旧实现拿会话所在 worktree 的分支来校验，会话在 link worktree 里时得到 wt/feature，
+        // 于是「合回主干」必然 REFUSED，而指引（去 checkout main）又不可执行——
+        // main 已经在主检出检出，git 会报 'main' is already used by worktree。
+        const checkedOut = currentBranch(mainPath) || "HEAD";
         if (checkedOut !== target) {
+          // 目标分支被别的 worktree 占用时，主检出里也 checkout 不出来（一个分支只能在一处检出），
+          // 指引必须说清这一点，而不是让用户去跑一条注定失败的 git 命令。
+          const holder = listWorktrees(repo).find((w) => w.branch === target && !samePath(w.path, mainPath));
           // remote-tracking ref（detached 回退会让 target 落在 origin/<默认分支> 上）不能被
           // checkout 成分支——照旧文案去 checkout 会进 detached HEAD。指引改成先建本地分支。
-          const checkoutHint = /^(refs\/remotes\/|origin\/)/.test(target)
-            ? `Create a local branch for it first (\`git checkout -b <branch> ${target}\` in ${repo}), then pass that branch as target.`
-            : `Check out \`${target}\` in ${repo} first, then re-run.`;
-          return fail(`${steps.join("\n")}\n- merge: REFUSED. The main worktree has \`${checkedOut}\` checked out, but the target is \`${target}\`.\n${checkoutHint}`);
+          const checkoutHint = holder
+            ? `The target branch \`${target}\` is checked out in ${holder.path}; git allows a branch in only one worktree, so it cannot be checked out in ${mainPath} either.\nMerge it in ${holder.path}, or switch that worktree to another branch first.`
+            : /^(refs\/remotes\/|origin\/)/.test(target)
+              ? `Create a local branch for it first (\`git checkout -b <branch> ${target}\` in ${mainPath}), then pass that branch as target.`
+              : `Check out \`${target}\` in ${mainPath} first, then re-run.`;
+          return fail(`${steps.join("\n")}\n- merge: REFUSED. The main worktree (${mainPath}) has \`${checkedOut}\` checked out, but the target is \`${target}\`.\n${checkoutHint}`);
         }
         // 主检出自身有未提交改动时，git merge 会以 "Your local changes would be
         // overwritten" 之类的话失败，把用户的半成品留在冲突现场。这里提前拦下并
         // 说清该做什么，而不是让用户去读 git 原文。
-        const mainStatus = statusOf(repo);
+        const mainStatus = statusOf(mainPath);
         if (mainStatus.clean === false) {
           return fail(
-            `${steps.join("\n")}\n- merge: REFUSED. The main worktree (${repo}) has ${mainStatus.dirtyCount} uncommitted change(s).\n` +
+            `${steps.join("\n")}\n- merge: REFUSED. The main worktree (${mainPath}) has ${mainStatus.dirtyCount} uncommitted change(s).\n` +
               `Commit, stash, or discard them first — otherwise the merge lands on top of uncommitted work.`,
           );
         }
@@ -628,7 +699,8 @@ return ok(
             ? ["merge", "--ff-only", branch]
             : ["merge", "--no-ff", "-m", `Merge ${branch} into ${target}`, branch];
           try {
-            git(mergeArgs, repo);
+            git(mergeArgs, mainPath);
+            mergeLanded = true;
             steps.push(`- merge ${branch} into ${target}: ${useFf ? "ok (fast-forward)" : "ok"}`);
             // merge 落在 target 上之后，worktree 侧相对 target 已是「已合并」，刷新供 remove 判定
             info = describe(repo, pickWorktree(repo, info.path), target, {});
@@ -637,9 +709,9 @@ return ok(
               return fail(`${steps.join("\n")}\n- merge: REFUSED. ${branch} and ${target} have diverged, so a fast-forward is impossible.\nRebase first (rebase: true), or drop \`ff\` to merge with a merge commit.`);
             }
             // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因（如无效 ref、仓库不可用）
-            const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], repo, { allowFail: true }) || "").trim();
+            const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], mainPath, { allowFail: true }) || "").trim();
             if (conflicts) {
-              return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${repo}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}`);
+              return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${mainPath}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}`);
             }
             return fail(`${steps.join("\n")}\n- merge: failed.\n${err.message}`);
           }
@@ -665,12 +737,7 @@ return ok(
           try {
             git(["worktree", "remove", info.path], repo);
           } catch (err) {
-            // Merge already landed (or was skipped as already merged); never report it as a plain failure.
-            // The merge has already landed in a shared ref, so report success with the cleanup
-            // failure instead of isError, which would make clients retry the whole call.
-            return ok(
-              `${steps.join("\n")}\n\nWorktree cleanup FAILED after the merge step:\n${err.message}\nThe worktree ${info.path} was left in place${info.branch ? `; branch \`${info.branch}\` was left in place` : ""}.\nFix the cause above (e.g. unlock it), then run worktree_remove.`,
-            );
+            return cleanupFailedReply(steps, err, { mergeLanded, mainPath, info });
           }
           git(["worktree", "prune"], repo, { allowFail: true });
           steps.push(`- removed worktree ${info.path}`);
@@ -906,4 +973,4 @@ function handoffText({ repo, branch, task = "", info = null, config = null, base
   return lines.join("\n");
 }
 
-export { tools };
+export { tools, cleanupFailedReply };

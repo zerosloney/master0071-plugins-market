@@ -1,6 +1,9 @@
 // check-loop-kit.mjs — 闭环门禁基础设施层（2026-10-10 收敛系列 4a：自 check-loop.mjs 原位切出，
 //   逐字未改；check-loop.mjs 以解构铺平消费、段体零漂移）。被 import 即执行（ROOT 解析/枚举加载
 //   /git 索引构建）——沿主脚本「无 isMain 守卫」既有语义，仅限 check-loop.mjs 与 section 模块 import。
+//   2026-10-28 收紧一条：非 git 目录的「跳过扫描 + exit 0」只对 check-loop 主入口生效，其他 import
+//   入口改抛错（见下方 ROOT 解析处注释）——「独立工具 import 本层后静默假成功」这条假绿路径已封。
+//   纯函数需求请走 binding.mjs（零副作用），别 import 本层。
 // 拆分挂起（2026-10-11 C6 定案）：本层「~30 符号含可变共享态铺给全部 24 段」是迁移装置的历史遗留
 //   （零观测故障 + 高爆炸半径）——缓修，触发条件 = 下次必触本层时以零漂移技法（机械 re-export 垫片 +
 //   逐字节等价比对）改窄接口，勿顺手重构。
@@ -83,8 +86,20 @@ if (process.env.CHECK_LOOP_ROOT) {
       process.exit(1);
     }
     if (probe.status === 'not-a-repo') {
-      console.error('check-loop: 不在 git 仓库内,跳过扫描');
-      process.exit(0);
+      // 语义分叉（2026-10-28 市场审查 P0-3 根因收口）：
+      //   check-loop 主入口（含 pre-commit / pre-push 物理闸门）在非 git 目录「跳过扫描 + exit 0」
+      //   是既有契约——不在仓库里跑闭环不是故障，钩子不得因此卡死用户；
+      //   但**别的脚本 import 本层**时继承这条 exit(0) 就是假绿：append-compensation.mjs 曾在非 git
+      //   目录连 `--help` 都直接成功退出、主逻辑从未执行（实测复现）。它已改 import 零副作用的
+      //   binding.mjs 解耦，可根因在本块——任何后续 `import './check-loop-kit.mjs'` 的独立工具都会
+      //   重新中招。故非主入口一律抛错（模块加载失败 = 非零退出 + 指名原因），不再静默成功。
+      if (IS_CHECK_LOOP_MAIN) {
+        console.error('check-loop: 不在 git 仓库内,跳过扫描');
+        process.exit(0);
+      }
+      throw new Error('check-loop-kit: 不在 git 仓库内，且本层由非 check-loop.mjs 入口 import —— 拒绝沿用'
+        + '主入口的「跳过扫描 + exit 0」语义（那会让 import 方静默假成功）。'
+        + '请改为 import 零副作用模块（如 binding.mjs），或显式注入 CHECK_LOOP_ROOT。');
     }
     console.error(`check-loop: git 不可用或拒绝工作（${probe.detail}）——闭环扫描未能执行，按 fail-closed 拒绝`
       + '（pre-commit / pre-push 阻断；这不是「不在 git 仓库内」，不得当合法形态放行）');
@@ -444,28 +459,10 @@ function fmStatus(text) {
 }
 
 
-// bindingSha256：done 内容绑定的复原重算（检查 15 专用）——confirm-doc.mjs computeFingerprint 的逆推：
-// lines 已 CRLF 归一（split(/\r?\n/)），frontmatter 区内首个「状态:」行保分隔符换值为 prev（`状态:  done`
-// 双空格 → `状态:  approved`——与前向按原行字面计算对称，非规范分隔符不误伤；行尾空白等更奇异格式仍会
-// 失配，触发前提本身已违反「确认落态唯一入口」约定，接受），全文剔「确认指纹:」行后 join('\n') 再 sha256。
-function bindingSha256(lines, prevStatus) {
-  const isDelim = (l) => /^---\s*$/.test(l);
-  const out = [];
-  let i = 0;
-  if (isDelim(lines[0] || '')) {
-    out.push(lines[0]);
-    let replaced = false;
-    for (i = 1; i < lines.length; i++) {
-      if (isDelim(lines[i])) { out.push(lines[i]); i++; break; }
-      if (!replaced && /^状态:/.test(lines[i])) {
-        out.push(lines[i].replace(/^(\s*状态:\s*)\S.*$/, `$1${prevStatus}`));
-        replaced = true;
-      } else out.push(lines[i]);
-    }
-  }
-  for (; i < lines.length; i++) out.push(lines[i]);
-  return createHash('sha256').update(out.filter((l) => !/^确认指纹:/.test(l)).join('\n'), 'utf8').digest('hex');
-}
+// bindingSha256 已切出到 binding.mjs（2026-10-28）：本层被 import 即执行，把纯函数留在这里会让
+// 「只为一个指纹 import kit」的脚本（append-compensation.mjs）连带继承根解析与枚举加载的顶层副作用。
+// 此处以 re-export 保留原导出面，section 与既有测试 import 点零改动。
+export { bindingSha256 } from './binding.mjs';
 
 function readdirOrNull(dir) {
   try { return fs.readdirSync(dir); } catch { return null; }
@@ -481,6 +478,6 @@ export {
   SCRIPT_DIR, GIT, REV_ARG, REV, LOOP_MODE, ROOT, ENUMS, inSet, stOkDoc,
   spawnGit, gitOut, linesOf, fmGet, WF, DOC_DIRS, blockers, warnings, kitPolicy, isTracked, docFiles,
   addedDateOf, warnEvidenceExempt, VERIFY_GREEN_RE, verifyEvidenceTruth,
-  delegationResultRows, versionGreater, fmStatus, bindingSha256, readdirOrNull, isDirectoryOrNull,
+  delegationResultRows, versionGreater, fmStatus, readdirOrNull, isDirectoryOrNull,
   commitmentFingerprint,
 };

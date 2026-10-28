@@ -10,9 +10,6 @@
   "homepage": "https://github.com/zerosloney/master0071-plugins-market",
   "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
-  "engines": {
-    "node": ">=18"
-  },
   "keywords": [
     "productivity",
     "agent-style",

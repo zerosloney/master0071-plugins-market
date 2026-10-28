@@ -3,7 +3,8 @@
 // 背景：2026-10-24 采购合同合入评审整改批踩坑——补偿行指纹按「直接哈希当前内容」手搓，被 check-loop 15
 //   「确认内容漂移」HARD-BLOCK（正确口径 = bindingSha256：状态行回填 prev 后再哈希）。本工具把口径收口为单源。
 // 判据单源（三处全部复用既有权威实现，禁手搓）：
-//   - 指纹 = check-loop-kit.mjs 的 bindingSha256（与 s15 校验端同一函数）
+//   - 指纹 = binding.mjs 的 bindingSha256（与 s15 校验端同一函数；2026-10-28 起自 check-loop-kit
+//     切出到零副作用模块——此前 import kit 会连带执行其顶层根解析/枚举加载，非 git 目录下静默 exit 0）
 //   - prev = 该 doc 末次同 stage 台账行的 prev（§4.4「prev 沿用原行」）
 //   - 写入 = confirm-doc.mjs 的 appendLedger（分片/主台账口径与确认门同一出口）
 // 拒绝面（fail-loud；防把 s15 的绑定降级路径改造成失配 hard）：
@@ -16,9 +17,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { bindingSha256 } from './check-loop-kit.mjs';
+import { bindingSha256 } from './binding.mjs';
 import { loadAllConfirmations } from './ledger-loader.mjs';
 import { appendLedger } from './confirm-doc.mjs';
+import { projectRoot } from './paths.mjs';
 
 export const TERMINAL_STAGES = ['done', 'closed', 'superseded', 'cancelled'];
 
@@ -77,7 +79,8 @@ function main() {
     console.error('  done/closed 等终态文档改正文后，按 §4.4 同批补重确认补偿行（指纹=bindingSha256 单源口径）');
     process.exit(2);
   }
-  const root = process.cwd();
+  // 根锚定 git root（paths.mjs 单源）：补偿行写进仓库根的台账，不落进调用时的子目录。
+  const root = projectRoot();
   const ledger = loadAllConfirmations(root);
   let fail = 0;
   for (const p of docs) {
@@ -98,8 +101,9 @@ function main() {
       fail++;
       continue;
     }
-    appendLedger(root, r.row);
-    console.log(`✓ ${rel} ${stage} 补偿行（prev=${r.row.prev}，指纹 ${r.row.fingerprint.slice(0, 16)}，quote=「${quote}」）`);
+    const ledgerFile = appendLedger(root, r.row);
+    // 落点打绝对路径：相对路径看不出补偿行进了仓库根还是调用时的子目录。
+    console.log(`✓ ${rel} ${stage} 补偿行（prev=${r.row.prev}，指纹 ${r.row.fingerprint.slice(0, 16)}，quote=「${quote}」）→ 台账 ${ledgerFile}`);
   }
   if (fail) console.error(`完成：${docs.length - fail} 成功 / ${fail} 拒绝`);
   process.exitCode = fail ? 1 : 0;

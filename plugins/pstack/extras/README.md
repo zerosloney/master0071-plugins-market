@@ -6,7 +6,7 @@
 
 | 目录 | 内容 | 启用条件 |
 |------|------|----------|
-| `poteto-mode-scripts/` | 上游 vendored 的 bun 专属 TypeScript：`watch-pr` PR 监视器与 `ship-pr`（babysit/shipping playbook 用）、`orch` 状态 CLI（orchestrate playbook 用）、`bootstrap.ts` 及其 `package.json` / `bun.lock` / `tsconfig.json` | 需要 **bun**（`bootstrap.ts` 在纯 node 下会明确报错退出）与 `gh` CLI；首次运行 `bun extras/poteto-mode-scripts/bootstrap.ts` 安装依赖。playbook 与宿主映射文档按本路径调用 |
+| `poteto-mode-scripts/` | 上游 vendored 的 bun 专属 TypeScript：`watch-pr` PR 监视器与 `ship-pr`（babysit/shipping playbook 用）、`orch` 状态 CLI（orchestrate playbook 用）、`bootstrap.ts` 及其 `package.json` / `bun.lock` / `tsconfig.json` | 需要 **bun**（`bootstrap.ts` 在纯 node 下会明确报错退出）与 `gh` CLI；首次运行 `bun extras/poteto-mode-scripts/bootstrap.ts` 安装依赖。playbook 与宿主映射文档按本路径调用。**注意**：`watch-pr/` 下的 `ship-pr` 与 `watch-pr` 两个入口是无扩展名的 shebang 脚本（上游原样），Windows 上不能直接双击/直接执行——按 playbook 的命令形式调用（走 bun），或 `bun run <脚本>` |
 | `effort-agents/` | 10 个 effort 分级子智能体变体（`effort-low` ~ `effort-max` 与对应 `poteto-agent-*`） | **当前无宿主加载**：Agent Plugins 1.0.0 的 `extensions` 命名空间尚无客户端实现，Claude Code 只认 `agents/`，ZCode 只注册 `agents/` 下 4 个基础代理。按上游原样保留，待宿主支持后移回根目录即可 |
 | `upstream-reference/` | 移植前的上游 hook 原文（`session-start.sh` / `.ps1`、`pre-tool-use.sh` 与 4 个 awk 引擎） | **纯参考，无启用条件**：不被任何注册引用，仅用于对照 node 移植版（`hooks/*.mjs`）与上游行为的差异 |
 

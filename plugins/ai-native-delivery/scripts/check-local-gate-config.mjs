@@ -29,10 +29,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { deploymentMode, gitHooksDir, scriptPath } from './paths.mjs';
+import { deploymentMode, gitHooksDir, projectRoot, scriptPath } from './paths.mjs';
 
 const strict = process.argv.includes('--strict');
-let root = process.cwd();
+// 根锚定 git root（paths.mjs 单源）：--root 显式指定仍优先；不指定时子目录调用也看仓库根，
+// 不把「钩子没挂」判到子目录头上（源仓形态判据读 .githooks / core.hooksPath，都是仓库级事实）。
+let root = projectRoot();
 {
   const i = process.argv.indexOf('--root');
   if (i >= 0 && process.argv[i + 1]) root = path.resolve(process.argv[i + 1]);

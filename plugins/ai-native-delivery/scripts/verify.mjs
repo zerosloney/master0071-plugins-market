@@ -70,46 +70,62 @@ const eng = (name) => `node "${scriptPath(ROOT, name)}"`;
 const GATES = [
   // guardian（2026-10-16 并行编排）：本门未过则后序门一并不启动——引擎脚本不可解析时其余门无意义，
   // 且夹具根（CHECK_LOOP_ROOT 指向无脚本目录）下若并行铺开，20 门会在假根里乱跑（verify.test 场景 7 口径）。
-  { id: 'scripts-syntax', cohort: 'engine', guardian: true, name: '引擎脚本语法自检', cmd: eng('check-scripts-syntax.mjs'), folder: '.', type: 'shell' },
-  { id: 'engine-tests', cohort: 'engine', name: '引擎脚本测试套件 (npm test)', cmd: 'npm test', folder: '.', type: 'shell' },
-  { id: 'workflows-check', cohort: 'engine', name: '编排脚本检查', cmd: eng('workflows-check.mjs'), folder: '.', type: 'shell' },
-  { id: 'rule-budget', cohort: 'engine', name: '常驻面预算检查', cmd: eng('rule-budget.mjs') + ' --all', folder: '.', type: 'shell' },
+  // optional 判据（2026-10-28）：引擎段每门都带 optional/requires，声明「这扇门凭什么在消费项目里成立」。
+  // 本门依赖的引擎脚本本体（插件内 scripts/）恒在 → 判据恒真 → 执法行为零变化；声明本身是给未来新增的
+  // 引擎门立规矩（见下方「引擎段结构不变量」）。
+  { id: 'scripts-syntax', cohort: 'engine', guardian: true, optional: 'check-scripts-syntax.mjs', name: '引擎脚本语法自检', cmd: eng('check-scripts-syntax.mjs'), folder: '.', type: 'shell' },
+  // engine-tests（2026-10-28 P0 修复：消费项目装上即红）。此前 cmd='npm test' + folder='.' = 在**使用项目根**
+  //   跑 npm test：新装项目没有 package.json 即 `npm error enoent`，有 package.json 无 test 脚本即
+  //   `Missing script: "test"`——两种都红，且 fail-fast 连带中止其后 15 门（check-loop / ledger-invariant /
+  //   secrets-scan / frontend-* / backend-* 状态全未知）。
+  //   引擎自己的测试套件在插件 test/ 目录（随插件分发），**不在使用项目里**——「在用户项目里跑 npm test」
+  //   从来就不是引擎自测。
+  //   判据取 requires '.agents/scripts'：本门跑的是**项目侧引擎脚本副本**的测试（源仓形态——项目自带
+  //   .agents/scripts 副本与自己的 npm test 脚本）；插件形态下治理脚本留插件内、项目侧无副本，本门判
+  //   「不适用」SKIP（显式出账、不进通过数——没跑 ≠ 过了）。
+  //   刻意不在消费项目里重跑插件整套 test/ 套件：① 那是厂商侧责任，由市场仓 CI 执法（同一套件逐文件跑，
+  //     另有 check-scripts-syntax + check-script-coverage 两道引擎自检门常驻）；② 整套件在本机实测 ~3.5min，
+  //     每个用户项目每次关单都重付一遍不划算；③ 套件里的环境敏感失败（缺工具链、git 身份等）会让**用户的
+  //     项目**因与它无关的原因变红——那正是本次要消灭的「装上即红」。
+  { id: 'engine-tests', cohort: 'engine', requires: '.agents/scripts', name: '引擎脚本测试套件（项目侧引擎副本形态）', cmd: 'npm test', folder: '.', type: 'shell' },
+  { id: 'workflows-check', cohort: 'engine', optional: 'workflows-check.mjs', name: '编排脚本检查', cmd: eng('workflows-check.mjs'), folder: '.', type: 'shell' },
+  { id: 'rule-budget', cohort: 'engine', optional: 'rule-budget.mjs', name: '常驻面预算检查', cmd: eng('rule-budget.mjs') + ' --all', folder: '.', type: 'shell' },
   // 本地门禁挂载自检（2026-10-25 优化1，WARN 档）：判据与 check-local-gates.mjs ①-④ 对齐（单源，一边改
   // 另一边须跟）。默认 WARN 缺配只告警；CI（TF_BUILD）/非 git 根 loud-skip；升格 = cmd 加 --strict（owner 拍板）。
-  { id: 'local-gate-config', cohort: 'engine', name: '本地门禁挂载自检（WARN 档）', cmd: eng('check-local-gate-config.mjs'), folder: '.', type: 'shell' },
+  { id: 'local-gate-config', cohort: 'engine', optional: 'check-local-gate-config.mjs', name: '本地门禁挂载自检（WARN 档）', cmd: eng('check-local-gate-config.mjs'), folder: '.', type: 'shell' },
   // 生效规则视图漂移门（2026-10-09 P2-5）：policy/engine 变更后必须重生成 effective-policy.md 随同提交——
   // 把「存量豁免 vs 受管」的规则二分从 check-loop 源码显性化，CI 强制不漂移。
   // --check 比对前行尾归一，autocrlf 检出不算漂移。
-  { id: 'effective-policy', cohort: 'engine', name: '生效规则视图漂移检查', cmd: eng('gen-effective-policy.mjs') + ' --check', folder: '.', type: 'shell' },
+  { id: 'effective-policy', cohort: 'engine', optional: 'gen-effective-policy.mjs', name: '生效规则视图漂移检查', cmd: eng('gen-effective-policy.mjs') + ' --check', folder: '.', type: 'shell' },
   // 引擎地图漂移门（2026-10-22 改进 3）：engine-map.md 是冷启动单源生成物（钩子清单 / GATES /
   // check-loop 段表 / 机制台账摘要 / 目录计数），此前 --check 只存在于脚本自身，**没有任何门调用它**
   // ——故能漂移数月无人见（实证：台账状态列加类型标记后生成物写出「现役 0」，与台账声明的 35 矛盾，
   // 而 --check 恒红也没人跑到）。与 effective-policy 同型：生成物 + --check + verify 门三件套。
   // 语义要求工作树（改完单源就地重生成随同提交），故挂 verify 而非 pre-push（后者扫待推树）。
-  { id: 'engine-map', cohort: 'engine', name: '引擎地图漂移检查', cmd: eng('gen-engine-map.mjs') + ' --check', folder: '.', type: 'shell' },
+  { id: 'engine-map', cohort: 'engine', optional: 'gen-engine-map.mjs', name: '引擎地图漂移检查', cmd: eng('gen-engine-map.mjs') + ' --check', folder: '.', type: 'shell' },
   // 生成物漂移门（2026-10-24 复核 P1）：INDEX.md 是活跃流程的冷启动入口，此前只有 --check 与
   // check-loop 日检 WARN，实测已漂移 3 件无人拦。与 engine-map 同型：生成物 + --check + verify 门三件套。
-  { id: 'workflow-index', cohort: 'engine', name: '工作流索引漂移检查', cmd: eng('gen-workflow-index.mjs') + ' --check', folder: '.', type: 'shell' },
+  { id: 'workflow-index', cohort: 'engine', optional: 'gen-workflow-index.mjs', name: '工作流索引漂移检查', cmd: eng('gen-workflow-index.mjs') + ' --check', folder: '.', type: 'shell' },
   // metrics 门（2026-10-27 修「门名不符实」）：metrics.md 是月度快照，**不做磁盘逐字漂移校验**（作者口径：
   // 任何文档改动都会让当前值漂移，拿它比磁盘只会常红）。此前本门只跑 --dry-run——恒 exit 0、只打印，
   // 名叫「指标数据自洽检查」却不做任何检查；实测 published 表停在 2026-10-25（92 全量绿行 / 165.7s /
   // 最慢门首位 backend-test）而台账已到 137 绿行 / 193.3s / 首位 ledger-invariant，漂移 18 次验证无人见。
   // 现改「时效门」：GENERATED 区写入快照生成时刻，本门判自述有多旧（上限 31 天，METRICS_MAX_AGE_DAYS
   // 可调）；--dry-run 的数据自洽校验（reviews.d 采纳+拒绝+误报=意见数，数据脏时 fail-loud）仍保留。
-  { id: 'workflow-metrics', cohort: 'engine', name: '指标快照时效检查', cmd: eng('gen-workflow-metrics.mjs') + ' --check && ' + eng('gen-workflow-metrics.mjs') + ' --dry-run', folder: '.', type: 'shell' },
+  { id: 'workflow-metrics', cohort: 'engine', optional: 'gen-workflow-metrics.mjs', name: '指标快照时效检查', cmd: eng('gen-workflow-metrics.mjs') + ' --check && ' + eng('gen-workflow-metrics.mjs') + ' --dry-run', folder: '.', type: 'shell' },
   // 默认硬门。卫生段不进关单（2026-10-10）：要看时另跑 check-loop.mjs --hygiene。
-  { id: 'check-loop', cohort: 'engine', name: '闭环门禁校验', cmd: eng('check-loop.mjs'), folder: '.', type: 'shell' },
-  { id: 'ledger-doc-presence', cohort: 'engine', name: '台账指针存在性', cmd: eng('check-ledger-doc-presence.mjs'), folder: '.', type: 'shell' },
+  { id: 'check-loop', cohort: 'engine', optional: 'check-loop.mjs', name: '闭环门禁校验', cmd: eng('check-loop.mjs'), folder: '.', type: 'shell' },
+  { id: 'ledger-doc-presence', cohort: 'engine', optional: 'check-ledger-doc-presence.mjs', name: '台账指针存在性', cmd: eng('check-ledger-doc-presence.mjs'), folder: '.', type: 'shell' },
   // 确认台账不变量（ledger-invariant-ci）：历史全扫挂进引擎段——此前该门自称 CI 机器门
   // 却从未进任何门表，71 处存量断档积累数月无人见（当日 DAG 感知重写 + HISTORY_BASELINE 声明后
   // 首次全绿，方具挂门条件）。pre-commit 仅 --staged 前缀面，全史审计由此门独担。
   // verify-diet 二批（2026-10-21 P0-2，owner 拍板）：本地关单不再重复付全史扫描（~37s）——TF_BUILD 外
   // 执行期 loud-skip（diff 面触台账即回列；门表/--list 恒 20，同 lane-surface-ci「本地跳过」先例）；全史审计由 CI 独担
   // （main 全量 verify 含本门；develop 最小 CI 面 secrets+check-loop 不含本门——2026-10-25 起），新违规仍被提交时刻 --staged 增量门当场拦。
-  { id: 'ledger-invariant', cohort: 'engine', name: '确认台账不变量（历史全扫）', cmd: eng('check-ledger-invariant.mjs'), folder: '.', type: 'shell' },
+  { id: 'ledger-invariant', cohort: 'engine', optional: 'check-ledger-invariant.mjs', name: '确认台账不变量（历史全扫）', cmd: eng('check-ledger-invariant.mjs'), folder: '.', type: 'shell' },
   // 泳道 diff 面（ai-native-review-p1）：CI（TF_BUILD/合并提交检出）按基准执法——产品契约面
   // 改动须 diff 内协伴 L2+ 入口；本地手跑无基准事实 → 脚本内 advisory 跳过（显式 --base origin/main 可预检）。
-  { id: 'lane-surface-ci', cohort: 'engine', name: '泳道完整性（CI diff 面；本地无基准则跳过）', cmd: eng('check-lane-surface.mjs') + ' --ci', folder: '.', type: 'shell' },
+  { id: 'lane-surface-ci', cohort: 'engine', optional: 'check-lane-surface.mjs', name: '泳道完整性（CI diff 面；本地无基准则跳过）', cmd: eng('check-lane-surface.mjs') + ' --ci', folder: '.', type: 'shell' },
   // 安全段（2026-10-14 决定 4 / G5 插队）：密钥扫描。
   // secrets-scan：gitleaks detect + 基线（.gitleaks-baseline.json，存量 1227 处豁免清单，用户拍板——
   //   2026-10-15 扩 6 处权限Key 标识符，见 check-secrets.mjs 头注）；
@@ -167,6 +183,18 @@ export const gateNotApplicable = (gate, root) => !!gate.requires && !fs.existsSy
 // 门表导出供测试做结构性断言（2026-10-28）：产品段每一门都必须带 optional 或 requires，
 // 否则新增一门「只对某技术栈成立」的门时会再退回「消费项目装上即红」的老问题。
 export { GATES };
+
+// 引擎段结构不变量（2026-10-28 P0 修复补齐）：引擎段每一门也必须带 optional 或 requires。
+// 为什么产品段要、引擎段此前不要：引擎段的门**也在消费项目里跑**——新增一门若依赖某个只在使用项目侧
+//   存在的东西（如 npm test 脚本、项目侧引擎副本），新装项目上就会红；红门又因 fail-fast 中止其后全部门，
+//   把「一扇门不成立」放大成「整批门状态未知」。
+// 判据本身不改变现有执法：引擎段各门的 optional 指向插件内恒在的引擎脚本（scriptPath 项目侧优先、
+//   回退插件内）→ 恒真 → 照常执法；engine-tests 走 requires '.agents/scripts'（源仓形态判据）。
+// 违规时 verify 自身 exit 2 报错——带着不完整的门表跑出来的绿凭证没有意义。
+export const gateAdaptationDeclared = (gate) => Boolean(gate.optional || gate.requires);
+export const engineGatesMissingAdaptation = (gates = GATES) =>
+  gates.filter((g) => g.cohort === 'engine' && !gateAdaptationDeclared(g)).map((g) => g.id);
+
 const fixtureGates = (cmd) => [
   { id: 'test', name: '测试步（注入）', cmd, folder: '.', type: 'shell' },
   { id: 'check-loop', name: '闭环门禁校验', cmd: `node "${path.join(SCRIPT_DIR, 'check-loop.mjs')}"`, folder: '.', type: 'shell' },
@@ -366,7 +394,9 @@ async function run() {
         et.cmd = 'npm test'; // 显式复位，防同进程/夹具残留
       } else {
         et.cmd = 'npm test -- --fast';
-        fastEngineTests = true;
+        // 门本身判「不适用」而跳过时不得挂 fastTests 标记：标记的含义是「这套件跑了、只是降了档」，
+        // 跳过是「没跑」——两者混同会让绿行自称裁剪凭证，平白失去全量锚资格（policy 判据：fastTests 行不作锚）。
+        if (!gateNotApplicable(et, ROOT)) fastEngineTests = true;
         scope.skippedGateIds = scope.skippedGateIds.filter((id) => id !== 'engine-tests');
       }
     }
@@ -407,6 +437,16 @@ async function run() {
           process.exit(2);
         }
       }
+    }
+  }
+  // 引擎段适用性判据断言（2026-10-28）：引擎段每门必须带 optional 或 requires，否则它在消费项目里
+  // 凭什么成立说不清——新增门时极易再犯「消费项目装上即红」。fail-loud：verify 自身报错，不带着病跑。
+  {
+    const missing = engineGatesMissingAdaptation(GATES);
+    if (missing.length) {
+      console.error(`[verify] 引擎段门 ${missing.join('、')} 未声明适用性判据（optional 或 requires）——拒绝运行`
+        + '（新增引擎门必须声明它在消费项目里凭什么成立，否则新装项目会因它红，且 fail-fast 会连带中止其余门）');
+      process.exit(2);
     }
   }
 
@@ -528,7 +568,7 @@ async function run() {
         return false;
       }
       if (r.notApplicableSkip) {
-        console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：SKIP（不适用：本项目无 ${gate.requires}——该门只对特定技术栈成立，缺失不算门红；路径出现即自动恢复执法）\n`);
+        console.log(`[verify] ⏭️ ${i + 1}/${gates.length} ${gate.name}：SKIP（不适用：本项目无 ${gate.requires}——该门只对特定项目形态成立，缺失不算门红；所需路径出现即自动恢复执法）\n`);
         return false;
       }
       if (r.depSkipped) {

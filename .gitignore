@@ -12,3 +12,6 @@ plugins/*/precheck-quota.json*
 .tmp-review/
 # 同类的审计夹具现场（如 .audit-tmp3/：整棵 proj 种子工程），不入库、由作者自行清理
 .audit-tmp*/
+# 本地调研草稿与审查产物（体量大、非分发内容），不入库；需长期留存的结论请移入 design/
+research/
+artifacts/review/

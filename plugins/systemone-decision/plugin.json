@@ -10,8 +10,5 @@
   "homepage": "https://github.com/zerosloney/master0071-plugins-market",
   "repository": "https://github.com/zerosloney/master0071-plugins-market",
   "license": "MIT",
-  "engines": {
-    "node": ">=18"
-  },
   "keywords": ["mcp", "decision", "systemone", "productivity"]
 }

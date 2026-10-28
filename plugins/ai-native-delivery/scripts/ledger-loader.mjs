@@ -5,8 +5,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { projectRoot } from './paths.mjs';
 
-export function loadAllConfirmations(root = process.cwd()) {
+// 默认根锚定 git root（paths.mjs 单源）：调用方不显式传根时，子目录调用不漂移。
+export function loadAllConfirmations(root = projectRoot()) {
   // 按 doc + stage + fingerprint 去重，**保留末次出现**——append-only 台账末次生效（重确认场景：
   // 同键多行仅 ts 不同时，取末次行判锚，见 check-loop-sections/s15-fingerprint.mjs 内容绑定）。
   // 主台账先读、分片按文件名序后读，同键时后读覆盖（分片视为较新）。
@@ -56,7 +58,7 @@ export function loadAllConfirmations(root = process.cwd()) {
   return [...byKey.values()];
 }
 
-export function writeConfirmation(root = process.cwd(), entry, { shard = false } = {}) {
+export function writeConfirmation(root = projectRoot(), entry, { shard = false } = {}) {
   let targetFile;
   if (shard && entry.doc) {
     const shardDir = path.join(root, '.agents', 'confirmations.d');

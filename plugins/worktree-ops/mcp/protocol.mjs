@@ -16,6 +16,34 @@ const SERVER_INFO = { name: 'worktree-ops', version: '0.4.9' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 
+/** schema 里的 type 允许写成数组（如 ["string","null"]）。 */
+function schemaTypes(type) {
+  return Array.isArray(type) ? type : [type];
+}
+
+/** 参数类型是否与 schema 相符。
+ *  此前 schema 的 type 只写在清单里、没人执行，而工具内部的 boolArg 只认 true/"true"：
+ *  noCheckout:"yes" 这类写法会被静默当成 false——调用方以为传了，实际没生效。
+ *  这里做一次轻量校验：拦下真正对不上的类型，同时放行工具本来就会无损转换的写法
+ *  （数字串、布尔串），免得把既有行为判成错误。 */
+function matchesType(type, value) {
+  const types = schemaTypes(type);
+  if (value === null) return types.includes("null");
+  // 空串在本仓是「未传」的约定（numArg("") → null、设置页回传空串），不按类型不匹配处理
+  if (value === "") return true;
+  const actual = typeof value;
+  if (types.includes(actual)) return true;
+  if (types.includes("number") && actual === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return true;
+  if (types.includes("boolean") && actual === "string" && (value === "true" || value === "false")) return true;
+  return false;
+}
+
+function jsonTypeName(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
 function reply(id, result) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 }
@@ -63,6 +91,28 @@ async function handle(message) {
               text:
                 `Error: unknown parameter(s) for ${name}: ${unknown.join(", ")}\n` +
                 `Valid parameters: ${[...known].join(", ")}`,
+            },
+          ],
+          isError: true,
+        });
+      }
+      // 类型校验：schema 的 type 此前没人执行。破坏性参数上尤其要紧——
+      // noCheckout:"yes" 会被 boolArg 静默当成 false，调用方以为生效了其实没有。
+      const schema = tool.inputSchema.properties || {};
+      const badTypes = Object.keys(args).filter(
+        (k) => known.has(k) && schema[k] && schema[k].type && !matchesType(schema[k].type, args[k]),
+      );
+      if (badTypes.length > 0) {
+        const detail = badTypes
+          .map((k) => `${k}: expected ${schemaTypes(schema[k].type).join(" or ")}, got ${jsonTypeName(args[k])}`)
+          .join("; ");
+        return reply(id, {
+          content: [
+            {
+              type: "text",
+              text:
+                `Error: invalid parameter type for ${name}: ${detail}\n` +
+                `Pass a value of the declared type; a mismatched value is rejected instead of being silently ignored.`,
             },
           ],
           isError: true,

@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Worktree Ops",
     "shortDescription": "Git worktree 操作台：可配置根目录 + 安全清理 + 合并回主干",
-    "longDescription": "把并行分支工作放到可配置目录（仓库内外皆可，须先配置根）：创建 worktree 时给出“新会话在该目录开工”的完整交底，列表与审计工具按 safe / review / hold 分桶，合并回主干会在目标分支未检出时拒绝、在冲突时停下交还给你。服务端护栏对锁定中与受管目录外的 worktree 一律拒绝删除（force 也不放开）；脏工作树与未合并提交默认拒绝，仅在显式 force=true 时越过——是否 force 由 worktree-manager skill 引导的二次确认决定。",
+    "longDescription": "把并行分支工作放到可配置目录（仓库内外皆可，须先配置根）：创建 worktree 时给出“新会话在该目录开工”的完整交底，列表与审计工具按 safe / review / hold 分桶，合并回主干会在目标分支未检出时拒绝、在冲突时停下交还给你。服务端护栏对锁定中与受管目录外的 worktree 一律拒绝删除（force 也不放开）；脏工作树与未合并提交默认拒绝，仅在同时显式传 force=true 与 confirmDiscard=true 两个独立标志时越过——两个标志分开是为了让单个误传的 force 无法独自毁掉未提交的工作。",
     "developerName": "master0071",
     "category": "Developer Tools",
     "capabilities": [
