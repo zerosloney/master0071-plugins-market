@@ -419,6 +419,93 @@ for (const g of GUARDRAILS) {
   }
 }
 
+// ── 数字承诺与实现对账（2026-10-28 第三轮）─────────────────────────────────────
+// 「65 个 skill」「10 个 MCP 工具」「15 个场景」这类计数写在市场页与各插件 README 上，是用户
+// 选择装不装的依据。它们**每次增删组件都会漂**，而且漂了不会有任何报错——只有人（或 agent）照着
+// 数字去找第 11 个工具时才发现。2026-10-28 全仓核过一遍：当时全部准确，但纯靠人肉，不可持续。
+// 这里把「测量」与「声称」两端都做成代码：测量取实现（skills/*/SKILL.md 计数、mcp 工具表的
+// name: 条目数、场景数组长度），声称按文档里出现的 `N 个 skill` / `N 个(个) MCP 工具` 形态抓取，
+// 两者不等即报红。措辞与组件对不上测量面的（如「5 段」「14 个子智能体」= 4+10 的合计）不参与判定，
+// 宁少报也不误报——规则一旦误报就会被无视。
+const measure = (plugin) => {
+  const out = {};
+  const sdir = path.join(ROOT, 'plugins', plugin, 'skills');
+  if (fs.existsSync(sdir)) {
+    out.skills = fs.readdirSync(sdir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(sdir, e.name, 'SKILL.md'))).length;
+  }
+  for (const f of ['mcp/tools.mjs', 'mcp/server.mjs', 'mcp/scenarios.mjs']) {
+    const abs = path.join(ROOT, 'plugins', plugin, f);
+    if (!fs.existsSync(abs)) continue;
+    const t = fs.readFileSync(abs, 'utf8');
+    const names = [...t.matchAll(/name:\s*["']([a-z][a-z0-9_]{2,})["']/g)].map((m) => m[1]);
+    const tools = new Set(names.filter((n) => !['stdio', 'object', 'string', 'number', 'boolean', 'array'].includes(n))).size;
+    if (tools > 0) out.tools = Math.max(out.tools || 0, tools);
+    // 场景数组的真实落点是 mcp/scenarios.mjs（第一版只扫 tools/server，测量恒 0 → 该键不在 m 里，
+    // 「N 个场景」的声称被 `if (!(key in m)) continue` 静默跳过 = 空转检查，这里补上来源）
+    const sc = /BUILTIN_SCENARIOS[^=]*=\s*\[([\s\S]*?)^\]/m.exec(t);
+    if (sc) {
+      const n = (sc[1].match(/^\s*\{\s*id:/gm) || []).length;
+      if (n > 0) out.scenarios = n;
+    }
+  }
+  return out;
+};
+// 数字前后不得再接数字/连字符/点：否则 `2026-10-26 工具栏靠左实测` 会被读成「26 个工具」（实测踩过）。
+// 同时覆盖两种措辞：前置式「10 个 MCP 工具」与后置式「MCP 工具（7 个）」。
+const NUM = '(?<![\\d.\\-])(\\d+)(?![\\d.\\-])';
+const CLAIM_RES = [
+  { key: 'skills', re: new RegExp(`${NUM}\\s*个?\\s*skills?\\b`, 'gi'), label: 'skill' },
+  { key: 'skills', re: new RegExp(`skills?\\s*[（(]\\s*${NUM}\\s*个?\\s*[)）]`, 'gi'), label: 'skill' },
+  { key: 'tools', re: new RegExp(`${NUM}\\s*个?\\s*(?:MCP\\s*)?工具`, 'g'), label: 'MCP 工具' },
+  { key: 'tools', re: new RegExp(`MCP\\s*工具\\s*[（(]\\s*${NUM}\\s*个?\\s*[)）]`, 'g'), label: 'MCP 工具' },
+  { key: 'tools', re: new RegExp(`MCP\\s*${NUM}\\s*工具`, 'g'), label: 'MCP 工具' },
+  { key: 'scenarios', re: new RegExp(`${NUM}\\s*个(?:业务)?场景`, 'g'), label: '场景' },
+];
+for (const plugin of plugins) {
+  const m = measure(plugin);
+  const files = [];
+  const collect = (dir, base) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) collect(p, base);
+      else if (/\.(md|json)$/.test(e.name)) files.push(p);
+    }
+  };
+  const pd = path.join(ROOT, 'plugins', plugin);
+  if (fs.existsSync(pd)) collect(pd, plugin);
+  // 市场首页的该插件表行 + 市场目录条目（同一句话的对外副本，漂了同样误导用户）
+  const marketTexts = [];
+  const rootReadmePath = path.join(ROOT, 'README.md');
+  if (fs.existsSync(rootReadmePath)) {
+    for (const line of fs.readFileSync(rootReadmePath, 'utf8').split(/\r?\n/)) {
+      if (line.startsWith('|') && line.includes(`[${plugin}](`)) marketTexts.push(['README.md 插件表行', line]);
+    }
+  }
+  for (const cat of ['marketplace.json', '.omp-plugin/marketplace.json']) {
+    if (!fs.existsSync(path.join(ROOT, cat))) continue;
+    for (const e of (read(cat).plugins || []).filter((x) => x && x.name === plugin)) {
+      marketTexts.push([`${cat}`, String(e.description || '')]);
+      for (const [loc, v] of Object.entries(e.description_i18n || {})) marketTexts.push([`${cat} ${loc}`, String(v || '')]);
+    }
+  }
+  for (const [where, text] of [...files.map((f) => [path.relative(ROOT, f).split(path.sep).join('/'), fs.readFileSync(f, 'utf8')]), ...marketTexts]) {
+    for (const { key, re, label } of CLAIM_RES) {
+      if (!(key in m)) continue; // 该插件没有这个测量面（如无 MCP），不参与判定
+      for (const mm of text.matchAll(re)) {
+        const claimed = Number(mm[1]);
+        if (claimed === m[key]) continue;
+        // 不做「文本得提到插件名」这类二次守卫：上面每一路文本都**已经**按插件归属筛过
+        // （本插件目录内的文件 / 市场目录里 name===plugin 的条目 / README 里 [plugin](…) 那行）。
+        // 加这层守卫反而把最该查的对外文案放过——实测 marketplace.json 的 worktree 条目写的是
+        // 「Git worktree 操作台」不含 worktree-ops，改错数字也不报（第一轮就是这样漏的）。
+        fail(`${where}: 声称 ${claimed} 个${label}，实现是 ${m[key]} 个——增删组件时忘了同步对外文案`);
+      }
+    }
+  }
+}
+
 if (problems.length) {
   console.error(`✗ 垫片一致性检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);

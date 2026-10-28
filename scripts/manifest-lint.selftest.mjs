@@ -48,6 +48,13 @@ const ZCODE = {
 };
 writeJson('plugins/demo/.zcode-plugin/plugin.json', ZCODE);
 put('plugins/demo/skills/demo-skill/SKILL.md', '---\nname: demo-skill\ndescription: d\n---\nbody\n');
+// 数字承诺测量面：2 个 MCP 工具 + 1 个 skill（文案在插件 README 里，写对才通过）
+put('plugins/demo/mcp/tools.mjs', [
+  'export const TOOLS = [', "  { name: 'demo_one', handler: () => 1 },",
+  "  { name: 'demo_two', handler: () => 2 },", '];', '',
+].join('\n'));
+put('plugins/demo/mcp/server.mjs', '// 读取 DEMO_ROOT 的服务端\nconst root = process.env.DEMO_ROOT;\nexport default root;\n');
+put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n');
 put('plugins/demo/hooks/hooks.json', JSON.stringify({
   hooks: { PreToolUse: [{ matcher: '[bB][aA][sS][hH]', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs"', timeout: 15 }] }] },
 }, null, 2));
@@ -101,6 +108,14 @@ const cases = [
     put('.github/workflows/ci.yml', ['name: ci', 'on: push', 'jobs:', '  t:', '    steps:', '      - run: |',
       '          node test/committed.mjs', '          node test/ghost.mjs', ''].join('\n'));
   }, () => { git(['add', 'test/ghost.mjs']); }],
+  // 数字承诺对账：实现是 2 个工具 / 1 个 skill，文案改错就必须点名（这条规则曾因为
+  // 「文本得含插件名」的二次守卫而静默空转，实测靠这两例才暴露）
+  ['对外文案的工具数与实现不符', /声称 5 个/, () => {
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 5 个 MCP 工具与 1 个 skill。\n');
+  }, () => put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n')],
+  ['对外文案的 skill 数与实现不符', /声称 3 个/, () => {
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 3 个 skill。\n');
+  }, () => put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n')],
 ];
 for (const [desc, re, breakIt, restore] of cases) {
   breakIt();
