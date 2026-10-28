@@ -31,7 +31,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.7' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.8' };
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
