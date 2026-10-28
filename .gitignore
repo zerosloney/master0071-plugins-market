@@ -4,5 +4,9 @@ node_modules/
 *.log
 .plugins-cache.json
 plugins/*/.endpoint.json*
-plugins/*/decision-cache.json
-plugins/*/precheck-quota.json
+# 缓存与配额的原子写用 <file>.<pid>.<hex>.tmp：进程被 kill 时残留的文件名不带裸名，
+# 只忽略裸名会让写着「问题文本 + 判定」的半截缓存在 git status 里裸奔——故与 .endpoint.json* 同形加星。
+plugins/*/decision-cache.json*
+plugins/*/precheck-quota.json*
+# 逐插件的临时夹具/调试现场（含嵌套 .git 与写了绝对本地路径的钩子），永不入库
+.tmp-review/
