@@ -34,6 +34,12 @@ const plugins = fs.readdirSync(path.join(ROOT, 'plugins'), { withFileTypes: true
 const problems = [];
 const fail = (msg) => problems.push(msg);
 const read = (rel) => JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
+// 深度遍历清单取出所有字符串值（hook 命令、args、env、指针都藏在不同层级，逐个手抄会漏）
+function* stringsOf(node) {
+  if (typeof node === 'string') { yield node; return; }
+  if (Array.isArray(node)) { for (const v of node) yield* stringsOf(v); return; }
+  if (node && typeof node === 'object') { for (const v of Object.values(node)) yield* stringsOf(v); }
+}
 
 for (const plugin of plugins) {
   const manifestRel = `plugins/${plugin}/plugin.json`;
@@ -195,6 +201,136 @@ for (const s of skills) byName.set(s.name, [...(byName.get(s.name) || []), `${s.
 for (const [name, owners] of byName) {
   if (owners.length > 1) {
     fail(`skill 名 ${JSON.stringify(name)} 被多个插件声明：${owners.join(' + ')}——扁平命名空间下会互相覆盖，或第二个插件被安装器拒绝`);
+  }
+}
+
+// ── 组件指针落点 + 设置页三跳对账（2026-10-28 第二轮市场审查）─────────────────
+// 垫片里的 hooks 指针、`${CLAUDE_PLUGIN_ROOT}/hooks/x.mjs` 命令串、`userConfig → env` 映射全都是
+// **字符串**：宿主照着找，找不到就不装这个 hook / 不注入这个变量，且不报错。于是「声明在、实体不在」
+// 表现为该宿主上闸门静默不存在、或设置页改了没反应——正是本脚本的立项目标（机器对账代替人眼）。
+// 四条：
+//   ① `"hooks": "./hooks"` 必须解析到真实目录且其中有 hooks.json；
+//   ② 任何 `${CLAUDE_PLUGIN_ROOT}/<带扩展名路径>` 与 `"./<带扩展名路径>"` 必须真实存在
+//      （相对路径一律按**插件根**解析——宿主就是这么解的，不是按垫片所在目录）；
+//   ③ mcpServers.env 里 `${user_config.X}` 引用的 X 必须在同一垫片 userConfig 中存在；
+//   ④ 该 env 键名必须在插件**生产代码**里被读取过（test/ 里的读取不算：测试绿不代表宿主生效）。
+// 扩展名交替必须**长名在前**且后接非词字符：写成 `js|json` 会把 "./mcp.json" 截成 "./mcp.js"
+// （实测踩过一次，报出三条假阳性），宿主解的是整串，截断即指向不存在的文件。
+const PATH_TOKEN_RE = /\$?\{?CLAUDE_PLUGIN_ROOT\}?\/([^\s"'`),]+?\.(?:json|mjs|cjs|ps1|sh|py|js)(?![\w]))|(?<=^|\s)(\.\/[^\s"'`),]+?\.(?:json|mjs|cjs|ps1|sh|py|js)(?![\w]))/g;
+const codeCache = new Map();
+const pluginCode = (plugin) => {
+  if (codeCache.has(plugin)) return codeCache.get(plugin);
+  const files = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === 'test' || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(mjs|cjs|js)$/.test(e.name)) files.push(p);
+    }
+  };
+  const base = path.join(ROOT, 'plugins', plugin);
+  walk(base);
+  const blob = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  codeCache.set(plugin, { blob, count: files.length });
+  return codeCache.get(plugin);
+};
+
+for (const plugin of plugins) {
+  const dirRel = `plugins/${plugin}`;
+  const manifestFiles = [`${dirRel}/plugin.json`, ...SHIMS.map((s) => `${dirRel}/${s}/plugin.json`),
+    `${dirRel}/hooks/hooks.json`, `${dirRel}/mcp.json`];
+  for (const relFile of manifestFiles) {
+    const abs = path.join(ROOT, relFile);
+    if (!fs.existsSync(abs)) continue;
+    let m;
+    try { m = read(relFile); } catch { continue; } // JSON 合法性另有检查
+
+    if (typeof m.hooks === 'string' && m.hooks.startsWith('.')) {
+      const target = path.join(ROOT, dirRel, m.hooks);
+      if (!fs.existsSync(target)) fail(`${relFile}: hooks 指针 ${JSON.stringify(m.hooks)} 不存在——该宿主上 hook 静默不装，闸门不生效`);
+      else if (!fs.existsSync(path.join(target, 'hooks.json'))) fail(`${relFile}: hooks 指针 ${JSON.stringify(m.hooks)} 指向的目录里没有 hooks.json——宿主找不到 hook 入口`);
+    }
+
+    for (const s of stringsOf(m)) {
+      for (const mm of s.matchAll(PATH_TOKEN_RE)) {
+        const tok = mm[1] || mm[2];
+        if (!tok) continue;
+        if (!fs.existsSync(path.join(ROOT, dirRel, tok))) {
+          fail(`${relFile}: 引用 ${JSON.stringify(tok)} 不存在（按插件根解析）——宿主照字符串找，找不到即静默跳过，不报错`);
+        }
+      }
+    }
+
+    for (const server of Object.values(m.mcpServers && typeof m.mcpServers === 'object' ? m.mcpServers : {})) {
+      if (!server || typeof server !== 'object') continue;
+      for (const [envKey, envVal] of Object.entries(server.env || {})) {
+        const ref = typeof envVal === 'string' && /\$\{user_config\.([\w-]+)\}/.exec(envVal);
+        if (!ref) continue;
+        if (!m.userConfig || !(ref[1] in m.userConfig)) {
+          fail(`${relFile}: env ${envKey} 映射 \${user_config.${ref[1]}}，但本垫片 userConfig 无此键——设置页没有这一项，注入恒为空`);
+        }
+        const { blob } = pluginCode(plugin);
+        if (!blob.includes(envKey)) {
+          fail(`${relFile}: env ${envKey} 在 plugins/${plugin} 的生产代码里没有任何读取点（test/ 不计）——设置页改了不生效，属静默失效`);
+        }
+      }
+    }
+  }
+}
+
+// ── 组件实体 vs 垫片声明（2026-10-28 第二轮市场审查）─────────────────────────
+// 垫片漏声明一个组件面 = 那个宿主上这批 skill / command / agent 静默不加载。2026-10-28 实测抓到
+// 一条：ai-native-delivery 的 zcode 垫片声明了 skills/hooks/mcpServers 却漏了 commands 与 agents，
+// 而同仓另外两个有 commands 的插件都声明了——README 通篇按「8 交付命令 + 3 角色委派」宣传。
+// 判据取**本仓既有约定**而非臆造：同一垫片在别的插件里声明过某个组件面，就认为该宿主支持它，
+// 于是本插件凡有该实体也必须声明。宿主确实不支持的面（下表）以豁免显式记录并注明出处，
+// 不再靠"口口相传的实测结论"——那样下次加插件必然漏。
+const COMPONENTS = ['skills', 'commands', 'agents', 'hooks', 'mcpServers'];
+const SHIM_COMPONENT_EXEMPTIONS = {
+  // Codex 不执行插件 hook（本仓实测，见 plugins/pstack/README.md「宿主与 hook 降级」）→ 声明无意义
+  'systemone-decision/.codex-plugin': ['hooks'],
+  // ZCode 按约定路径注册 hooks、不理会 hooks 指针（见 plugins/pstack/README.md）→ pstack 选择不写
+  'pstack/.zcode-plugin': ['hooks'],
+};
+for (const shim of SHIMS) {
+  for (const plugin of plugins) {
+    const rel = `plugins/${plugin}/${shim}/plugin.json`;
+    const abs = path.join(ROOT, rel);
+    if (!fs.existsSync(abs)) continue;
+    const m = read(rel);
+    const entityOf = (k) => (k === 'mcpServers'
+      ? fs.existsSync(path.join(ROOT, 'plugins', plugin, 'mcp.json'))
+      : fs.existsSync(path.join(ROOT, 'plugins', plugin, k)));
+    // 该宿主在本仓的支持面：任一插件的同一垫片声明过，即视为支持
+    const supported = COMPONENTS.filter((k) => plugins.some((q) => {
+      if (q === plugin) return false;
+      const p = `plugins/${q}/${shim}/plugin.json`;
+      if (!fs.existsSync(path.join(ROOT, p))) return false;
+      return k in read(p);
+    }));
+    const exempt = SHIM_COMPONENT_EXEMPTIONS[`${plugin}/${shim}`] || [];
+    for (const k of supported) {
+      if (exempt.includes(k)) continue;
+      if (entityOf(k) && !(k in m)) {
+        fail(`${rel}: 有 ${k} 实体目录/文件但垫片未声明——该宿主上这批组件静默不加载`
+          + `（同仓其他插件的 ${shim} 都声明了 ${k}）。确属宿主不支持请写入 SHIM_COMPONENT_EXEMPTIONS 并注明出处`);
+      }
+    }
+  }
+}
+// 豁免表自身的保鲜：豁免项若实体已不在，就是陈旧条目（防止豁免表随时间变成垃圾场）。
+// 只校验**本次检出里在场**的插件——selftest 与局部检出不可能带齐 5 个插件，若把「插件不在」当错误
+// 报，合法夹具会被判红（实测踩过一次，6 条断言连带失配）。插件若真被删除，其豁免项无害（对应的
+// 实体检查面也随之消失），不值得为此让任何局部检出跑不通过。
+for (const [key, list] of Object.entries(SHIM_COMPONENT_EXEMPTIONS)) {
+  const [plugin] = key.split('/');
+  if (!plugins.includes(plugin)) continue;
+  for (const k of list) {
+    const entity = k === 'mcpServers'
+      ? fs.existsSync(path.join(ROOT, 'plugins', plugin, 'mcp.json'))
+      : fs.existsSync(path.join(ROOT, 'plugins', plugin, k));
+    if (!entity) fail(`SHIM_COMPONENT_EXEMPTIONS[${JSON.stringify(key)}] 含 ${JSON.stringify(k)}，但实体已不存在——陈旧豁免，请删除`);
   }
 }
 

@@ -2,6 +2,8 @@
 // mcp-tools.test.mjs — MCP 7 工具端到端（spawn mcp/server.mjs，stdio JSON-RPC 往返）
 // 断言：tools/list 恰好 7 个具名工具；grade_task 三态；read_context 未初始化/已初始化两态；
 //       confirm 落账可解析且 fingerprint 与 confirm-doc.computeFingerprint 同构；
+//       confirm 的引文接地与 confirm-doc 同口径（接地留痕 / advisory 默认 / doc 缺失与路径逃逸硬拒 /
+//       task 行恒不带 stage）；
 //       update_ledger 路径逃逸被拒；verify_gate 在最小 fixture 仓 exit 0；policy_status 返回
 //       policyVersion=14；未知工具 / 缺参报 isError。
 // 零依赖，Node ≥ 18 直接运行：node test/mcp-tools.test.mjs
@@ -130,6 +132,10 @@ initEngine(root);
   }));
   check('confirm fingerprint 与 confirm-doc.computeFingerprint 同构', rows[0] && rows[0].fingerprint === expectedFp, `got ${rows[0] && rows[0].fingerprint}`);
   check('confirm 行带 kind:"task"（台账校验器判别键）', rows[0] && rows[0].kind === 'task', JSON.stringify(rows[0]));
+  // 未带 doc 的确认行必须**如实记 unanchored**（2026-10-28 引文接地对齐）：不能留空让审计面
+  // 误以为已接地，也不能硬拦（既有调用方与存量语义不变）。
+  check('confirm 不带 doc → 行记 quoteGrounding=unanchored 且回传绑定提示',
+    rows[0] && rows[0].quoteGrounding === 'unanchored', JSON.stringify(rows[0]));
   check('confirmations.d/ 目录已自动建', fs.existsSync(path.join(root, '.agents', 'confirmations.d')));
 
   const upd1 = jsonOf(replies.get(16));
@@ -163,6 +169,48 @@ initEngine(root);
   check('read_context 在途清单三键齐备', rc && rc.inFlight && Array.isArray(rc.inFlight.plans) && Array.isArray(rc.inFlight.specs) && Array.isArray(rc.inFlight.intents));
   check('read_context 最近确认行字段齐备', rc && Array.isArray(rc.confirmations) && rc.confirmations.length === 1
     && ['ts', 'task', 'decision', 'evidence', 'fingerprint'].every((k) => k in rc.confirmations[0]), JSON.stringify(rc && rc.confirmations));
+}
+
+// ---- 会话 4：confirm 的引文接地（2026-10-28 第二轮审查，与 confirm-doc 同口径）----
+// 判据来自 quote-grounding.mjs，默认档也一致：接地不成立**只留痕不拦**（advisory），
+// 硬拦的只有客观缺陷——doc 不存在、路径逃逸、以及调用方显式 strict_quote。
+{
+  const DOC = 'workflow/papercuts-2026-10.md'; // 会话 2 建的：正文含「MCP 工具链端到端补一行」
+  const grounded = '放行原话：MCP 工具链端到端补一行';
+  const unrelated = '把库存盘点模块的批次号规则按季度重置并回填历史单据';
+  const { replies } = call(root, [
+    { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'confirm', arguments: { task: '接地正例', decision: '用户放行', evidence: grounded, doc: DOC } } },
+    { jsonrpc: '2.0', id: 32, method: 'tools/call', params: { name: 'confirm', arguments: { task: 'doc 不存在', decision: '用户放行', evidence: grounded, doc: 'workflow/specs/never-exists.md' } } },
+    { jsonrpc: '2.0', id: 33, method: 'tools/call', params: { name: 'confirm', arguments: { task: '不相干引文', decision: '用户放行', evidence: unrelated, doc: DOC } } },
+    { jsonrpc: '2.0', id: 34, method: 'tools/call', params: { name: 'confirm', arguments: { task: '不相干引文 strict', decision: '用户放行', evidence: unrelated, doc: DOC, strict_quote: true } } },
+    { jsonrpc: '2.0', id: 35, method: 'tools/call', params: { name: 'confirm', arguments: { task: '逃逸', decision: '用户放行', evidence: grounded, doc: '../../outside.md' } } },
+  ]);
+  const ok31 = jsonOf(replies.get(31));
+  check('confirm 带 doc + 可对质引文 → 落账且记接地形态',
+    ok31 && ok31.written === true && ['verbatim', 'anchor'].includes(ok31.entry.quoteGrounding), JSON.stringify(ok31));
+  check('confirm 带 doc → 行内 doc 字段如实记录指向',
+    ok31 && ok31.entry.doc === DOC, JSON.stringify(ok31 && ok31.entry));
+  // 不变量（2026-10-28）：task 行的 doc 只是**来源注记**，绝不能带 stage。§15 的文档配对判据是
+  // `e.doc === rel && VALID_STAGES.has(e.stage)`——一旦 task 行补上 stage，它就会被当成文档确认行，
+  // 「任务级确认」随即获得伪造文档关单凭证的能力。这条断言把该绕过面钉死。
+  check('task 确认行不得携带 stage（否则进 §15 文档配对集，可伪造关单凭证）',
+    ok31 && !('stage' in ok31.entry), JSON.stringify(ok31 && ok31.entry));
+  check('confirm doc 不存在 → isError 硬拒（客观缺陷，非语义猜测）',
+    isError(replies.get(32)) && /不存在/.test(replies.get(32).result.content[0].text), JSON.stringify(replies.get(32)));
+  const ok33 = jsonOf(replies.get(33));
+  check('confirm 引文不相干 → advisory 放行并记 quoteGrounding=ungrounded（默认不拦）',
+    ok33 && ok33.written === true && ok33.entry.quoteGrounding === 'ungrounded' && /quoteGrounding/.test(ok33.hint || ''),
+    JSON.stringify(ok33));
+  check('confirm 引文不相干 + strict_quote → isError 拒绝落账',
+    isError(replies.get(34)) && /接地不成立/.test(replies.get(34).result.content[0].text), JSON.stringify(replies.get(34)));
+  check('confirm doc 路径逃逸 → isError（与 update_ledger 同围栏）',
+    isError(replies.get(35)), JSON.stringify(replies.get(35)));
+
+  // 落账面：strict 与逃逸两条**不得**进台账（advisory 那条应在），逐行仍可解析
+  const txt = fs.readFileSync(path.join(root, '.agents', 'confirmations.jsonl'), 'utf8');
+  const rows = txt.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l));
+  check('被拒的确认不落账（5 次调用只落 3 行，台账无半行）', rows.length === 3, txt);
+  check('接地留痕行不落 .tmp 残留', fs.readdirSync(path.join(root, '.agents')).filter((f) => f.includes('.tmp')).length === 0);
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

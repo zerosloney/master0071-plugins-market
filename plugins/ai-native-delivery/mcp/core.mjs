@@ -23,6 +23,7 @@ import {
 import { gradeTask } from '../scripts/grade-task.mjs';
 import { readContext } from '../scripts/read-context.mjs';
 import { computeFingerprint } from '../scripts/confirm-doc.mjs';
+import { groundQuote, resolveDocText, resolveFamilyTexts } from '../scripts/quote-grounding.mjs';
 import { readAllJudgments, retireCandidates, aggFromRows } from '../scripts/agg-judgments.mjs';
 
 const SPAWN_TIMEOUT_MS = 120_000;   // 不变量前置等轻量子进程的墙钟上限
@@ -224,13 +225,48 @@ export function toolConfirm(args) {
   if (!task || !decision || !evidence) {
     throw new ToolError('`task` / `decision` / `evidence` 三参必填且非空——确认记录缺一项即失去对质面。');
   }
+  // 引文接地（2026-10-28 第二轮市场审查）：此前 MCP confirm 的 evidence 是**自由作文**——文件侧
+  // confirm-doc 早就用 quote-grounding.mjs 判「这句原话到底在指哪份文档」，MCP 面却什么都不查，
+  // 于是同一信任边界两套口径（工具描述里那句"请带可对质的证据原文"只是提示，无机器牙齿）。
+  // 现在复用同一模块、同一默认档：advisory（留痕不拦），因为该模块头注的实测表明中文口语是复述
+  // 而非引用，词面判据硬拦会误杀大量合规放行（真文档通过 90.0%、无关文档也通过 71.2%）；
+  // 只有**客观缺陷**才硬拦：目标文档在活跃目录与归档里都不存在（与 confirm-doc 同判据）。
+  // strict_quote=true 由调用方显式收硬（策略选择，不是默认）。
+  const docArg = typeof args.doc === 'string' ? args.doc.trim() : '';
+  const strict = args.strict_quote === true;
+  let docRel = '';
+  let grounding = { ok: true, reason: 'unanchored', anchor: 0, residual: '' };
+  if (docArg) {
+    // 走 update_ledger 同一围栏：只接受 workflow/ 树内相对路径，绝对路径与 ../ 逃逸直接拒
+    const { relPosix } = resolveLedgerTarget(root, docArg);
+    docRel = relPosix;
+    const resolved = resolveDocText(root, relPosix); // 活跃缺失 → 同名归档回落（归档不是失效）
+    if (!resolved) {
+      throw new ToolError(`\`doc\` 指向的台账文档不存在（活跃目录与 workflow/archive 都没有 ${relPosix}）`
+        + '——引文无法对质一份不存在的文档，本次确认被拒（客观缺陷硬拦，非语义猜测）。');
+    }
+    grounding = groundQuote({
+      quote: evidence,
+      docText: resolved.text,
+      familyTexts: resolveFamilyTexts(root, relPosix),
+    });
+    if (!grounding.ok && strict) {
+      throw new ToolError(`引文接地不成立（strict_quote）：evidence 在 ${relPosix} 及其同名家族里`
+        + `找不到 ≥8 字逐字锚点，残余「${grounding.residual.slice(0, 40)}」无落点。`
+        + '确认须引用该文档的具体内容，或去掉 strict_quote 走 advisory（仍会留痕）。');
+    }
+  }
   // 指纹复用 confirm-doc.computeFingerprint（CRLF 归一 → 剔指纹行 → sha256 64 位 hex）——
   // 与 §15 确认指纹校验同构；指纹对象 = 本次记录的语义内容三元组。
   // kind:"task"（2026-10-27 confirm-task-row）：MCP confirm 是任务级确认记录（非 doc 绑定行），
   // 台账校验器 check-ledger-invariant.mjs 行级校验按该判别键分流——task 行只验五字段与指纹，
   // 不要求 doc/stage；无 kind 的存量行走原 doc 绑定校验（行为零变化）。
   const fingerprint = computeFingerprint(JSON.stringify({ task, decision, evidence }));
-  const entry = { ts: new Date().toISOString(), kind: 'task', task, decision, evidence, fingerprint };
+  const entry = {
+    ts: new Date().toISOString(), kind: 'task', task, decision, evidence, fingerprint,
+    ...(docRel ? { doc: docRel } : {}),
+    quoteGrounding: grounding.reason, // unanchored / verbatim / anchor / generic / ungrounded
+  };
   // 写前置（与 update_ledger 同口径）：先跑 check-ledger-invariant。此前 confirm 是 MCP 面唯一
   // 不过前置就落账的写点——台账若已带结构性违规，append 会把它进一步固化（2026-10-28 市场审查对齐）。
   // 注意：kind:"task" 行不带 doc/stage，进不了 §15 的文档配对集（VALID_STAGES 只认文档态），
@@ -246,7 +282,10 @@ export function toolConfirm(args) {
   // 对 append-only 台账，read-modify-write 的并发窗口会让后写者整体覆盖先写者而**丢行**，而丢行比
   // 半行更隐蔽（半行会被解析器当坏行跳过并出账）。append 语义在此更安全。
   fs.appendFileSync(ledger, `${JSON.stringify(entry)}\n`, 'utf8');
-  return ok({ written: true, ledger: '.agents/confirmations.jsonl', entry });
+  const hint = docRel
+    ? (grounding.ok ? '' : `⚠️ evidence 未在 ${docRel} 及其同名家族接地（记 quoteGrounding=ungrounded 供事后对质）；收硬请用 strict_quote:true`)
+    : '提示：本次未带 doc，确认行只记 quoteGrounding=unanchored——绑定台账文档（doc 参数）才有可对质的引文接地面。';
+  return ok({ written: true, ledger: '.agents/confirmations.jsonl', entry, ...(hint ? { hint } : {}) });
 }
 
 /* ------------------------------------------------------------ verify_gate */

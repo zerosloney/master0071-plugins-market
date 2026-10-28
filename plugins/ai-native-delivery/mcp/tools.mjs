@@ -73,7 +73,7 @@ const tools = [
   {
     name: "confirm",
     description:
-      "写确认记录：向 .agents/confirmations.jsonl 追加一行 {ts, task, decision, evidence, fingerprint}；指纹复用 confirm-doc.computeFingerprint（sha256 64 位 hex，供指纹校验对账）。调用纪律：确认须来自用户真实放行，evidence 请带可对质的证据原文。",
+      "写确认记录：向 .agents/confirmations.jsonl 追加一行 {ts, kind:task, task, decision, evidence, fingerprint, doc?, quoteGrounding}；指纹复用 confirm-doc.computeFingerprint（sha256 64 位 hex，供指纹校验对账）。调用纪律：确认须来自用户真实放行，evidence 是用户原话原文而非复述。带 doc（workflow/ 树内台账文档）时按 confirm-doc 同款判据做引文接地并记 quoteGrounding（verbatim/anchor/generic/ungrounded；不带则 unanchored）——接地默认只留痕不拦（中文口语多为复述，硬拦误杀合规放行），doc 指向不存在的文档才硬拒；需要收硬时传 strict_quote:true。",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -81,6 +81,8 @@ const tools = [
         task: { type: "string", description: "任务标识（一句话，含文件名更佳）。" },
         decision: { type: "string", description: "确认决定（如 用户放行 / draft→approved / 拒绝及理由）。" },
         evidence: { type: "string", description: "证据原文（用户对话原话/放行依据），供事后对质。" },
+        doc: { type: "string", description: "可选：本次确认所指向的台账文档（workflow/ 树内相对路径）。给了才对 evidence 做引文接地；绝对路径与 ../ 逃逸按 update_ledger 同口径拒绝。" },
+        strict_quote: { type: "boolean", description: "可选：引文接地不成立即拒绝落账（默认 false=advisory 留痕放行，与 confirm-doc 默认档一致）。" },
         ...ROOT_PROP,
       },
       required: ["task", "decision", "evidence"],

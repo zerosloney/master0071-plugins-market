@@ -24,7 +24,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22]
+        # 18 是**声明的下限**（三份 mcp/server.mjs 的运行期自检都写 `Node.js 18 or newer is required`，
+        # 各插件 README 同口径），此前矩阵只跑 20/22 → 下限从未被验证过，声明可以随便烂掉。
+        # 静态扫描（2026-10-28）未见 >18 API（无 Object.groupBy / toSorted / crypto.hash / fs.globSync /
+        # structuredClone / URL.parse / Atomics.waitAsync / RegExp v 标志）。若本项转红，说明实际下限
+        # 高于声明——按仓库纪律应改 README 与自检值，而不是把这一档从矩阵删掉。
+        node: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
