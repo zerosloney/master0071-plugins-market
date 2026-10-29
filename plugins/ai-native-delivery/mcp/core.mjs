@@ -80,6 +80,16 @@ export function requireRoot(explicitRoot) {
         'hint: 请给使用项目的 git 仓库根（或其子目录）；台账与绿凭证只落使用项目的仓库根。',
       );
     }
+    // 插件根守卫对**显式根**同样适用（2026-10-29 修复）：旧实现只在 cwd 分支检查，
+    // 于是 `requireRoot('<插件安装目录>')` 一路放行。判据必须落在**入参路径**上：
+    // resolveProjectRoot 取的是 git toplevel，而插件目录通常就在某个仓库（如本市场仓库）里，
+    // 解析结果恰好是那个仓库根——只看解析结果永远看不出「用户指的是插件自己」。
+    if (cwdInsidePluginRoot(explicitRoot) || cwdInsidePluginRoot(r.root)) {
+      throw new ToolError(
+        `显式项目根落在插件安装目录内（${r.root} ← PLUGIN_ROOT=${PLUGIN_ROOT}）——那是插件自己的位置，不是使用项目。\n` +
+        'hint: 传使用项目自己的 git 仓库根；台账与绿凭证落进插件目录会被别的项目当成关单凭证。',
+      );
+    }
     return r.root;
   }
   if (cwdInsidePluginRoot()) {
@@ -210,12 +220,39 @@ export function toolUpdateLedger(args) {
     writeAtomic(target, content.endsWith('\n') ? content : `${content}\n`);
     return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
   }
-  // append：追加行语义——目标缺行尾时先补换行，保证追加内容自成一行的原子性
+  // append：用 appendFileSync（O_APPEND）而不是 read→concat→writeAtomic（2026-10-29 市场审查修复）。
+  // 旧实现是读-改-写且无锁：8 进程 × 20 次并发实测 3 轮分别丢 6/7/19 行，且**返回 written:true**——
+  // 调用方拿到成功回执、台账里却没有那一行，事后对质时无从判断哪些确认丢失了；
+  // 同轮还出现 3–5 次 `EPERM rename`（Windows 上两个进程同时 rename 到同一目标是竞争失败）。
+  // appendFileSync 对 append-only 台账本就足够：单次 write 带 O_APPEND，内核保证每次写落在文件尾，
+  // 不会互相覆盖。同文件 confirm() 路径一直这么做，注释里也写明了理由——这里只是把既有结论落地。
+  // 代价：目标文件末尾若缺换行，无法再「先补换行再追加」（那需要一次读）。改用「检查末字节」也不
+  // 原子，故按内容形态处理：追加行自带前导换行由调用方保证，否则这里只保证不粘连到半行——
+  // 落单的追加内容一律以 '\n' 结尾，且**仅当**文件为空或已以换行结尾时才是新行；
+  // 否则先在末尾补一个换行（单独一次 append，仍是 O_APPEND，不会覆盖任何已有内容）。
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  let prev = '';
-  try { prev = fs.readFileSync(target, 'utf8'); } catch { /* 不存在则新建 */ }
-  const joiner = prev === '' || prev.endsWith('\n') ? '' : '\n';
-  writeAtomic(target, `${prev}${joiner}${content.endsWith('\n') ? content : `${content}\n`}`);
+  const body = content.endsWith('\n') ? content : `${content}\n`;
+  let needsLeadingNewline = false;
+  try {
+    const size = fs.statSync(target).size;
+    if (size > 0) {
+      const fd = fs.openSync(target, 'r');
+      try {
+        const buf = Buffer.alloc(1);
+        fs.readSync(fd, buf, 0, 1, size - 1);
+        needsLeadingNewline = buf[0] !== 0x0a;
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+  } catch {
+    /* 文件不存在或读不到：直接追加即可（mkdir 已建目录） */
+  }
+  try {
+    fs.appendFileSync(target, `${needsLeadingNewline ? '\n' : ''}${body}`, 'utf8');
+  } catch (err) {
+    throw new ToolError(`写入失败：${target}（${err.message}）——追加未完成，请核对后重试`);
+  }
   return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
 }
 

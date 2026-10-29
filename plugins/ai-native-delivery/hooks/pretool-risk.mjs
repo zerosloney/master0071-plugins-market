@@ -50,26 +50,45 @@ const applies = (toolName) =>
   typeof toolName === 'string' && (SHELL_TOOL.test(toolName) || SHELL_TOOL.test(normalizeToolName(toolName)));
 
 // 代码内最小兜底（插件种子 settings.json 也缺失时的最后防线——deny 面永不因缺文件变空）
+// `--no-verify` 单列（2026-10-29 市场审查补）：它是从 shell 层**单方面解除**已安装 git hook 的
+// 唯一开关。插件装的 pre-push 种子钩子 + 本 hook 是「两层拦截」，其中一层能被一条参数关掉，
+// 那层拦截就不成立。push 与 commit 两条实际路径都要点出来，其余工具的 `--no-verify` 不归这里管。
 const BUILTIN = {
-  deny: ['git reset --hard', 'git push --force', 'git push -f', 'drop database'],
+  deny: [
+    'git reset --hard',
+    'git push --force',
+    'git push -f',
+    'git push --no-verify',
+    'git commit --no-verify',
+    'drop database',
+  ],
   ask: ['git checkout', 'git clean', 'git branch -D', 'rm -rf'],
 };
 
 const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
 
-// 词元化：按空白与 shell 分隔符切，供「词元全含」判据使用（保留 `--flag` 原样，不去引号——
-// 引号包裹的 `"--force"` 切出来带引号，宁漏勿误，那类写法仍走子串判据）。
-const tokensOf = (s) => norm(s).split(/[\s;&|()]+/).filter(Boolean);
+// 引号归一（2026-10-29 市场审查修复）：`git push "--force"` / `git push '--force'` 切出来的
+// 词元带引号，与规则里的 `--force` 对不上，于是 deny 地板被一条引号变体整个绕过（实测三种写法
+// 全部静默放行）。这里在判据前把所有引号字符去掉——shell 本身就会剥引号，判据看的是「命令实际
+// 长什么样」，保留引号等于让判据看一个不存在的命令。
+// 只剥引号、不做其他转义解释：`\--force` 这类反斜杠写法仍不在判据内，但那是 shell 里非法的
+// 选项写法（git 会拒绝），不存在「被绕过」的执行路径。
+const UNQUOTE = /["'`]/g;
+const unquote = (s) => String(s).replace(UNQUOTE, '');
+
+// 词元化：按空白与 shell 分隔符切，供「词元全含」判据使用（保留 `--flag` 原样，去引号后
+// 再切——否则 `"--force"` 会带着引号成为一个独立词元）。
+const tokensOf = (s) => norm(unquote(s)).split(/[\s;&|()]+/).filter(Boolean);
 
 // 规则命中：子串命中，或（规则 ≥2 个词且每个词都作为词元出现）。
 // 后者补「选项位置」差异——`git push --force` 是子串，`git push origin main --force` 不是；
 // 而后者正是最常见的 force 写法。词元判据不求相邻/顺序：代价是极少数跨语句组合会多拦一次
 // （如 `git push a; rm --force x`），方向是 fail-safe（多问一次/多拦一次），可接受。
 function matchList(command, rules) {
-  const c = norm(command);
+  const c = norm(unquote(command));
   const tokens = new Set(tokensOf(command));
   for (const rule of rules || []) {
-    const r = norm(rule);
+    const r = norm(unquote(rule));
     if (!r) continue;
     if (c.includes(r)) return rule;
     const words = tokensOf(rule);

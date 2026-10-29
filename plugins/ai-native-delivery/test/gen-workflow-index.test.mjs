@@ -145,6 +145,28 @@ const run = (root, args = []) => spawnSync(process.execPath, [GEN, ...args], { c
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 7：从子目录调用也落在 git 仓库根（2026-10-29）----
+// 旧实现把 INDEX 路径写成 CWD 相对的 'workflow/INDEX.md'：从 <repo>/sub 调用 → exit 0 且
+// 把 sub/workflow/INDEX.md 写出来，仓库根那份一动不动，输出还只说「已生成 workflow/INDEX.md」。
+// 静默落错位，没有任何一方会去读那份文件。现在统一走 paths.mjs 的 projectRoot()。
+{
+  const root = mkfix();
+  const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 't@t.invalid');
+  git('config', 'user.name', 't');
+  git('add', '.');
+  git('-c', 'user.email=t@t.invalid', '-c', 'user.name=t', 'commit', '-qm', 'base');
+  const sub = path.join(root, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+
+  const r = spawnSync(process.execPath, [GEN], { cwd: sub, encoding: 'utf8' });
+  check('场景 7：从子目录调用 exit 0', r.status === 0, `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  check('场景 7：INDEX 生成在仓库根（不是 sub/）', fs.existsSync(path.join(root, 'workflow', 'INDEX.md')), r.stdout);
+  check('场景 7：不在 sub/workflow 制造副本', !fs.existsSync(path.join(sub, 'workflow', 'INDEX.md')), r.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);

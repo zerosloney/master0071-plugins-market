@@ -99,6 +99,30 @@ const root = mkRepo();
   check('未知工具 → isError', isError(replies.get(6)), JSON.stringify((replies.get(6) || {}).result));
 }
 
+// ---- 显式 root 落在插件根内 → 拒绝（2026-10-29 修复）----
+// 旧实现只检查进程 cwd，`requireRoot('<插件安装目录>')` 一路放行：解析出的是该插件所在的
+// git 仓库根（本市场仓库），台账与绿凭证于是写进插件自己的仓库——恰好是这道守卫要防的后果
+// （插件目录跨项目共享，A 处写出的绿凭证会被 B 处当成关单依据）。
+{
+  const { requireRoot } = await import('../mcp/core.mjs');
+  const pluginRoot = path.resolve(TEST_DIR, '..');
+  let rejected = null;
+  try {
+    requireRoot(pluginRoot);
+  } catch (err) {
+    rejected = err;
+  }
+  check('显式 root = 插件根 → 拒绝', rejected !== null && /插件安装目录/.test(rejected.message), rejected ? rejected.message : '(未拒绝)');
+  // 反向锚：真实项目根仍然接受（守卫不得把正常用法挡住）
+  let accepted = null;
+  try {
+    accepted = requireRoot(root);
+  } catch (err) {
+    accepted = `ERR ${err.message}`;
+  }
+  check('显式 root = 真实项目 → 接受', typeof accepted === 'string' && !accepted.startsWith('ERR'), String(accepted));
+}
+
 // ---- 初始化后：会话 2（grade 三态 / confirm / ledger / verify / policy）----
 initEngine(root);
 {
@@ -211,6 +235,78 @@ initEngine(root);
   const rows = txt.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l));
   check('被拒的确认不落账（5 次调用只落 3 行，台账无半行）', rows.length === 3, txt);
   check('接地留痕行不落 .tmp 残留', fs.readdirSync(path.join(root, '.agents')).filter((f) => f.includes('.tmp')).length === 0);
+}
+
+// ---- 并发追加不丢行（2026-10-29 市场审查回归）----
+// 旧实现是 read→concat→writeAtomic 且无锁：8 进程各追加 20 行，实测 3 轮分别丢 6/7/19 行，
+// 且**每次都返回 written:true**——调用方拿到成功回执、台账里没有那行，事后无从对质。
+// 同一轮还出现 3–5 次 `EPERM rename`（两个进程同时 rename 到同一目标必有一方失败）。
+// 现在走 appendFileSync（O_APPEND），与同文件 confirm() 路径同口径。
+{
+  const raceRoot = mkRepo();
+  initEngine(raceRoot);
+  const WORKERS = 8;
+  const PER_WORKER = 20;
+  const TOTAL = WORKERS * PER_WORKER;
+  // 每个 worker 一个独立进程、各自开一次 MCP 会话：并发发生在进程之间
+  // （真实形态是多个 agent 会话同时写同一台账）。
+  const worker = path.join(raceRoot, 'race-worker.mjs');
+  fs.writeFileSync(worker, `
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+const [server, root, wid, n, outFile] = process.argv.slice(2);
+const reqs = [];
+for (let i = 0; i < Number(n); i++) {
+  reqs.push({ jsonrpc: '2.0', id: i + 1, method: 'tools/call', params: { name: 'update_ledger', arguments: {
+    file: 'workflow/papercuts-2026-10.md', mode: 'append', content: \`- racer \${wid}-\${i}\` } } });
+}
+const r = spawnSync(process.execPath, [server], {
+  input: reqs.map((x) => JSON.stringify(x)).join('\\n') + '\\n',
+  encoding: 'utf8', cwd: root, maxBuffer: 32 * 1024 * 1024 });
+const acked = [];
+for (const line of (r.stdout || '').split('\\n')) {
+  if (!line.trim()) continue;
+  let msg; try { msg = JSON.parse(line); } catch { continue; }
+  if (!msg || msg.id === undefined || !msg.result || msg.result.isError) continue;
+  let payload; try { payload = JSON.parse(msg.result.content[0].text); } catch { continue; }
+  if (payload && payload.written === true) acked.push(msg.id);
+}
+fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
+`, 'utf8');
+
+  const { spawn } = await import('node:child_process');
+  const runs = [];
+  for (let w = 0; w < WORKERS; w++) {
+    const ackFile = path.join(raceRoot, `ack-${w}.json`);
+    runs.push(new Promise((resolve) => {
+      const c = spawn(process.execPath, [worker, SERVER, raceRoot, String(w), String(PER_WORKER), ackFile], {
+        cwd: raceRoot,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      c.on('exit', () => resolve(ackFile));
+      c.on('error', () => resolve(ackFile));
+    }));
+  }
+  await Promise.all(runs);
+
+  let ackedTotal = 0;
+  for (let w = 0; w < WORKERS; w++) {
+    try {
+      ackedTotal += JSON.parse(fs.readFileSync(path.join(raceRoot, `ack-${w}.json`), 'utf8')).acked || 0;
+    } catch { /* worker 崩了就是 0 条 ack */ }
+  }
+  const ledgerFile = path.join(raceRoot, 'workflow', 'papercuts-2026-10.md');
+  const text = fs.existsSync(ledgerFile) ? fs.readFileSync(ledgerFile, 'utf8') : '';
+  const racerLines = text.split(/\r?\n/).filter((l) => l.includes('- racer '));
+  const unique = new Set(racerLines);
+  check(
+    `并发 ${WORKERS}×${PER_WORKER} 追加无丢行（落盘 ${unique.size}/${TOTAL}，自称成功 ${ackedTotal}）`,
+    unique.size === TOTAL && ackedTotal === TOTAL,
+    `重复/粘连 ${racerLines.length - unique.size} 行`,
+  );
+  check('并发追加后每行仍自成一行（无粘连半行）', racerLines.every((l) => /^- racer \d+-\d+$/.test(l)), JSON.stringify(racerLines.slice(0, 5)));
+  check('并发追加不残留 .tmp', fs.readdirSync(path.join(raceRoot, 'workflow')).filter((f) => f.includes('.tmp')).length === 0);
+  fs.rmSync(raceRoot, { recursive: true, force: true });
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

@@ -22,7 +22,7 @@ import { readLedger } from './ledger-shards.mjs';
 import { loadFirstAdded, funnelFromLedger, fmtMedianDays, scanReviews, FUNNEL_LEGACY_RATIO_LIMIT } from './metrics-core.mjs';
 import { analyze, buildDocList, loadLastTouch, loadLedgerTs, parseStatus, ACTIVE } from './archive-sweep.mjs';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：枚举种子回退位经插件 config-templates 定位。
-import { PLUGIN_CONFIG_TEMPLATES_DIR } from './paths.mjs';
+import { PLUGIN_CONFIG_TEMPLATES_DIR, projectRoot } from './paths.mjs';
 
 const USAGE = `用法：node <插件根>/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--check] [--restamp] [--help]
 
@@ -55,9 +55,14 @@ const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
 if (!month) month = CURRENT_MONTH;
 if (!/^\d{4}-\d{2}$/.test(month)) { console.error(`--month 须为 YYYY-MM（现 ${month || '空'}）\n\n${USAGE}`); process.exit(1); }
 
-const WORKFLOW = 'workflow';
+// 根锚定（2026-10-29 修复）：下面三项旧实现都是 **CWD 相对**（`'workflow'`、`'.agents/config'`
+// 与 `process.cwd()`），从 `<repo>/sub` 调用会读子目录、写 `sub/workflow/metrics.md`——仓库根
+// 那份一动不动，而输出只说「已更新 workflow/metrics.md」。与 gen-workflow-index.mjs 及其余所有
+// 写者统一走 paths.mjs 的 projectRoot()（git 根优先，非 git 目录回退 startDir）。
+const ROOT = projectRoot();
+const WORKFLOW = path.join(ROOT, 'workflow');
 const METRICS_P = path.join(WORKFLOW, 'metrics.md');
-const BUDGETS = path.join('.agents', 'config', 'rule-budgets.txt');
+const BUDGETS = path.join(ROOT, '.agents', 'config', 'rule-budgets.txt');
 const DOC_TYPES = ['intents', 'specs', 'plans', 'incidents'];
 // 活跃口径单源（board-kb-p1：枚举字面量硬编码退役——workflow-enums.txt 是唯一源）；
 // 枚举路径锚定脚本位置（fixture 测试 cwd 在临时目录，按 cwd 解析会 ENOENT）。
@@ -200,7 +205,7 @@ function engineCommitRatio() {
   const enginePaths = ['.agents/', '.githooks/', 'azure-pipelines.yml'];
   const run1 = (args) => {
     try {
-      return spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      return spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     } catch {
       return null;
     }
@@ -439,7 +444,7 @@ const specRows = [specRow('活跃', specActiveStats), specRow('归档', specArch
 // throw（同复核效果表 fail-loud 纪律：脏行比缺行更有害）。台账全缺 = 合法零数据（机制先于数据
 // 建账，出占位行）。读侧分片合并单源 = ledger-shards.readLedger。
 const scanDeploys = () => {
-  const { all } = readLedger(process.cwd(), 'deploy-observations');
+  const { all } = readLedger(ROOT, 'deploy-observations');
   const byMonth = {};
   for (const line of all.split(/\r?\n/)) {
     if (!/^\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|/.test(line)) continue;
@@ -488,11 +493,11 @@ console.log(`  门禁成本/迭代：全量绿行 ${costList.length} 行${costLi
 // 判定单源 = archive-sweep.analyze（21 天窗，禁第二套口径）；analyze/loadLastTouch 抛错（如
 // 浅克隆无 git 历史）fail-open 静默——观测提醒不挡快照。
 try {
-  const allDocs = buildDocList(process.cwd());
+  const allDocs = buildDocList(ROOT);
   const arch = analyze({
     docs: allDocs,
-    ledgerTs: loadLedgerTs(process.cwd()),
-    lastTouch: loadLastTouch(process.cwd()),
+    ledgerTs: loadLedgerTs(ROOT),
+    lastTouch: loadLastTouch(ROOT),
     activeTexts: allDocs.filter((d) => ACTIVE.has(parseStatus(d.text))).map((d) => d.text),
     windowDays: 21,
   });

@@ -74,6 +74,30 @@ const mkRepo = () => {
   }
 }
 
+// ---- ①'' 引号变体与 --no-verify（2026-10-29 市场审查）----
+// 旧判据按原样切词元，`"--force"` 带引号切出来是 `"--force"`，与规则里的 `--force` 对不上，
+// 而子串判据也命中不了——三种写法实测全部静默放行。shell 本身会剥引号，判据必须看剥完之后的命令。
+// `--no-verify` 单列：它是从 shell 层单方面关掉已安装 git hook 的唯一开关，
+// 让「插件钩子 + 本 hook」两层拦截中的一层可以被一条参数解除。
+{
+  const cases = [
+    'git push "--force"',
+    "git push '--force'",
+    'git push origin main "--force"',
+    'git push --no-verify',
+    'git push origin main --no-verify',
+    'git commit --no-verify -m "wip"',
+    'git commit -m "wip" --no-verify',
+  ];
+  for (const command of cases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, process.cwd());
+    check(`引号/--no-verify 变体仍被 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+  // 反向锚：剥引号不得把正常命令误判
+  const ok = run({ tool_name: 'Bash', tool_input: { command: 'git commit -m "add forced retry note"' } }, process.cwd());
+  check('剥引号不误伤正常提交信息', ok.stdout.trim() === '', ok.stdout);
+}
+
 // ---- ①''' 驼峰宿主工具名必须同样受管辖（2026-10-28 内核拆词）----
 // matcher 是子串正则，这三种名字都会被它命中并调用 hook；但 `Command` 两侧都不是词边界，
 // 补拆词前内核判「非 shell 工具」静默放行——闸门被调用却什么都没拦。

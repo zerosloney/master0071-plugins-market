@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ENUMS } from './workflow-enums.mjs';
+import { projectRoot } from './paths.mjs';
 
 const USAGE = `用法：node <插件根>/scripts/gen-workflow-index.mjs [--dry-run] [--check] [--help]
 
@@ -29,7 +30,13 @@ if (unknown.length) { console.error(`❌ 未知参数：${unknown.join(' ')}\n\n
 const DRY = args.includes('--dry-run');
 const CHECK = args.includes('--check');
 
-const WORKFLOW = 'workflow';
+// 根锚定（2026-10-29 修复）：旧实现用 `path.join('workflow', 'INDEX.md')`，它是 **CWD 相对**的。
+// 从 `<repo>/sub` 调用 → exit 0 并把 `sub/workflow/INDEX.md` 写出来，仓库根的 INDEX 一动不动，
+// 输出还只说「已生成 workflow/INDEX.md」——静默落错位，没有任何一方会去读那份文件。
+// 与仓内其余写者（检查/台账/凭证生成器）统一走 paths.mjs 的 projectRoot()：git 根优先，
+// 非 git 目录回退 startDir（就地操作是合法形态）。
+const ROOT = projectRoot();
+const WORKFLOW = path.join(ROOT, 'workflow');
 const INDEX_P = path.join(WORKFLOW, 'INDEX.md');
 const DOC_TYPES = ['intents', 'specs', 'plans', 'incidents'];
 const TYPE_LABEL = { intents: 'INTENT', specs: 'SPEC', plans: 'PLAN', incidents: 'INCIDENT' };

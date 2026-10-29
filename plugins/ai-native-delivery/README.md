@@ -69,7 +69,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 | --- | --- |
 | `grade_task` | 两问定级：任务描述 → L1/L2/L3 与命中依据 |
 | `read_context` | 跨会话恢复：INDEX 头部 + 在途三件套 + 最近确认行（断崖恢复入口） |
-| `update_ledger` | 台账原子更新：限 workflow/ 树内路径，写前过不变量校验（fail-closed） |
+| `update_ledger` | 台账原子更新：限 workflow/ 树内路径，写前过不变量校验（fail-closed）。`create` 走 tmp+rename 原子建文件；`append` 走 `appendFileSync`（O_APPEND），多会话并发追加不丢行 |
 | `confirm` | 写任务级确认记录（kind:"task" 行，含指纹供台账校验对账）；带 `doc` 时按 confirm-doc 同款判据做引文接地 |
 | `verify_gate` | 跑 check-loop 指定车道（hard / hygiene / all）并回报裁决 |
 | `ledger_stats` | 台账体量与不变量状态，供 compact 决策 |
@@ -84,7 +84,9 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 两层拦截，配置问题不卡死正常操作，但**deny 面有一道不可下调的内置地板**（2026-10-28 收紧，见下）：
 
 - **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask 两清单静态匹配（曾有的 `allow` 清单已于 2026-10-28 移除——它在判定链末端空转，且列着 `git commit`/`git push`，容易让人误以为这些命令已被预先批准）。清单来源为项目侧 `.agents/settings.json`（`permissions.deny` / `permissions.ask`）→ 插件种子 `config-templates/settings.json` → 代码内兜底，但两清单的信任边界不同：
-  - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `drop database` 四项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
+  - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `git push --no-verify` / `git commit --no-verify` / `drop database` 六项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
+    - `--no-verify` 单列（2026-10-29 补）：它是从 shell 层关掉已安装 git hook 的唯一开关，能一条参数解除两层中的一层。
+    - 匹配前先剥引号（2026-10-29 补）：`git push "--force"` 与 `git push --force` 是同一个命令，旧判据按原样切词元导致引号变体全部静默放行。
   - **ask 仍可被项目侧整体接管**（ask 只是多问一句，由项目自定是合理的；不写 `ask` 键则回退内置默认）。
   - 想放宽地板只能由**人**在宿主侧关掉这个插件的 hook，不提供项目内配置位——这是刻意的：治理引擎的门不该由被治理的仓库拆。
 - **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
