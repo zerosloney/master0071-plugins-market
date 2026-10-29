@@ -48,9 +48,12 @@ try {
 
   const ok = run(tmp);
   check('S1 源仓形态配置齐全 → exit 0 且打印 PASS', ok.status === 0 && /\[PASS\]/.test(ok.stdout), ok.stdout.slice(-200) + ok.stderr.slice(-200));
-  // 2026-10-28：dotnet 只在项目有 App.sln 时才是上岗前提。此前无条件要求，且探测只查 Windows
-  // 标准安装位置——ubuntu CI 上没有 dotnet，把这条「应全绿」用例与 S4 一起拖红。
-  check('S1 无 App.sln → dotnet 仅提示，不作上岗前提', /\[提示\] dotnet/.test(ok.stdout), ok.stdout.slice(-240));
+  // 2026-10-28 通用化：dotnet 改为**项目识别驱动**——项目根无 .NET 标记时不查、也不打印 dotnet 行
+  //（与浏览器探测同待遇：仅回显，不拦上岗）。此前无条件要求，且探测只查 Windows 标准安装位置，
+  // ubuntu CI 上没有 dotnet，把这条「应全绿」用例与 S4 一起拖红。
+  // 断言随之从「有 [提示] dotnet 行」改为「门卫结论为 PASS 且未因 dotnet 拦下」——后者才是要守住的性质。
+  check('S1 无 .NET 标记 → dotnet 不作上岗前提（不出现 [缺失] dotnet）',
+    ok.status === 0 && !/\[缺失\]\s*dotnet/.test(ok.stdout), ok.stdout.slice(-240));
 
   git(tmp, ['config', '--unset', 'core.hooksPath']);
   const missing = run(tmp);
@@ -92,6 +95,53 @@ try {
     bad2.stdout.slice(-400));
 } finally {
   fs.rmSync(tmp2, { recursive: true, force: true });
+}
+
+// 项目识别分支（2026-10-28 通用化）：dotnet 只对「项目根有 .NET 标记」的项目生效——
+// 通用项目（Node/Python/Go…）不依赖 dotnet，缺失不得拦上岗（S1/S4 夹具无标记，天然覆盖）；
+// 有标记时恢复硬查，登记机制（runtime-env.local.md）可解。
+const tmp3 = mkRepo();
+try {
+  const hooksDir3 = path.join(tmp3, '.git', 'hooks');
+  fs.mkdirSync(hooksDir3, { recursive: true });
+  for (const h of ['pre-commit', 'pre-push']) fs.writeFileSync(path.join(hooksDir3, h), '', 'utf8');
+  // .NET 项目标记：出现即恢复 dotnet 硬查
+  fs.writeFileSync(path.join(tmp3, 'App.sln'), 'fixture\n', 'utf8');
+  // 登记打桩：把 dotnet 登记为本机 node 可执行文件（--version 有输出），不依赖机器装没装 dotnet
+  fs.mkdirSync(path.join(tmp3, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(path.join(tmp3, '.agents', 'notes', 'runtime-env.local.md'),
+    `| 工具 | 路径 |\n| --- | --- |\n| dotnet | ${process.execPath} |\n`, 'utf8');
+
+  const ok3 = run(tmp3);
+  check('S6 有 .NET 标记 → dotnet 必查且经登记可解 → exit 0',
+    ok3.status === 0 && /\[echo\] dotnet → /.test(ok3.stdout),
+    ok3.stdout.slice(-300));
+} finally {
+  fs.rmSync(tmp3, { recursive: true, force: true });
+}
+
+// S6b 有标记但机器解析不到 dotnet → exit 1 且点名 dotnet（装了 dotnet 的机器跳过本断言：
+// PATH/标准位置命中时无法在黑盒夹具里伪造「缺失」，该分支由无 dotnet 的裸机覆盖）
+const tmp4 = mkRepo();
+try {
+  const hooksDir4 = path.join(tmp4, '.git', 'hooks');
+  fs.mkdirSync(hooksDir4, { recursive: true });
+  for (const h of ['pre-commit', 'pre-push']) fs.writeFileSync(path.join(hooksDir4, h), '', 'utf8');
+  fs.writeFileSync(path.join(tmp4, 'App.sln'), 'fixture\n', 'utf8');
+
+  const dotnetResolvable =
+    fs.existsSync('C:/Program Files/dotnet/dotnet.exe') ||
+    (() => { const r = spawnSync('dotnet', ['--version'], { encoding: 'utf8' }); return !r.error && r.status === 0; })();
+  if (dotnetResolvable) {
+    console.log('SKIP S6b 本机可解析 dotnet（PATH/标准位置命中）——「有标记而缺失 → 拦上岗」分支由无 dotnet 的机器覆盖');
+  } else {
+    const bad3 = run(tmp4);
+    check('S6b 有 .NET 标记而 dotnet 缺失 → exit 1 且点名 dotnet',
+      bad3.status === 1 && /dotnet/.test(bad3.stdout),
+      bad3.stdout.slice(-300));
+  }
+} finally {
+  fs.rmSync(tmp4, { recursive: true, force: true });
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

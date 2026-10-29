@@ -311,12 +311,15 @@ const DECISION_EXTRACTORS = {
     };
   },
   noul(raw) {
-    const v = Number(raw.noul);
-    const flag = Number.isFinite(v) ? v >= 0.5 : null;
+    // typeof 收窄而非 Number() 强转：Number(null) === 0 会把「模型没给概率」捏造成
+    // 置信度 1.0 的「否」（decision/labels/confidences 三个速览视图一起失真）。
+    // 与 finiteScore / finiteConfidence / hooks/decide-client.noulOf 同口径的边界收紧。
+    const v = typeof raw.noul === 'number' && Number.isFinite(raw.noul) ? raw.noul : null;
+    const flag = v === null ? null : v >= 0.5;
     return {
       decision: flag,
       label: flag === null ? '无法判断' : flag ? '是' : '否',
-      confidence: Number.isFinite(v) ? (flag ? v : 1 - v) : undefined,
+      confidence: flag === null ? undefined : flag ? v : 1 - v,
     };
   },
 };
@@ -359,8 +362,10 @@ const LINE_RENDERERS = {
     return `- **${label}**：${text}${raw}（置信度 ${fmtPct(confidence)}｜分布 ${topProbs(probabilities, 3)}）`;
   },
   noul(label, answer) {
-    const v = Number(answer.noul);
-    if (!Number.isFinite(v)) return `- **${label}**：无法判断`;
+    // 与 DECISION_EXTRACTORS.noul 同口径：typeof 收窄——Number(null) === 0 会把缺失概率
+    // 渲染成「否（0.0%）」，逐题行必须与 decision/answers 视图一致地说「无法判断」
+    const v = typeof answer.noul === 'number' && Number.isFinite(answer.noul) ? answer.noul : null;
+    if (v === null) return `- **${label}**：无法判断`;
     return `- **${label}**：${v >= 0.5 ? '是' : '否'}（${(v * 100).toFixed(1)}%）`;
   },
 };

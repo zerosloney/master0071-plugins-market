@@ -33,7 +33,13 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.9' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.10' };
+
+// 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
+// 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
+//（口径同 worktree-ops/mcp/protocol.mjs）。
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+const SERVER_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），解释器由宿主的 PATH 解析——
@@ -932,13 +938,6 @@ const TOOLS = [
 ];
 
 // ---------- stdio JSON-RPC 主循环 ----------
-
-// MCP 协议版本协商：只回显自己真能跑的版本。
-// 无条件回显客户端请求的版本 = 对没实现的版本说「我支持」——客户端据此按新协议发消息，
-// 服务端按旧协议解析，行为不可预期（本服务只实现核心方法：initialize / tools/list /
-// tools/call / ping，这几个方法的报文形状在下列三个版本间没有变化，且不声明任何可选能力）。
-const SERVER_PROTOCOL_VERSION = '2024-11-05';
-const SUPPORTED_PROTOCOL_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
 function reply(msg) {
   process.stdout.write(`${JSON.stringify(msg)}\n`);

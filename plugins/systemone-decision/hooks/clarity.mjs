@@ -75,7 +75,17 @@ export async function precheck(text, env = process.env, opts = {}) {
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;
   const proceed = answers ? noulOf(answers.proceed) : null;
-  if (!clarity || !missing || !proceed) return null; // 响应不完整，fail-open
+  // 幻觉选项与 risk-gate 的 verdict 判定同口径：Object.hasOwn 校验判据表，模型吐出
+  // 判据表外的选项（含沿原型链蒙对的 "constructor" 之类）时结论文案不可信，
+  // 按响应不完整 fail-open 静默跳过，不渲染「最需要澄清：foo（）」这类空心结论
+  if (
+    !clarity ||
+    !missing ||
+    !proceed ||
+    !Object.hasOwn(QUESTIONS.missing.criteria, missing.value)
+  ) {
+    return null; // 响应不完整，fail-open
+  }
   if (clarity.score > GATE.clarityMax && proceed.probability >= GATE.proceedMin) return null; // 明确，零噪音
   return verdictLine(clarity, missing, proceed);
 }

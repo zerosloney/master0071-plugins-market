@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // check-local-gates.mjs — 门卫上岗自检（eli5 卡片 4，2026-10-08）
-// 本机两条 clone 必做配置 + 钩子文件在位 + 工具链（node 必查 / dotnet 仅当项目有 App.sln）在位检测；--fix 自动修配置项（文件类缺失给恢复指引，不代修）。
+// 本机两条 clone 必做配置 + 钩子文件在位 + 工具链在位检测（node 通用必查；dotnet 按项目识别——
+// 项目根有 .NET 标记才查，通用项目跳过，2026-10-28 通用化）；--fix 自动修配置项（文件类缺失给恢复指引，不代修）。
 // ⑥ 起工具链按「环境变量（仅浏览器 CHROME_PATH）→ 本机登记 runtime-env.local.md → 标准安装位置探测」解析并回显路径（机理 runtime-env.md §6.3，
 // 2026-10-10 本机事实出库——绝对路径不再入库登记，新机按回显补登记即可）。
 // 鸡生蛋约束：钩子没挂时任何钩子面检测不可达，故自检必须是独立脚本 + 显著入口（README 入门节 / AGENTS.md 头部）。
@@ -110,7 +111,15 @@ check(nodeMajor >= 18, 'Node.js 在位且主版本 ≥ 18（代码下限；CI �
   null);
 
 // ⑥ 工具链解析回显（跨机自适应，runtime-env.md §6.3）：解析顺序 = 环境变量（仅浏览器 CHROME_PATH）→ 本机登记 runtime-env.local.md → 标准安装位置。
-// dotnet 缺失计入缺失（静态门 build/test 依赖）；浏览器缺失仅提示（仅 UI 实测需要，不拦上岗）。
+// dotnet 改项目识别驱动（2026-10-28 通用化）：dotnet 是源项目（.NET 产品）静态门的依赖，
+// 不是通用治理插件的上岗前提——消费项目可以是任意技术栈（Node / Python / Go…）。
+// 项目根出现 .NET 标记（*.sln / *.csproj / *.fsproj / *.vbproj）才要求 dotnet 在位，
+// 与 verify.mjs 产品门 requires「项目侧路径不在即不适用」同一哲学；
+// 无标记的通用项目与浏览器缺失同待遇——仅回显提示，不拦上岗。
+const dotnetMarkers = (() => {
+  try { return fs.readdirSync(ROOT).filter((f) => /\.(sln|csproj|fsproj|vbproj)$/i.test(f)); } catch { return []; }
+})();
+const dotnetNeeded = dotnetMarkers.length > 0;
 const localTool = (name) => {
   try {
     const md = fs.readFileSync('.agents/notes/runtime-env.local.md', 'utf8');
@@ -125,18 +134,19 @@ const resolveOnDisk = (name, probes, envVar) => {
   const reg = localTool(name);
   return [envVal, reg, ...probes].filter(Boolean).find((p) => fs.existsSync(p)) ?? null;
 };
-// dotnet 只在**本项目确实有 .NET 后端**时才是上岗前提（与 verify.mjs 的 requires 判据同口径）。
-// 探测顺序补 PATH：旧实现只探 Windows 标准安装位置，Linux / macOS 上 dotnet 即便在 PATH 里也
-// 一律判「未找到」——ubuntu CI 因此把「源仓形态配置齐全 → 应 exit 0」的两个用例拖红。
-const needsDotnet = fs.existsSync(path.join(ROOT, 'App.sln'));
-const dotnetVer = (() => { try { return execFileSync('dotnet', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })();
-const dotnetPath = dotnetVer ? 'PATH' : resolveOnDisk('dotnet', ['C:/Program Files/dotnet/dotnet.exe']);
-if (needsDotnet) {
-  check(dotnetVer !== '', 'dotnet 在位且可执行（本项目有 App.sln，静态门 build/test 依赖）',
-    dotnetPath ? `路径 ${dotnetPath} 无法执行 --version` : '未找到：PATH、标准位置与 runtime-env.local.md 登记均无（模板 runtime-env.local.example.md）',
+const dotnetPath = resolveOnDisk('dotnet', ['C:/Program Files/dotnet/dotnet.exe']);
+// 标准位置与登记均无时再试 PATH：Linux 发行版与 CI 镜像普遍只经 PATH 暴露 dotnet
+//（探测序不变，env/登记 优先，PATH 仅作最后一级，登记了错路径的机器仍按登记如实报错）。
+const dotnetOnPath = dotnetPath === null
+  ? (() => { try { return execFileSync('dotnet', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })()
+  : '';
+const dotnetVer = dotnetPath
+  ? (() => { try { return execFileSync(dotnetPath, ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })()
+  : dotnetOnPath;
+if (dotnetNeeded) {
+  check(dotnetVer !== '', `dotnet 在位且可执行（检出 ${dotnetMarkers.join('、')}，静态门 build/test 依赖；标准位置无则登记 runtime-env.local.md）`,
+    dotnetPath ? `路径 ${dotnetPath} 无法执行 --version` : '未找到：标准位置 / runtime-env.local.md 登记 / PATH 均无（模板 runtime-env.local.example.md）',
     null);
-} else {
-  console.log(`  [提示] dotnet ${dotnetVer ? `→ ${dotnetVer}（PATH）` : '未解析到'}——本项目无 App.sln，不作上岗前提`);
 }
 const browserPath = resolveOnDisk('browser', [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -164,7 +174,13 @@ for (const r of results) {
 // 工具链路径回显（⑥ 探测结果，信息面——新机 clone 后据此补 runtime-env.local.md 登记，模板 runtime-env.local.example.md）
 console.log(`  [echo] node → ${nodeVer || '?'}（PATH 解析）`);
 console.log(`  [echo] git → ${(git(['--version']) || '?').replace(/^git version /, '')}（PATH 解析）`);
-console.log(dotnetVer !== '' ? `  [echo] dotnet → ${dotnetVer}（${dotnetPath}）` : '  [echo] dotnet → 未解析到');
+console.log(dotnetPath
+  ? `  [echo] dotnet → ${dotnetVer}（${dotnetPath}）`
+  : dotnetVer !== ''
+    ? `  [echo] dotnet → ${dotnetVer}（PATH 解析）`
+    : dotnetNeeded
+      ? '  [echo] dotnet → 未解析到（本项目检出 .NET 标记，静态门需要它——标准位置 / runtime-env.local.md 登记 / PATH 均未命中）'
+      : '  [echo] dotnet → 未检出 .NET 项目标记，跳过检查（通用项目不依赖 dotnet；出现 .sln/.csproj 即自动恢复检测）');
 console.log(browserPath
   ? `  [echo] UI 浏览器 → ${browserPath}`
   : '  [echo] UI 浏览器 → 未解析到（env CHROME_PATH / runtime-env.local.md browser 行 / 标准位置均未命中有效路径；UI 实测前设其一）');

@@ -16,10 +16,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'server.mjs');
-// 沙箱路径先归一到真实长名（2026-10-28）：GitHub Actions 的 TEMP 是 C:\Users\RUNNER~1\...，
-// 而 `git worktree list` / `rev-parse --show-toplevel` 回长名，字面 includes 比较会假红。
-// realpath 一次即可让后续所有派生的 repo / root / worktree 路径与 git 的口径一致。
-const sandbox = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-')));
+// 夹具根起点即归一为长名（realpath 剥 \\?\ 前缀）：CI 的 TEMP 是 8.3 短名（RUNNER~1），
+// 而工具回显 / git worktree list 报的都是长名——夹具若沿用短名，所有 includes(路径)
+// 断言都会因同一目录两种写法而误判（比较语义本身由 core 的 samePath/isInside 保证，
+// 这里只消掉测试侧的裸字符串比较脆弱性）。
+const sandbox = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'worktree-ops-smoke-'))).replace(/^\\\\\?\\/, '');
 const cfgHome = path.join(sandbox, 'cfg');
 const repo = path.join(sandbox, 'myrepo');
 const root = path.join(sandbox, 'custom-root');

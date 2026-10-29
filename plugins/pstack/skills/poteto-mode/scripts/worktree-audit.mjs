@@ -57,8 +57,10 @@ export function classify(facts) {
 }
 
 // The default 1 MiB buffer fails a status that lists several thousand untracked files.
+// 64 MiB instead of Infinity (worktree-ops uses the same cap): big enough for those
+// listings, but a runaway command cannot exhaust memory without bound.
 function git(cwd, ...args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity })
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
     .replace(/\n+$/, "");
 }
 

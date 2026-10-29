@@ -225,14 +225,15 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ ...FIXTURE, answers }));
       return;
     }
-    if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null' || parsed.state === 'mock:noul-missing') {
+    if (parsed.state === 'mock:score-missing' || parsed.state === 'mock:score-null' || parsed.state === 'mock:noul-missing' || parsed.state === 'mock:noul-null') {
       // 每个 sentinel 只破坏它自己那道题，其余题保持正常——否则 low_confidence_questions
       // 会混进未预期的题目，断言就测不出「只标记坏题」这件事了
       const answers = {};
       for (const [qid, q] of Object.entries(parsed.questions || {})) {
-        if (parsed.state === 'mock:noul-missing' && q.type === 'noul') {
-          answers[qid] = { type: 'noul' };
-        } else if (parsed.state !== 'mock:noul-missing' && q.type === 'score') {
+        if ((parsed.state === 'mock:noul-missing' || parsed.state === 'mock:noul-null') && q.type === 'noul') {
+          // noul-null：Number(null) === 0，弱实现会把缺失概率捏造成置信度 1.0 的「否」
+          answers[qid] = parsed.state === 'mock:noul-null' ? { type: 'noul', noul: null } : { type: 'noul' };
+        } else if (parsed.state !== 'mock:noul-missing' && parsed.state !== 'mock:noul-null' && q.type === 'score') {
           const malformed = {
             type: 'score',
             legend: { '0': '轻微问题，不影响功能', '1': '部分功能受影响，但存在替代方案', '2': '核心功能不可用，没有替代方案', '3': '造成严重业务或安全影响' },
@@ -374,10 +375,13 @@ const main = async () => {
 
     // 协议版本必须白名单协商：客户端报一个没实现的版本时，服务端不能照单回显
     // （那等于对不支持的版本说「我支持」，客户端随后按新协议发消息，服务端按旧协议解析）。
+    // 未知版本的落点是**支持集里最新的那版**（口径同 worktree-ops / ai-native-delivery 的 protocol.mjs）。
     const bogusInit = await client.call('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
+    const futureInit = await client.call('initialize', { protocolVersion: '2099-01-01', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
     const modernInit = await client.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
-    check('initialize 只回显支持集内的协议版本，未知版本回服务端自己的版本', () => {
-      assert.equal(bogusInit.result.protocolVersion, '2024-11-05', '未知版本不得被回显');
+    check('initialize 只回显支持集内的协议版本，未知版本回落到支持的最新版', () => {
+      assert.equal(bogusInit.result.protocolVersion, '2025-06-18', '未知版本不得被回显');
+      assert.equal(futureInit.result.protocolVersion, '2025-06-18', '未来版本同样回落到支持的最新版');
       assert.equal(modernInit.result.protocolVersion, '2025-06-18', '支持集内的版本应原样回显');
     });
 
@@ -532,6 +536,22 @@ const main = async () => {
       assert.equal(badNoul.labels.escalate, '无法判断');
       assert.equal(badNoul.needs_human_review, true);
       assert.deepEqual(badNoul.low_confidence_questions, ['escalate']);
+    });
+
+    // 同类缺口的显式 null 形态：Number(null) === 0，速览与逐题行若走 Number() 强转会把
+    // 「模型没给概率」捏造成置信度 1.0 的「否」（answers 视图早有 typeof 守卫，三个视图曾互相矛盾）
+    const noulNull = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:noul-null' })
+    );
+    check('畸形 noul（noul = null）不得捏造「否」，速览/逐题/明细三视图一致判无法判断', () => {
+      assert.equal(noulNull.answers.escalate.probability, null, 'answers 视图概率必须为 null');
+      assert.equal(noulNull.decision.escalate, null, 'decision 不得因 Number(null) 变成 false');
+      assert.equal(noulNull.labels.escalate, '无法判断', 'label 不得捏造成「否」');
+      assert.ok(!('escalate' in noulNull.confidences), 'confidences 不得出现捏造的 1.0');
+      assert.ok(noulNull.summary.includes('无法判断'), '逐题行必须显示无法判断');
+      assert.ok(!noulNull.summary.includes('否（0.0%）'), '逐题行不得渲染捏造的「否（0.0%）」');
+      assert.equal(noulNull.needs_human_review, true);
+      assert.deepEqual(noulNull.low_confidence_questions, ['escalate']);
     });
 
     // 同类缺口：置信度本身的垃圾值（Infinity / 非数字回退）必须收敛为 null——

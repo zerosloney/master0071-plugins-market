@@ -63,6 +63,7 @@ if (process.platform === 'win32' && existsSync('C:\\PROGRA~1')) {
     samePath('C:\\PROGRA~1\\no-such-dir\\x', path.join(longForm, 'no-such-dir', 'x')) === true,
     `C:\\PROGRA~1\\no-such-dir\\x vs ${path.join(longForm, 'no-such-dir', 'x')}`,
   );
+  check('叶子不存在的长名子 / 短名父 → 判为「在内」', isInside(`${longForm}\\no-such-leaf\\x`, 'C:\\PROGRA~1') === true, longForm);
 } else {
   console.log('  · 8.3 别名不可用（非 Windows 或未启用短名）——跳过两项，回归由 windows-latest 矩阵验证');
 }

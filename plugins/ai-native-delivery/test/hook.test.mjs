@@ -179,18 +179,20 @@ const mkRepo = () => {
     d && d.permissionDecisionReason);
 }
 
-// ---- ⑧ 声明面 matcher 与代码 SHELL_TOOL 同口径（2026-10-28 市场审查新增）----
+// ---- ⑧ 声明面 matcher 与代码 SHELL_TOOL 同口径（2026-10-28 市场审查；10-29 与远端的同编号用例合并）----
 // matcher 决定「hook 会不会被调到」，代码正则决定「调到之后管不管」。两者脱节时风险闸对某类
-// shell 工具**静默不存在**——零告警、零现象，比判错更危险。本仓实测踩过：matcher 只写
-// `Bash|Shell|Terminal` 三名，代码认 12 名。这里机器对账，不再靠注释与人工同步。
+// shell 工具**静默不存在**——零告警、零现象，比判错更危险。本仓实测踩过两次，方向相反：
+//   ① matcher 窄于内核名单（只写 `Bash|Shell|Terminal`，内核认 12 名）→ hook 压根不被调用；
+//   ② matcher 宽于内核名单（子串正则命中 `RunCommand`，内核词边界对不上）→ hook 被调用却放行。
+// 本用例同时锁两个方向：名字提取失败即报红（防对账空转），并对驼峰宿主名跑真实进程判行为。
 {
   const hookSrc = fs.readFileSync(HOOK, 'utf8').replace(/\r/g, ''); // CRLF 会让 $ 锚失配
-  const literal = hookSrc.match(/^const SHELL_TOOL\s*=\s*\/(.*)\/[a-z]*;/m); // 尾部有正则标志与分号
-  check('能从 hook 源码解析 SHELL_TOOL 字面量', !!literal);
-  const groups = literal ? [...literal[1].matchAll(/\(([^)]*)\)/g)].map((m) => m[1]) : [];
-  const namesGroup = groups.find((g) => /^[a-z]+(\|[a-z]+)*$/.test(g));
-  check('SHELL_TOOL 内可取到工具名交替组', !!namesGroup, groups.join(' | '));
-  const names = namesGroup ? namesGroup.split('|') : [];
+  // 直接取「纯小写交替组」：SHELL_TOOL 里还有 (^|[_\-.\s]) 这种边界组，它不满足本模式故被跳过。
+  // 正则改形导致取不到名单时下面立即报红——这正是「对账退化成空转」的入口。
+  const listMatch = /const SHELL_TOOL = [^\n]*\(([a-z|]+)\)/.exec(hookSrc);
+  check('能从 hook 源提取 SHELL_TOOL 名单（提取失败=正则改形，需同步本测试）', Boolean(listMatch),
+    hookSrc.split('\n').find((l) => l.includes('const SHELL_TOOL')) || '(找不到 SHELL_TOOL 定义行)');
+  const names = listMatch ? listMatch[1].split('|') : [];
   check('工具名覆盖数 ≥ 12（防交替组被改写后对账空转）', names.length >= 12, `实际 ${names.length}：${names.join(',')}`);
 
   const decls = [
@@ -206,16 +208,23 @@ const mkRepo = () => {
     for (const matcher of matchers) {
       // names 为空时下面的 missing 会空转通过——显式判红，别让对账退化成假绿
       check(`${label} 对账有实义（SHELL_TOOL 名单非空）`, names.length > 0, '名单为空，覆盖率断言无意义');
-      const missing = names.filter((n) => !new RegExp(matcher).test(n[0].toUpperCase() + n.slice(1)));
-      check(`${label} matcher 覆盖代码认的全部 ${names.length} 个 shell 工具名`,
-        missing.length === 0, `漏：${missing.join(', ')}｜matcher=${matcher}`);
+      // 方向①：matcher 必须覆盖内核认的全部名字（含宿主常见包装形态）
+      const hostForms = (n) => [n, n[0].toUpperCase() + n.slice(1), `run_${n}`, `mcp__h__${n}_command`];
+      const missed = [];
+      for (const name of names) {
+        for (const form of hostForms(name)) {
+          if (!new RegExp(matcher).test(form)) missed.push(form);
+        }
+      }
+      check(`${label} matcher 覆盖内核 SHELL_TOOL 名单全部成员的常见宿主形态`, missed.length === 0,
+        missed.length ? `matcher 漏掉 "${missed.join('", "')}"（内核名单 ${names.join('/')}）——该调用不会进风险闸` : '');
       // 反向锚：确认对账用的是宿主语义（大小写敏感正则），`Bash|Shell|Terminal` 那种窄写法必红
       check(`${label} matcher 非窄写法（不只 Bash/Shell/Terminal）`,
         new RegExp(matcher).test('Command') && new RegExp(matcher).test('pwsh'), matcher);
-      // 反向对账的另一方向（2026-10-28）：matcher 是子串正则，比代码 SHELL_TOOL 更宽。驼峰宿主名
-      // （RunCommand / ExecuteCommand / BashTool）会被 matcher 命中并调用 hook，但 `Command` 两侧都不是
-      // 词边界，内核对不上就判「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面那条断言只验
-      // 「matcher 覆盖代码名单」，方向恰好相反，锁不住这个洞。这里用真实进程跑，判的是实际行为。
+      // 方向②：matcher 是子串正则，比代码 SHELL_TOOL 更宽。驼峰宿主名（RunCommand / ExecuteCommand /
+      // BashTool）会被 matcher 命中并调用 hook，但 `Command` 两侧都不是词边界，内核对不上就判
+      // 「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面只验了方向①，锁不住这个洞。
+      // 这里用真实进程跑，判的是实际行为而不是正则字面量。
       const reg = new RegExp(matcher);
       for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell']) {
         check(`${label} 前提：matcher 会命中 "${hostName}"`, reg.test(hostName));
