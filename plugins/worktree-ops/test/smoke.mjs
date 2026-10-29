@@ -1364,6 +1364,117 @@ section('P2：宿主 PATH 里没有 git 时给出可操作的报错');
     noGit.close();
   }
 }
+
+section('P0：worktree_remove 的 cwd 不落在待删目录内');
+// 回归（2026-10-29 实机复现）：会话就在某个 worktree 里时，repoPath 自然指向它自己，
+// repoRoot() 返回的正是待删目录。旧实现用 repo 当 cwd 跑 `git worktree remove`，git 先把
+// 目录内容删光、最后 rmdir 失败报 Permission denied，同时把该 worktree 从登记里注销——
+// 目录变成删不掉的孤儿，而报错文案说的是权限问题，与真实原因（cwd 就在里面）无关。
+// 黑盒复现：让 server 进程 cwd 落在被删的 worktree 里，再删它。
+{
+  const cwdWt = await session.tool('worktree_create', { repoPath: repo, name: 'cwd-probe' });
+  check('夹具：在受管根内建出 cwd-probe 工作树', !cwdWt.isError, cwdWt.text);
+  const wtPath = path.join(root, 'wt-cwd-probe');
+  check('夹具：worktree 目录存在', existsSync(wtPath), wtPath);
+
+  // 服务进程 cwd 就在这个 worktree 内（模拟「会话落在 worktree 里」）
+  const inWt = openSession({}, wtPath);
+  try {
+    await inWt.ready;
+    const r = await inWt.tool('worktree_remove', { repoPath: wtPath, name: wtPath });
+    check('从 worktree 内部删除自身：成功而不是 Permission denied', !r.isError, r.text);
+    check('工作树目录真的被删掉（不留孤儿目录）', !existsSync(wtPath), wtPath);
+    const listed = git(['worktree', 'list', '--porcelain'], repo);
+    check('git 登记里不再有它（不留半删状态）', !listed.includes('wt-cwd-probe'), listed);
+  } finally {
+    inWt.close();
+  }
+  if (existsSync(wtPath)) {
+    // 清理：目录已从登记里注销（那就是本用例要暴露的半删态），只能自己删
+    rmSync(wtPath, { recursive: true, force: true });
+  }
+}
+
+section('P1：gitignored 文件阻止无确认删除');
+// 回归（2026-10-29 实测）：裸 `git status --porcelain` 看不见 .gitignore 掉的文件。只含
+// `.env` + `build/` 的工作树被判 clean，remove 不带任何 flag 就把 .env 一起删了——无警告、
+// 无报错、不可恢复。ignored 内容必须与未提交改动同等要求二次确认。
+{
+  // 用 .git/info/exclude 而不是提交一个 .gitignore：同样对所有工作树生效，
+  // 但不会改动仓库状态（提交 .gitignore 会让后续 merge 用例多一个分叉点）。
+  mkdirSync(path.join(repo, '.git', 'info'), { recursive: true });
+  const excludeFile = path.join(repo, '.git', 'info', 'exclude');
+  const prevExclude = existsSync(excludeFile) ? readFileSync(excludeFile, 'utf8') : '';
+  writeFileSync(excludeFile, `${prevExclude}${prevExclude && !prevExclude.endsWith('\n') ? '\n' : ''}.env\nbuild/\n`);
+  await session.tool('worktree_create', { repoPath: repo, name: 'ignored-probe' });
+  const wtPath = path.join(root, 'wt-ignored-probe');
+  writeFileSync(path.join(wtPath, '.env'), 'SECRET=1\n');
+  mkdirSync(path.join(wtPath, 'build'), { recursive: true });
+  writeFileSync(path.join(wtPath, 'build', 'out.js'), 'x\n');
+
+  // audit 必须把它放进 hold，而不是「clean and already merged」的 safe
+  const a = await session.tool('worktree_audit', { repoPath: repo });
+  const row = a.text.split('\n').find((l) => l.includes('wt-ignored-probe')) || '';
+  check('只含 gitignored 文件的工作树不被 audit 判为 safe', !/^safe\s/.test(row), row);
+  check('audit 点名 gitignored 文件会随目录删除', /gitignored/.test(row), row);
+
+  const blocked = await session.tool('worktree_remove', { repoPath: repo, name: 'ignored-probe' });
+  check('remove 拒绝无确认删除含 gitignored 文件的工作树', blocked.isError && /gitignored/.test(blocked.text), blocked.text);
+  check('拒绝后 .env 仍在', existsSync(path.join(wtPath, '.env')), wtPath);
+
+  // 两个确认标志齐备时才允许，且真的删掉
+  const forced = await session.tool('worktree_remove', { repoPath: repo, name: 'ignored-probe', force: true, confirmDiscard: true });
+  check('force + confirmDiscard 后才允许删除', !forced.isError, forced.text);
+  check('确认后目录被删掉', !existsSync(wtPath), wtPath);
+}
+
+section('P1：未配置受管根时 audit 不报 safe');
+// 回归（2026-10-29 实测）：bucketOf 旧实现 `if (managedPath && !isInside(...))` 在 root 为
+// null 时整条跳过 → audit 报 "safe to remove"，remove 却回 "outside the managed root
+// (none configured)"。audit 自己的指引把人撞墙。
+{
+  const noRootHome = path.join(sandbox, 'no-root-cfg');
+  mkdirSync(noRootHome, { recursive: true });
+  writeFileSync(
+    path.join(noRootHome, 'config.json'),
+    JSON.stringify({ root: null, baseRef: 'auto', branchPrefix: 'wt/', staleDays: 14, repos: {} }),
+  );
+  const noRoot = openSession({ WORKTREE_CONFIG_HOME: noRootHome });
+  try {
+    await noRoot.ready;
+    const a = await noRoot.tool('worktree_audit', { repoPath: repo });
+    check('无受管根时 audit 仍能出账', !a.isError, a.text);
+    check('无受管根时没有任何工作树被判为 safe', /safe to remove: 0/.test(a.text), a.text);
+    check('无受管根时点名原因是没有配根', /no managed root configured/.test(a.text), a.text);
+  } finally {
+    noRoot.close();
+  }
+}
+
+section('P2：合并冲突后不留下进行中的合并态');
+// 回归（2026-10-29 推断）：冲突分支只返回 isError，却把 MERGE_HEAD 留在主检出上，
+// 下一次调用撞到的是 "You have not concluded your merge" 另一个错。
+{
+  await session.tool('worktree_create', { repoPath: repo, name: 'conflict-probe' });
+  const wtPath = path.join(root, 'wt-conflict-probe');
+  // 主检出与工作树各自改同一行 → merge 必冲突
+  writeFileSync(path.join(wtPath, 'conflict.txt'), 'from worktree\n');
+  git(['add', '.'], wtPath);
+  git(['commit', '-m', 'feat: conflict side'], wtPath);
+  writeFileSync(path.join(repo, 'conflict.txt'), 'from main\n');
+  git(['add', '.'], repo);
+  git(['commit', '-m', 'chore: main side'], repo);
+
+  const r = await session.tool('worktree_merge_back', { repoPath: repo, name: 'conflict-probe', merge: true });
+  check('冲突时如实报告 CONFLICT', r.isError && /CONFLICT/.test(r.text), r.text);
+  const mergeHead = path.join(repo, '.git', 'MERGE_HEAD');
+  check('主检出不残留 MERGE_HEAD（合并态已中止）', !existsSync(mergeHead), mergeHead);
+  check('回执说明已中止合并', /aborted/i.test(r.text), r.text);
+
+  // 清理：先让 merge 能快进/无冲突，再删掉工作树
+  git(['checkout', '--', 'conflict.txt'], repo);
+  await session.tool('worktree_remove', { repoPath: repo, name: 'conflict-probe', force: true, confirmDiscard: true, deleteBranch: true });
+}
 } catch (err) {
   failures += 1;
   console.error(`\n未捕获异常: ${err.message}`);

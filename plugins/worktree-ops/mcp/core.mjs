@@ -842,11 +842,28 @@ return found[0];
 throw new Error(`worktree not found: ${needle}. Known: ${entries.map((e) => e.branch || e.path).join(", ")}`);
 }
 
+/** 工作树状态。ignored 文件必须单独记账：
+ *  裸 `git status --porcelain` 看不见被 .gitignore 的文件，一个只含 `.env` + `build/` 的工作树
+ *  会被判成 clean: yes，`worktree_remove` 随后不带任何 flag 把它连 `.env` 一起删掉——无警告、
+ *  无报错、不可恢复（2026-10-29 实测）。git 自己也不认为 ignored 文件值得拦，所以护栏必须在
+ *  这里：有 ignored 条目就等于「有东西会随目录一起消失」，与脏工作树同等对待（拒绝无确认删除）。
+ *
+ *  `clean` 的语义保持不变（只看 tracked/untracked 改动），ignored 另立 ignoredCount ——
+ *  把两者混成一个数字会让回执把 `.env` 说成「uncommitted change」，用户无从判断该不该强制。 */
 function statusOf(dir) {
-  const out = git(["status", "--porcelain"], dir, { allowFail: true });
-  if (out === null) return { clean: null, dirtyFiles: [], lines: [] };
+  const out = git(["status", "--porcelain", "--ignored=matching"], dir, { allowFail: true });
+  if (out === null) return { clean: null, dirtyFiles: [], ignoredFiles: [], lines: [] };
   const lines = out.split(/\r?\n/).filter((l) => l.trim());
-  return { clean: lines.length === 0, dirtyFiles: lines.slice(0, 20), dirtyCount: lines.length, lines };
+  const ignored = lines.filter((l) => l.startsWith("!!"));
+  const changed = lines.filter((l) => !l.startsWith("!!"));
+  return {
+    clean: changed.length === 0,
+    dirtyFiles: changed.slice(0, 20),
+    dirtyCount: changed.length,
+    ignoredFiles: ignored.slice(0, 20),
+    ignoredCount: ignored.length,
+    lines,
+  };
 }
 
 /** ahead/behind 与祖先判定只读仓库级 refs，cwd 必须用仓库根而非工作树目录：
@@ -1012,6 +1029,9 @@ function describeEntry(repo, entry, target, { includeSize = false, sizeDeadline 
     clean: status.clean,
     dirtyCount: status.dirtyCount ?? 0,
     dirtyFiles: status.dirtyFiles || [],
+    // ignored 单独出账：它们不参与 clean 判定，却会随目录一起被删
+    ignoredCount: status.ignoredCount ?? 0,
+    ignoredFiles: status.ignoredFiles || [],
     ahead: counter.ahead,
     behind: counter.behind,
     mergedIntoTarget: merged,
@@ -1053,7 +1073,11 @@ function dirAgeDays(dir) {
 *  「remove 一定拒绝」的工作树报成 safe，用户照着做必然撞墙。
 *  受管根外的工作树 remove 永远拒绝（force 也不放宽），因此不能进 safe 桶——
 *  旧实现不看受管根，audit 报 "safe to remove: 1"，remove 却回 "outside the
-*  managed root"。 */
+*  managed root"。
+*  同理**没配置受管根**时 remove 也一律拒绝（`managedPath ?? "(none configured)"` 那条），
+*  所以 null 不能落进 safe：`if (managedPath && !isInside(...))` 这种写法在 null 时整条跳过，
+*  等于「没配根 → 全部 safe」，与 remove 完全相反。
+*  ignored 文件在第 4 条就进 hold：它们被 .gitignore 挡在 status 之外，却会随目录一起删掉。 */
 function bucketOf(info, staleDays, managedPath = null) {
   if (info.locked) return { bucket: "hold", reason: "worktree is locked" };
   if (info.isMain) return { bucket: "hold", reason: "primary worktree" };
@@ -1062,8 +1086,15 @@ function bucketOf(info, staleDays, managedPath = null) {
   // 与 worktree_remove 同口径（prunable 例外已在上方先出）：git status 取不到时不得进 safe，
   // 否则 audit 报「safe to remove」而 remove 拒绝，用户照着做必然撞墙。
   if (info.clean === null || info.clean === undefined) return { bucket: "review", reason: "git status unavailable — cleanliness unproven, remove refuses without force" };
+  // gitignored 内容会随目录一起消失（.env / build/ 是典型），remove 要求二次确认
+  if (info.ignoredCount > 0) {
+    return { bucket: "hold", reason: `${info.ignoredCount} gitignored file(s) would be deleted with the directory` };
+  }
   if (info.ahead && info.ahead > 0) return { bucket: "hold", reason: `${info.ahead} commit(s) not merged into target` };
-  if (managedPath && !isInside(info.path, path.resolve(managedPath))) {
+  if (!managedPath) {
+    return { bucket: "review", reason: "no managed root configured — this plugin will not remove it" };
+  }
+  if (!isInside(info.path, path.resolve(managedPath))) {
     return { bucket: "review", reason: "outside the managed root — this plugin will not remove it" };
   }
   if (info.mergedIntoTarget) return { bucket: "safe", reason: "clean and already merged into target" };
@@ -1141,6 +1172,7 @@ export {
   sessionDir,
   detectCaseInsensitiveFs,
   CASE_INSENSITIVE_FS,
+  canonicalPath,
   samePath,
   MAIN_WT_CACHE,
   mainWorktreePath,

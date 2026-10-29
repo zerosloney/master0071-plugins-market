@@ -15,6 +15,7 @@ import {
   cwdInsidePluginRoot,
   repoRoot,
   sessionDir,
+  canonicalPath,
   samePath,
   mainWorktreePath,
   effective,
@@ -64,6 +65,68 @@ function cleanupFailedReply(steps, err, { mergeLanded = false, mainPath = null, 
 }
 
 /* ------------------------------------------------------------------- tools */
+
+/** 确定「执行 git worktree remove / prune 时的 cwd」。
+ *
+ *  为什么不能直接用 repo：`repoRoot()` 返回的是传进来的那棵工作树（会话就在 worktree 里时，
+ *  repoPath 自然指向它自己）。此时 git 的进程 cwd 就是待删目录，Windows 上先是内容被删光、
+ *  最后 rmdir 报 `Permission denied`，而 worktree 已从 git 的登记里注销 —— 目录成了孤儿，
+ *  报错文案还完全指错了原因（2026-10-29 实测）。
+ *
+ *  因此删改一律站到「被删目录之外的」主检出上。主检出取不到（bare 仓库、list 失败）时
+ *  退到 git 目录：`git -C <repo>/.git worktree remove ...` 同样成立，且它必然不在待删树内。
+ *  两处都不可用时才退回 repo —— 那时删除本来也会失败，至少不制造新的失败原因。 */
+function mutationCwd(repo, targetPath) {
+  const main = mainWorktreePath(repo);
+  if (main && !samePath(main, targetPath) && fs.existsSync(main)) return main;
+  const gitDir = path.join(repo, ".git");
+  if (fs.existsSync(gitDir)) return gitDir;
+  return samePath(path.resolve(repo), path.resolve(targetPath)) ? path.dirname(path.resolve(repo)) : repo;
+}
+
+/** 删除失败后的补充判定：worktree 登记是否已经不在，而目录仍然存在。
+ *  这种「已注销 + 目录还在」的状态与普通失败完全不同——git 已不认为它是工作树，
+ *  `git worktree remove` 再也删不掉它，用户必须自己删目录。照普通失败报「worktree 仍原样保留」
+ *  会把人引向解锁/重试，永远走不出来。 */
+function removalAftermath(repo, targetPath) {
+  let listed = true;
+  try {
+    listed = listWorktrees(repo).some((e) => samePath(e.path, targetPath));
+  } catch {
+    return null;
+  }
+  const dirGone = !fs.existsSync(targetPath);
+  if (listed && dirGone) return { state: "registered-but-missing" };
+  if (!listed && !dirGone) return { state: "unregistered-but-present" };
+  return null;
+}
+
+/** 删除前把**本进程**的 cwd 移出待删目录。
+ *
+ *  Windows 不允许删除「某个进程的当前目录」：git 子进程的 cwd 改对了也没用，只要 MCP 服务
+ *  自己的 process.cwd() 还落在待删树上，rmdir 一律 Permission denied（2026-10-29 实测：
+ *  git 的报错文案是 `failed to delete ...: Permission denied`，而 git 自己的 cwd 已经是主检出）。
+ *  这也是最自然的形态——会话就在该 worktree 里时，宿主把该目录继承给了 MCP 进程。
+ *
+ *  移出后**不**再 chdir 回去：目标目录马上要被删掉，chdir 回去只会失败并把 cwd 留在无效位置。
+ *  落点是主检出（mutationCwd 已保证它在目标之外且存在）。 */
+function moveCwdOutOf(targetPath, fallback) {
+  let cwd;
+  try {
+    cwd = process.cwd();
+  } catch {
+    return null; // cwd 已被删（某些宿主在目录消失后会这样）——无需移动
+  }
+  const rel = path.relative(canonicalPath(targetPath), canonicalPath(cwd));
+  const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  if (!inside) return null;
+  try {
+    process.chdir(fallback);
+    return { from: cwd, to: process.cwd() };
+  } catch (err) {
+    return { from: cwd, to: null, error: err && err.message ? err.message : String(err) };
+  }
+}
 
 const stringArg = (value) => (value === undefined || value === null ? "" : String(value));
 const boolArg = (value) => value === true || value === "true";
@@ -478,6 +541,17 @@ const tools = [
         if (info.clean === false) {
           return fail(`refusing to remove a dirty worktree (${info.dirtyCount} uncommitted change(s)).\nResolve them, or call again with force: true and confirmDiscard: true if the user explicitly asked to discard them.`);
         }
+        // gitignored 内容（.env / build/ 最常见）不在 `git status` 的普通输出里，但删除目录时
+        // 一起消失且无法恢复。旧实现的脏检查只看 --porcelain，于是「只含 .env」的工作树
+        // 被判 clean，remove 不带任何 flag 直接删掉（2026-10-29 实测）。
+        // 与脏工作树同等要求二次确认：不可恢复的东西必须有明确同意。
+        if (info.ignoredCount > 0) {
+          const sample = info.ignoredFiles.slice(0, 5).join(", ");
+          return fail(
+            `refusing to remove: the worktree contains ${info.ignoredCount} gitignored file(s) that would be deleted with it (${sample}${info.ignoredCount > 5 ? ", …" : ""}).\n` +
+              `Commit/move them out, or call again with force: true and confirmDiscard: true if the user accepts losing them.`,
+          );
+        }
         // clean 为 null = `git status` 本身没跑成。与紧邻的 `ahead === null` 同口径 fail-closed：
         // 无法证明干净就不能当干净删——状态取不到时恰恰是护栏最该拦住的时候。
         // 唯一例外是 prunable：工作树目录早被手动删/移走，`git status` 在不存在的 cwd 上必然失败，
@@ -499,14 +573,42 @@ const tools = [
         }
       }
 
-      git(["worktree", "remove", ...(discard ? ["--force"] : []), info.path], repo);
-      git(["worktree", "prune"], repo, { allowFail: true });
+      // cwd 必须落在被删目录**之外**：会话就在该 worktree 内时 repo 指向它自己，
+      // git 的 cwd 落在待删树上会先把内容删光再 rmdir 失败，并把登记一起注销。
+      const removeCwd = mutationCwd(repo, info.path);
+      // 本进程的 cwd 同样要移出去（Windows 不允许删除进程当前目录）；不移就只能在 git 层失败。
+      const moved = moveCwdOutOf(info.path, removeCwd);
+      try {
+        git(["worktree", "remove", ...(discard ? ["--force"] : []), info.path], removeCwd);
+      } catch (err) {
+        const aftermath = removalAftermath(repo, info.path);
+        const raw = err && err.message ? err.message : String(err);
+        if (aftermath && aftermath.state === "unregistered-but-present") {
+          return fail(
+            `removal FAILED and the worktree is now in an inconsistent state: git no longer lists ${info.path}, but the directory still exists.\n` +
+              `git command error: ${raw}\n` +
+              `The directory's remaining files must be deleted manually (git worktree remove can no longer see it).\n` +
+              `If a shell or session is still inside that directory, leave it first (cd elsewhere) — that is the usual cause on Windows.`,
+          );
+        }
+        const cwdNote = moved && moved.to === null
+          ? `\nThis server's own working directory is still inside the worktree and could not be changed (${moved.error}).`
+          : moved
+            ? `\nThis server's working directory was moved out of the worktree (to ${moved.to}) before the attempt.`
+            : "";
+        return fail(
+          `refusing to remove: git worktree remove failed.\ngit command error: ${raw}${cwdNote}\n` +
+            `If another process is running inside ${info.path}, leave it first (cd to the main checkout) — on Windows no process can delete its own working directory.`,
+        );
+      }
+      git(["worktree", "prune"], removeCwd, { allowFail: true });
       let branchNote = "";
       // 只有真实分支才谈得上删分支。detached 工作树没有分支：旧实现拿展示名
       // "detached@<sha>" 去 `git branch -d`，必然失败，然后报告成「分支被保留
       // （未完全合并或仍被引用）」——把一个不存在的东西说成被保留，纯属误导。
       if (boolArg(args.deleteBranch) && info.branch) {
-        const deleted = git(["branch", "-d", info.branch], repo, { allowFail: true });
+        // 删分支同样不能以 repo 为 cwd：repo 可能就是刚被删掉的目录
+        const deleted = git(["branch", "-d", info.branch], removeCwd, { allowFail: true });
         branchNote = deleted === null ? `\nbranch \`${info.branch}\` was kept (not fully merged or still referenced).` : `\nbranch \`${info.branch}\` deleted.`;
       } else if (boolArg(args.deleteBranch) && info.detached) {
         branchNote = `\nno branch to delete: this worktree was on a detached HEAD (${info.head}).`;
@@ -519,7 +621,10 @@ const tools = [
           // 不点名的话回执读起来像刚删掉了一个真实目录。
           ...(entry.prunable ? ["Note: the directory was already gone (prunable); only the stale registration was cleaned."] : []),
           branchNote,
-          `Remaining worktrees: ${listWorktrees(repo).map((w) => w.branch || w.path).join(", ")}`,
+          // 回执的「剩余工作树」查询同样不能用 repo 当 cwd：repo 可能正是刚被删掉的目录
+          // （会话就在该 worktree 里时），此时 git 连 rev-parse 都跑不起来 —— 删成功了却报
+          // `spawnSync git ENOENT`，用户会以为删除失败。用 removeCwd（必然存活）。
+          `Remaining worktrees: ${listWorktrees(removeCwd).map((w) => w.branch || w.path).join(", ")}`,
         ].join("\n"),
       );
     },
@@ -712,7 +817,15 @@ const tools = [
             // 只有确认存在未合并文件才算 CONFLICT；否则原样报告失败原因（如无效 ref、仓库不可用）
             const conflicts = (git(["diff", "--name-only", "--diff-filter=U"], mainPath, { allowFail: true }) || "").trim();
             if (conflicts) {
-              return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${mainPath}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}`);
+              // 冲突必须先把主检出恢复干净：旧实现在这里只返回 isError，却把 MERGE_HEAD 留在
+              // 主检出上——下一次调用撞到的是 "You have not concluded your merge" 这个完全
+              // 另一个错，用户以为是新问题。中止失败不影响本就不成功的合并，只如实追加一句。
+              const abort = git(["merge", "--abort"], mainPath, { allowFail: true });
+              const abortNote =
+                abort === null
+                  ? `\nThe in-progress merge could NOT be aborted automatically — run \`git merge --abort\` in ${mainPath} before retrying.`
+                  : `\nThe in-progress merge was aborted, so ${mainPath} is back to its pre-merge state.`;
+              return fail(`${steps.join("\n")}\n- merge: CONFLICT in ${mainPath}.\nResolve and commit there, or run \`git merge --abort\`.\nconflicted files:\n${conflicts}${abortNote}`);
             }
             return fail(`${steps.join("\n")}\n- merge: failed.\n${err.message}`);
           }
@@ -735,15 +848,31 @@ const tools = [
           // 分支未并入 target 时禁止强删：--force 会连带丢掉未合并提交
           steps.push(`- kept worktree ${info.path}: ${info.branch ? `branch` : "HEAD"} not merged into ${target}; run worktree_remove if intentional`);
         } else {
+          const removeCwd = mutationCwd(repo, info.path);
+          // 同 worktree_remove：本进程 cwd 落在待删目录里时，Windows 上必然 Permission denied
+          moveCwdOutOf(info.path, removeCwd);
           try {
-            git(["worktree", "remove", info.path], repo);
+            // 与 worktree_remove 同口径：cwd 必须在被删目录之外，否则会话在建出的 worktree 里
+            // 合并后清理会把目录删成孤儿（内容没了、登记也没了、只剩一个删不掉的空壳）
+            git(["worktree", "remove", info.path], removeCwd);
           } catch (err) {
+            const aftermath = removalAftermath(repo, info.path);
+            if (aftermath && aftermath.state === "unregistered-but-present") {
+              return cleanupFailedReply(
+                steps,
+                new Error(
+                  `git no longer lists ${info.path} but the directory still exists — delete it manually; ` +
+                    `original error: ${err && err.message ? err.message : String(err)}`,
+                ),
+                { mergeLanded, mainPath, info },
+              );
+            }
             return cleanupFailedReply(steps, err, { mergeLanded, mainPath, info });
           }
-          git(["worktree", "prune"], repo, { allowFail: true });
+          git(["worktree", "prune"], removeCwd, { allowFail: true });
           steps.push(`- removed worktree ${info.path}`);
           if (boolArg(args.deleteBranch) && info.branch) {
-            const deleted = git(["branch", "-d", info.branch], repo, { allowFail: true });
+            const deleted = git(["branch", "-d", info.branch], removeCwd, { allowFail: true });
             steps.push(deleted === null ? `- branch ${info.branch} kept` : `- branch ${info.branch} deleted`);
           }
         }

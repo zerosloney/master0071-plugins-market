@@ -86,6 +86,13 @@ node --version && git --version
 
 ## 版本变更
 
+**0.4.11**
+
+- **从 worktree 内部删除自身不再把目录删成孤儿**。会话就在某个 worktree 里时 `repoPath` 自然指向它自己，旧实现拿它当 cwd 跑 `git worktree remove`：内容先被删光、最后 `rmdir` 报 `Permission denied`，同时那个 worktree 已从 git 登记里注销——目录变成 `git worktree remove` 再也删不掉的空壳，而报错文案说的是权限问题。现在删除动作一律站在被删目录之外的主检出上执行，并先把**服务进程自己的** cwd 移出去（Windows 不允许删除进程当前目录）。删除成功后的「剩余工作树 / 删分支」也改用同一个存活目录，不再因为 cwd 刚被删掉而误报 `spawnSync git ENOENT`。若仍失败且处于「登记已注销、目录还在」的状态，回执会如实点名这个不一致并给出人工清理步骤。
+- **`worktree_audit` / `worktree_remove` 看得见 gitignored 文件**。旧脏检查只用 `git status --porcelain`，而它按定义不列 ignored 文件：一个只含 `.env` + `build/` 的 worktree 被判 `clean: yes`，`remove` 不带任何 flag 就把 `.env` 一起删掉——无警告、无报错、不可恢复。现在状态查询带 `--ignored=matching`，ignored 条目单独计数：`audit` 把它放进 `hold` 并点名「会随目录删除」，`remove` 要求 `force` + `confirmDiscard` 二次确认。
+- **未配置受管根时 `bucketOf` 不再判 `safe`**。旧判定写成 `if (managedPath && !isInside(...))`，`root` 为 null 时整条跳过 → audit 报 `safe to remove`，`remove` 却回 `outside the managed root (none configured)`，audit 自己的指引把人撞墙。`test/bucket.mjs` 里把这一错误行为钉成契约的断言同步改掉。
+- **合并冲突后中止本次合并**。旧实现返回 `isError` 却把 `MERGE_HEAD` 留在主检出上，重试撞到的是「你还有未完成的合并」这个无关的错。现在冲突时执行 `git merge --abort`（失败则如实告知需人工中止），回执说明主检出已回到合并前状态。
+
 **0.4.0（含破坏性变更）**
 
 - **`worktree_set_root` 改名为 `worktree_config`**（破坏性）。这个名字一直只说"根目录"，实际却同时管着 `root` / `baseRef` / `branchPrefix` / `staleDays` 和 `scope` / `action`，`staleDays` 藏在 "set_root" 里是纯粹的误导。改名后职责与名字对齐。工具数量不变，仍是 10 个。
@@ -182,10 +189,12 @@ node --version && git --version
 这些是有意为之的拒绝，不是 bug：
 
 - 删主工作树：永远拒绝。
-- 删脏工作树 / 有未合并提交的 worktree：拒绝，必须同时传 `force: true` **与** `confirmDiscard: true`（两个独立标志，单给 `force` 会被拒并提示补第二个——防一个误注入或误传的 `force` 独自毁掉未提交的工作）。
-- 删受管根目录之外的 worktree：一律拒绝，`force` 只覆盖脏工作树 / 未合并提交，不放宽受管根边界。
+- 删脏工作树 / 有未合并提交的 worktree / 含 **gitignored 文件**的 worktree：拒绝，必须同时传 `force: true` **与** `confirmDiscard: true`（两个独立标志，单给 `force` 会被拒并提示补第二个——防一个误注入或误传的 `force` 独自毁掉未提交的工作）。
+  - gitignored 也算：裸 `git status` 看不见它们，`.env`、`build/` 这类文件会随目录一起消失且无法恢复，所以 `worktree_audit` 把它们放进 `hold`，`worktree_remove` 要求二次确认。
+- 删受管根目录之外的 worktree：一律拒绝，`force` 只覆盖脏工作树 / 未合并提交，不放宽受管根边界。**未配置受管根时同样拒绝**（`worktree_audit` 也因此不再把任何 worktree 判成 `safe`——分桶与护栏同宽）。
+- 会话就在待删 worktree 内：允许删除，但会先把服务进程的工作目录移出该目录（Windows 不允许删除进程当前目录）；若移动失败则如实报告，不会把目录删成「登记已注销、目录还在」的孤儿。
 - 合并时主工作树检出的不是目标分支：拒绝，并告知先 `git checkout`。
-- rebase / merge 冲突：停下并列出冲突文件，不自动解决。
+- rebase / merge 冲突：停下并列出冲突文件，不自动解决。**冲突后会中止这次合并**（`git merge --abort`），不把 `MERGE_HEAD` 留在主检出上——否则下一次调用撞到的是「你还有未完成的合并」这个无关的错。
 - skill 层面：任何破坏性调用前先向用户确认。
 
 ## 安装
