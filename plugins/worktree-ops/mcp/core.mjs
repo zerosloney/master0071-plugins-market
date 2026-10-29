@@ -722,21 +722,27 @@ function autoBaseLag(repo, baseRef) {
 
 /** 显式传入的 target 必须真的解析得到提交，否则直接报错。
 *  解析不了时 counts() 会拿到 ahead=null，而删除路径上的「未合并提交」护栏
-*  （ahead && ahead > 0）会因 null 短路而静默放行，把有未合并提交的工作树删掉。 */
+*  （ahead && ahead > 0）会因 null 短路而静默放行，把有未合并提交的工作树删掉。
+*
+*  默认值的锚点（2026-10-29 修复）：跑在**主检出**上，不是跑在 repo 上。
+*  repo 是调用方给的仓库路径，会话就在某个 worktree 里时它解析到那个 worktree 自身——
+*  此时 currentBranch(repo) 返回的正是该 worktree 的分支，`rev-list target...branch`
+*  变成自己和自己比，ahead 恒为 0，「未合并提交」护栏对**每一个** worktree 都失效。
+*  改用主检出的当前分支：那才是「合并回哪里」的真实答案，也与 merge_back 的前提一致
+*  （它本来就要求 target 已在主检出上）。主检出解析失败时回退仓库默认分支。
+*  唯一例外：调用方已显式给出 target 时一律采信（含 worktree 自身路径的场景）。 */
 function resolveTarget(repo, explicit) {
   const raw = explicit === undefined || explicit === null ? "" : String(explicit);
   if (raw.trim()) {
     const ref = assertSafeRef(raw, "target");
     const resolved = git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo, { allowFail: true });
     if (!resolved || !resolved.trim()) {
-      throw new Error(`target ref \`${ref}\` does not resolve to a commit in ${repo}.\nPass a branch or tag that exists, or omit target to use the current checked-out branch.`);
+      throw new Error(`target ref \`${ref}\` does not resolve to a commit in ${repo}.\nPass a branch or tag that exists, or omit target to use the branch checked out in the primary worktree.`);
     }
     return ref;
   }
-  // 默认先跟随会话仓库当前检出的分支：merge_back 要求 target 已在主检出上，
-  // 跟随当前分支让默认值天然满足该前提（旧默认 origin/<默认分支> 永远对不上本地检出而 REFUSED）。
-  // detached / 解析不出分支时回退仓库默认分支（origin/<默认分支> 优先）。
-  const cur = currentBranch(repo);
+  const anchor = mainWorktreePath(repo) || repo;
+  const cur = currentBranch(anchor);
   if (cur) return cur;
   const d = defaultBranch(repo);
   if (!d) return "HEAD";

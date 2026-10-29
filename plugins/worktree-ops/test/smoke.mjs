@@ -342,6 +342,50 @@ try {
   git(['worktree', 'add', '--detach', detDir, 'main'], repo);
   const detRemove = await session.tool('worktree_remove', { repoPath: repo, name: detDir });
   check('干净的 detached 工作树仍可不带 force 删除', !detRemove.isError && /Removed worktree/.test(detRemove.text), detRemove.text);
+  section('会话落在 worktree 内时 target 默认值仍能看见未合并提交');
+  // 回归（2026-10-29）：默认 target 曾取 repo 当前检出的分支。会话 cwd 就在某个 worktree 内时，
+  // repoPath 解析到的正是那个 worktree 自身，于是 target 等于该 worktree 的分支——
+  // `rev-list target...branch` 自己和自己比，ahead 恒为 0，「未合并提交」护栏对每个 worktree 都失效。
+  const selfPath = path.join(root, 'wt-self-guard');
+  await session.tool('worktree_create', { repoPath: repo, name: 'self-guard' });
+  git(['config', 'user.email', 'smoke@test.invalid'], selfPath);
+  git(['config', 'user.name', 'smoke'], selfPath);
+  writeFileSync(path.join(selfPath, 'self.txt'), 'unmerged work\n');
+  git(['add', '.'], selfPath);
+  git(['commit', '-m', 'wip: self-guard'], selfPath);
+
+  const inSelf = openSession({}, selfPath);
+  try {
+    await inSelf.ready;
+    const selfRemove = await inSelf.tool('worktree_remove', { repoPath: selfPath, name: selfPath });
+    check(
+      '从 worktree 内部删除自身且提交未合并：拒绝而不是静默删掉',
+      selfRemove.isError && /not merged into/.test(selfRemove.text),
+      selfRemove.text,
+    );
+    check('被拒后 worktree 与未合并提交原样保留', existsSync(path.join(selfPath, 'self.txt')), selfRemove.text);
+
+    // 显式给 target 时行为不变（这条走的是 explicit 分支，用来确认修复没把它连带改坏）
+    const selfExplicit = await inSelf.tool('worktree_remove', { repoPath: selfPath, name: selfPath, target: 'main' });
+    check(
+      '显式 target=main 时同样拦住未合并提交',
+      selfExplicit.isError && /not merged into/.test(selfExplicit.text),
+      selfExplicit.text,
+    );
+
+    // 合并进 main 之后，从内部删除应成功——否则「修复」就变成了永久拦截
+    git(['merge', '--ff-only', 'wt/self-guard'], repo);
+    const selfOk = await inSelf.tool('worktree_remove', { repoPath: selfPath, name: selfPath });
+    check(
+      '提交已合并后从内部删除自身仍照常成功',
+      !selfOk.isError && /Removed worktree/.test(selfOk.text),
+      selfOk.text,
+    );
+  } finally {
+    inSelf.close();
+  }
+  if (existsSync(selfPath)) rmSync(selfPath, { recursive: true, force: true });
+
 
   // 回归：detached 工作树的删除护栏曾整体失效。porcelain 对 detached 不输出 branch 行，
   // entry.branch 于是为 null——护栏一 `entry.branch && info.ahead === null` 永假，
