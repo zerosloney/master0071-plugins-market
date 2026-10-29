@@ -142,7 +142,9 @@ check(
   applied.status === 1 && parseJson(readFileSync(statePath, "utf8")).scope_drift === "FAIL",
   applied.stdout + applied.stderr,
 );
-const gated = run("state.mjs", ["gate", "--pipeline", "coding", "--file", statePath, "--json"]);
+// gate 现在按 git 现状复算 scope（2026-10-29 第二轮），必须从仓库根跑：recheckScope 的
+// git 命令以 process.cwd() 为基准，与 scope.mjs 的「判定基准锚 git 根」同口径。
+const gated = run("state.mjs", ["gate", "--pipeline", "coding", "--file", statePath, "--json"], undefined, scopeRepo.repo);
 check(
   "scope 越界写回后 gate 判 ESCALATE 并给出原因",
   parseJson(gated.stdout)?.stop_reason === "ESCALATE" && /scope/i.test(gated.stdout),
@@ -150,15 +152,21 @@ check(
 );
 
 console.log("\n== DONE 判定校验 critical_checkpoints ==");
-const checkpointState = path.join(sandbox, "checkpoint.json");
+// 独立干净仓库（2026-10-29 第二轮）：gate 现在按 git 现状复算 scope，而 scopeRepo 里
+// 前面的用例故意留下了越界文件——复算会如实报 outside scope，与本组要验的 checkpoint
+// 判据互相干扰。用专属仓库 + 专属基线，让 scope 复算必然是 PASS。
+const cpRepo = makeRepo("checkpoint-repo");
+const checkpointState = path.join(cpRepo.repo, ".loop-cli", "checkpoint.json");
+mkdirSync(path.dirname(checkpointState), { recursive: true });
 const withCheckpoints = (passed) => ({
   ...codingState(),
   tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
   scope_drift: "PASS",
+  scope: { base: cpRepo.base, hard: ["src/**"], soft: ["sub/**"], forbidden: [] },
   critical_checkpoints: [{ id: "cp-lint", description: "lint 通过", passed }],
 });
 writeFileSync(checkpointState, JSON.stringify(withCheckpoints(false)));
-const blocked = run("state.mjs", ["gate", "--pipeline", "coding", "--file", checkpointState, "--json"]);
+const blocked = run("state.mjs", ["gate", "--pipeline", "coding", "--file", checkpointState, "--json"], undefined, cpRepo.repo);
 check(
   "critical checkpoint 未通过时不判 DONE",
   parseJson(blocked.stdout)?.stop_reason !== "DONE",
@@ -170,9 +178,9 @@ check(
   blocked.stdout,
 );
 writeFileSync(checkpointState, JSON.stringify(withCheckpoints(true)));
-const allowed = run("state.mjs", ["gate", "--pipeline", "coding", "--file", checkpointState, "--json"]);
+const allowed = run("state.mjs", ["gate", "--pipeline", "coding", "--file", checkpointState, "--json"], undefined, cpRepo.repo);
 check(
-  "全部 checkpoint 通过且 scope_drift=PASS 时判 DONE",
+  "全部 checkpoint 通过且 scope 复算 PASS 时判 DONE",
   parseJson(allowed.stdout)?.stop_reason === "DONE",
   allowed.stdout + allowed.stderr,
 );
@@ -220,23 +228,31 @@ console.log("\n== 2026-10-29：门禁不再采信预设 stop_reason ==");
 // `if (state.stop_reason) return { stop_reason: state.stop_reason }`，写个 "DONE" 进去就永远 DONE：
 // 实测任务仍 pending、checkpoint 未通过、scope 未判定，validate 说 Valid、gate 说 DONE、--apply 照落盘。
 {
+  // 用独立干净仓库：gate 现在会按 git 现状复算 scope（2026-10-29 第二轮），
+  // 落在非 git 目录里会得到「无法复算」而不是本组要验的「预设 stop_reason 不被采纳」。
+  const forgedRepo = makeRepo("forged-repo");
   const forged = {
     ...codingState(),
     tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
     critical_checkpoints: [{ id: "cp-forged", description: "未跑", passed: false }],
     scope_drift: null,
+    scope: { base: forgedRepo.base, hard: ["src/**"], soft: ["sub/**"], forbidden: [] },
     stop_reason: "DONE",
   };
-  const forgedPath = path.join(sandbox, "forged-done.json");
+  const forgedPath = path.join(forgedRepo.repo, ".loop-cli", "forged-done.json");
+  mkdirSync(path.dirname(forgedPath), { recursive: true });
   writeFileSync(forgedPath, JSON.stringify(forged));
-  const g = run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--json"]);
+  const g = run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--json"], undefined, forgedRepo.repo);
   const out = parseJson(g.stdout);
   check("预设 stop_reason=DONE 不被采纳", out?.stop_reason !== "DONE", g.stdout);
   check("回执点明预设值未被信任", /NOT trusted/.test(String(out?.presetNote)), g.stdout);
-  check("重算后点名卡在哪两条硬门禁", /cp-forged/.test(String(out?.reason)) && /scope_drift/.test(String(out?.reason)), g.stdout);
+  // 该状态下 cp-forged 未通过 → 拦；scope 复算 PASS 时不再赘述 scope（旧实现要求「两条都点名」，
+  // 新实现只点真正拦住的那条）。这里断言「点到了实际的拦截原因」且不误报 scope。
+  check("重算后点名实际拦截原因（cp-forged）", /cp-forged/.test(String(out?.reason)), g.stdout);
+  check("scope 复算通过时不误报 scope 问题", !/scope/i.test(String(out?.reason)), g.stdout);
 
   // --apply 必须把这个伪造值清掉，否则下一次调用又读到它
-  run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--apply"]);
+  run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--apply"], undefined, forgedRepo.repo);
   check(
     "--apply 把伪造的 stop_reason 清成 null",
     parseJson(readFileSync(forgedPath, "utf8"))?.stop_reason === null,
@@ -245,24 +261,26 @@ console.log("\n== 2026-10-29：门禁不再采信预设 stop_reason ==");
 
   // STOPPED 例外：人主动叫停没有可计算依据替代
   writeFileSync(
-    path.join(sandbox, "stopped.json"),
+    path.join(forgedRepo.repo, ".loop-cli", "stopped.json"),
     JSON.stringify({ ...codingState(), stop_reason: "STOPPED" }),
   );
-  const stopped = run("state.mjs", ["gate", "--pipeline", "coding", "--file", path.join(sandbox, "stopped.json"), "--json"]);
+  const stopped = run("state.mjs", ["gate", "--pipeline", "coding", "--file", path.join(forgedRepo.repo, ".loop-cli", "stopped.json"), "--json"], undefined, forgedRepo.repo);
   check("stop_reason=STOPPED 原样保留（人主动叫停）", parseJson(stopped.stdout)?.stop_reason === "STOPPED", stopped.stdout);
 
   // 反向锚：真实全部 done + checkpoint 通过 + scope PASS 仍然判 DONE
+  const legitPath = path.join(forgedRepo.repo, ".loop-cli", "legit-done.json");
   writeFileSync(
-    path.join(sandbox, "legit-done.json"),
+    legitPath,
     JSON.stringify({
       ...codingState(),
       tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
       critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+      scope: { base: forgedRepo.base, hard: ["src/**"], soft: ["sub/**"], forbidden: [] },
       scope_drift: "PASS",
       stop_reason: null,
     }),
   );
-  const legit = run("state.mjs", ["gate", "--pipeline", "coding", "--file", path.join(sandbox, "legit-done.json"), "--json"]);
+  const legit = run("state.mjs", ["gate", "--pipeline", "coding", "--file", legitPath, "--json"], undefined, forgedRepo.repo);
   check("真实满足三个条件时仍判 DONE（重算没把正常路径改坏）", parseJson(legit.stdout)?.stop_reason === "DONE", legit.stdout);
 }
 
@@ -403,6 +421,76 @@ console.log("\n== 2026-10-29：init 不覆盖非状态文件 ==");
     hostRepo.repo,
   );
   check("带进度的真状态文件 --force 仍能重置", reset.status === 0 && parseJson(readFileSync(realState, "utf8"))?.tasks.length === 0, reset.stderr);
+}
+
+
+console.log("\n== 2026-10-29 第二轮：gate 不采信 state.scope_drift，改按 git 现状复算 ==");
+// 上一轮修掉了「预设 stop_reason 被采信」，但内层仍在读 state.scope_drift——实测越界文件
+// dist/leak.js 在场、状态手写 scope_drift:"PASS"，gate 直接回 DONE。门禁于是仍可自报。
+{
+  const forgeRepo = makeRepo("scope-forge-repo");
+  const statePath = path.join(forgeRepo.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(statePath), { recursive: true });
+  const stateWith = (drift) => ({
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+    scope: { base: forgeRepo.base, hard: ["src/**"], soft: ["sub/**"], forbidden: ["dist/**"] },
+    scope_drift: drift,
+  });
+  const gateIn = (repo) =>
+    run("state.mjs", ["gate", "--pipeline", "coding", "--file", statePath, "--json"], undefined, repo);
+
+  // ① 无越界 + 自报 PASS → DONE（正常路径未被改坏）
+  writeFileSync(statePath, JSON.stringify(stateWith("PASS")));
+  check("无越界且自报 PASS → DONE", parseJson(gateIn(forgeRepo.repo).stdout)?.stop_reason === "DONE");
+
+  // ② 制造真实越界（forbidden 目标），仍自报 PASS → 必须拦下
+  mkdirSync(path.join(forgeRepo.repo, "dist"), { recursive: true });
+  writeFileSync(path.join(forgeRepo.repo, "dist", "leak.js"), "leak\n");
+  const forged = parseJson(gateIn(forgeRepo.repo).stdout);
+  check("越界在场 + 自报 PASS → 不判 DONE（自报值不作数）", forged?.stop_reason !== "DONE", JSON.stringify(forged));
+  check("越界时判 ESCALATE 而非静默继续", forged?.stop_reason === "ESCALATE", JSON.stringify(forged));
+  check("reason 指名越界的实际文件", /dist\/leak\.js/.test(String(forged?.reason)), String(forged?.reason));
+
+  // ③ 删掉越界文件 → 恢复 DONE（证明拦截来自真实状态，不是永久锁死）
+  rmSync(path.join(forgeRepo.repo, "dist", "leak.js"));
+  check("移除越界文件后恢复 DONE", parseJson(gateIn(forgeRepo.repo).stdout)?.stop_reason === "DONE");
+
+  // ④ 自报 FAIL 但实际无越界 → 按复算放行（自报值既不能放行也不能拦停）
+  writeFileSync(statePath, JSON.stringify(stateWith("FAIL")));
+  check("无越界但自报 FAIL → 按复算放行 DONE", parseJson(gateIn(forgeRepo.repo).stdout)?.stop_reason === "DONE");
+
+  // ⑤ scope 规则缺失 → 复算不可得 → 不 DONE（判停依据不足）
+  const noScope = { ...stateWith("PASS") };
+  delete noScope.scope;
+  writeFileSync(statePath, JSON.stringify(noScope));
+  const unknown = parseJson(gateIn(forgeRepo.repo).stdout);
+  check("无 scope 规则 → 不 DONE（复算不可得）", unknown?.stop_reason !== "DONE", JSON.stringify(unknown));
+  check("无 scope 规则时 reason 说明无法复算", /无法复算|scope 未配置/.test(String(unknown?.reason)), String(unknown?.reason));
+
+  // ⑥ 非 git 目录 → 同样复算不可得
+  const outside = run("state.mjs", ["gate", "--pipeline", "coding", "--file", statePath, "--json"], undefined, sandbox);
+  check("从非 git 目录跑 gate → 不 DONE（无法复算）", parseJson(outside.stdout)?.stop_reason !== "DONE", outside.stdout);
+
+  // ⑦ 与 scope.mjs 同宽：ignored 文件也算改动面（构建产物是典型 forbidden 目标）
+  writeFileSync(path.join(forgeRepo.repo, ".gitignore"), "dist/\n");
+  mkdirSync(path.join(forgeRepo.repo, "dist"), { recursive: true });
+  writeFileSync(path.join(forgeRepo.repo, "dist", "built.js"), "built\n");
+  writeFileSync(statePath, JSON.stringify(stateWith("PASS")));
+  const ignored = parseJson(gateIn(forgeRepo.repo).stdout);
+  check("gitignored 的 forbidden 文件同样拦住 DONE", ignored?.stop_reason !== "DONE", JSON.stringify(ignored));
+  const viaScope = run(
+    "scope.mjs",
+    ["--file", statePath, "--json"],
+    undefined,
+    forgeRepo.repo,
+  );
+  check(
+    "gate 复算与 scope.mjs 对同一起越界给出同一结论",
+    parseJson(viaScope.stdout)?.verdict === "FAIL",
+    viaScope.stdout,
+  );
 }
 
 rmSync(sandbox, { recursive: true, force: true });

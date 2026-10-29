@@ -366,28 +366,101 @@ function validateState(state, pipeline) {
 // 两条规则共用一条判定链——DONE 必须同时满足，否则给出可读原因（哪个 checkpoint 没通过），不静默放行。
 // 此前 DONE 只看任务状态流转，passed=false 的硬门禁被跨过，流程提前进入收尾态。
 // scope 未判定（undefined / null）不算越界，但同样不允许 DONE：判停依据不足就继续本轮补跑 scope。
-function codingGateBlockers(state) {
+// scope 的判据（2026-10-29 第二轮修复）：**不接受 state.scope_drift 作为 DONE 依据**。
+// 状态文件是执行者可写的普通 JSON，写 scope_drift:"PASS" 就能过——实测越界文件 dist/leak.js
+// 在场、状态自称 PASS，旧 gate 直接回 stop_reason=DONE。这与上一轮修的「预设 stop_reason」是
+// 同一类问题，只是发生在更里一层：外层不再信预设终态，内层仍在信预设的 scope 结论。
+// 现在 gate 自己按 git 现状重算：读 state.scope 的规则（hard/soft/forbidden/base）重新判定。
+//   · PASS    → 放行（scope_drift 记成什么都不影响判据）
+//   · FAIL    → 拦，reason 里指名越界文件
+//   · unknown → 拦（无规则 / 不在 git 仓库）——判停依据不足，与「未判定」同档
+// 口径必须与 scope.mjs 同宽（glob 语法、.loop-cli 排除、ignored 文件三类都算改动面），
+// 由 test/regression.mjs 的对照用例锁住。这里只做最小复算，不反向依赖 scope.mjs 的 CLI。
+function recheckScope(state, cwd) {
+  const scope = isObject(state.scope) ? state.scope : null;
+  if (!scope) return { state: "unknown", reason: "scope 未配置（DONE 需要 hard/soft/forbidden 规则）" };
+  const rulesOf = (v) => (Array.isArray(v) ? v.map((x) => String(x).replace(/\\/g, "/")) : []);
+  const hard = rulesOf(scope.hard);
+  const soft = rulesOf(scope.soft);
+  const forbidden = rulesOf(scope.forbidden);
+  if (hard.length === 0 && soft.length === 0 && forbidden.length === 0) {
+    return { state: "unknown", reason: "scope 规则为空（DONE 需要至少一条 hard/soft/forbidden）" };
+  }
+  const base = typeof scope.base === "string" && scope.base.trim() ? scope.base.trim() : "HEAD";
+  if (base.startsWith("-") || /\s/.test(base)) {
+    return { state: "unknown", reason: `scope.base 非法：${base}` };
+  }
+  const run = (args) => {
+    try {
+      return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      return null;
+    }
+  };
+  if (run(["rev-parse", "--show-toplevel"]) === null) {
+    return { state: "unknown", reason: "不在 git 仓库内（无法复算 scope）" };
+  }
+  const changed = new Set();
+  const add = (line) => {
+    const f = line.trim().replace(/\\/g, "/");
+    if (f && !f.startsWith(".loop-cli/")) changed.add(f);
+  };
+  const diffed = run(["diff", "--name-only", base]);
+  if (diffed === null) return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
+  for (const line of diffed.split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--exclude-standard"]) || "").split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"]) || "").split("\n")) add(line);
+
+  const glob = (pattern) => {
+    let p = String(pattern).replace(/\\/g, "/").trim();
+    if (p.endsWith("/")) p += "**";
+    let src = "";
+    for (let i = 0; i < p.length; i += 1) {
+      const ch = p[i];
+      if (ch === "*") {
+        if (p[i + 1] === "*") { src += ".*"; i += 1; } else { src += "[^/]*"; }
+      } else if (ch === "?") src += "[^/]";
+      else if ("/.+()[]{}^$|\\".includes(ch)) src += `\\${ch}`;
+      else src += ch;
+    }
+    return new RegExp(`^${src}$`);
+  };
+  const matchAny = (file, patterns) => patterns.some((p) => glob(p).test(file));
+  const files = [...changed].sort();
+  const forbiddenHits = files.filter((f) => matchAny(f, forbidden));
+  const outside = files.filter((f) => !matchAny(f, hard) && !matchAny(f, soft) && !matchAny(f, forbidden));
+  if (forbiddenHits.length > 0 || outside.length > 0) {
+    const detail = [
+      ...(forbiddenHits.length ? [`forbidden: ${forbiddenHits.join(", ")}`] : []),
+      ...(outside.length ? [`outside scope: ${outside.join(", ")}`] : []),
+    ].join("；");
+    return { state: "FAIL", reason: `scope 复算 FAIL（${detail}）`, files };
+  }
+  return { state: "PASS", reason: `scope 复算 PASS（base ${base}，${files.length} 个变更文件）`, files };
+}
+
+function codingGateBlockers(state, cwd) {
   const blockers = [];
   const checkpoints = Array.isArray(state.critical_checkpoints) ? state.critical_checkpoints : [];
   const failed = checkpoints
     .filter((checkpoint) => !isObject(checkpoint) || checkpoint.passed !== true)
     .map((checkpoint) => (isObject(checkpoint) && typeof checkpoint.id === "string" ? checkpoint.id : "(未命名)"));
   if (failed.length > 0) blockers.push(`critical checkpoints 未通过: ${failed.join(", ")}`);
-  const drift = state.scope_drift ?? null;
-  if (drift === "FAIL") blockers.push("scope_drift=FAIL（scope 越界）");
-  else if (drift !== "PASS") blockers.push('scope_drift 尚未判定（DONE 需要 scope_drift == "PASS"）');
-  return blockers;
+  const actual = recheckScope(state, cwd);
+  if (actual.state === "FAIL") blockers.push(`scope_drift=FAIL（${actual.reason}）`);
+  else if (actual.state === "unknown") blockers.push(`scope 无法复算（${actual.reason}）——DONE 需要可复算的 scope`);
+  return { blockers, actual };
 }
 
-function gateFor(state, pipeline) {
+function gateFor(state, pipeline, cwd = process.cwd()) {
   const spec = PIPELINES[pipeline];
   const maxCycles = state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const stallMax = spec.stallMax;
   const tasks = state.tasks;
-  // coding 零容忍 + 硬门禁：DONE 要求 scope_drift == "PASS" 且 critical_checkpoints 全通过。
-  // 未判定时既不 DONE 也不 ESCALATE：落到末尾的 continue，补跑 scope 检查即可；
-  // 真越界仍由下方 FAIL 分支即时 ESCALATE。
-  const blockers = pipeline === "coding" ? codingGateBlockers(state) : [];
+  // coding 零容忍 + 硬门禁：DONE 要求 scope **复算**为 PASS 且 critical_checkpoints 全通过。
+  // 复算不可得（无规则 / 不在 git 仓库）同样不允许 DONE：判停依据不足就继续本轮补跑 scope。
+  const scopeGate = pipeline === "coding" ? codingGateBlockers(state, cwd) : { blockers: [], actual: null };
+  const blockers = scopeGate.blockers;
   // 预设 stop_reason 的处置（2026-10-29 修复）。
   // 旧实现第一句就是 `if (state.stop_reason) return { stop_reason: state.stop_reason }`：状态文件是
   // 执行者可写的普通 JSON，写进去一个 "DONE" 就永远 DONE——实测任务仍 pending、checkpoint 未通过、
@@ -420,8 +493,9 @@ function gateFor(state, pipeline) {
       return withNote({ stop_reason: "ESCALATE", reason: `task ${task.id} failures ${task.failures} >= max_attempts ${limit}` });
     }
   }
-  if (pipeline === "coding" && state.scope_drift === "FAIL") {
-    return withNote({ stop_reason: "ESCALATE", reason: "scope_drift=FAIL（scope 越界，零容忍）" });
+  if (pipeline === "coding" && scopeGate.actual && scopeGate.actual.state === "FAIL") {
+    // 越界以**复算结果**为准（state.scope_drift 只作对照）：执行者删掉或改写自报值也逃不掉。
+    return withNote({ stop_reason: "ESCALATE", reason: scopeGate.actual.reason });
   }
   if (state.budget) {
     const budget = state.budget;
@@ -611,7 +685,7 @@ function main() {
     const state = readState(file);
     const { errors } = validateState(state, pipeline);
     if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
-    const result = gateFor(state, pipeline);
+    const result = gateFor(state, pipeline, process.cwd());
     if (args.json) console.log(JSON.stringify({ file, ...result, applied: false }));
     else console.log(`stop_reason=${result.stop_reason ?? "null"} (${result.reason})`);
     return;
@@ -630,7 +704,7 @@ function main() {
     }
     applyErrors = validateState(read.state, pipeline).errors;
     if (applyErrors.length > 0) return;
-    result = gateFor(read.state, pipeline);
+    result = gateFor(read.state, pipeline, process.cwd());
     applyGate(file, read.state, result);
     logEvent(file, pipeline, "gate", read.state, { applied: Boolean(result.stop_reason) });
   });

@@ -146,9 +146,15 @@ check("非法 max_attempts 被拒绝", run("state.mjs", ["validate", "--pipeline
 
 const codingGate = gate(codingFile, "coding");
 check("coding 初始不停止", codingGate.stop_reason === null);
-coding.scope_drift = "FAIL";
+// 2026-10-29 第二轮：gate 不再采信 state.scope_drift，必须由真实 git 越界触发。
+// 无 scope 规则 → 复算 unknown → 拦（判停依据不足）；自报 PASS/FAIL 都不影响判据。
+coding.scope_drift = "PASS";
 writeFileSync(codingFile, JSON.stringify(coding));
-check("coding scope_drift FAIL 判 ESCALATE", gate(codingFile, "coding").stop_reason === "ESCALATE");
+check(
+  "自报 scope_drift=PASS 但无 scope 规则 → 不判 DONE（复算不可得）",
+  gate(codingFile, "coding").stop_reason === null,
+  JSON.stringify(gate(codingFile, "coding")),
+);
 
 console.log("\n== 状态校验 ==");
 const broken = JSON.parse(JSON.stringify(ralph));

@@ -75,7 +75,7 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
 - `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
-- `scope_drift`：本轮 scope 判定结论 `"PASS"` / `"FAIL"`；未判定时为 `null`（DONE 要求 `"PASS"`，`"FAIL"` 直接 ESCALATE）。
+- `scope_drift`：本轮 scope 判定结论 `"PASS"` / `"FAIL"`，未判定时为 `null`。**这是记录，不是 DONE 判据**：gate 判 DONE 时会按 `scope` 规则与 git 现状自己重算，手写值既不能放行也不能拦停。
 - `scope`：可选的 `{ hard: [], soft: [], forbidden: [] }` 规则集，路径按 **git 仓库根相对**解释；`scripts/scope.mjs --file` 可直接读它，命令行 `--hard/--soft/--forbidden` 优先。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成「上限为 0」立刻 BUDGET）。
 - `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。
@@ -89,7 +89,7 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"BUDGET"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
 - 每轮结束时计算「任务状态签名」（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
-- 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 得到 scope_drift 并写回状态文件（`--apply` 把结论写进 `scope_drift`，gate 读到的是真实判定而不是执行者自报值）；脚本不可用时按本节规则手写。
+- 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘，并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 得到 scope_drift 并写回状态文件（`--apply` 把结论写进 `scope_drift`，但 gate 不采信该字段——它会按 `scope` 规则与 git 现状自行重算）；脚本不可用时按本节规则手写。
 - scope 判定基准是 **git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径，从哪个目录调用结论一致——子目录调用不再漏判仓库其它目录的未跟踪改动。
 
 ### 读取规则
@@ -108,7 +108,7 @@ DONE 必须**同时**满足：
 - 动态检查无 FAIL（lint/typecheck/build/test 全过）。
 - 审查者 `verdict == "PASS"`。
 - 零 critical / major。
-- **`scope_drift == "PASS"`**（任何越界都不允许 DONE）。
+- **scope 复算 PASS**（任何越界都不允许 DONE）。gate 按 `scope` 规则重算；`scope` 缺失或不在 git 仓库内时复算不可得，同样不允许 DONE。`scope_drift` 字段只作记录。
 - 全部 `critical_checkpoints` 的 `passed` 为 `true`（未通过的硬门禁不允许 DONE；`state.mjs gate` 会点名是哪一条没过）。
 - **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，禁止 DONE。
 - 无未处理的人工确认项。
@@ -147,7 +147,7 @@ coding 域专属约束：
 
 - 严格限制在声明边界内：`hard_scope` 必做、`soft_scope` 可做、`forbidden_scope` 禁碰。
 - 命中 `forbidden_scope` 立即停止并询问用户，不得「先改了再说」。
-- **scope drift 零容忍**：本轮 diff 超出声明边界（哪怕一行）必须标 `scope_drift="FAIL"`，回滚或询问用户，不放过。
+- **scope drift 零容忍**：本轮 diff 超出声明边界（哪怕一行）必须标 `scope_drift="FAIL"`、回滚或询问用户，不放过。gate 会独立复算同一件事，自报 PASS 不会掩盖越界。
 - 不把既有改动误判为边界漂移——比对 Baseline。
 
 ## 根因分组修复（coding 铁律）
@@ -293,7 +293,7 @@ value: {baseline_value}
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
 - 任一任务 `failures` 达到状态文件里的 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
-- `scope_drift == "FAIL"` 与 Reviewer 的 REJECT 同样触发 ESCALATE，不等重试计数。
+- scope 复算 FAIL 与 Reviewer 的 REJECT 同样触发 ESCALATE，不等重试计数。
 
 ## 停止
 

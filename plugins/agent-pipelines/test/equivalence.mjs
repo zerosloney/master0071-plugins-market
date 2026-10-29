@@ -242,25 +242,24 @@ try {
     null,
   );
 
-  // coding scope 漂移
-  expectStop("coding scope_drift=FAIL 判 ESCALATE", "coding", { scope_drift: "FAIL" }, "ESCALATE");
-  // 零容忍高于 DONE：全部任务 done 但 scope 越界仍不允许 DONE
+  // coding scope（2026-10-29 第二轮：gate 不再采信 state.scope_drift，改按 git 现状复算）
+  // 这里的状态都在临时目录里、没有 scope 规则也没有 git 越界，因此复算一律 unknown → 不 DONE。
+  // 「自报 FAIL 就 ESCALATE」不再是可表达的行为：自报值不作数，见 regression.mjs 的对照用例。
   expectStop(
-    "coding 全部 done + scope_drift=FAIL → ESCALATE（零容忍高于 DONE）",
+    "coding 自报 scope_drift=FAIL 但无规则 → 不 DONE（复算不可得）",
     "coding",
-    {
-      scope_drift: "FAIL",
-      tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
-    },
-    "ESCALATE",
+    { scope_drift: "FAIL" },
+    null,
   );
-
-  // 文档口径是「scope_drift == "PASS"」才允许 DONE（commands/coding-pipeline.md / SKILL.md）。
-  // 修复前代码只拦 FAIL，未跑 / 未自报（undefined / null）被当成通过——零容忍在未判定时静默放行。
   const allDone = [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }];
-  expectStop("coding 全部 done + scope_drift=PASS → DONE", "coding", { scope_drift: "PASS", tasks: allDone }, "DONE");
-  expectStop("coding 全部 done + scope_drift 未判定（undefined）→ 不 DONE，继续循环", "coding", { tasks: allDone }, null);
-  expectStop("coding 全部 done + scope_drift=null → 不 DONE，继续循环", "coding", { scope_drift: null, tasks: allDone }, null);
+  expectStop(
+    "coding 全部 done + 自报 PASS 但无规则 → 不 DONE（复算不可得）",
+    "coding",
+    { scope_drift: "PASS", tasks: allDone },
+    null,
+  );
+  expectStop("coding 全部 done + 无 scope_drift → 不 DONE", "coding", { tasks: allDone }, null);
+  expectStop("coding 全部 done + scope_drift=null → 不 DONE", "coding", { scope_drift: null, tasks: allDone }, null);
   // ralph 不受该判据影响（scope 只对 coding 定义）
   expectStop("ralph 全部 done + 无 scope_drift → 仍 DONE", "ralph", { tasks: allDone }, "DONE");
 
