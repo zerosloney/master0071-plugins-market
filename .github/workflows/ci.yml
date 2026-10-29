@@ -31,8 +31,11 @@ jobs:
         # 高于声明——按仓库纪律应改 README 与自检值，而不是把这一档从矩阵删掉。
         node: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # action pin 到 commit SHA（2026-10-29）：tag 可变，被投毒的 action 换 tag 指向即可拿走
+      # runner 上的 GITHUB_TOKEN 与代码。SHA pin + Dependabot（dependabot.yml 负责提版本更新 PR）
+      # 是官方推荐组合——升级走显式 PR，而不是让 tag 漂移。
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ matrix.node }}
       # worktree-ops 的冒烟测试会真实创建 git 提交，runner 需要可用身份
@@ -75,6 +78,9 @@ jobs:
           node test/run-hook-tests.mjs
           node test/sheet-parity.mjs
           node test/role-table-parity.mjs
+          # check-plan.mjs 是已发布的随装随用脚本，此前唯一测试在 extras/ 的 bun 套件里
+          # （CI 明写不纳入、Windows 有平台性失败）= 任何平台零守护。本条是 node:test 重写版。
+          node test/check-plan.test.mjs
       - name: ai-native-delivery tests
         run: |
           cd plugins/ai-native-delivery

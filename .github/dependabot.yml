@@ -1,0 +1,15 @@
+# Dependabot：只管 GitHub Actions（2026-10-29 补）。
+# 本仓插件零 npm 依赖（CI 与运行只用 Node 标准库），没有 package-ecosystem: npm 可管；
+# pstack extras 的 bun 工具链是上游 vendored、默认不加载，按上游处理，不在这里跟踪。
+# actions 用 commit SHA pin（见 ci.yml 注释），Dependabot 识别 SHA pin 并提升级 PR。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # 两个 action 各自独立 PR，升级可逐个审（SHA 变更必须对照官方 release 核对）
+    groups:
+      actions:
+        patterns:
+          - "*"

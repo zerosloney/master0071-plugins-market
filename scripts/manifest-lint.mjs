@@ -449,6 +449,39 @@ const measure = (plugin) => {
       if (n > 0) out.scenarios = n;
     }
   }
+  // 子智能体 / 命令（2026-10-29 第四轮补）：目录计数。它们是客户端约定（非标准组件），
+  // 但正是首页与 README 在承诺的数字（「6 个配套子智能体」「8 交付命令 / 3 角色委派」「14 个子智能体」）。
+  const agentsDir = path.join(ROOT, 'plugins', plugin, 'agents');
+  if (fs.existsSync(agentsDir)) {
+    const n = fs.readdirSync(agentsDir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith('.md')).length;
+    if (n > 0) out.agents = n;
+  }
+  const commandsDir = path.join(ROOT, 'plugins', plugin, 'commands');
+  if (fs.existsSync(commandsDir)) {
+    const n = fs.readdirSync(commandsDir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith('.md')).length;
+    if (n > 0) out.commands = n;
+  }
+  // pstack 的「14 个子智能体」= agents/ 4 个基础 + extras/effort-agents/ 10 个（README 明写这个拆法）。
+  // 两者相加才算 14；extras 目录的存在与否决定这个合计键是否参与判定。
+  const extrasAgentsDir = path.join(ROOT, 'plugins', plugin, 'extras', 'effort-agents');
+  if (fs.existsSync(extrasAgentsDir)) {
+    const n = fs.readdirSync(extrasAgentsDir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith('.md')).length;
+    if (n > 0 && out.agents !== undefined) out.agentsTotal = out.agents + n;
+  }
+  // pstack 的「24 条 principle」：skills/ 下 principle-* 子目录计数。
+  const skillsDir = path.join(ROOT, 'plugins', plugin, 'skills');
+  if (fs.existsSync(skillsDir)) {
+    const n = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory() && e.name.startsWith('principle-')).length;
+    if (n > 0) out.principles = n;
+  }
+  // ai-native 的「check-loop 硬门 5 段」：check-loop.mjs 的 lane 表里 hard 段数。
+  // 注意引用的是**硬门段数**（阻断面），不是 22 段总数——README 写的是「硬门 5 段」。
+  const checkLoop = path.join(ROOT, 'plugins', plugin, 'scripts', 'check-loop.mjs');
+  if (fs.existsSync(checkLoop)) {
+    const laneLines = fs.readFileSync(checkLoop, 'utf8').split(/\r?\n/).filter((l) => l.includes('lane:'));
+    const hard = laneLines.filter((l) => l.includes("'hard'")).length;
+    if (hard > 0) out.hardGates = hard;
+  }
   return out;
 };
 // 数字前后不得再接数字/连字符/点：否则 `2026-10-26 工具栏靠左实测` 会被读成「26 个工具」（实测踩过）。
@@ -461,6 +494,17 @@ const CLAIM_RES = [
   { key: 'tools', re: new RegExp(`MCP\\s*工具\\s*[（(]\\s*${NUM}\\s*个?\\s*[)）]`, 'g'), label: 'MCP 工具' },
   { key: 'tools', re: new RegExp(`MCP\\s*${NUM}\\s*工具`, 'g'), label: 'MCP 工具' },
   { key: 'scenarios', re: new RegExp(`${NUM}\\s*个(?:业务)?场景`, 'g'), label: '场景' },
+  // 2026-10-29 第四轮补：首页在承诺的其余数字——子智能体、命令、principle 原则、硬门段数。
+  // agents 有两个测量键：agents = agents/ 目录（宿主实际加载的），agentsTotal = agents/ +
+  // extras/effort-agents/（pstack README 的「14 个子智能体」是这个合计，明写了拆法）。
+  { key: 'agents', re: new RegExp(`${NUM}\\s*个(?:配套)?子智能体`, 'g'), label: '子智能体' },
+  { key: 'agents', re: new RegExp(`子智能体\\s*[（(]\\s*${NUM}\\s*个?\\s*[)）]`, 'gi'), label: '子智能体' },
+  { key: 'agentsTotal', re: new RegExp(`${NUM}\\s*个子智能体`, 'g'), label: '子智能体（含 extras）' },
+  { key: 'commands', re: new RegExp(`${NUM}\\s*(?:个\\s*)?(?:交付\\s*)?命令`, 'g'), label: '命令' },
+  { key: 'commands', re: new RegExp(`${NUM}\\s*命令`, 'g'), label: '命令' },
+  { key: 'principles', re: new RegExp(`${NUM}\\s*条\\s*principle`, 'gi'), label: 'principle 原则' },
+  { key: 'principles', re: new RegExp(`principle\\s*(?:原则)?\\s*[（(]\\s*${NUM}\\s*个?\\s*[)）]`, 'gi'), label: 'principle 原则' },
+  { key: 'hardGates', re: new RegExp(`硬门\\s*${NUM}\\s*段`, 'g'), label: 'check-loop 硬门段' },
 ];
 for (const plugin of plugins) {
   const m = measure(plugin);
@@ -496,6 +540,11 @@ for (const plugin of plugins) {
       for (const mm of text.matchAll(re)) {
         const claimed = Number(mm[1]);
         if (claimed === m[key]) continue;
+        // agentsTotal 的宽容匹配（2026-10-29）：「N 个子智能体」在 agents 与 agentsTotal 两个键
+        // 之间有真实的语义重叠——pstack README 明写「14 个子智能体（agents/ 4 个基础；另 10 个
+        // effort 分级变体在 extras/）」，这句的 14 对比的是**合计**。声称值命中任一键即认为一致：
+        // 写 4 对 agents 对、写 14 对 agentsTotal 对，唯独写别的数（如 12、16）才报红。
+        if (key === 'agents' && m.agentsTotal !== undefined && claimed === m.agentsTotal) continue;
         // 不做「文本得提到插件名」这类二次守卫：上面每一路文本都**已经**按插件归属筛过
         // （本插件目录内的文件 / 市场目录里 name===plugin 的条目 / README 里 [plugin](…) 那行）。
         // 加这层守卫反而把最该查的对外文案放过——实测 marketplace.json 的 worktree 条目写的是
