@@ -48,12 +48,26 @@ function broadcast() {
 // 未公开的工作内容」。
 // 判据：Host 的主机名必须是回环字面量。DNS rebinding 用的域名在任何解析阶段都不是这些字面量，
 // 因此被挡在门外；正常访问 http://127.0.0.1:port / http://localhost:port 不受影响。
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+//
+// 2026-10-29 修复：旧实现手工切串（`raw.startsWith("[") ? … : raw.split(":")[0]`），
+// `[::1]@evil.example` 会被切成 `[::1]` 从而放行——实测该 Host 返回 **200 + 完整看板正文**。
+// 浏览器不支持这种带 userinfo 的 Host（请求会先被浏览器拒），所以它不是可用的 rebinding 绕过，
+// 但「Host 的主机名必须是回环字面量」这条不变量确实被破了：解析要交给 URL，不要自己切。
+// 用 URL 解析后只认 hostname（它已去掉 userinfo、端口与 IPv6 方括号）。
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 function hostAllowed(hostHeader) {
-  const raw = String(hostHeader || "").trim().toLowerCase();
+  const raw = String(hostHeader || "").trim();
   if (!raw) return false;
-  // 去掉端口：IPv6 字面量形如 [::1]:8787，先按最后一个冒号切
-  const host = raw.startsWith("[") ? raw.slice(0, raw.indexOf("]") + 1) : raw.split(":")[0];
+  let url;
+  try {
+    url = new URL(`http://${raw}`);
+  } catch {
+    return false; // 解析不了就不能证明它回环：拒绝
+  }
+  // userinfo 出现在 Host 里不是任何合法客户端的行为，直接拒
+  if (url.username || url.password) return false;
+  // `http://[::1]:8787` → hostname 为 `[::1]`（Node 保留方括号），统一去括号后比对
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   return LOOPBACK_HOSTS.has(host);
 }
 

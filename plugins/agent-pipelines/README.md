@@ -31,8 +31,8 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init`（非空状态需 `--force` 覆盖）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` 计算 `stop_reason`，`--apply` 写回）/ `events`（读事件日志，含轮转段） |
-| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--apply` 把结论写回状态文件的 `scope_drift`；默认排除 `.loop-cli/**` |
+| `scripts/state.mjs` | `init`（已存在的**非状态文件**一律拒绝，`--force` 也不越过；带进度的真状态文件需 `--force` 重置）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移；缺省时继承 `scope_drift` 与 `scope`——它们是判定产物，不该被推进轮次抹掉）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` **重算** `stop_reason`，不采信状态文件里的预设值；`--apply` 写回）/ `events`（读事件日志，含轮转段） |
+| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件**与 gitignored 文件**，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--base` 缺省取状态文件里的 `scope.base`，再退到 `HEAD`；`--apply` 把结论与本次基线写回状态文件；默认排除 `.loop-cli/**` |
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
 | `scripts/dag.mjs` | 依赖图分析单源（未知依赖 / 拓扑序 / 环 / 分层），`graph.mjs` 与 `render.mjs` 共用 |
 | `scripts/render.mjs` | 只读渲染：状态文件 + 事件日志 → 自包含单文件 HTML（依赖图 DAG、事件轨迹、预算） |
@@ -52,9 +52,11 @@ node scripts/serve.mjs --pipeline coding --file .loop-cli/state/coding-pipeline.
 
 `serve.mjs` 是实时看板：本地 HTTP 服务提供页面与 SSE（`/events`），用 `fs.watch` + 轮询兜底监听状态文件和事件日志，变化时向浏览器推送 `render` 事件自动刷新。默认只绑 `127.0.0.1`，只读不写状态。`--interval` 控制轮询间隔（默认 1000ms）。
 
-**Host 校验**：只绑回环地址并不足以防 DNS rebinding——恶意页面把自己的域名解析到 `127.0.0.1` 后，浏览器就会以同源身份向本服务取数，读走看板里的任务标题、验收标准与状态文件绝对路径。因此服务只回答 `Host` 为回环字面量（`127.0.0.1` / `localhost` / `[::1]`）的请求，其余一律 403。正常访问 `http://127.0.0.1:<port>` 与 `http://localhost:<port>` 不受影响。看板没有鉴权，同一台机器上的其他进程仍可直接访问——它面向的是「本机自己看」。
+**Host 校验**：只绑回环地址并不足以防 DNS rebinding——恶意页面把自己的域名解析到 `127.0.0.1` 后，浏览器就会以同源身份向本服务取数，读走看板里的任务标题、验收标准与状态文件绝对路径。因此服务只回答 `Host` 为回环字面量（`127.0.0.1` / `localhost` / `[::1]`）的请求，其余一律 403。判定用 `new URL("http://" + host)` 取 `hostname`，**不手工切串**：旧实现对 `[::1]@evil.example` 会切出 `[::1]` 而放行（实测返回 200 + 完整看板正文）。正常访问 `http://127.0.0.1:<port>` 与 `http://localhost:<port>` 不受影响。看板没有鉴权，同一台机器上的其他进程仍可直接访问——它面向的是「本机自己看」。
 
-scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。**判定基准是 git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径；`--cwd <dir>` 只决定从哪个目录定位 git 仓库根，不改判定基准——同一处越界改动从仓库根或从子目录调用都判 FAIL。写回状态文件用 `--apply`：`scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 把本次结论写进 `scope_drift`，`state.mjs gate` 读到的是真实判定而不是执行者自报值。通配语法：`*` 单段、`**` 跨段、`?` 单字符；前导 `**/` 不匹配仓库根目录的文件——forbidden 想覆盖根目录需并排写一条根级模式（如 `*.lock`），脚本对前导 `**/` 会打印警告。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
+scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dist/**"`；或把 `scope` 对象写进状态文件（可选字段，`state.mjs` 不强制）。**判定基准是 git 仓库根**：变更清单（`git diff` + 未跟踪文件 + gitignored 文件）与 scope 规则都用仓库根相对路径；`--cwd <dir>` 只决定从哪个目录定位 git 仓库根，不改判定基准——同一处越界改动从仓库根或从子目录调用都判 FAIL。写回状态文件用 `--apply`：`scripts/scope.mjs --file .loop-cli/state/coding-pipeline.json --apply` 把本次结论写进 `scope_drift`、把基线写进 `scope.base`，`state.mjs gate` 读到的是真实判定而不是执行者自报值。
+
+`--base` 的取值顺序：命令行 `--base` → 状态文件里的 `scope.base`（上一次 `--apply` 记下的）→ `HEAD`。缺省退到 `HEAD` 会让**已提交**的越界改动永远落在 diff 之外（先 commit 再跑 scope 就能拿绿票），所以状态里记下的基线优先。通配语法：`*` 单段、`**` 跨段、`?` 单字符；前导 `**/` 不匹配仓库根目录的文件——forbidden 想覆盖根目录需并排写一条根级模式（如 `*.lock`），脚本对前导 `**/` 会打印警告。脚本退出码：0 PASS / 1 FAIL / 2 参数或环境错误。
 
 脚本参数只认各脚本登记过的开关：未登记的 `--xxx` 直接报错退出 2（附已知开关清单），值开关缺值也报错；值本身以 `--` 开头时 `--key=--value` 与 `--key --value` 两种写法等价，不会再被静默吞掉。
 

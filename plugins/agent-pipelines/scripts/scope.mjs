@@ -111,9 +111,15 @@ function rootRelativePattern(pattern, root) {
 // 复用 state.mjs write：落盘、校验、加锁与事件日志只有一份实现，不在 scope.mjs 里再写一套原子写与锁。
 // 已知局限：读—改—写跨两个进程，中间没有跨进程锁，并发写同一状态文件的会话可能被这次写回覆盖
 // （与「同一仓库并发跑两条同类管道会互相覆盖状态」是同一条已记录的并发限制）。
-function applyVerdict(file, pipeline, verdict, state) {
+function applyVerdict(file, pipeline, verdict, state, base) {
   const stateScript = fileURLToPath(new URL("./state.mjs", import.meta.url));
-  const next = { ...state, scope_drift: verdict };
+  const prevScope = state && typeof state === "object" && state.scope && typeof state.scope === "object" && !Array.isArray(state.scope)
+    ? state.scope
+    : null;
+  // 一并记下本次判定用的基线：下次不传 --base 时以它为起点（见 main 里的 base 回退），
+  // 这样「已提交的越界改动」不会因为默认 HEAD 而永远落在 diff 之外。
+  const scope = { ...(prevScope || {}), base };
+  const next = { ...state, scope, scope_drift: verdict };
   const result = spawnSync(process.execPath, [stateScript, "write", "--pipeline", pipeline, "--file", file], {
     input: JSON.stringify(next),
     encoding: "utf8",
@@ -124,20 +130,36 @@ function applyVerdict(file, pipeline, verdict, state) {
   }
 }
 
+/** 列被 gitignore 的未跟踪文件（仓库根相对路径）。
+ *
+ *  `git ls-files --others --ignored --exclude-standard` 默认**逐文件展开**被忽略的目录
+ *  （实测：`dist/` 忽略时输出 `dist/a.js`、`dist/nested/c.js`；只有额外加 `--directory`
+ *  才会折叠成一行 `dist/`）。这里要的是可匹配的文件路径，所以保持默认行为、不加该开关。
+ *
+ *  已知边界：只覆盖**未跟踪**的 ignored 项。已跟踪文件后来被加进 .gitignore 的情况仍会被
+ *  `git diff --name-only <base>` 列出（它本来就跟踪），不会漏。 */
+function listIgnoredFiles(root) {
+  const listing = git(["ls-files", "--others", "--ignored", "--exclude-standard"], root);
+  const out = new Set();
+  if (!listing) return out;
+  for (const line of listing.split("\n")) {
+    const entry = line.trim().replace(/\\/g, "/").replace(/\/$/, "");
+    if (entry) out.add(entry);
+  }
+  return out;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2), {
     boolean: ["json", "no-untracked", "apply"],
     value: ["cwd", "base", "pipeline", "hard", "soft", "forbidden", "file", "exclude"],
   });
   const cwd = args.cwd ? path.resolve(String(args.cwd)) : process.cwd();
-  const base = assertSafeRev(typeof args.base === "string" ? args.base : "HEAD", "--base");
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
   if (pipeline !== "coding") fail("scope checking is only defined for --pipeline coding");
   const root = gitRoot(cwd);
 
-  let hard = listOf(args.hard);
-  let soft = listOf(args.soft);
-  let forbidden = listOf(args.forbidden);
+  // 状态文件先读：`--base` 的默认值要从里面取（见下面的基线回退）。
   let state = null;
   let statePath = null;
   if (args.file) {
@@ -148,6 +170,21 @@ function main() {
     } catch (err) {
       fail(`state file is not valid JSON: ${err.message}`);
     }
+  }
+
+  // base 的默认值：状态里记录的 `scope.base` → 否则 HEAD。
+  // 旧实现无条件默认 HEAD，于是**已提交**的越界改动永远看不见（`git diff HEAD` 为空 → PASS）：
+  // 执行者只要先 commit 再跑 scope，就能拿到一张绿票。状态里记下的基线才是这条管道的起点。
+  const stateBase = state && typeof state === "object" && state.scope && typeof state.scope === "object"
+    ? state.scope.base
+    : undefined;
+  const baseSource = typeof args.base === "string" && args.base ? args.base : (typeof stateBase === "string" && stateBase ? stateBase : "HEAD");
+  const base = assertSafeRev(baseSource, "--base");
+
+  let hard = listOf(args.hard);
+  let soft = listOf(args.soft);
+  let forbidden = listOf(args.forbidden);
+  if (state) {
     const scope = state && typeof state === "object" ? state.scope : null;
     if (scope && typeof scope === "object" && !Array.isArray(scope)) {
       if (hard.length === 0 && Array.isArray(scope.hard)) hard = scope.hard.map((v) => String(v).replace(/\\/g, "/"));
@@ -197,6 +234,12 @@ function main() {
   const includeUntracked = args["no-untracked"] !== true;
   if (includeUntracked) {
     for (const line of git(["ls-files", "--others", "--exclude-standard"], root).split("\n")) addChanged(line);
+    // gitignored 的改动必须一并纳入（2026-10-29 修复）：`--exclude-standard` 按定义跳过被
+    // .gitignore 的路径，而构建产物、生成代码、本地配置恰好都在那里。实测：.gitignore=dist/、
+    // 只改 dist/built.js、--forbidden "dist/**" → 判 **PASS**，而 dist 正是最典型的 forbidden 目标。
+    // 只列 ignored 的**已存在**路径（--others --ignored --exclude-standard 只出未跟踪的 ignored 项），
+    // 目录本身不会展开成其下每个文件，故还需把命中的目录按其内容展开一次。
+    for (const line of listIgnoredFiles(root)) addChanged(line);
   }
 
   const files = [...changed].sort();
@@ -209,7 +252,9 @@ function main() {
   const verdict = forbiddenHits.length > 0 || outside.length > 0 ? "FAIL" : "PASS";
   const result = { verdict, base, pipeline, changed: files, hard: hardHits, soft: softHits, forbidden: forbiddenHits, outside };
 
-  if (args.apply) applyVerdict(statePath, pipeline, verdict, state);
+  // 把本次 base 一并记进状态：下一次调用不传 --base 时就有确定的起点可用，
+  // 而不是退回 HEAD（那样已提交的越界改动永远看不见）。
+  if (args.apply) applyVerdict(statePath, pipeline, verdict, state, base);
 
   if (args.json) console.log(JSON.stringify(result));
   else {

@@ -25,7 +25,26 @@ function pipelineOf(args) {
 }
 
 function stateFile(args, pipeline) {
-  if (args.file) return path.resolve(String(args.file));
+  // 只做存在性解析，**不做** cwd 限定（2026-10-29 的取舍）：
+  // 真实危害是「init 把非状态文件覆盖成状态对象」（`init --file package.json` 实测 exit 0 并写坏
+  // package.json），那条已由 init 分支的 foreignFile 检测堵住；而「状态文件放在项目外」本身没有
+  // 破坏性——它只是落在没人读的位置。限定到 cwd 之下会误伤两类合法形态：monorepo 里从子包目录
+  // 操作、以及测试/脚本用临时目录做夹具（equivalence 套件正是后者）。
+  // 用一个更窄、无歧义的判据替代：拒绝写到文件系统根与家目录本身（那从来不是状态文件的位置）。
+  if (args.file) {
+    const resolved = path.resolve(String(args.file));
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const tooBroad =
+      path.dirname(resolved) === resolved ||
+      (home && (resolved === path.resolve(home) || resolved === path.resolve(home, "")));
+    if (tooBroad) {
+      fail(
+        `--file must name a file, not a root/home directory: got ${resolved}\n` +
+          `Pass e.g. ${path.join(resolved, ".loop-cli", "state", `${pipeline}-pipeline.json`)} instead.`,
+      );
+    }
+    return resolved;
+  }
   return path.resolve(".loop-cli", "state", `${pipeline}-pipeline.json`);
 }
 
@@ -364,17 +383,33 @@ function gateFor(state, pipeline) {
   const spec = PIPELINES[pipeline];
   const maxCycles = state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const stallMax = spec.stallMax;
-  if (state.stop_reason) return { stop_reason: state.stop_reason, reason: "already stopped" };
   const tasks = state.tasks;
   // coding 零容忍 + 硬门禁：DONE 要求 scope_drift == "PASS" 且 critical_checkpoints 全通过。
   // 未判定时既不 DONE 也不 ESCALATE：落到末尾的 continue，补跑 scope 检查即可；
   // 真越界仍由下方 FAIL 分支即时 ESCALATE。
   const blockers = pipeline === "coding" ? codingGateBlockers(state) : [];
+  // 预设 stop_reason 的处置（2026-10-29 修复）。
+  // 旧实现第一句就是 `if (state.stop_reason) return { stop_reason: state.stop_reason }`：状态文件是
+  // 执行者可写的普通 JSON，写进去一个 "DONE" 就永远 DONE——实测任务仍 pending、checkpoint 未通过、
+  // scope 未判定，`validate` 说 Valid、`gate` 说 DONE、`gate --apply` 照落盘。门禁于是退化成自报。
+  // 现在的口径：
+  //   · 终态（DONE/ESCALATE/BUDGET/STALL/MAX_CYCLES/HOLD/STOPPED）一律**重算**，不采信预设值；
+  //   · STOPPED 例外：它表示「人主动叫停」，没有任何可计算依据替代，故放行；
+  //   · 重算结果与预设不一致时，在 reason 里点明「预设值未被采纳」，让调用方看得见改判。
+  // 重算后仍可能返回同一个 DONE，但那必须由 tasks/checkpoints/scope 三处真实通过支撑。
+  const presetNote =
+    state.stop_reason && state.stop_reason !== "STOPPED"
+      ? `preset stop_reason=${state.stop_reason} was NOT trusted (recomputed from state)`
+      : "";
+  const withNote = (result) => (presetNote ? { ...result, presetNote } : result);
+  if (state.stop_reason === "STOPPED") {
+    return { stop_reason: "STOPPED", reason: "stopped by an operator (STOPPED is not recomputable)" };
+  }
   if (tasks.length > 0 && tasks.every((t) => t.status === "done") && blockers.length === 0) {
-    return { stop_reason: "DONE", reason: "all tasks are done" };
+    return withNote({ stop_reason: "DONE", reason: "all tasks are done" });
   }
   if (state.consecutive_failures >= state.max_failures) {
-    return { stop_reason: "ESCALATE", reason: `consecutive_failures ${state.consecutive_failures} >= max_failures ${state.max_failures}` };
+    return withNote({ stop_reason: "ESCALATE", reason: `consecutive_failures ${state.consecutive_failures} >= max_failures ${state.max_failures}` });
   }
   // 单任务尝试上限：任一任务的 failures 达到自身 max_attempts（或默认上限），立即 ESCALATE，避免单任务无限重试。
   const attemptLimit = 4; // 默认单任务尝试上限
@@ -382,36 +417,40 @@ function gateFor(state, pipeline) {
     if (!task || typeof task.failures !== "number") continue;
     const limit = Number.isInteger(task.max_attempts) && task.max_attempts > 0 ? task.max_attempts : attemptLimit;
     if (task.failures >= limit) {
-      return { stop_reason: "ESCALATE", reason: `task ${task.id} failures ${task.failures} >= max_attempts ${limit}` };
+      return withNote({ stop_reason: "ESCALATE", reason: `task ${task.id} failures ${task.failures} >= max_attempts ${limit}` });
     }
   }
   if (pipeline === "coding" && state.scope_drift === "FAIL") {
-    return { stop_reason: "ESCALATE", reason: "scope_drift=FAIL（scope 越界，零容忍）" };
+    return withNote({ stop_reason: "ESCALATE", reason: "scope_drift=FAIL（scope 越界，零容忍）" });
   }
   if (state.budget) {
     const budget = state.budget;
     const tokensSpent = budget.spent_tokens ?? 0;
     const costSpent = budget.spent_cost_usd ?? 0;
     if ((budget.max_tokens !== undefined && tokensSpent >= budget.max_tokens) || (budget.max_cost_usd !== undefined && costSpent >= budget.max_cost_usd)) {
-      return { stop_reason: "BUDGET", reason: `budget exhausted (tokens ${tokensSpent}/${budget.max_tokens ?? "-"}, cost ${costSpent}/${budget.max_cost_usd ?? "-"})` };
+      return withNote({ stop_reason: "BUDGET", reason: `budget exhausted (tokens ${tokensSpent}/${budget.max_tokens ?? "-"}, cost ${costSpent}/${budget.max_cost_usd ?? "-"})` });
     }
   }
   if (tasks.some((t) => t.status === "blocked") && tasks.every((t) => t.status === "done" || t.status === "blocked")) {
-    return { stop_reason: "HOLD", reason: "only blocked tasks remain" };
+    return withNote({ stop_reason: "HOLD", reason: "only blocked tasks remain" });
   }
   if (state.stall_counter >= stallMax) {
-    return { stop_reason: "STALL", reason: `stall_counter ${state.stall_counter} >= ${stallMax}` };
+    return withNote({ stop_reason: "STALL", reason: `stall_counter ${state.stall_counter} >= ${stallMax}` });
   }
   if (state.round >= maxCycles) {
-    return { stop_reason: "MAX_CYCLES", reason: `round ${state.round} >= ${maxCycles}` };
+    return withNote({ stop_reason: "MAX_CYCLES", reason: `round ${state.round} >= ${maxCycles}` });
   }
   // 继续本轮：把未通过的硬门禁写进 reason，调用方能直接看到卡在哪一条
-  return { stop_reason: null, reason: blockers.length > 0 ? blockers.join("；") : "continue" };
+  return withNote({ stop_reason: null, reason: blockers.length > 0 ? blockers.join("；") : "continue" });
 }
 
+// 落盘规则：只要重算结果与现值不同就更新——**包括重算为 null 的情形**。
+// 旧实现只在 `result.stop_reason` 为真时写，于是一个伪造的预设 DONE 永远清不掉：
+// 任务回退成 pending 后门禁说「继续」，文件里却仍写着 DONE，下一次调用又读到它。
 function applyGate(file, state, result) {
-  if (result.stop_reason && state.stop_reason !== result.stop_reason) {
-    state.stop_reason = result.stop_reason;
+  const next = result.stop_reason ?? null;
+  if (state.stop_reason !== next) {
+    state.stop_reason = next;
     writeAtomic(file, state);
   }
 }
@@ -453,24 +492,47 @@ function main() {
     // 只看任务数会漏掉「空任务但 round>0 / 已 stop」的进行中管道。
     // 检测在锁内完成（避免 TOCTOU），fail 放在锁外——process.exit 不会跑 withLock 的 finally，锁内 fail 会把锁留在盘上
     let existingProgress = false;
+    // 已存在但**不是状态文件**（2026-10-29 修复）：旧逻辑只判断「有没有 tasks/round/stop_reason」，
+    // `package.json` 这类普通 JSON 一个都不命中 → 判「无进度」→ 直接覆盖成状态对象，exit 0。
+    // 实测 `init --file repo/package.json` 会把 package.json 写成状态文件。现在先认形状：
+    // 有 version/prompt 才算状态文件。
+    // 两类拒绝分开报，因为补救方式不同：
+    //   · existingProgress（是状态文件且带进度）→ `--force` 可以重置管道，这是它的本职；
+    //   · foreignFile（根本不是状态文件）→ `--force` **也不放行**：把 package.json 覆盖成状态文件
+    //     不是「重置管道」，是毁掉别人的文件。要初始化就换个路径。
+    let foreignFile = false;
     withLock(file, () => {
-      if (!args.force && existsSync(file)) {
+      if (existsSync(file)) {
         try {
           const existing = JSON.parse(readFileSync(file, "utf8"));
-          existingProgress = Boolean(
-            existing &&
-            (Array.isArray(existing.tasks) ? existing.tasks.length : 0) > 0 ||
-              (existing && (existing.round > 0 || existing.stop_reason != null)),
-          );
+          const looksLikeState = isObject(existing) && existing.version === 1 && typeof existing.prompt === "string";
+          if (!looksLikeState) {
+            foreignFile = true;
+          } else {
+            existingProgress = !args.force && Boolean(
+              (Array.isArray(existing.tasks) ? existing.tasks.length : 0) > 0 ||
+                existing.round > 0 ||
+                existing.stop_reason != null,
+            );
+          }
         } catch {
-          existingProgress = true; // 旧文件损坏也按有进度处理，交给 --force 决定，避免静默覆盖
+          // 损坏的 JSON：可能是被中断的状态文件（--force 重建是正当用法），也可能压根是别的文件。
+          // 无法区分时按「有进度」处理、交给 --force —— 与旧行为一致，且不新增误拒。
+          existingProgress = !args.force;
         }
       }
-      if (!existingProgress) {
+      if (!existingProgress && !foreignFile) {
         writeAtomic(file, base);
         logEvent(file, pipeline, "init", base);
       }
     });
+    if (foreignFile) {
+      fail(
+        `refusing to overwrite ${file}: it exists but is not a pipeline state file (no version/prompt).\n` +
+          `--force does not bypass this — overwriting a non-state file is data loss, not a pipeline reset.\n` +
+          `Pick another --file path (e.g. .loop-cli/state/${pipeline}-pipeline.json).`,
+      );
+    }
     if (existingProgress) {
       fail(`refusing to overwrite existing state (has progress): pass --force to start over, or use write to update it`);
     }
@@ -486,6 +548,21 @@ function main() {
       state = JSON.parse(readFileSync(0, "utf8"));
     } catch (err) {
       fail(`stdin must be a JSON state object: ${err.message}`);
+    }
+    // 保序字段（2026-10-29 修复）：scope_drift 与 scope 由 scope.mjs 写回，而每次「推进一轮」
+    // 的 write 都是由执行者整份提交状态——执行者不知道这两个字段、或用了旧快照，就会把它们
+    // 静默抹掉。旧行为实测：先 `scope --apply` 写入 scope_drift=PASS，再 `state.mjs write`
+    // 推进一轮 → scope_drift 变空 → gate 判「尚未判定」，用户看到的是「刚判过又没判」。
+    // 这两个字段是**判定产物**而非执行者输入，缺省时从磁盘现值继承；显式传值仍然优先
+    // （scope.mjs 就是这么写回新结论的）。
+    try {
+      const current = JSON.parse(readFileSync(file, "utf8"));
+      if (isObject(current)) {
+        if (state.scope_drift === undefined && current.scope_drift !== undefined) state.scope_drift = current.scope_drift;
+        if (state.scope === undefined && current.scope !== undefined) state.scope = current.scope;
+      }
+    } catch {
+      /* 文件不存在或不是 JSON：没有可继承的现值 */
     }
     const { errors, warnings } = validateState(state, pipeline);
     if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);

@@ -718,6 +718,33 @@ const loopbackOk = await new Promise((resolve) => {
 check("localhost 字面量 Host 照常放行", loopbackOk.status === 200 && /"ok":true/.test(loopbackOk.body),
   `status=${loopbackOk.status} body=${loopbackOk.body.slice(0, 120)}`);
 
+// userinfo 冒充回环（2026-10-29 修复）：旧实现手工切串 `raw.startsWith("[") ? raw.slice(0, idx+1) : raw.split(":")[0]`，
+// `[::1]@evil.example` 被切成 `[::1]` 从而放行——实测返回 **200 + 完整看板正文**。
+// 浏览器不会发这种 Host（会先被浏览器拒），所以它不是可用的 rebinding 绕过，但
+// 「Host 的主机名必须是回环字面量」这条不变量被破了。现在解析交给 URL，只看 hostname。
+const probeHost = (host) => new Promise((resolve) => {
+  const req = http.request(
+    { host: "127.0.0.1", port: servePort, path: "/", method: "GET", headers: { Host: host } },
+    (r) => {
+      let body = "";
+      r.on("data", (c) => (body += c));
+      r.on("end", () => resolve({ status: r.statusCode, body }));
+    },
+  );
+  req.on("error", () => resolve({ status: 0, body: "" }));
+  req.end();
+});
+for (const badHost of ["[::1]@evil.example", "localhost@evil.example", "127.0.0.1.evil.example", "[::1]evil.example"]) {
+  const r = await probeHost(badHost);
+  check(`Host=${badHost} 被拒绝（不得返回看板正文）`,
+    r.status === 403 && !/<html/i.test(r.body),
+    `status=${r.status} body=${r.body.slice(0, 120)}`);
+}
+for (const goodHost of [`127.0.0.1:${servePort}`, `[::1]:${servePort}`]) {
+  const r = await probeHost(goodHost);
+  check(`Host=${goodHost} 照常放行（回环字面量未被误伤）`, r.status === 200, `status=${r.status}`);
+}
+
 serveProc.kill();
 
 // 状态文件缺失时 serve 给出可读指引并以退出码 2 结束，不再裸栈崩溃（renderHtml 在监听前执行，不会占端口）

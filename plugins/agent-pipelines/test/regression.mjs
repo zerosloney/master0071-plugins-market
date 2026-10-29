@@ -215,6 +215,196 @@ check(
   boolFirst.stdout + boolFirst.stderr,
 );
 
+console.log("\n== 2026-10-29：门禁不再采信预设 stop_reason ==");
+// 状态文件是执行者可写的普通 JSON。旧实现 gateFor 第一句就是
+// `if (state.stop_reason) return { stop_reason: state.stop_reason }`，写个 "DONE" 进去就永远 DONE：
+// 实测任务仍 pending、checkpoint 未通过、scope 未判定，validate 说 Valid、gate 说 DONE、--apply 照落盘。
+{
+  const forged = {
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-forged", description: "未跑", passed: false }],
+    scope_drift: null,
+    stop_reason: "DONE",
+  };
+  const forgedPath = path.join(sandbox, "forged-done.json");
+  writeFileSync(forgedPath, JSON.stringify(forged));
+  const g = run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--json"]);
+  const out = parseJson(g.stdout);
+  check("预设 stop_reason=DONE 不被采纳", out?.stop_reason !== "DONE", g.stdout);
+  check("回执点明预设值未被信任", /NOT trusted/.test(String(out?.presetNote)), g.stdout);
+  check("重算后点名卡在哪两条硬门禁", /cp-forged/.test(String(out?.reason)) && /scope_drift/.test(String(out?.reason)), g.stdout);
+
+  // --apply 必须把这个伪造值清掉，否则下一次调用又读到它
+  run("state.mjs", ["gate", "--pipeline", "coding", "--file", forgedPath, "--apply"]);
+  check(
+    "--apply 把伪造的 stop_reason 清成 null",
+    parseJson(readFileSync(forgedPath, "utf8"))?.stop_reason === null,
+    readFileSync(forgedPath, "utf8"),
+  );
+
+  // STOPPED 例外：人主动叫停没有可计算依据替代
+  writeFileSync(
+    path.join(sandbox, "stopped.json"),
+    JSON.stringify({ ...codingState(), stop_reason: "STOPPED" }),
+  );
+  const stopped = run("state.mjs", ["gate", "--pipeline", "coding", "--file", path.join(sandbox, "stopped.json"), "--json"]);
+  check("stop_reason=STOPPED 原样保留（人主动叫停）", parseJson(stopped.stdout)?.stop_reason === "STOPPED", stopped.stdout);
+
+  // 反向锚：真实全部 done + checkpoint 通过 + scope PASS 仍然判 DONE
+  writeFileSync(
+    path.join(sandbox, "legit-done.json"),
+    JSON.stringify({
+      ...codingState(),
+      tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+      critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+      scope_drift: "PASS",
+      stop_reason: null,
+    }),
+  );
+  const legit = run("state.mjs", ["gate", "--pipeline", "coding", "--file", path.join(sandbox, "legit-done.json"), "--json"]);
+  check("真实满足三个条件时仍判 DONE（重算没把正常路径改坏）", parseJson(legit.stdout)?.stop_reason === "DONE", legit.stdout);
+}
+
+console.log("\n== 2026-10-29：scope 看得见 gitignored 改动 ==");
+// 旧实现只用 `git ls-files --others --exclude-standard`，它按定义跳过被 .gitignore 的路径。
+// 实测：.gitignore=dist/、只改 dist/built.js、--forbidden "dist/**" → 判 PASS，
+// 而 dist 正是构建产物的典型 forbidden 目标。
+{
+  const ignRepo = makeRepo("ignored-repo");
+  writeFileSync(path.join(ignRepo.repo, ".gitignore"), "dist/\n");
+  ignRepo.git("add", ".gitignore");
+  ignRepo.git("commit", "-m", "ignore dist");
+  mkdirSync(path.join(ignRepo.repo, "dist", "nested"), { recursive: true });
+  writeFileSync(path.join(ignRepo.repo, "dist", "built.js"), "built\n");
+  writeFileSync(path.join(ignRepo.repo, "dist", "nested", "deep.js"), "deep\n");
+  const ign = run(
+    "scope.mjs",
+    ["--base", "HEAD", "--forbidden", "dist/**", "--json"],
+    undefined,
+    ignRepo.repo,
+  );
+  const ignOut = parseJson(ign.stdout);
+  check("只改 gitignored 的 dist/ 也判 FAIL", ignOut?.verdict === "FAIL", ign.stdout + ign.stderr);
+  check("ignored 目录按文件展开（嵌套层级也列出）", 
+    Array.isArray(ignOut?.forbidden) && ignOut.forbidden.includes("dist/built.js") && ignOut.forbidden.includes("dist/nested/deep.js"),
+    ign.stdout);
+  // 反向锚：gitignore 本身不改变「正常文件仍判 PASS」
+  const clean = run("scope.mjs", ["--base", "HEAD", "--forbidden", "dist/**", "--json"], undefined, ignRepo.repo);
+  check("ignored 判定不影响 PASS 路径（同一份规则、无新改动时仍 FAIL 是因为文件还在）", parseJson(clean.stdout)?.verdict === "FAIL", clean.stdout);
+}
+
+console.log("\n== 2026-10-29：scope 默认基线取自状态文件 ==");
+// 旧实现无条件默认 HEAD：**已提交**的越界改动永远落在 `git diff HEAD` 之外 → PASS。
+// 执行者先 commit 再跑 scope 就能拿到一张绿票。
+{
+  const baseRepo = makeRepo("base-repo");
+  mkdirSync(path.join(baseRepo.repo, "dist"), { recursive: true });
+  writeFileSync(path.join(baseRepo.repo, "dist", "old.js"), "v1\n");
+  baseRepo.git("add", ".");
+  baseRepo.git("commit", "-m", "add dist");
+  const recordedBase = baseRepo.git("rev-parse", "HEAD").trim();
+  writeFileSync(path.join(baseRepo.repo, "dist", "old.js"), "v2\n");
+  baseRepo.git("add", ".");
+  baseRepo.git("commit", "-m", "越界改动（已提交）");
+
+  const statePath = path.join(baseRepo.repo, ".loop-cli", "state", "coding-pipeline.json");
+  mkdirSync(path.dirname(statePath), { recursive: true });
+  writeFileSync(
+    statePath,
+    JSON.stringify({ ...codingState(), scope: { base: recordedBase, hard: ["src/**"], soft: [], forbidden: ["dist/**"] } }),
+  );
+
+  const withBaseline = run("scope.mjs", ["--file", statePath, "--json"], undefined, baseRepo.repo);
+  check(
+    "不传 --base 时回退到状态里记录的基线，已提交的越界改动被发现",
+    parseJson(withBaseline.stdout)?.verdict === "FAIL" && String(parseJson(withBaseline.stdout)?.base) === recordedBase,
+    withBaseline.stdout + withBaseline.stderr,
+  );
+
+  // 显式 --base 仍然优先
+  const explicit = run("scope.mjs", ["--base", "HEAD", "--file", statePath, "--json"], undefined, baseRepo.repo);
+  check("显式 --base 优先于状态基线", parseJson(explicit.stdout)?.base === "HEAD", explicit.stdout);
+
+  // --apply 把基线记进状态，供下一次无参调用使用
+  const appliedBase = run("scope.mjs", ["--file", statePath, "--apply"], undefined, baseRepo.repo);
+  check(
+    "--apply 把本次 base 记进 state.scope.base",
+    parseJson(readFileSync(statePath, "utf8"))?.scope?.base === recordedBase,
+    appliedBase.stdout + appliedBase.stderr,
+  );
+}
+
+console.log("\n== 2026-10-29：write 保留判定产物字段 ==");
+// scope_drift / scope 是 scope.mjs 的产物，而每次「推进一轮」的 write 都由执行者整份提交状态。
+// 旧实现整文件替换 → 刚写下的 scope_drift 被下一轮 write 静默抹掉，gate 于是判「尚未判定」。
+{
+  const keepRepo = makeRepo("keep-fields");
+  const statePath = path.join(keepRepo.repo, ".loop-cli", "state", "coding-pipeline.json");
+  mkdirSync(path.dirname(statePath), { recursive: true });
+  const base = { ...codingState(), scope: { hard: ["src/**"], forbidden: ["dist/**"] }, scope_drift: "FAIL" };
+  writeFileSync(statePath, JSON.stringify(base));
+
+  // 执行者推进一轮：提交的对象里没有 scope_drift / scope（它不知道这两个字段）
+  const advanced = { ...codingState(), round: 1 };
+  delete advanced.scope;
+  delete advanced.scope_drift;
+  const w = run("state.mjs", ["write", "--pipeline", "coding", "--file", statePath], JSON.stringify(advanced));
+  const after = parseJson(readFileSync(statePath, "utf8"));
+  check("write 后 scope_drift 仍在", w.status === 0 && after?.scope_drift === "FAIL", readFileSync(statePath, "utf8"));
+  check("write 后 scope 仍在", after?.scope !== undefined && after.scope?.forbidden?.[0] === "dist/**", JSON.stringify(after?.scope));
+
+  // 显式传值仍然优先（scope.mjs 就是这么写回新结论的）
+  const override = { ...advanced, round: 2, scope_drift: "PASS" };
+  run("state.mjs", ["write", "--pipeline", "coding", "--file", statePath], JSON.stringify(override));
+  check("显式传 scope_drift 覆盖继承值", parseJson(readFileSync(statePath, "utf8"))?.scope_drift === "PASS");
+}
+
+console.log("\n== 2026-10-29：init 不覆盖非状态文件 ==");
+// 旧逻辑只判断「有没有 tasks/round/stop_reason」，package.json 一个都不命中 → 判「无进度」→
+// 直接覆盖成状态对象、exit 0。实测 `init --file repo/package.json` 会把 package.json 写坏。
+{
+  const hostRepo = makeRepo("foreign-file");
+  const pkgPath = path.join(hostRepo.repo, "package.json");
+  const pkgText = JSON.stringify({ name: "demo", version: "1.0.0" });
+  writeFileSync(pkgPath, pkgText);
+
+  const refused = run(
+    "state.mjs",
+    ["init", "--pipeline", "coding", "--prompt", "x", "--file", pkgPath],
+    undefined,
+    hostRepo.repo,
+  );
+  check("init 拒绝覆盖非状态 JSON", refused.status === 2 && /not a pipeline state file/.test(refused.stderr), refused.stderr);
+  check("被拒后 package.json 原样保留", readFileSync(pkgPath, "utf8") === pkgText, readFileSync(pkgPath, "utf8"));
+
+  const forced = run(
+    "state.mjs",
+    ["init", "--pipeline", "coding", "--prompt", "x", "--file", pkgPath, "--force"],
+    undefined,
+    hostRepo.repo,
+  );
+  check("--force 也不越过「不是状态文件」", forced.status === 2 && readFileSync(pkgPath, "utf8") === pkgText, forced.stderr);
+
+  // 反向锚：真正的状态文件带进度时 --force 仍可重置（那是它的本职）
+  const realState = path.join(hostRepo.repo, ".loop-cli", "state", "coding-pipeline.json");
+  mkdirSync(path.dirname(realState), { recursive: true });
+  writeFileSync(
+    realState,
+    JSON.stringify({
+      ...codingState(),
+      tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    }),
+  );
+  const reset = run(
+    "state.mjs",
+    ["init", "--pipeline", "coding", "--prompt", "again", "--file", realState, "--force"],
+    undefined,
+    hostRepo.repo,
+  );
+  check("带进度的真状态文件 --force 仍能重置", reset.status === 0 && parseJson(readFileSync(realState, "utf8"))?.tasks.length === 0, reset.stderr);
+}
+
 rmSync(sandbox, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
