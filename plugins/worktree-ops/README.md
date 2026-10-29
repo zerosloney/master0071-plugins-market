@@ -86,6 +86,10 @@ node --version && git --version
 
 ## 版本变更
 
+**0.4.12**
+
+- **`target` 默认值改锚主检出，「未合并提交」护栏不再对 worktree 自身失效**。旧默认取 `repoPath` 当前检出的分支；会话 cwd 就在某个 worktree 里时 `repoPath` 自然指向它自己，target 于是等于该 worktree 的分支，`rev-list target...branch` 自己和自己比，`ahead` 恒为 0——不带 `force` 也能删掉有未合并提交的工作树。现在默认取**主检出**当前检出的分支（那才是"合并回哪里"的答案，也与 `merge_back` 要求 target 已在主检出上的前提一致），主检出 detached 时仍回退 `origin/<默认分支>`。显式传 `target` 的行为不变，五个工具的 schema 描述同步改口径。
+
 **0.4.11**
 
 - **从 worktree 内部删除自身不再把目录删成孤儿**。会话就在某个 worktree 里时 `repoPath` 自然指向它自己，旧实现拿它当 cwd 跑 `git worktree remove`：内容先被删光、最后 `rmdir` 报 `Permission denied`，同时那个 worktree 已从 git 登记里注销——目录变成 `git worktree remove` 再也删不掉的空壳，而报错文案说的是权限问题。现在删除动作一律站在被删目录之外的主检出上执行，并先把**服务进程自己的** cwd 移出去（Windows 不允许删除进程当前目录）。删除成功后的「剩余工作树 / 删分支」也改用同一个存活目录，不再因为 cwd 刚被删掉而误报 `spawnSync git ENOENT`。若仍失败且处于「登记已注销、目录还在」的状态，回执会如实点名这个不一致并给出人工清理步骤。

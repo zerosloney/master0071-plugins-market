@@ -302,7 +302,7 @@ const tools = [
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Optional: only this worktree (branch name, slug, or absolute path)." },
         includeSize: { type: "boolean", description: "Compute on-disk size. Slower; default false." },
-        target: { type: "string", description: "Comparison ref. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
+        target: { type: "string", description: "Comparison ref. Defaults to the branch checked out in the primary worktree (not the calling worktree), then origin/<default branch> when the primary is detached." },
       },
     },
     handler: (args) => {
@@ -358,7 +358,7 @@ const tools = [
       properties: {
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
-        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
+        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the branch checked out in the primary worktree (not the calling worktree), then origin/<default branch> when the primary is detached." },
         includeSize: { type: "boolean", description: "Also compute on-disk size for this worktree. Slower (walks the directory); default false." },
         sessionCwd: { type: "string", description: "Absolute working directory of the calling session. Use it when the host starts this server in the plugin root; the server then reports whether that directory is inside the requested worktree. Omit when the host already runs the server in the session directory." },
       },
@@ -419,7 +419,7 @@ const tools = [
       additionalProperties: false,
       properties: {
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
-        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
+        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the branch checked out in the primary worktree (not the calling worktree), then origin/<default branch> when the primary is detached." },
         staleDays: { type: "number", description: "Override the configured idle threshold." },
         includeSize: { type: "boolean", description: "Also compute on-disk size for each worktree (reclaimable-space figure). Slower; default false." },
       },
@@ -496,7 +496,7 @@ const tools = [
       properties: {
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
-        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
+        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the branch checked out in the primary worktree (not the calling worktree), then origin/<default branch> when the primary is detached." },
         deleteBranch: { type: "boolean", description: "Also delete the branch after removal. Default false." },
         force: { type: "boolean", description: "First half of the discard confirmation: delete even with uncommitted changes or unmerged commits. Only takes effect together with confirmDiscard: true. Default false." },
         confirmDiscard: { type: "boolean", description: "Second half of the discard confirmation: explicit consent that uncommitted changes and unmerged commits may be lost. Required in addition to force: true; on its own it does nothing. Default false." },
@@ -1037,7 +1037,7 @@ const tools = [
         repoPath: { type: "string", description: "Absolute path of the repository to operate on. Always pass it explicitly — this server's own working directory is the plugin root in Agent Plugins clients, so omitting it can resolve the wrong repository." },
         name: { type: "string", description: "Branch name, slug, or absolute worktree path." },
         task: { type: "string", description: "Optional task text to embed in the briefing." },
-        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the current checked-out branch, then origin/<default branch> when detached." },
+        target: { type: "string", description: "Comparison ref: the branch to measure ahead/behind and merged state against. Defaults to the branch checked out in the primary worktree (not the calling worktree), then origin/<default branch> when the primary is detached." },
       },
       required: ["name"],
     },
