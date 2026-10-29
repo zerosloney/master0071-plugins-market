@@ -9,7 +9,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -232,15 +232,23 @@ async function withFakeForge<T>({
       fields,
     ].join(" ");
   const fake = join(bin, forge);
-  await writeFile(
-    fake,
-    `#!/usr/bin/env bash
+  // 期望 cwd 的 bash 形态（2026-10-29 市场审查根因批注）：Windows 上 Git Bash 会把 MSYS 挂载点
+  // 报成 POSIX 形态（`C:\...\Temp\probe-cwd-X` → `/tmp/probe-cwd-X`，pwd -P 不给 Windows 路径），
+  // 直接与 realpathSync 的 Windows 形态比对恒不等，stub 永远 exit 2「ran outside」。
+  // 判据改为「两侧都归一到 cygpath -m 的混合形态再比」：bash 侧对自己 cwd 做 cygpath -m，
+  // TS 侧对期望目录预转一次（cygpath 认 Windows 与 POSIX 两种输入）。cygpath 缺席（POSIX）时
+  // bash 侧回退原样 pwd -P，TS 侧回退原样——行为与旧实现完全一致。
+  const expectWin = realpathSync(join(directory, "repo")).replace(/\\/g, "/");
+  const fakeBody = `#!/usr/bin/env bash
 set -euo pipefail
-if [ "$(pwd -P)" != "${realpathSync(join(directory, "repo"))}" ]; then
-  printf '${forge} ran outside the fixture repo: %s\\n' "$(pwd -P)" >&2
+expect_cwd=\$(command -v cygpath >/dev/null 2>&1 && cygpath -m "${expectWin}" || echo "${expectWin}")
+actual_cwd=\$(command -v cygpath >/dev/null 2>&1 && cygpath -m "\$(pwd -P)" || pwd -P)
+if [ "\$actual_cwd" != "\$expect_cwd" ]; then
+  printf '${forge} ran outside the fixture repo: %s\\n' "\$(pwd -P)" >&2
   exit 2
 fi
-case "$*" in
+`;
+  await writeFile(fake, fakeBody + `case "$*" in
   "${list("--head", "stack/open")}")
     cat "${outputPath}"
     ;;
@@ -276,6 +284,15 @@ esac
 `
   );
   await chmod(fake, 0o755);
+  // Windows shim（2026-10-29 市场审查根因批注）：CreateProcess 不认无扩展名 shebang 文件
+  // （实测 "Executable not found in $PATH: ...\bin\gh"），但 PATHEXT 会把 `gh` 解析到同目录的
+  // `gh.cmd`——所以 forgePaths 保持无扩展名不动，这里补一份同名 .cmd 转发给 bash 跑真 stub。
+  // store.runTool 的 execFileSync("...\bin\gh") 在 Windows 上经 PATHEXT 命中 shim 而成功；
+  // POSIX 无此机制也不需要 shim。注意别把 forgePaths 直接指向 .cmd：execFileSync 对显式
+  // .cmd 路径报 EINVAL（Node/Bun 对 .cmd 只经 shell 调用）。
+  if (process.platform === "win32") {
+    await writeFile(`${fake}.cmd`, `@echo off\r\nbash "${fake}" %*\r\n`);
+  }
   return operation();
 }
 
@@ -291,8 +308,35 @@ function runCli(
   };
 }
 
+// 一个「已退出进程」的 pid（2026-10-29 Windows 根因批注，同 plantStaleLock）：
+// Bun.spawn(["true"]) 在 Windows 上 ENOENT（POSIX coreutils 不存在），测试用它当
+// 「死持有者」探针。Windows 用自身 exit 0 等价替代。
+function spawnDeadPid(): { pid: number; exited: Promise<number> } {
+  const exited = process.platform === "win32"
+    ? Bun.spawn([process.execPath, "-e", "process.exit(0)"])
+    : Bun.spawn(["true"]);
+  return { pid: exited.pid, exited: exited.exited };
+}
+// writer 是否被 SIGKILL 杀掉（2026-10-29 平台分支）：POSIX 看 signalCode；Windows 的
+// process.kill(self, SIGKILL) 不产生 signal（exitCode=1），以 spawnWriter 落下的 dying flag 判定。
+function writerWasKilled(
+  writer: { signalCode: string | null; exitCode: number | null },
+  flags: string,
+  name: string
+): boolean {
+  if (writer.signalCode === "SIGKILL") return true;
+  return process.platform === "win32" && writer.exitCode !== 0 &&
+    existsSync(join(flags, name + ".dying"));
+}
+
 async function plantStaleLock(directory: string): Promise<number> {
-  const exited = Bun.spawn(["true"]);
+  // Windows（2026-10-29 市场审查根因批注）：`Bun.spawn(["true"])` 找不到 `true` 可执行文件
+  // （POSIX coreutils；实测 `Executable not found in $PATH: "true"`，9 条锁测试因此全红）。
+  // 这里只需要「一个已退出的 pid」，用当前平台的零成本退出形态：Windows spawn 自己（exit 0），
+  // POSIX 保留上游的 /bin/true。store 只把该 pid 当「持有者是否存活」的探针，语义等价。
+  const exited = process.platform === "win32"
+    ? Bun.spawn([process.execPath, "-e", "process.exit(0)"])
+    : Bun.spawn(["true"]);
   await exited.exited;
   await writeFile(join(directory, ".orch.lock"), `${exited.pid}\n`);
   return exited.pid;
@@ -348,7 +392,13 @@ for (const [call, run] of Object.entries(promises)) {
     } finally {
       if (args.slice(0, 2).some((path) => String(path).startsWith(lock))) {
         lockCalls += 1;
-        if (lockCalls === ${killAfterLockCall}) process.kill(process.pid, "SIGKILL");
+        if (lockCalls === ${killAfterLockCall}) {
+          // Windows（2026-10-29）：process.kill(self, SIGKILL) 不产生 signalCode=SIGKILL
+          //（实测 exitCode=1、signalCode=null），父进程无法从 signal 判断「被杀」。
+          // 先落 dying flag（进程死亡前最后一笔写），父进程以 dying+exit!==0 判 killed。
+          writeFileSync(flag("dying"), "");
+          process.kill(process.pid, "SIGKILL");
+        }
       }
     }
   };
@@ -390,7 +440,19 @@ afterEach(async () => {
     await store.close();
   }
   for (const directory of directories.splice(0)) {
-    await rm(directory, { recursive: true, force: true });
+    // Windows（2026-10-29）：SIGKILL 后子进程（stub 的 `exec sleep 20`、.cmd→bash 链）的句柄
+    // 释放有滞后窗口，紧跟着的 rm 递归删除会 EBUSY——上游 POSIX 无此窗口。短暂重试消掉
+    // 平台差；重试耗尽仍 EBUSY 则放弃该目录（临时目录，不清理也不影响判定）。
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rm(directory, { recursive: true, force: true });
+        break;
+      } catch (e: unknown) {
+        const code = (e as { code?: string }).code;
+        if ((code !== "EBUSY" && code !== "ENOTEMPTY") || attempt >= 4) break;
+        await Bun.sleep(200 * (attempt + 1));
+      }
+    }
   }
 });
 
@@ -548,7 +610,7 @@ describe("Store", () => {
 
   it("replaces a stale lock whose holder pid is dead", async () => {
     const { directory } = await initializedStore();
-    const exited = Bun.spawn(["true"]);
+    const exited = spawnDeadPid();
     await exited.exited;
     await writeFile(join(directory, ".orch.lock"), `${exited.pid}\n`);
 
@@ -571,7 +633,7 @@ describe("Store", () => {
   it("lets only one of two writers racing for a stale lock replace it", async () => {
     const { directory, store } = await initializedStore();
     await store.close();
-    const exited = Bun.spawn(["true"]);
+    const exited = spawnDeadPid();
     await exited.exited;
     await writeFile(join(directory, ".orch.lock"), `${exited.pid}\n`);
     const flags = await makeDirectory();
@@ -860,7 +922,7 @@ promises.readdir = async (path) => {
           killAfterLockCall: kills + 1,
         });
         await writer.exited;
-        if (writer.signalCode !== "SIGKILL") {
+        if (!writerWasKilled(writer, flags, `w${kills}`)) {
           expect(await new Response(writer.stderr).text()).toBe("");
           expect(writer.exitCode).toBe(0);
           break;
@@ -1090,7 +1152,7 @@ promises.readFile = async (path, ...rest) => {
           ).rejects.toThrow("--prs must not contain duplicates");
         },
       });
-    });
+    }, 30_000);
 
     it(`rejects unparseable ${forge} output loudly`, async () => {
       const { directory, store } = await initializedStore();
@@ -1554,6 +1616,11 @@ describe("port guards", () => {
         `#!/usr/bin/env bash\n${answerHead}trap '' TERM\nexec sleep 20\n`,
         { mode: 0o755 }
       );
+      // Windows shim（2026-10-29，同 withFakeForge）：execFileSync 打无扩展名文件要靠 PATHEXT
+      // 命中同名 .cmd——没有它这里直接 "Executable not found in $PATH" 而非预期的 ETIMEDOUT。
+      if (process.platform === "win32") {
+        await writeFile(`${fake}.cmd`, `@echo off\r\nbash "${fake}" %*\r\n`);
+      }
       const started = Date.now();
       await expect(store.frontier.set({ repo: stack.repo })).rejects.toThrow(
         new RegExp(`^${call} --state all .* failed: .*ETIMEDOUT`)

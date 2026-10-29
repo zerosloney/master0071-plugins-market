@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -83,7 +83,9 @@ console.log(JSON.stringify(value));
       encoding: "utf8",
       timeout: 6000,
       env: {
-        PATH: path ?? `${bin}:${process.env.PATH}`,
+        // Windows 的 PATH 分隔符是 `;`（POSIX 是 `:`）。用 `:` 拼在 Windows 上不是「多一个目录」，
+        // 而是整条 PATH 变成一段非法串——fake gh 根本不在搜索路径里（2026-10-29 市场审查根因批注）。
+        PATH: path ?? `${bin}${delimiter}${process.env.PATH ?? ""}`,
         WATCH_FIXTURE: scenario,
         WATCH_CALLS: callsFile,
         WATCH_PID: pidFile,

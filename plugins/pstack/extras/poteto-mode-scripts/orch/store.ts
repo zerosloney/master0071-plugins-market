@@ -464,7 +464,11 @@ async function acquireLock(
     } catch (error) {
       await discard();
       const code = errorCode(error);
-      if (code !== "ENOTEMPTY" && code !== "EEXIST") {
+      // Windows（2026-10-29 市场审查）：rename 目标目录已存在时报 EPERM（POSIX 报 ENOTEMPTY/
+      // EEXIST）——同一种「别的写者先占了 claim」的竞争失败。EPERM 不在容忍集里会把它当成
+      // 不可恢复错误抛出，锁接管测试在 Windows 上全部失真。EPERM 也可能来自权限不足，但本
+      // 场景 staged/takeover 都在进程自建的临时目录里，权限不足不成立，只可能是竞争。
+      if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "EPERM") {
         throw error;
       }
       return false;
@@ -1119,6 +1123,10 @@ export function parseForge(value: string): Forge {
 
 // Bun resolves a command spawned without an env option against its startup
 // PATH, so tests point the store at a fake forge executable instead.
+// Windows（2026-10-29 市场审查批注）：execFileSync(executable.path) 直接打无扩展名 shebang
+// 文件时 CreateProcess 找不到可执行体（实测 5024ms 超时 + "Command failed: ...\bin\gh ..."）。
+// store 是被 vendored 的上游代码，不为测试改它——测试侧把 path 指到 .cmd shim 即可，
+// shim 再转发给 bash 跑真 stub（withFakeForge 已在 Windows 上生成 <forge>.cmd）。
 interface ForgeExecutable {
   readonly path: string;
   readonly timeout: number;

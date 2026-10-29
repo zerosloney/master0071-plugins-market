@@ -62,6 +62,23 @@ ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理
 
 bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）、`effort-agents/` 与 `upstream-reference/` 已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 4 个零依赖 node 脚本（`check-plan` / `check-playbooks` / `resume` / `worktree-audit`），随装随用。
 
+**bun 套件的 Windows 平台性失败（2026-10-29 市场审查根因批注）**：`bun test` 在 Windows 实测 253 例，起始 217 pass / 36 fail。根因分五类，已修掉三类：
+
+| # | 根因 | 处置 |
+|---|---|---|
+| ① | `Bun.spawn(["true"])` 在 Windows ENOENT（`true` 是 POSIX coreutils） | 测试侧平台分支：Windows spawn 自身 `-e "process.exit(0)"` |
+| ② | 假 forge stub 用 `pwd -P` 与 `realpathSync` 比对 cwd，Git Bash 报 POSIX 形态（`/tmp/...`）而 TS 侧是 `C:\...` | 测试侧两侧都归一到 `cygpath -m` 混合形态再比 |
+| ③ | 假 forge 是无扩展名 shebang 脚本，CreateProcess 找不到可执行体 | 测试侧补同名 `.cmd` 转发 shim（`execFileSync` 经 PATHEXT 命中）；`store.ts` 另把 Windows rename 的 `EPERM` 并入「claim 竞争失败」容忍集（与 POSIX `ENOTEMPTY`/`EEXIST` 同义） |
+| ④ | 测试的 `PATH: \`${bin}:${process.env.PATH}\`` 用 POSIX 冒号拼接——Windows 上整条 PATH 变成一段非法串，fake forge 完全不在搜索路径里 | 改用 `node:path` 的 `delimiter`（本条是全平台都有价值的真实修复） |
+| ⑤ | afterEach 的 `rm` 在 SIGKILL 后句柄释放滞后窗口内 EBUSY | 短暂重试，仍失败则放弃该临时目录 |
+
+修后 orch 19 fail → 5 fail、transport 7 fail → 7 fail（仍未解，见下）。**剩余 12 条**性质不同，都是「Windows 上没有可靠的进程替身」：
+
+- **orch 锁竞争 5 条**：上游锁算法靠「目录 rename 成功即持锁」的 POSIX 语义（rename 到**空目录**成功）。Windows 对已存在的目标目录一律 `EPERM`，已并入容忍集回退为「竞争失败」，于是竞争结果的分布与上游假设不同。这是 vendored 产品代码在 Windows 上的行为差异，不是测试缺陷。
+- **watch-pr 7 条**：`watch-pr/cli.ts` 用 `spawn("gh", [...])` 调 forge，fixture 的假 gh 是 shebang 脚本。Windows 上让裸名 `gh` 解析成可执行体只能靠 `.cmd`，而 Node/Bun **禁止**把含 cmd.exe 特殊字符的参数传给 `.cmd`——GraphQL 查询语句必然包含这些字符（实测 `TypeError: The argument 'args[4]' contains a cmd.exe special character`）。要让它们过，得把 `cli.ts` 改成经 shell 调用（改变已发布产物的行为）或给 fixture 造真正的 `.exe`（`bun build --compile`，对测试过重）。
+
+两者都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。已发布的 `check-plan.mjs` 由 `test/check-plan.test.mjs` 的 node:test 重写版守护（进 CI、双平台零依赖）。
+
 ## 与上游的差异
 
 移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 的全部 skill 级变更（基线为 fork 同步自的 v0.15.25）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。0.1.5 起把 bun 专属 vendored 脚本从 `skills/poteto-mode/scripts/` 迁到 `extras/poteto-mode-scripts/`（无 bun 的宿主跑不了它们，playbook 与映射文档已同步改路径）。

@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { object } from "./landing.ts";
 
@@ -60,7 +60,7 @@ console.log(JSON.stringify(response));
       encoding: "utf8",
       timeout: 3000,
       env: {
-        PATH: `${dir}:${process.env.PATH}`,
+        PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
         SHIPPING_STATE: file,
       },
     });
