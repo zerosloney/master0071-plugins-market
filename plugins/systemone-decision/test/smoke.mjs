@@ -7,7 +7,10 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, wri
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
-import { rejectDataPath, isInsecureBaseUrl } from '../endpoint-config.mjs';
+import { rejectDataPath, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
+import { renderTemplate, deriveFields } from '../mcp/format.mjs';
+import { extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
+import { BUILTIN_SCENARIOS } from '../mcp/scenarios.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
@@ -1525,6 +1528,29 @@ const main = async () => {
     } finally {
       insecureClient.close();
     }
+    // 黑盒：userinfo 冒充回环（2026-10-29 实测漏洞）。旧判据是前缀正则，`http://localhost:8080@`
+    // 命中回环前缀 → 判安全 → 请求发往 evil.example，Key 走明文。现在必须结构化拒绝。
+    // 用 .invalid 域名保证即使护栏失效也连不上（不会真的把请求打到外部主机）。
+    const spoofClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: 'http://localhost:8080@evil.example.invalid/v1',
+    });
+    try {
+      const r = await spoofClient.call('tools/call', {
+        name: 'systemone_scenario',
+        arguments: { action: 'run', scenario: 'customer_service', state: 'spoofed-loopback' },
+      });
+      check('userinfo 冒充回环的端点：同样拒绝发请求', () => {
+        assert.equal(r.result?.isError, true, '应为 isError 结果');
+        assert.equal(r.result?.errorCode, 'insecure_endpoint', `应为 insecure_endpoint：${JSON.stringify(r.result)}`);
+        const text = (r.result?.content || []).map((c) => c.text).join('\n');
+        // 错误文案只留 host，不得原样回显配置里的 userinfo（那可能是真口令）
+        assert.ok(!text.includes('localhost:8080@evil'), `文案不得回显 userinfo：${text}`);
+        assert.match(text, /evil\.example\.invalid/, `文案应点名真实 host：${text}`);
+      });
+    } finally {
+      spoofClient.close();
+    }
     // 反向锚：本机回环的 http 端点不算不安全（不得被这条护栏误伤）
     check('本机回环的 http 端点不被判为不安全', () => {
       assert.equal(isInsecureBaseUrl('http://127.0.0.1:8080/v1'), false);
@@ -1533,7 +1559,135 @@ const main = async () => {
       assert.equal(isInsecureBaseUrl('http://insecure.example.invalid/v1'), true);
       assert.equal(isInsecureBaseUrl('http://10.0.0.5:8080/v1'), true, '内网明文也携 Key，仍应拒');
     });
+    // 回归（2026-10-29 实测）：旧实现用前缀正则 `^http://(localhost|127.0.0.1|[::1])`，
+    // 而 URL 的 userinfo 段出现在 host 之前 —— `http://localhost:8080@evil.example` 前缀命中
+    // `localhost:8080`、冒号即满足分隔符，整条被判「回环、安全」，实际请求发往 evil.example。
+    // 三个变体在修复前全部判 safe（实测），Bearer Key 会走明文路径外发。
+    check('userinfo 冒充回环的端点被判为不安全', () => {
+      assert.equal(isInsecureBaseUrl('http://localhost:8080@evil.example/v1'), true, '带端口的具体 userinfo');
+      assert.equal(isInsecureBaseUrl('http://127.0.0.1:9@evil.example/v1'), true, 'IP 形态');
+      assert.equal(isInsecureBaseUrl('HTTP://LOCALHOST:80@evil.example/v1'), true, '大写 scheme 与 host');
+    });
+    check('URL 内嵌凭据一律判为不安全（即使 host 确是回环）', () => {
+      assert.equal(isInsecureBaseUrl('http://user:pw@127.0.0.1:8080/v1'), true, '口令不该出现在端点配置里');
+    });
+    check('回环判定不接受「以回环开头的域名」', () => {
+      assert.equal(isInsecureBaseUrl('http://127.0.0.1.evil.example/v1'), true);
+      assert.equal(isInsecureBaseUrl('http://localhost.evil.example/v1'), true);
+    });
+    check('解析不了的串与空串按不安全处理（fail-closed）', () => {
+      assert.equal(isInsecureBaseUrl('not a url'), true);
+      assert.equal(isInsecureBaseUrl(''), true);
+    });
+    check('IPv6 回环仍被判为安全（new URL 去掉方括号后比对）', () => {
+      assert.equal(isInsecureBaseUrl('http://[::1]:8080/v1'), false);
+    });
+    // 回归（2026-10-29）：server.mjs 有 4 处把完整 URL 拼进错误文案，内嵌口令会被原样回显
+    // 给模型与宿主日志。endpointLabel 只留 scheme://host[:port]。
+    check('错误文案用的端点简称不含 userinfo 与 path', () => {
+      assert.equal(endpointLabel('http://localhost:8080@evil.example/v1'), 'http://evil.example');
+      assert.equal(endpointLabel('http://user:pw@127.0.0.1:9000/v1'), 'http://127.0.0.1:9000');
+      assert.equal(endpointLabel('https://api.example.com/v1'), 'https://api.example.com');
+      assert.equal(endpointLabel('not a url'), '(unparsable baseUrl)');
+    });
   }
+
+  // 建议模板的三态判定（2026-10-29 修复）：旧实现把 null 折成 false，
+  // `{escalate?需立即通知|无需紧急升级}` 在模型没给答案时输出「无需紧急升级」——
+  // 建议层凭空给出否定结论，而同一响应的 labels.escalate 是「无法判断」、
+  // needs_human_review 是 true，三个视图自相矛盾。
+  {
+    const tpl = '{escalate?需立即通知值班人员|无需紧急升级}';
+    check('null 的 noul 不落「否」：无三态文案时整段留空', () => {
+      assert.equal(renderTemplate(tpl, { decision: { escalate: null } }), '');
+      assert.equal(renderTemplate(tpl, { decision: {} }), '', '键缺失同样是未知');
+    });
+    check('null 的 noul 走三态文案（若模板提供）', () => {
+      assert.equal(
+        renderTemplate('{escalate?需通知|无需升级|无法判断，请人工确认}', { decision: { escalate: null } }),
+        '无法判断，请人工确认',
+      );
+    });
+    check('真/假仍走原二态', () => {
+      assert.equal(renderTemplate(tpl, { decision: { escalate: true } }), '需立即通知值班人员');
+      assert.equal(renderTemplate(tpl, { decision: { escalate: false } }), '无需紧急升级');
+    });
+    check('AND 条件含未知项时不输出「非双真」这种假结论', () => {
+      assert.equal(renderTemplate('{a&b?双真|非双真}', { decision: { a: true } }), '');
+      assert.equal(renderTemplate('{a&b?双真|非双真}', { decision: { a: false } }), '非双真', 'a 已否决就是确定的假');
+    });
+    check('内置 15 个场景在答案缺失时都不输出否定结论', () => {
+      for (const scenario of BUILTIN_SCENARIOS) {
+        if (!scenario.recommendation) continue;
+        const out = renderTemplate(scenario.recommendation, { decision: {} });
+        assert.match(out, /无法判断|未判定|缺失/, `${scenario.id} 的模板在未知时给出了确定结论：${out}`);
+      }
+    });
+    // 原型链：模板名来自场景配置，`constructor` 这类键走原型链会取到函数
+    check('模板条件与取值不走原型链', () => {
+      assert.equal(renderTemplate('{constructor?真|假}', { decision: {} }), '', '不存在的键是未知，不是真');
+      assert.equal(renderTemplate('{toString}', { decision: {} }), '', '原型上的函数不得被渲染进结果');
+    });
+  }
+
+  // criteria / spec.map 的原型链（2026-10-29 修复）：模型回 choice="constructor" 时，
+  // 直接下标会取到 Object 构造函数 —— 逐题行渲染成 `function Object() { [native code] }`。
+  {
+    const q = { type: 'choice', criteria: { a: '选项A' } };
+    check('逐题行不把原型函数当选项说明', () => {
+      const line = renderAnswerLine('choice', '动作', { choice: 'constructor', confidence: 0.9, probabilities: {} }, q);
+      assert.ok(!/native code/.test(line), line);
+      assert.match(line, /constructor/, '取不到说明时应回退显示原始 key');
+    });
+    check('速览标签不把原型函数当选项说明', () => {
+      const d = extractDecisionByType('choice', { choice: 'constructor' }, q);
+      assert.ok(!/native code/.test(String(d?.label)), JSON.stringify(d));
+    });
+    check('派生字段的 map 查找不走原型链', () => {
+      const derived = deriveFields({ risk: { question: 'sev', map: { Hi: '高' } } }, { sev: 'constructor' });
+      assert.equal(derived.risk, 'constructor', '取不到映射值应回退原始值');
+      assert.ok(!/native code/.test(renderTemplate('结论「{risk}」', { derived })));
+    });
+  }
+
+  // noul 概率越界（2026-10-29 修复）：旧实现只查有限性，noul=5 → probability=5、
+  // confidence=5、decision=true 且**不触发转人工**（越界转人工契约被绕过，逐题行渲染 500.0%）。
+  {
+    const fill = (v) => {
+      const out = { type: 'noul' };
+      fillAnswerByType(out, { noul: v }, { type: 'noul' });
+      return out;
+    };
+    check('noul=5 归 null 并转人工', () => {
+      const a = fill(5);
+      assert.equal(a.probability, null);
+      assert.equal(a.confidence, null);
+      assert.equal(isBorderlineAnswer(a, { type: 'noul' }, { noul: 5 }), true, '界外值必须转人工');
+    });
+    check('noul=-3 归 null 并转人工', () => {
+      const a = fill(-3);
+      assert.equal(a.probability, null);
+      assert.equal(isBorderlineAnswer(a, { type: 'noul' }, { noul: -3 }), true);
+    });
+    check('边界值 0 与 1 仍然合法（不成越界）', () => {
+      assert.equal(fill(0).probability, 0);
+      assert.equal(fill(1).probability, 1);
+      assert.equal(isBorderlineAnswer(fill(1), { type: 'noul' }, { noul: 1 }), false);
+    });
+  }
+
+  // 问题 id 为 __proto__ 时不得静默丢题（2026-10-29 修复）：普通对象上 `obj["__proto__"] = v`
+  // 触发原型 setter，该题不进请求体也没有任何报错。
+  {
+    const request = Object.create(null);
+    request['__proto__'] = { type: 'choice', instructions: 'x' };
+    check('无原型对象承载 __proto__ 键（不进原型 setter）', () => {
+      assert.deepEqual(Object.keys(request), ['__proto__']);
+      assert.equal(Object.getPrototypeOf(request), null);
+      assert.match(JSON.stringify(request), /"__proto__"/);
+    });
+  }
+
   rmSync(runRoot, { recursive: true, force: true });
   rmSync(scratchRoot, { recursive: true, force: true });
 

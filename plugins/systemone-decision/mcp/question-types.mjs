@@ -251,8 +251,13 @@ const ANSWER_FILLERS = {
   noul(out, answer) {
     // noul 无独立 confidence 字段，用概率的决断度 max(p, 1-p) 代替。
     // typeof Infinity === 'number'（JSON 里 1e999 即是），必须同时 isFinite，否则
-    // Infinity 概率会同时漏过阈值比较与复核判定，决策却已显示「无法判断」
-    const p = typeof answer.noul === 'number' && Number.isFinite(answer.noul) ? answer.noul : null;
+    // Infinity 概率会同时漏过阈值比较与复核判定，决策却已显示「无法判断」。
+    // 越界同样归 null（2026-10-29 修复）：旧实现只查有限性，`noul: 5` → probability=5、
+    // confidence=5、decision=true 且**不触发转人工**（越界转人工契约被绕过，逐题行渲染 500.0%）；
+    // `noul: -3` 更糟，confidence 取 max(-3, 4)=4。概率的定义域是 [0,1]，界外值不是「更高的置信」，
+    // 是模型给了不可解释的东西——按「无法判断」处理，与 score 越界的既有处置同口径。
+    const raw = typeof answer.noul === 'number' && Number.isFinite(answer.noul) ? answer.noul : null;
+    const p = raw === null || raw < 0 || raw > 1 ? null : raw;
     out.probability = p;
     out.confidence = p === null ? null : Math.max(p, 1 - p);
   },
@@ -276,12 +281,24 @@ export function fillAnswerByType(out, answer, question) {
   if (fill) fill(out, answer, question);
 }
 
-/**
- * score 等级标签查找的公共头部：legend → 问题量表，找不到返回 undefined。
- * 尾部兜底（?? null / ?? String(idx)）由调用方按各自视图决定。
- */
+/** criteria 的查表口径（2026-10-29 修复）。
+ *  旧实现直接 `question?.criteria?.[key]`：这是**原型链查找**，模型回 choice="constructor" 时
+ *  取到 `Object` 构造函数，逐题行渲染出 `function Object() { [native code] }`、
+ *  速览标签则是 undefined（JSON 里函数被丢弃）。同文件 399 行的判定层早已用 Object.hasOwn
+ *  修过「幻觉选项」，取值层漏修——判据与渲染出现了两套口径。 */
+function criteriaLabel(criteria, key) {
+  if (key === null || key === undefined) return undefined;
+  if (!criteria || typeof criteria !== 'object') return undefined;
+  const k = String(key);
+  return Object.hasOwn(criteria, k) ? criteria[k] : undefined;
+}
+
+/** score 等级标签查找的公共头部：legend → 问题量表，找不到返回 undefined。
+ *  尾部兜底（?? null / ?? String(idx)）由调用方按各自视图决定。 */
 function lookupScoreLabel(idx, legend, question) {
-  return legend?.[String(idx)] ?? (Array.isArray(question?.criteria) ? question.criteria[idx] : undefined);
+  const key = String(idx);
+  if (legend && typeof legend === 'object' && Object.hasOwn(legend, key)) return legend[key];
+  return Array.isArray(question?.criteria) ? question.criteria[idx] : undefined;
 }
 
 // ---------- 速览判定（decision / labels / confidences） ----------
@@ -296,7 +313,7 @@ const DECISION_EXTRACTORS = {
     const c = finiteConfidence(raw);
     return {
       decision: key,
-      label: key != null ? (question?.criteria?.[key] ?? raw.choice ?? String(key)) : '无法判断',
+      label: key != null ? (criteriaLabel(question?.criteria, key) ?? raw.choice ?? String(key)) : '无法判断',
       confidence: c === null ? undefined : c,
     };
   },
@@ -314,7 +331,10 @@ const DECISION_EXTRACTORS = {
     // typeof 收窄而非 Number() 强转：Number(null) === 0 会把「模型没给概率」捏造成
     // 置信度 1.0 的「否」（decision/labels/confidences 三个速览视图一起失真）。
     // 与 finiteScore / finiteConfidence / hooks/decide-client.noulOf 同口径的边界收紧。
-    const v = typeof raw.noul === 'number' && Number.isFinite(raw.noul) ? raw.noul : null;
+    // 越界归 null（2026-10-29）：`noul: 5` 旧实现判 decision=true、confidence=5 且不转人工，
+    // 概率的定义域 [0,1] 之外的数字不可解释，按「无法判断」处理。
+    const finite = typeof raw.noul === 'number' && Number.isFinite(raw.noul) ? raw.noul : null;
+    const v = finite === null || finite < 0 || finite > 1 ? null : finite;
     const flag = v === null ? null : v >= 0.5;
     return {
       decision: flag,
@@ -349,7 +369,7 @@ function topProbs(probabilities, n = 3) {
 const LINE_RENDERERS = {
   choice(label, answer, question) {
     const { choice, confidence, probabilities } = answer;
-    const text = choice != null ? (question?.criteria?.[choice] ?? choice) : '无法判断';
+    const text = choice != null ? (criteriaLabel(question?.criteria, choice) ?? choice) : '无法判断';
     return `- **${label}**：${text}（置信度 ${fmtPct(confidence)}｜分布 ${topProbs(probabilities, 3)}）`;
   },
   score(label, answer, question) {

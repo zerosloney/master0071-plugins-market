@@ -79,11 +79,51 @@ export function readEndpointConfig() {
   return null;
 }
 
+/** 回环主机名闭集：与 new URL().hostname 的输出口径对齐（IPv6 不带方括号）。 */
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+
 /** baseUrl 是否为不安全端点：非 https 且非本机回环。这类端点携带 Bearer Key 等于明文外泄凭据，
- *  MCP 服务与 hook 在发请求前都应据此拒绝（共享文件落在用户可写目录，值不可信）。 */
+ *  MCP 服务与 hook 在发请求前都应据此拒绝（共享文件落在用户可写目录，值不可信）。
+ *
+ *  判据必须读**解析后的 hostname**，不能拿原始串做前缀正则（2026-10-29 实测）：
+ *  旧实现用 `/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])([:\/]|$)/`。URL 的 userinfo 段出现在
+ *  host 之前，于是 `http://localhost:8080@evil.example/v1` 的前缀命中 `localhost:8080`、冒号
+ *  即满足分隔符，被整条判为「回环、安全」——而真正会被请求的 host 是 `evil.example`。
+ *  实测三个变体全部判 safe：`http://localhost:8080@evil.example/v1`、
+ *  `http://127.0.0.1:9@evil.example/v1`、`HTTP://LOCALHOST:80@evil.example/v1`。
+ *  护栏看的是「开头像不像回环」，请求却发往「@ 之后那段」，两者不是同一个东西。
+ *
+ *  另：含内嵌凭据（userinfo）的 URL 一律判不安全。凭据不该出现在端点配置里——
+ *  Key 走 Authorization 头，URL 里的口令只会被回显进日志与错误文案。 */
 export function isInsecureBaseUrl(baseUrl) {
-  if (typeof baseUrl !== 'string' || /^https:\/\//i.test(baseUrl)) return false;
-  return !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])([:\/]|$)/i.test(baseUrl);
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) return true;
+  const raw = baseUrl.trim();
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    // 解析不了就不能证明它安全：宁可拒绝，也不把一个看不懂的串当成本机端点放行
+    return true;
+  }
+  if (url.protocol === 'https:') return false;
+  if (url.protocol !== 'http:') return true;
+  // userinfo 存在即拒：`http://localhost@evil.example` 的 host 是 evil.example，
+  // 且真实口令进过配置文件（会被错误文案回显）
+  if (url.username || url.password) return true;
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return !LOOPBACK_HOSTNAMES.has(host);
+}
+
+/** 端点的人类可读简称：只留 `<scheme>://<host>[:port]`，丢掉 path/query 与 userinfo。
+ *  用于错误文案——把完整 URL 拼进工具结果会把内嵌口令原样回显给模型与日志。 */
+export function endpointLabel(baseUrl) {
+  try {
+    const url = new URL(String(baseUrl).trim());
+    const host = url.hostname ? `${url.hostname}${url.port ? `:${url.port}` : ''}` : '(unknown host)';
+    return `${url.protocol}//${host}`;
+  } catch {
+    return '(unparsable baseUrl)';
+  }
 }
 
 /** 设置页 / 环境变量交来的**数据文件路径**是否不可接受；可接受返回 null，否则返回拒绝理由。
@@ -105,9 +145,12 @@ export function rejectDataPath(value, extensions) {
   if (!path.isAbsolute(raw)) return '必须是绝对路径（相对路径会落进插件安装目录，跨项目共享且随插件更新丢失）';
 
   const resolved = path.resolve(raw);
+  // 段比较统一小写（2026-10-29 修复）：Windows 与 macOS 默认卷大小写不敏感，`.GIT` 与 `.git`
+  // 是同一个目录，而旧实现按原样比较 `.git`，于是 `.GIT/` 下的路径轻松通过护栏——
+  // 「不得落在 .git 目录内」在大小写不敏感卷上形同虚设。
   const norm = (s) => (process.platform === 'win32' ? s.toLowerCase() : s).replace(/[\\/]+$/, '');
   const segments = resolved.split(/[\\/]+/);
-  if (segments.some((s) => s === '.git')) return '路径位于 .git 目录内';
+  if (segments.some((s) => s.toLowerCase() === '.git')) return '路径位于 .git 目录内';
   const pluginRoot = norm(PLUGIN_ROOT);
   const probe = norm(resolved);
   if (probe === pluginRoot || probe.startsWith(`${pluginRoot}${path.sep}`)) {

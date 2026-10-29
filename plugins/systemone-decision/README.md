@@ -243,7 +243,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 | `invalid_params` | 参数/用法非法：校验失败、未知场景、动作不支持 | 按错误文案修正调用 |
 | `missing_api_key` | 未配置 API Key | 设置 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`） |
 | `not_configured` | 依赖的功能未启用（如未配置审计日志） | 按提示启用或忽略 |
-| `insecure_endpoint` | 端点非加密（非回环的 `http://`），拒绝携带 Key 外发 | 改用 `https://` 端点 |
+| `insecure_endpoint` | 端点非加密（非回环的 `http://`），或端点 URL 内嵌了凭据，拒绝携带 Key 外发 | 改用 `https://` 端点；把凭据从 URL 里去掉（Key 走 `SYSTEMONE_API_KEY`） |
 | `upstream_error` | 上游返回错误或响应不可用 | 查看文案里的上游信息，必要时重试 |
 | `timeout` | 请求超时 | 调大 `SYSTEMONE_TIMEOUT_MS` 或重试 |
 | `budget_exhausted` | 批量总预算用尽，该条未执行 | 调大 `SYSTEMONE_BATCH_BUDGET_MS` 或分批 |

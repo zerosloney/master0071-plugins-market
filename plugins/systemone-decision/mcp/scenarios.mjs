@@ -48,7 +48,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { priority: { question: 'severity', values: ['P4', 'P3', 'P2', 'P1'] } },
-    recommendation: '转 {department} 处理（优先级 {priority}）。{escalate?需立即通知值班人员|无需紧急升级}',
+    recommendation: '转 {department} 处理（优先级 {priority}）。{escalate?需立即通知值班人员|无需紧急升级|升级判断缺失，请人工确认是否需要通知值班人员}',
   },
   {
     id: 'content_moderation',
@@ -89,7 +89,7 @@ export const BUILTIN_SCENARIOS = [
         criteria: ['无风险', '轻微风险，不影响使用者', '中等风险，需要处理', '严重风险，须立即处置'],
       },
     },
-    recommendation: '处置动作「{action}」，违规类型「{category}」，风险等级 {risk}。{category?存在违规内容，建议按处置动作尽快处理|未发现违规内容}',
+    recommendation: '处置动作「{action}」，违规类型「{category}」，风险等级 {risk}。{category?存在违规内容，建议按处置动作尽快处理|未发现违规内容|违规类型未判定，请人工复核是否含违规内容}',
   },
   {
     id: 'agent_routing',
@@ -127,7 +127,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { effort: { question: 'complexity', values: ['S', 'M', 'L', 'XL'] } },
-    recommendation: '交给 {agent} 执行（规模 {effort}）。{needs_human?建议转人工处理|可自动执行}',
+    recommendation: '交给 {agent} 执行（规模 {effort}）。{needs_human?建议转人工处理|可自动执行|是否需转人工未判定，请按转人工处理}',
   },
   {
     id: 'result_verification',
@@ -165,7 +165,7 @@ export const BUILTIN_SCENARIOS = [
         ],
       },
     },
-    recommendation: '结果{passed?满足任务要求，可直接采用|未完全满足要求}，质量等级 {quality}，主要问题「{main_issue}」。',
+    recommendation: '结果{passed?满足任务要求，可直接采用|未完全满足要求|验收结论缺失，需人工复核}，质量等级 {quality}，主要问题「{main_issue}」。',
   },
   {
     id: 'sales_lead',
@@ -196,7 +196,7 @@ export const BUILTIN_SCENARIOS = [
         instructions: '这条线索是否值得主动跟进？',
       },
     },
-    recommendation: '线索质量 {quality}，分配给「{owner}」。{follow_up?值得主动跟进|暂不跟进}',
+    recommendation: '线索质量 {quality}，分配给「{owner}」。{follow_up?值得主动跟进|暂不跟进|跟进判断缺失，请人工确认}',
   },
   {
     id: 'risk_control',
@@ -227,7 +227,7 @@ export const BUILTIN_SCENARIOS = [
         instructions: '是否需要转人工复核？',
       },
     },
-    recommendation: '交易异常评分 {anomaly}，风险等级「{risk_level}」。{manual_review?需转人工复核|可自动放行}',
+    recommendation: '交易异常评分 {anomaly}，风险等级「{risk_level}」。{manual_review?需转人工复核|可自动放行|复核判断缺失，请按转人工处理}',
   },
   {
     id: 'recruiting',
@@ -260,7 +260,7 @@ export const BUILTIN_SCENARIOS = [
         },
       },
     },
-    recommendation: '简历匹配度 {match}，建议岗位「{position}」。{next_round?进入下一轮|本轮不通过}',
+    recommendation: '简历匹配度 {match}，建议岗位「{position}」。{next_round?进入下一轮|本轮不通过|进面判断缺失，请人工裁定}',
   },
   {
     id: 'data_governance',
@@ -299,7 +299,7 @@ export const BUILTIN_SCENARIOS = [
         instructions: '这份数据是否包含敏感信息（个人信息或商业机密）？',
       },
     },
-    recommendation: '文档标签「{tags}」，问题归因「{root_cause}」。{sensitive?包含敏感数据，需脱敏处理|非敏感数据}',
+    recommendation: '文档标签「{tags}」，问题归因「{root_cause}」。{sensitive?包含敏感数据，需脱敏处理|非敏感数据|敏感判定缺失，按需脱敏处理}',
   },
   {
     id: 'education',
@@ -334,7 +334,7 @@ export const BUILTIN_SCENARIOS = [
         instructions: '内容是否通过合规预检（无违规内容、无错误导向）？',
       },
     },
-    recommendation: '知识点「{knowledge_point}」，难度 {difficulty}。{compliance?合规预检通过|存在合规风险，需人工复核}',
+    recommendation: '知识点「{knowledge_point}」，难度 {difficulty}。{compliance?合规预检通过|存在合规风险，需人工复核|合规预检结果缺失，需人工复核}',
   },
   {
     id: 'requirements',
@@ -365,7 +365,7 @@ export const BUILTIN_SCENARIOS = [
         instructions: '是否需要拆分并派发子任务？',
       },
     },
-    recommendation: '优先级 {priority}，变更风险「{change_risk}」。{subtask_dispatch?需拆分并派发子任务|无需拆分}',
+    recommendation: '优先级 {priority}，变更风险「{change_risk}」。{subtask_dispatch?需拆分并派发子任务|无需拆分|拆分判断缺失，请人工确认}',
   },
   {
     id: 'software_dev',
@@ -407,7 +407,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { effort: { question: 'complexity', values: ['S', 'M', 'L', 'XL'] } },
-    recommendation: '任务类型「{task_type}」，改动规模 {effort}。{needs_context?建议先检索代码库并确认相关实现|可直接动手}',
+    recommendation: '任务类型「{task_type}」，改动规模 {effort}。{needs_context?建议先检索代码库并确认相关实现|可直接动手|上下文需求未判定，建议先检索代码库}',
   },
   {
     id: 'test_failure',
@@ -445,7 +445,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { block: { question: 'blocking', values: ['不阻塞', '可跟进', '阻塞合并', '阻塞发布'] } },
-    recommendation: '根因「{cause}」，{block}。{retry_first?先原样重跑一次确认稳定性|直接按根因排查处理}',
+    recommendation: '根因「{cause}」，{block}。{retry_first?先原样重跑一次确认稳定性|直接按根因排查处理|是否先重跑未判定，建议按根因排查}',
   },
   {
     id: 'pr_review',
@@ -482,7 +482,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { gate: { question: 'verdict', map: { approve: '通过', comment: '通过（附意见）', changes: '打回修改', block: '阻塞' } } },
-    recommendation: '结论「{gate}」，风险等级 {risk}。{needs_second?需第二评审人复核后放行|单一评审结论即可生效}',
+    recommendation: '结论「{gate}」，风险等级 {risk}。{needs_second?需第二评审人复核后放行|单一评审结论即可生效|复核需求未判定，建议安排第二评审人}',
   },
   {
     id: 'incident_response',
@@ -519,7 +519,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { level: { question: 'severity', values: ['S4', 'S3', 'S2', 'S1'] } },
-    recommendation: '事故定级 {level}。处置：{rollback}。{escalate?立即拉起应急响应并同步值班|按常规流程处理并持续观察}',
+    recommendation: '事故定级 {level}。处置：{rollback}。{escalate?立即拉起应急响应并同步值班|按常规流程处理并持续观察|升级判断缺失，请人工确认是否拉起应急响应}',
   },
   {
     id: 'security_triage',
@@ -555,7 +555,7 @@ export const BUILTIN_SCENARIOS = [
       },
     },
     derive: { verdict_label: { question: 'verdict', map: { true_positive: '真实威胁', false_positive: '误报', needs_evidence: '证据不足' } } },
-    recommendation: '判定「{verdict_label}」，影响面 {impact}。{contain_now?立即执行遏制并同步安全值班|按常规流程取证跟进}',
+    recommendation: '判定「{verdict_label}」，影响面 {impact}。{contain_now?立即执行遏制并同步安全值班|按常规流程取证跟进|遏制判断缺失，请人工确认是否立即遏制}',
     // 安全判定宁可多复核：默认阈值高于全局 0.7
     confidenceThreshold: 0.8,
   },

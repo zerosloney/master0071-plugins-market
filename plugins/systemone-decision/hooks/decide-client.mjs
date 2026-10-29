@@ -3,7 +3,7 @@
 // 缺失/损坏回退环境变量；API Key 不在共享文件里，仍只从环境变量取。
 // fail-open 契约在调用方：decide 抛错时调用方必须放行，绝不阻塞用户输入或工具调用。
 
-import { readEndpointConfig, isInsecureBaseUrl } from '../endpoint-config.mjs';
+import { readEndpointConfig, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
 import { cacheGet, cacheKey, cachePut } from './decision-cache.mjs';
 
 export function config(env) {
@@ -39,7 +39,8 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key 外发；抛错由调用方按 fail-open 契约放行，
   // stderr 留一条便于诊断为什么预检/风险闸静默失效
   if (isInsecureBaseUrl(cfg.baseUrl)) {
-    process.stderr.write(`[systemone-decision] baseUrl ${cfg.baseUrl} 不是加密端点（https 或本机回环），拒绝携带 API Key 请求，本次判定跳过。\n`);
+    // 与 server.mjs 同口径：stderr 只留 scheme://host[:port]，不把含内嵌口令的完整 URL 写进日志
+    process.stderr.write(`[systemone-decision] baseUrl ${endpointLabel(cfg.baseUrl)} 不是加密端点（https 或本机回环），拒绝携带 API Key 请求，本次判定跳过。\n`);
     throw new Error('insecure endpoint');
   }
   const res = await fetch(`${cfg.baseUrl}/systemone`, {
@@ -71,6 +72,9 @@ export function choiceOf(a) {
 }
 
 export function noulOf(a) {
-  const p = a && typeof a.noul === 'number' && Number.isFinite(a.noul) ? a.noul : null;
+  const finite = a && typeof a.noul === 'number' && Number.isFinite(a.noul) ? a.noul : null;
+  // 界外值不可解释，按「无法判断」处理（2026-10-29，与 question-types.mjs 的 noul 分支同口径）：
+  // 旧实现让 `noul: 5` 通过，confidence 变成 5，阈值比较从此失效。
+  const p = finite === null || finite < 0 || finite > 1 ? null : finite;
   return p === null ? null : { probability: p, confidence: Math.max(p, 1 - p) };
 }

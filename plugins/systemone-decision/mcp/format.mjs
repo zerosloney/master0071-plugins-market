@@ -28,9 +28,12 @@ export function normalizeAnswer(question, answer) {
  * @param {object} questions - 问题定义（提供 criteria 兜底标签）
  */
 export function normalizeDecision(rawAnswers, questions = {}) {
-  const decision = {};
-  const labels = {};
-  const confidences = {};
+  // 无原型对象承载（2026-10-29）：qid 来自调用方/场景 JSON，`__proto__` 作为键写入普通对象
+  // 会触发原型 setter，该题的 decision/label 静默丢失，而同一响应的 answers 里有它——
+  // 三个视图互相矛盾且没有任何报错。与 server.mjs 的 request/answers 同口径。
+  const decision = Object.create(null);
+  const labels = Object.create(null);
+  const confidences = Object.create(null);
 
   for (const [qid, question] of Object.entries(questions)) {
     const raw = rawAnswers?.[qid];
@@ -50,7 +53,8 @@ export function normalizeDecision(rawAnswers, questions = {}) {
  * 分值取整并钳制到 values 下标范围内；也支持 { question, map: {选项key: 值} } 形式。
  */
 export function deriveFields(deriveSpec, decision) {
-  const derived = {};
+  // 派生字段名来自场景配置，同样可能是 __proto__ —— 用无原型对象承载
+  const derived = Object.create(null);
   for (const [name, spec] of Object.entries(deriveSpec || {})) {
     if (!spec || typeof spec !== 'object' || typeof spec.question !== 'string') continue;
     const value = decision?.[spec.question];
@@ -69,7 +73,12 @@ export function deriveFields(deriveSpec, decision) {
       derived[name] = picked;
     } else if (spec.map && typeof spec.map === 'object') {
       if (value == null) continue;
-      derived[name] = spec.map[String(value)] ?? String(value);
+      // Object.hasOwn 而非直接下标（2026-10-29 修复）：`spec.map["constructor"]` 沿原型链取到
+      // Object 构造函数，派生值于是变成一个函数，模板渲染出
+      // `结论「function Object() { [native code] }」`。同文件 399 行早已用 hasOwn 修过判定层，
+      // 取值层漏修。取不到就走 String(value) 兜底（与本分支原有语义一致）。
+      const mapped = Object.hasOwn(spec.map, String(value)) ? spec.map[String(value)] : undefined;
+      derived[name] = mapped ?? String(value);
     }
   }
   return derived;
@@ -81,47 +90,79 @@ export function deriveFields(deriveSpec, decision) {
  *   {qid.key}          → 原始值（choice=选项 key，score=取整分值，noul=true/false）
  *   {qid.confidence}   → 置信度百分比
  *   {derivedName}      → 派生字段
- *   {qid?文案A|文案B}   → 条件文案（noul 为真 / 分值 ≥1 / choice 非空且非 none 类哨兵值时取 A；不支持嵌套）
- *   {qid?文案A}        → then-only 条件（为假输出空）
- *   {a&b?文案A|文案B}  → 多条件与（所有条件都为真取 A）
+ *   {qid?文案A|文案B|文案C} → 三态条件（真 / 假 / **未知**；不支持嵌套）
+ *   {qid?文案A|文案B}   → 二态条件（真 / 假）；**未知时不输出任何文案**
+ *   {qid?文案A}        → then-only 条件（为假或未知输出空）
+ *   {a&b?文案A|文案B}  → 多条件与（任一为假取 B；否则任一未知则整体未知）
  *   \{ 与 \}           → 字面花括号（JSON 源里写作 "\\{" 与 "\\}"）
  *
- * 条件文案 A/B 里不要再写 {…} 占位符：条件替换先于取值替换执行，其产物会被第二遍扫描，
+ * 「未知」= 该题答案缺失、或值本身是 null/undefined（如模型没给 noul 概率）。
+ * 第三态是 2026-10-29 修的缺陷：旧实现把 null 折成 false，`{escalate?需立即通知|无需紧急升级}`
+ * 在模型没给答案时输出「无需紧急升级」——建议层凭空给出否定结论，而同一响应的
+ * labels.escalate 是「无法判断」、needs_human_review 是 true，三视图自相矛盾。
+ * 现在未知不再落 A/B 二元：有三态文案就用它，没有就**什么都不输出**（宁缺勿造）。
+ *
+ * 条件文案 A/B/C 里不要再写 {…} 占位符：条件替换先于取值替换执行，其产物会被第二遍扫描，
  * 写了会被当作占位符意外处理（用户文档见 references/scenarios.md 的建议模板语法）。
  */
 export function renderTemplate(template, { labels = {}, decision = {}, confidences = {}, derived = {} } = {}) {
   if (!template) return '';
   const ctx = { labels, decision, confidences, derived };
   let out = String(template).replace(/\\([{}])/g, '\u0000$1');
-  out = out.replace(/\{([\w&]+)\?([^{}|]*)(?:\|([^{}]*))?\}/g, (_, names, thenText, elseText) => {
-    const hit = names.split('&').every((n) => truthy(n, ctx));
-    return hit ? thenText : elseText ?? '';
-  });
+  out = out.replace(
+    /\{([\w&]+)\?([^{}|]*)(?:\|([^{}|]*))?(?:\|([^{}|]*))?\}/g,
+    (_, names, thenText, elseText, unknownText) => {
+      const state = conditionState(names.split('&'), ctx);
+      if (state === true) return thenText;
+      if (state === false) return elseText ?? '';
+      // 未知：只有显式声明了第三条才输出，否则留空——不能拿 B 冒充「否」
+      return unknownText ?? '';
+    },
+  );
   out = out.replace(/\{(\w+)(?:\.(\w+))?\}/g, (_, name, prop) => {
     if (prop === 'key') return stringify(decision[name]);
     if (prop === 'confidence') {
       const c = confidences[name];
       return Number.isFinite(c) ? `${(c * 100).toFixed(1)}%` : '';
     }
-    if (name in labels) return stringify(labels[name]);
-    if (name in derived) return stringify(derived[name]);
-    return stringify(decision[name]);
+    if (Object.hasOwn(labels, name)) return stringify(labels[name]);
+    if (Object.hasOwn(derived, name)) return stringify(derived[name]);
+    // 最后一层同样要 hasOwn（2026-10-29）：`{toString}` / `{constructor}` 这类占位符直接下标
+    // 会沿原型链取到函数，渲染出 `function toString() { [native code] }` 进结论。
+    // 键不存在就是「没有这个值」，输出空串。
+    return Object.hasOwn(decision, name) ? stringify(decision[name]) : '';
   });
   return out.replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
 }
 
-/**
- * 判定值是否视为"真"：boolean 直取；数字 ≥1 为真；
- * 字符串排除空串与 none/normal/no/false/0 哨兵值（如审核 category 选了 none）。
- */
-function truthy(name, { decision, derived }) {
-  if (name in derived) {
-    const v = derived[name];
-    if (typeof v === 'boolean') return v;
-    if (typeof v === 'number') return v >= 1;
-    return !FALSY_TOKENS.includes(String(v).toLowerCase());
+/** 合并多个条件的判定：三值逻辑（Kleene）。
+ *  任一为假 → 假（不必再看别的：`a&b` 里 a 已经否决）；否则任一未知 → 未知；全真 → 真。
+ *  用三值而不是「未知当假」，才能让 `{a&b?…}` 在 b 未知时不输出「非双真」这种假结论。 */
+function conditionState(names, ctx) {
+  let unknown = false;
+  for (const name of names) {
+    const state = stateOf(name, ctx);
+    if (state === false) return false;
+    if (state === null) unknown = true;
   }
-  const value = decision[name];
+  return unknown ? null : true;
+}
+
+/**
+ * 三态判定：boolean 直取；数字 ≥1 为真；字符串排除空串与 none/normal/no/false/0 哨兵值
+ * （如审核 category 选了 none）；**null / undefined / 键不存在 = 未知**。
+ *
+ * 查表一律用 Object.hasOwn：模板名来自场景配置与模型输出，`constructor` / `toString`
+ * 这类键走原型链会取到函数（渲染成 `function Object() { [native code] }`）。
+ */
+function stateOf(name, { decision, derived }) {
+  if (Object.hasOwn(derived, name)) return triValue(derived[name]);
+  if (Object.hasOwn(decision, name)) return triValue(decision[name]);
+  return null;
+}
+
+function triValue(value) {
+  if (value === null || value === undefined) return null;
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value >= 1;
   if (typeof value === 'string') return !FALSY_TOKENS.includes(value.toLowerCase());

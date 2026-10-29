@@ -10,7 +10,7 @@ import { appendFileSync, createReadStream, readFileSync, renameSync, statSync, u
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
-import { writeEndpointConfig, isInsecureBaseUrl, rejectDataPath } from '../endpoint-config.mjs';
+import { writeEndpointConfig, isInsecureBaseUrl, endpointLabel, rejectDataPath } from '../endpoint-config.mjs';
 import {
   buildSummary,
   deriveFields,
@@ -33,7 +33,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.10' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.11' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -295,11 +295,14 @@ async function callSystemone(state, questions, timeoutMsOverride) {
   // fail-open 契约放行），抽共享模块的回归风险大于收益。改协议形状时必须两处同步，
   // 以 test/smoke.mjs 与 test/hook.smoke.mjs 为锚。
   const url = `${cfg.baseUrl}/systemone`;
+  // 错误文案里的端点只留 scheme://host[:port]：完整 URL 会把 path、query 与内嵌口令
+  // 原样带进工具结果（进模型上下文、进宿主日志）。诊断只需要知道「打到哪个主机」。
+  const endpoint = endpointLabel(cfg.baseUrl);
   // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key：共享配置文件在用户可写目录，
   // 值不可信；明文外发凭据比单次工具调用失败严重得多
   if (isInsecureBaseUrl(cfg.baseUrl)) {
     throw new ToolError(
-      `baseUrl ${cfg.baseUrl} 不是加密端点（https 或本机回环），为避免 API Key 明文外泄已拒绝请求。` +
+      `baseUrl ${endpoint} 不是加密端点（https 或本机回环），为避免 API Key 明文外泄已拒绝请求。` +
         '请改用 https 端点（SYSTEMONE_BASE_URL 或插件设置页）。本机调试可用 http://127.0.0.1:<port>。',
       ERROR_CODES.insecureEndpoint
     );
@@ -318,9 +321,9 @@ async function callSystemone(state, questions, timeoutMsOverride) {
     });
   } catch (e) {
     if (ac.signal.aborted) {
-      throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${url}`, ERROR_CODES.timeout);
+      throw new ToolError(`systemone 请求超时（${timeoutMs}ms）：POST ${endpoint}/systemone`, ERROR_CODES.timeout);
     }
-    throw new ToolError(`systemone 请求失败：POST ${url}，原因：${e.message}`, ERROR_CODES.upstream);
+    throw new ToolError(`systemone 请求失败：POST ${endpoint}/systemone，原因：${e.message}`, ERROR_CODES.upstream);
   }
   // 响应头之后 body 仍可能缓慢滴流：读取阶段继续受同一 timer 保护——若收到响应头就清掉
   // timer，故障端点会让 tools/call 在 await res.text() 上无限挂起
@@ -329,7 +332,7 @@ async function callSystemone(state, questions, timeoutMsOverride) {
     text = await res.text();
   } catch (e) {
     if (ac.signal.aborted) {
-      throw new ToolError(`systemone 响应体读取超时（${timeoutMs}ms）：POST ${url}`, ERROR_CODES.timeout);
+      throw new ToolError(`systemone 响应体读取超时（${timeoutMs}ms）：POST ${endpoint}/systemone`, ERROR_CODES.timeout);
     }
     throw e; // 非 abort 的读取失败维持原样上抛（dispatch 归为工具异常）
   } finally {
@@ -343,7 +346,7 @@ async function callSystemone(state, questions, timeoutMsOverride) {
         '请到 MaaS 控制台确认该 Key 所属项目已开通对应模型；' +
         '若是刚更换过 SYSTEMONE_API_KEY，注意运行中的进程持有启动时的环境变量快照，需重启宿主程序后生效';
     }
-    throw new ToolError(`systemone HTTP ${res.status}：${snippet(text)}（POST ${url}）${hint}`, ERROR_CODES.upstream);
+    throw new ToolError(`systemone HTTP ${res.status}：${snippet(text)}（POST ${endpoint}/systemone）${hint}`, ERROR_CODES.upstream);
   }
   let data;
   try {
@@ -408,13 +411,17 @@ function formatOf(args) {
 async function executeDecision(state, questions, { threshold, meta = {}, format = 'full', timeoutMs } = {}) {
   validateState(state);
   validateQuestions(questions);
-  const request = {};
+  // request / answers 用无原型对象承载（2026-10-29 修复）：问题 id 来自调用方 JSON，
+  // qid="__proto__" 时 `request[qid] = …` 会触发原型 setter——该题**静默不进请求体**
+  // （Object.keys 为空、JSON 只剩 {}），模型永远收不到这道题，也没有任何报错。
+  // Object.create(null) 让 __proto__ 只是一个普通键。
+  const request = Object.create(null);
   for (const [qid, q] of Object.entries(questions)) {
     request[qid] = toRequestQuestion(q); // noul 无判据，剥掉 criteria
   }
   const data = await callSystemone(state, request, timeoutMs);
 
-  const answers = {};
+  const answers = Object.create(null);
   const low = [];
   for (const [qid, q] of Object.entries(questions)) {
     const a = normalizeAnswer(q, data.answers[qid]);
