@@ -4,11 +4,12 @@ Use this reference with [Shipping](../playbooks/shipping.md) and before topology
 
 ## Read both pending mechanisms
 
-Use `ship-pr` under the installed plugin's `extras/poteto-mode-scripts/watch-pr/` directory. It owns GitHub transport, parsing, cancellation order, and readback. The watcher and this command share one `LandingRevision` containing the repository, PR number, head OID, base branch, and base OID.
+Use `ship-pr` under the installed plugin's `extras/poteto-mode-scripts/watch-pr/` directory, **via bun** — the entry is an extensionless shebang script that Windows cannot execute as-is, so invoke it as `bun run <plugin>/extras/poteto-mode-scripts/watch-pr/ship-pr` rather than by bare name. It owns GitHub transport, parsing, cancellation order, and readback. The watcher and this command share one `LandingRevision` containing the repository, PR number, head OID, base branch, and base OID.
 
 ```sh
-ship-pr inspect --repo "$owner/$repo" --pr "$pr" > "$record_file"
-ship-pr cancel-pending --record "$record_file"
+# <plugin> = the installed plugin root; bun is required (see extras/README.md).
+bun run <plugin>/extras/poteto-mode-scripts/watch-pr/ship-pr inspect --repo "$owner/$repo" --pr "$pr" > "$record_file"
+bun run <plugin>/extras/poteto-mode-scripts/watch-pr/ship-pr cancel-pending --record "$record_file"
 ```
 
 Run the installed command by its full path when it is not on PATH. Inspect emits `kind: inspected` with a parsed landing record, including both pending mechanisms and the merge commit when present. Save that record with the verification evidence. Cancellation accepts the saved record, rereads current state, disables auto-merge when present, rereads queue membership, dequeues when needed, and verifies both mechanisms are absent on the same open landing revision. It does not merge, push, retarget, or grant landing authority.
