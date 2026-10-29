@@ -158,9 +158,15 @@ function under(p, dir) {
 
 // ── rules ────────────────────────────────────────────────────────────────────
 // The plugin's own files: playbooks, references, and scripts.
+// 反斜杠归一而非拒绝（2026-10-29 修复）：Windows 宿主给的路径是原生的
+// `E:\...\plugins\pstack\skills\tdd\SKILL.md`，而 root/real 恒为 POSIX 形式。旧实现
+// `if (/["\\]/.test(p)) return;` 直接丢弃这类路径——实测同一份 SKILL.md，反斜杠版**无任何输出**
+// （既不 allow 也不 deny），斜杠版正常 allow。allow 规则在 Windows 原生路径下因此整体失效。
+// 双引号仍然拒绝：它是 JSON 层已解出的字符，出现在路径里只可能是在构造畸形输入。
 function viewRule(P) {
-  const p = jget(`${P}/path`);
-  if (/["\\]/.test(p) || control(p)) return;
+  const raw = jget(`${P}/path`);
+  if (raw.includes('"') || control(raw)) return;
+  const p = toPosix(raw);
   if (under(p, root) || under(p, real)) allow();
 }
 

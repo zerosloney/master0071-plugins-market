@@ -44,7 +44,11 @@ const sheets = {
   // override for tests and relocated installs.
   zcode: () => join(process.env.ZCODE_HOME ?? join(homedir(), '.zcode'), 'pstack-models.md'),
 };
-if (!(runtime in sheets)) {
+// Object.hasOwn 而非 `in`（2026-10-29 修复）：`in` 沿原型链匹配，runtime="toString" /
+// "constructor" / "valueOf" 时全部通过校验，随后 `sheets[runtime]()` 取到的是原型函数——
+// 实测 `toString` 分支静默输出 **claude** 的路由令（把一张无关的表当成用户模型表读），
+// `__proto__` 则直接抛未捕获 TypeError、exit 1。运行时名来自 argv，不是可信输入。
+if (!Object.hasOwn(sheets, runtime)) {
   console.error(`session-start.mjs: unknown runtime '${runtime ?? ''}' (expected claude, codex, copilot, or zcode)`);
   process.exit(2);
 }
