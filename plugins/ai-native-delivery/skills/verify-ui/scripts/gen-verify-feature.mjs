@@ -45,14 +45,14 @@ const topLevel = [...routes].filter((r) => {
 
 // features 目录定位（2026-10-27 插件化迁移改道，paths.mjs「二选一、项目侧优先」同款）：
 // 项目侧 .agents/skills/verify-ui/features 存在 → 只认项目自有地图；不存在 → 回退插件内
-// skills/verify-ui/features 种子（只读参与覆盖统计）。--route 生成恒落项目侧目录（特性地图是
-// 项目数据，不写进插件安装目录）。
+// skills/verify-ui/features（2026-10-29 起只有一份 _TEMPLATE.md 模板，不构成覆盖面——
+// 特性地图是项目数据，含源产品路由与界面结构，不随插件分发）。--route 生成恒落项目侧目录。
 const projectFeaturesDir = path.join(ROOT, '.agents', 'skills', 'verify-ui', 'features');
 const seedFeaturesDir = path.join(PLUGIN_ROOT, 'skills', 'verify-ui', 'features');
 const featuresDir = fs.existsSync(projectFeaturesDir) ? projectFeaturesDir : seedFeaturesDir;
 const covered = new Set();
 if (fs.existsSync(featuresDir)) {
-  for (const f of fs.readdirSync(featuresDir).filter((x) => x.endsWith('.md'))) {
+  for (const f of fs.readdirSync(featuresDir).filter((x) => x.endsWith('.md') && x !== '_TEMPLATE.md')) {
     const text = fs.readFileSync(path.join(featuresDir, f), 'utf8');
     for (const m of text.matchAll(/#?(\/[A-Za-z0-9_./:-]+)/g)) covered.add(m[1]);
   }
