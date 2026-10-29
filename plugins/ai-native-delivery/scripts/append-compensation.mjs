@@ -20,6 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { bindingSha256 } from './binding.mjs';
 import { loadAllConfirmations } from './ledger-loader.mjs';
 import { appendLedger } from './confirm-doc.mjs';
+import { groundQuote } from './quote-grounding.mjs';
 import { projectRoot } from './paths.mjs';
 
 export const TERMINAL_STAGES = ['done', 'closed', 'superseded', 'cancelled'];
@@ -45,11 +46,19 @@ export function buildCompensation(lines, stage, lastRow, quote, ts) {
   if (fp === lastRow.fingerprint) {
     return { ok: false, reason: '内容与末次确认行一致——无可补偿的漂移（先改正文再跑本工具）' };
   }
+  // 引文接地（2026-10-29 对齐）：旧实现硬编码 `quoteGrounding: 'verbatim'`——用户原话不管有没有
+  // 落点都记成逐字命中，与 confirm-doc.mjs（groundQuote 判据：verbatim/anchor/generic/ungrounded）
+  // 两套口径。审计面对 ungrounded 行做趋势统计时，补偿行的「未接地」被记成「逐字命中」，
+  // 对质链条从这里断开。现走同一判据：接地结果如实进行，纯放行语记 ungrounded（留痕不拦——
+  // 与 confirm-doc 的 advisory 默认同口径；补偿行由人工显式调用，不设 strict 硬拦）。
+  // docText = 补偿所涉文档的当前正文（补偿行对质的对象就是「改后内容」）。
+  const grounding = groundQuote({ quote, docText: lines.join('\n') });
   return {
     ok: true,
     row: {
       ts, doc: lastRow.doc, stage, fingerprint: fp, prev: lastRow.prev,
-      source: 'chat-delegated', quote, quoteGrounding: 'verbatim',
+      source: 'chat-delegated', quote, quoteGrounding: grounding.reason,
+      ...(grounding.ok ? {} : { residual: grounding.residual }),
       batch: randomBytes(3).toString('hex'), seq: 1, of: 1,
     },
   };

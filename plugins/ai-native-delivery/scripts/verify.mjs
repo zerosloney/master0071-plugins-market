@@ -248,8 +248,14 @@ const recordFailure = (step, exitInfo, note, attribution) => {
 // 门输出留痕（verify-diet 2026-10-21 ①）：失败门完整 stdout/stderr 落 tmp/verify-<id>.log 并回显
 // 尾部 40 行——fail-fast 红从「只知道 exit 1」变为可当场定性（papercuts 2026-10-17 拟修①；
 // 先例：后端门红无法区分已知负载偶发与新回归，只能盲跑复跑）。落盘失败不改裁决（同 recordFailure 容错）。
+// 插件根守卫（2026-10-29 修复）：LEDGER 不可写时（非 git 目录跑门）ROOT 回退到 PLUGIN_ROOT——
+// 旧实现照写 `<插件>/tmp/`。实测：非 git 目录 `--test-cmd "cmd /c exit 1"`，门红后
+// `plugins/ai-native-delivery/tmp/verify-test.log` 真实落盘。插件目录跨项目共享，门输出里带
+// 使用项目的路径与代码片段，落进去会被下一个项目读到。宁可丢这份诊断日志（stdout/stderr 已回显
+// 尾部 40 行），也不把 A 项目的现场写进 B 项目会读的目录。
 const persistGateLog = (gate, r) => {
   try {
+    if (!LEDGER.writable) return null;
     const dir = path.join(ROOT, 'tmp');
     fs.mkdirSync(dir, { recursive: true });
     const p = path.join(dir, `verify-${gate.id}.log`);
@@ -593,6 +599,8 @@ async function run() {
     }
     if (r.status !== 0) {
       const logPath = persistGateLog(gate, r);
+      // LEDGER 不可写时 logPath 为 null（persistGateLog 拒绝落插件目录）——note 只报 exit code，
+      // 不再指着一个不存在的「tmp\verify-<id>.log」相对路径（旧实现此处相对 ROOT 计算会指向插件目录）。
       const note = `exit ${r.status ?? r.error?.code}${logPath ? `·log ${path.relative(ROOT, logPath)}` : ''}`;
       // 归因（gate-health 2026-10-22）：env / flaky / real——只标注不改裁决；假红可当场定性。
       const attribution = classifyFailure(`${r.stdout || ''}\n${r.stderr || ''}`);

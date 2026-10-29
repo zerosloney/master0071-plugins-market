@@ -47,7 +47,16 @@ const lastRow = { doc: DOC, stage: 'done', prev, fingerprint: '0'.repeat(64) }; 
   assert.equal(r.row.ts, '2026-10-25T00:00:00.000Z');
   assert.equal(r.row.fingerprint, bindingSha256(linesDone, prev));
   assert.notEqual(r.row.fingerprint, bindingSha256(linesDone, 'done'));
+  // 引文接地同口径（2026-10-29）：旧实现硬编码 quoteGrounding:'verbatim'，纯放行语也记成
+  // 逐字命中，与 confirm-doc.mjs 两套口径。现在走 groundQuote：正文里找得到落点才 verbatim。
+  // 「修复以上问题」与该夹具正文无词面落点 → ungrounded（正是要抓的假 verbatim）。
+  assert.equal(r.row.quoteGrounding, 'ungrounded', `实得 ${r.row.quoteGrounding}`);
+  assert.equal(r.row.residual, '复以上', '未接地行带 residual 供对质');
+  const verbatim = buildCompensation(linesDone, 'done', lastRow, '改后内容', '2026-10-25T00:00:00.000Z');
+  assert.equal(verbatim.row.quoteGrounding, 'verbatim', 'quote 与正文逐字一致时必须记 verbatim');
+  assert.equal(verbatim.row.residual, undefined, '接地成立行不带 residual');
   console.log('PASS 场景 1：补偿行形态与 bindingSha256(lines, prev) 口径（判别于直接哈希）');
+  console.log('PASS 场景 1b：quoteGrounding 与 confirm-doc 同判据（非硬编码 verbatim）');
 }
 
 // 场景 2：内容未变（末次行指纹 === 重算值）→ 拒绝，无漂移不落行
