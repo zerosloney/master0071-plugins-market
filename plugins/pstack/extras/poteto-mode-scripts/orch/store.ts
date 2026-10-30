@@ -9,6 +9,7 @@ import {
   readdir,
   rename,
   rm,
+  rmdir,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -391,6 +392,29 @@ function holderIsDead(holder: string): boolean {
   }
 }
 
+// Windows（2026-10-29 第四轮）：POSIX 允许 rename 到一个**空目录**上（覆盖它），Windows 一律
+// EPERM。`claimed()` 清掉死 claimant 的文件后，`takeover` 目录本身还空着，于是这个死透的
+// claim 会把锁永久占住。这里只删「确认为空」的目标目录：读到任何条目就说明真有活跃 claim
+// （或别的写者刚 rename 进来），返回 false 让调用方按竞争失败处理。
+// readdir 报 ENOENT 说明目录已经不在了（别人刚释放），也返回 true 让调用方继续 rename。
+async function sweepEmptyClaim(dir: string): Promise<boolean> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch (error) {
+    return errorCode(error) === "ENOENT";
+  }
+  if (entries.length > 0) return false;
+  try {
+    await rmdir(dir);
+    return true;
+  } catch (error) {
+    // 竞态：另一个写者在我们 readdir 之后往里放了 claimant，或已把它 rename 走。
+    const code = errorCode(error);
+    return code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST" || code === "EPERM";
+  }
+}
+
 async function acquireLock(
   store: string,
   options: OpenStoreOptions
@@ -449,7 +473,7 @@ async function acquireLock(
   // Resolves to false, without running the body, when a live writer holds
   // the claim.
   const claimed = async (body: () => Promise<void>): Promise<boolean> => {
-    const staged = `${takeover}.${pid}.${randomUUID()}`;
+    let staged = `${takeover}.${pid}.${randomUUID()}`;
     const discard = (): Promise<void> =>
       rm(staged, { recursive: true, force: true }).catch(() => {});
     await mkdir(staged);
@@ -471,7 +495,32 @@ async function acquireLock(
       if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "EPERM") {
         throw error;
       }
-      return false;
+      // Windows（2026-10-29 第四轮）：上面的循环只删了死 claimant 的**文件**，`takeover`
+      // 目录本身还在。POSIX 上 rename 到「空目录」是成功的，Windows 上一律 EPERM——于是
+      // 一个死透了的 claim 会把锁永久占住，后来者怎么试都拿不到（实测「杀掉替换中的写者后，
+      // 下一个写者应能接管」这条一直失败）。这里补上 POSIX 语义：目标目录此刻为空，说明它
+      // 不是任何人的 claim，删掉再重试一次 rename。
+      // 只删**空**目录：`readdir` 还有条目说明确实有活跃 claim（或别的写者抢先 rename 进来
+      // 了），那是真正的竞争失败，必须原样返回 false。
+      if (!(await sweepEmptyClaim(takeover))) return false;
+      // 注意：上面的 discard() 已经把 staged 删掉了，重试前必须先重建它——否则 rename
+      // 会以 ENOENT 失败（实测踩过）。重建用的目录名换一个新的，避免与残留同名。
+      const retried = `${takeover}.${pid}.${randomUUID()}`;
+      try {
+        await mkdir(retried);
+        await writeFile(join(retried, pid), "");
+        await rename(retried, takeover);
+      } catch (again) {
+        await rm(retried, { recursive: true, force: true }).catch(() => {});
+        const againCode = errorCode(again);
+        if (againCode !== "ENOTEMPTY" && againCode !== "EEXIST" && againCode !== "EPERM") {
+          throw again;
+        }
+        return false;
+      }
+      // 重试成功后 staged 变量仍指向已删除的旧路径，finally 里的 rename(takeover, staged)
+      // 会失败——那没关系（catch 吞掉了），但为了让收尾逻辑仍然工作，把 staged 指向新目录。
+      staged = retried;
     }
     try {
       await body();

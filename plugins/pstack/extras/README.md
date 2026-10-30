@@ -25,13 +25,14 @@
 零依赖、随装随用，与 bun 无关。
 
 bun 测试套件（`poteto-mode-scripts/` 下的 `bun test`，覆盖 `orch`、`watch-pr` 与 `check-plan.test.ts`）
-仅在上游 POSIX 环境验证过。**Windows 实测 253 例 / 235 pass / 18 fail**（2026-10-29 第三轮），
-两类都属平台兼容问题而非本移植回归：
+仅在上游 POSIX 环境验证过。**Windows 实测 253 例**（2026-10-29 第四轮）：默认 5s 超时下
+**239 pass / 14 fail**，放宽到 20s 则 **242 / 11**（差额是并行时的时间预算，不是断言失败）：
 
-- `orch` store 锁竞争 6 条：断言写的是多进程竞争下的具体结果，而 Windows 的目录 rename 语义
-  （目标已存在即 `EPERM`）让竞争分布与上游假设不同。
-- `watch-pr/transport` 12 条：假 gh 是 shebang 脚本，Windows 上既不能被裸名 `gh` 解析，
-  也不能经 `.cmd` 转发（GraphQL 参数含 cmd.exe 特殊字符）。已排除的修法与剩余方向见
-   插件 README 的「bun 套件的 Windows 平台性失败」一节。
+- `orch` store 锁竞争：**已修**。Windows 不允许 rename 到空目录（`EPERM`），而死 claimant 被清掉
+  文件后会留下一个空 `.takeover`，把锁永久占住。`store.ts` 补了 `sweepEmptyClaim()` 与重建重试，
+  另修了测试侧一处漏用跨平台 `writerWasKilled()` 的断言。放宽超时后 orch 42/42 全绿。
+- `watch-pr/transport` 11–12 条：假 gh 是 shebang 脚本，Windows 上既不能被裸名 `gh` 解析，
+  也不能经 `.cmd` 转发（GraphQL 参数含 cmd.exe 特殊字符，Bun 直接硬性拒绝）。已实测排除多种
+  修法，剩余方向见插件 README 的「bun 套件的 Windows 平台性失败」一节。
 
 CI 不纳入该套件。

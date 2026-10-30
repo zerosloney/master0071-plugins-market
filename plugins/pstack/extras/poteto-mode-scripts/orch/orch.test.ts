@@ -814,14 +814,19 @@ await store.close();
     await store.close();
     await plantStaleLock(directory);
 
+    const killedFlags = await makeDirectory();
     const killed = spawnWriter({
       directory,
-      flags: await makeDirectory(),
+      flags: killedFlags,
       name: "A",
-      atLockUnlink: `process.kill(process.pid, "SIGKILL");`,
+      // Windows（2026-10-29 第四轮）：process.kill(self, SIGKILL) 在 Windows 上不产生
+      // signalCode=SIGKILL（实测 exitCode=1、signalCode=null）。本文件已有 writerWasKilled()
+      // 按平台判定，但这条用例漏用了它、直接断言 signalCode——于是 Windows 上必红。
+      // 与 spawnWriter 的 killAfterLockCall 路径保持一致：先落 dying flag 再自杀。
+      atLockUnlink: `writeFileSync(flag("dying"), ""); process.kill(process.pid, "SIGKILL");`,
     });
     await killed.exited;
-    expect(killed.signalCode).toBe("SIGKILL");
+    expect(writerWasKilled(killed, killedFlags, "A")).toBe(true);
     expect(await lockFiles(directory)).toEqual([
       ".orch.lock",
       ".orch.lock.takeover",

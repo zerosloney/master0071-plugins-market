@@ -72,9 +72,9 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 | ④ | 测试的 `PATH: \`${bin}:${process.env.PATH}\`` 用 POSIX 冒号拼接——Windows 上整条 PATH 变成一段非法串，fake forge 完全不在搜索路径里 | 改用 `node:path` 的 `delimiter`（本条是全平台都有价值的真实修复） |
 | ⑤ | afterEach 的 `rm` 在 SIGKILL 后句柄释放滞后窗口内 EBUSY | 短暂重试，仍失败则放弃该临时目录 |
 
-修后 orch 19 fail → 6 fail、transport 7 fail → 6 fail（仍未解，见下）。**2026-10-29 第三轮实测**：`bun test` 253 例，**235 pass / 18 fail**（orch 6 + watch-pr/transport 12）。两类性质不同：
+修后 orch 19 fail → 6 fail、transport 7 fail → 6 fail。**2026-10-29 第三轮实测**：`bun test` 253 例，235 pass / 18 fail（orch 6 + watch-pr/transport 12）。**第四轮**修掉 orch 里 4 条真正的断言失败（见下）。当前基线：默认 5s 超时 **239 pass / 14 fail**，放宽到 20s 则 **242 pass / 11 fail**——差额的 3 条是「整套件并行时时间预算不够」而非断言失败。剩下 11–12 条 watch-pr/transport 是同一个结构性前提，见下文。
 
-- **orch 锁竞争 6 条**：上游锁算法靠「目录 rename 成功即持锁」的 POSIX 语义（rename 到**空目录**成功）。Windows 对已存在的目标目录一律 `EPERM`，已并入容忍集回退为「竞争失败」，于是竞争结果的分布与上游假设不同。这 6 条的断言写的是**多进程竞争下的具体结果**（谁拿到锁、谁被拒、stderr 是否为空），Windows 上它们经常以 `exit=143`（被自己的看门狗杀掉）或「两个都拒绝」收场。这是 vendored 产品代码在 Windows 上的行为差异，不是测试缺陷。
+- **orch 锁竞争（已修，默认超时下 6 → 1 条）**：根因是产品代码里一个真实的 Windows 语义缺口，不是测试缺陷。上游锁算法靠「目录 rename 成功即持锁」：POSIX 允许 rename 到**空目录**（覆盖它），Windows 一律 `EPERM`。`claimed()` 清掉死 claimant 的**文件**后，`.orch.lock.takeover` 目录本身还空着，于是这个已经死透的 claim 会把锁永久占住，后来者怎么试都拿不到。修法：新增 `sweepEmptyClaim()`，在 rename 因 `EPERM/EEXIST/ENOTEMPTY` 失败后，**若目标目录确认为空**就 `rmdir` 再重建 staged 重试一次（读到任何条目说明有活跃 claim，仍按竞争失败返回 false）。另修了一处测试侧遗漏：`replaces a stale lock after a writer was killed while replacing it` 直接用 `signalCode === "SIGKILL"` 断言，而本文件已有跨平台的 `writerWasKilled()`，Windows 上 `process.kill(self, SIGKILL)` 不产生 signal（`exitCode=1`、`signalCode=null`）。修后放宽超时 42/42 全绿；默认 5s 下 41/42，剩下一条是整套件并行时的时间预算问题（单独跑 3.98s 通过）。
 - **watch-pr/transport 12 条**：根因已定量确认，且**已排除一种看似可行的修法**。假 gh 是 shebang 脚本，`cli.ts` 用 `spawn("gh", [...])` 调用；Windows 上：
   - 裸名 `gh` 只按 PATHEXT 解析扩展名，无扩展名文件永远 `ENOENT`；
   - 补 `gh.cmd` 转发则会撞上「Node/Bun 禁止把含 cmd.exe 特殊字符的参数交给 `.cmd`」（GraphQL 查询必然含 `{ } ( ) "`）；
