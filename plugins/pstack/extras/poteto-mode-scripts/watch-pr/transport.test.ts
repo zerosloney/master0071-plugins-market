@@ -1,15 +1,9 @@
 import { afterEach, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { dirname, join } from "node:path";
+import { cliRunner, installFakeGh, moduleSpecifier, pathWith } from "./fake-gh.test-helper.ts";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -17,16 +11,8 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-function run(scenario: string, extra: string[] = [], path?: string) {
-  const dir = mkdtempSync(join(tmpdir(), "watch-transport-"));
-  directories.push(dir);
-  const bin = join(dir, "bin");
-  mkdirSync(bin);
-  const gh = join(bin, "gh");
-  writeFileSync(
-    gh,
-    `#!${process.execPath}
-import { appendFileSync, writeFileSync } from 'node:fs';
+// 假 gh 装一次（Windows 上要编译 + 预热，见 helper）；场景由 WATCH_FIXTURE 切换。
+const fake = installFakeGh(`import { appendFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const scenario = process.env.WATCH_FIXTURE;
 appendFileSync(process.env.WATCH_CALLS, JSON.stringify(args) + '\\n');
@@ -64,28 +50,46 @@ if (args.some(a => a.includes('query PullRequestFacts'))) {
   value = { data: { repository: { pullRequest: { commits: { nodes: [{ commit: { oid: 'head', statusCheckRollup: { state: 'SUCCESS' } } }] } } } } };
 } else { throw new Error('unexpected fixture command: ' + JSON.stringify(args)); }
 console.log(JSON.stringify(value));
-`
-  );
-  chmodSync(gh, 0o755);
+`);
+
+function run(scenario: string, extra: string[] = [], path?: string) {
+  const dir = mkdtempSync(join(tmpdir(), "watch-transport-"));
+  directories.push(dir);
   const entry = join(dir, "entry.ts");
   writeFileSync(
     entry,
-    `import { main } from ${JSON.stringify(join(import.meta.dir, "cli.ts"))}; process.exitCode = await main(process.argv.slice(2));\n`
+    `import { main } from ${JSON.stringify(moduleSpecifier(join(import.meta.dir, "cli.ts")))}; process.exitCode = await main(process.argv.slice(2));\n`
   );
   const callsFile = join(dir, "calls.jsonl");
   writeFileSync(callsFile, "");
   const pidFile = join(dir, "pid");
   const started = performance.now();
+  // Windows 上用 node 跑入口：bun 父进程启动 bun 二进制固定约 3.5s，会吃光 5s 预算
+  // （根因与实测数据见 fake-gh.test-helper.ts 的注释）。
+  const runner = cliRunner();
+  // Windows 上 node.exe 起不来若缺 SystemRoot/PATHEXT 这类系统变量：POSIX 的 shebang 用绝对路径
+  // 恰好不受影响，所以上游只给 PATH 是够的。这里只在 Windows 上补必需项，不整体继承 process.env
+  // （实测整体继承会让 fake gh 的 PATH 覆盖失效，反而弄坏三条用例）。
+  const baseEnv = process.platform === "win32"
+    ? {
+        SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
+        SystemDrive: process.env.SystemDrive ?? "C:",
+        PATHEXT: process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+        COMSPEC: process.env.COMSPEC ?? "C:\\Windows\\system32\\cmd.exe",
+        TEMP: process.env.TEMP ?? "C:\\Windows\\Temp",
+        TMP: process.env.TMP ?? "C:\\Windows\\Temp",
+      }
+    : {};
   const result = spawnSync(
-    process.execPath,
-    [entry, "--owner", "owner", "--repo", "repo", "--pr", "1", ...extra],
+    runner.command,
+    [...runner.args, entry, "--owner", "owner", "--repo", "repo", "--pr", "1", ...extra],
     {
       encoding: "utf8",
       timeout: 6000,
       env: {
-        // Windows 的 PATH 分隔符是 `;`（POSIX 是 `:`）。用 `:` 拼在 Windows 上不是「多一个目录」，
-        // 而是整条 PATH 变成一段非法串——fake gh 根本不在搜索路径里（2026-10-29 市场审查根因批注）。
-        PATH: path ?? `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        ...baseEnv,
+        // PATH 分隔符必须按平台；Windows 上假的 gh 是真 .exe（见 helper）。
+        PATH: path ?? pathWith(fake.bin),
         WATCH_FIXTURE: scenario,
         WATCH_CALLS: callsFile,
         WATCH_PID: pidFile,
@@ -190,7 +194,13 @@ it("fails closed when the check queries fail instead of reporting no checks", ()
 });
 
 it("exits 7 with a JSON verdict when gh is not on PATH", () => {
-  const result = run("missing-gh", [], "/nonexistent");
+  // Windows 上入口本身是 node（见 cliRunner），把 PATH 整个换成 /nonexistent 会让 node 也找不到，
+  // 子进程根本起不来。改成「PATH 里只有 node 自己所在的目录，没有 gh」——语义仍是「gh 不在 PATH」。
+  // node.exe 在 Windows 上需要系统目录才能加载运行时 DLL，所以这里不能只给 node 所在目录。
+  const ghlessPath = process.platform === "win32"
+    ? [dirname(process.execPath), `${process.env.SystemRoot ?? "C:\\Windows"}\\system32`].join(";")
+    : "/nonexistent";
+  const result = run("missing-gh", [], ghlessPath);
   expect(result.status).toBe(7);
   expect(JSON.parse(result.stdout.trim())).toMatchObject({
     kind: "BLOCKER",

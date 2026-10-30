@@ -72,15 +72,16 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 | ④ | 测试的 `PATH: \`${bin}:${process.env.PATH}\`` 用 POSIX 冒号拼接——Windows 上整条 PATH 变成一段非法串，fake forge 完全不在搜索路径里 | 改用 `node:path` 的 `delimiter`（本条是全平台都有价值的真实修复） |
 | ⑤ | afterEach 的 `rm` 在 SIGKILL 后句柄释放滞后窗口内 EBUSY | 短暂重试，仍失败则放弃该临时目录 |
 
-修后 orch 19 fail → 6 fail、transport 7 fail → 6 fail。**2026-10-29 第三轮实测**：`bun test` 253 例，235 pass / 18 fail（orch 6 + watch-pr/transport 12）。**第四轮**修掉 orch 里 4 条真正的断言失败（见下）。当前基线：默认 5s 超时 **239 pass / 14 fail**，放宽到 20s 则 **242 pass / 11 fail**——差额的 3 条是「整套件并行时时间预算不够」而非断言失败。剩下 11–12 条 watch-pr/transport 是同一个结构性前提，见下文。
+修后 orch 19 fail → 6 fail、transport 7 fail → 6 fail。**2026-10-29 第三轮实测**：`bun test` 253 例，235 pass / 18 fail（orch 6 + watch-pr/transport 12）。**第四、五轮**又修掉两大类（见下），基线从 235 pass / 18 fail 提升到 **250–251 pass / 2–3 fail**（默认 5s 超时，253 例）。剩余 2–3 条都是 orch 的多进程锁竞争用例：单独跑能过，整套并行时在 5s 内跑不完（放宽到 30s 则 orch 42/42 全绿）。
+
+**watch-pr/transport 的 12 条已全修**（206 例全绿，套件耗时 60s → 27s）。真正的原因不是「Windows 上没有可靠的进程替身」，而是两件事叠在一起：
+
+1. **假 gh 必须是真 `.exe`**。裸名 `gh` 只按 PATHEXT 解析，无扩展名 shebang 永远 ENOENT；补 `gh.cmd` 转发则被 Node/Bun 硬性拒绝（`ERR_INVALID_ARG_VALUE`：GraphQL 参数含 cmd.exe 特殊字符，两个宿主都拒绝）；把 `gh.exe` 做成 node 副本靠 `NODE_OPTIONS=--import` 接管也不行（node 会先解析 `-f`：`gh: bad option: -f`）。只能用 `bun build --compile` 产出真 exe。
+2. **入口必须由 node 启动**。`bun → bun.exe` 固定约 3.5s（`bun → node.exe` 93ms、`bun → cmd.exe` 20ms、`node → bun.exe` 65ms），与 `--compile` 无关、与继承的环境变量无关。而用例的子进程预算只有 5s——这才是「全部 timed out after 5000ms」的真因。改用 `node --experimental-transform-types` 跑 `cli.ts`（`deadline.ts` 用了参数属性）后，假 gh 每次调用 40–80ms，四个典型场景各 450–500ms。
+
+踩过的坑（都在 `watch-pr/fake-gh.test-helper.ts` 里写明了）：编译与预热各约 4s，「每个用例各编译一份」会直接撞满超时（`exit null` = 被自身超时打断），必须按 fixture 内容缓存；node 的 ESM 加载器只接受 `file://` URL，裸 Windows 路径会得到 `ERR_UNSUPPORTED_ESM_URL_SCHEME`；但 `bun build` 打包时又不认 `file://` 说明符——两者用途不同，不能混用。
 
 - **orch 锁竞争（已修，默认超时下 6 → 1 条）**：根因是产品代码里一个真实的 Windows 语义缺口，不是测试缺陷。上游锁算法靠「目录 rename 成功即持锁」：POSIX 允许 rename 到**空目录**（覆盖它），Windows 一律 `EPERM`。`claimed()` 清掉死 claimant 的**文件**后，`.orch.lock.takeover` 目录本身还空着，于是这个已经死透的 claim 会把锁永久占住，后来者怎么试都拿不到。修法：新增 `sweepEmptyClaim()`，在 rename 因 `EPERM/EEXIST/ENOTEMPTY` 失败后，**若目标目录确认为空**就 `rmdir` 再重建 staged 重试一次（读到任何条目说明有活跃 claim，仍按竞争失败返回 false）。另修了一处测试侧遗漏：`replaces a stale lock after a writer was killed while replacing it` 直接用 `signalCode === "SIGKILL"` 断言，而本文件已有跨平台的 `writerWasKilled()`，Windows 上 `process.kill(self, SIGKILL)` 不产生 signal（`exitCode=1`、`signalCode=null`）。修后放宽超时 42/42 全绿；默认 5s 下 41/42，剩下一条是整套件并行时的时间预算问题（单独跑 3.98s 通过）。
-- **watch-pr/transport 12 条**：根因已定量确认，且**已排除一种看似可行的修法**。假 gh 是 shebang 脚本，`cli.ts` 用 `spawn("gh", [...])` 调用；Windows 上：
-  - 裸名 `gh` 只按 PATHEXT 解析扩展名，无扩展名文件永远 `ENOENT`；
-  - 补 `gh.cmd` 转发则会撞上「Node/Bun 禁止把含 cmd.exe 特殊字符的参数交给 `.cmd`」（GraphQL 查询必然含 `{ } ( ) "`）；
-  - **试过并排除**：编译一个通用 `bun build --compile` launcher 作 `gh.exe`，动态 import fixture 再转发 argv。功能上成立（特殊字符原样透传），但**每个新二进制首次执行要建缓存，约 3.5–5s**。而 `transport.test.ts` 每个用例都在 `spawnSync` 的 5s 超时内完成，这笔冷启动直接吃满预算——实测 8 条用例全部 `timed out after 5000ms`。共享同一份 launcher 也不行：被测进程本身是 `bun` 子进程，嵌套 spawn 时冷启动照样落进用例窗口。
-  - 剩下的方向只有两条，都要动上游产物：把 `cli.ts` 改成经 shell 调用（改变已发布行为），或给测试放宽 5s 超时（等于把「CLI 在 deadline 内取消」这类断言的语义抽空）。两者都不是本移植该单方面做的决定。
-
 两类都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。已发布的 `check-plan.mjs` 由 `test/check-plan.test.mjs` 的 node:test 重写版守护（进 CI、双平台零依赖）。
 
 ## 与上游的差异
