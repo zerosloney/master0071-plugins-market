@@ -72,12 +72,16 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 | ④ | 测试的 `PATH: \`${bin}:${process.env.PATH}\`` 用 POSIX 冒号拼接——Windows 上整条 PATH 变成一段非法串，fake forge 完全不在搜索路径里 | 改用 `node:path` 的 `delimiter`（本条是全平台都有价值的真实修复） |
 | ⑤ | afterEach 的 `rm` 在 SIGKILL 后句柄释放滞后窗口内 EBUSY | 短暂重试，仍失败则放弃该临时目录 |
 
-修后 orch 19 fail → 5 fail、transport 7 fail → 7 fail（仍未解，见下）。**剩余 12 条**性质不同，都是「Windows 上没有可靠的进程替身」：
+修后 orch 19 fail → 6 fail、transport 7 fail → 6 fail（仍未解，见下）。**2026-10-29 第三轮实测**：`bun test` 253 例，**235 pass / 18 fail**（orch 6 + watch-pr/transport 12）。两类性质不同：
 
-- **orch 锁竞争 5 条**：上游锁算法靠「目录 rename 成功即持锁」的 POSIX 语义（rename 到**空目录**成功）。Windows 对已存在的目标目录一律 `EPERM`，已并入容忍集回退为「竞争失败」，于是竞争结果的分布与上游假设不同。这是 vendored 产品代码在 Windows 上的行为差异，不是测试缺陷。
-- **watch-pr 7 条**：`watch-pr/cli.ts` 用 `spawn("gh", [...])` 调 forge，fixture 的假 gh 是 shebang 脚本。Windows 上让裸名 `gh` 解析成可执行体只能靠 `.cmd`，而 Node/Bun **禁止**把含 cmd.exe 特殊字符的参数传给 `.cmd`——GraphQL 查询语句必然包含这些字符（实测 `TypeError: The argument 'args[4]' contains a cmd.exe special character`）。要让它们过，得把 `cli.ts` 改成经 shell 调用（改变已发布产物的行为）或给 fixture 造真正的 `.exe`（`bun build --compile`，对测试过重）。
+- **orch 锁竞争 6 条**：上游锁算法靠「目录 rename 成功即持锁」的 POSIX 语义（rename 到**空目录**成功）。Windows 对已存在的目标目录一律 `EPERM`，已并入容忍集回退为「竞争失败」，于是竞争结果的分布与上游假设不同。这 6 条的断言写的是**多进程竞争下的具体结果**（谁拿到锁、谁被拒、stderr 是否为空），Windows 上它们经常以 `exit=143`（被自己的看门狗杀掉）或「两个都拒绝」收场。这是 vendored 产品代码在 Windows 上的行为差异，不是测试缺陷。
+- **watch-pr/transport 12 条**：根因已定量确认，且**已排除一种看似可行的修法**。假 gh 是 shebang 脚本，`cli.ts` 用 `spawn("gh", [...])` 调用；Windows 上：
+  - 裸名 `gh` 只按 PATHEXT 解析扩展名，无扩展名文件永远 `ENOENT`；
+  - 补 `gh.cmd` 转发则会撞上「Node/Bun 禁止把含 cmd.exe 特殊字符的参数交给 `.cmd`」（GraphQL 查询必然含 `{ } ( ) "`）；
+  - **试过并排除**：编译一个通用 `bun build --compile` launcher 作 `gh.exe`，动态 import fixture 再转发 argv。功能上成立（特殊字符原样透传），但**每个新二进制首次执行要建缓存，约 3.5–5s**。而 `transport.test.ts` 每个用例都在 `spawnSync` 的 5s 超时内完成，这笔冷启动直接吃满预算——实测 8 条用例全部 `timed out after 5000ms`。共享同一份 launcher 也不行：被测进程本身是 `bun` 子进程，嵌套 spawn 时冷启动照样落进用例窗口。
+  - 剩下的方向只有两条，都要动上游产物：把 `cli.ts` 改成经 shell 调用（改变已发布行为），或给测试放宽 5s 超时（等于把「CLI 在 deadline 内取消」这类断言的语义抽空）。两者都不是本移植该单方面做的决定。
 
-两者都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。已发布的 `check-plan.mjs` 由 `test/check-plan.test.mjs` 的 node:test 重写版守护（进 CI、双平台零依赖）。
+两类都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。已发布的 `check-plan.mjs` 由 `test/check-plan.test.mjs` 的 node:test 重写版守护（进 CI、双平台零依赖）。
 
 ## 与上游的差异
 

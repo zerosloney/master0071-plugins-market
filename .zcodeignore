@@ -46,4 +46,10 @@ pip-wheel-metadata/
 wheels/
 # ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
 # 自定义规则写在下方（本行提示可删除）
-plugins/pstack/extras/
+# pstack extras/ 里只有「跑不了的产物」需要挡在工作区索引之外：bun 专属 vendored TS
+# （无 bun 时一执行就报错退出）与上游参考脚本（.sh / .awk，Windows 上按文件关联打开）。
+# 2026-10-29 修正：此前排的是整个 extras/，把 extras/README.md（讲清楚每个子目录启用条件的那份）
+# 与 effort-agents/*.md（宿主支持 extensions 后即可用）也一并挡在索引外——索引看不到说明文档，
+# 模型就只看到一堆「被忽略的目录」，反而更容易瞎猜。
+plugins/pstack/extras/poteto-mode-scripts/
+plugins/pstack/extras/upstream-reference/

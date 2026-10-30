@@ -555,6 +555,45 @@ for (const plugin of plugins) {
   }
 }
 
+// ── .zcodeignore 的排除范围必须与文档口径一致（2026-10-29）────────────────────
+// 背景：`plugins/pstack/extras/` 曾被整目录排除。而 extras/README.md 说的是「它们仍随插件一起分发」，
+// 两句话在「ZCode 用户到底能不能看到这些文件」上互相打架；排整个目录还顺带把 extras/README.md
+// （唯一讲清各子目录启用条件的文档）与 effort-agents/*.md 挡在索引外。
+// 现在的口径：只排除跑不了的子树，说明文档与待启用组件留在索引里。这里把它变成机器对账——
+// 有人把规则改回整个 extras/、或新增子树却没归类，都会在这里红。
+{
+  const ziPath = path.join(ROOT, '.zcodeignore');
+  if (fs.existsSync(ziPath)) {
+    const rules = fs.readFileSync(ziPath, 'utf8')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'));
+    const extrasRules = rules.filter((r) => r.startsWith('plugins/pstack/extras'));
+    const wholeExtras = extrasRules.filter((r) => r.replace(/\/+$/, '') === 'plugins/pstack/extras');
+    if (wholeExtras.length > 0) {
+      fail('.zcodeignore 排除了整个 plugins/pstack/extras/——文档宣称这些文件随插件分发，且说明文档本身会被挡在索引外；只排跑不了的子树');
+    }
+    const extrasDir = path.join(ROOT, 'plugins', 'pstack', 'extras');
+    if (fs.existsSync(extrasDir)) {
+      const subtrees = fs.readdirSync(extrasDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name !== 'node_modules')
+        .map((e) => e.name);
+      const excluded = new Set(extrasRules.map((r) => r.replace(/\/+$/, '').split('/').pop()));
+      const unclassified = subtrees.filter((s) => !excluded.has(s));
+      // 未分类不代表错——只有「该目录里有不读也知道跑不了的产物」才必须排除。这里只对两类已知子树做硬约束，
+      // 其余目录存在时提醒而不失败，避免把「新增了可索引文档目录」误判成违规。
+      for (const must of ['poteto-mode-scripts', 'upstream-reference']) {
+        if (subtrees.includes(must) && !excluded.has(must)) {
+          fail(`.zcodeignore 未排除 plugins/pstack/extras/${must}/（bun 专属 TS / 上游 .sh 参考，留在索引里只会误导）`);
+        }
+      }
+      for (const name of unclassified.filter((s) => !['poteto-mode-scripts', 'upstream-reference'].includes(s))) {
+        console.log(`  提示：plugins/pstack/extras/${name}/ 未在 .zcodeignore 中归类（保留在索引里；确属跑不了的产物时才排除）`);
+      }
+    }
+  }
+}
+
 if (problems.length) {
   console.error(`✗ 垫片一致性检查失败（${problems.length} 项）：`);
   for (const p of problems) console.error(`  - ${p}`);

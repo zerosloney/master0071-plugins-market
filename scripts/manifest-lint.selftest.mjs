@@ -68,11 +68,23 @@ put('test/committed.mjs', '// ok\n');
 put('test/ghost.mjs', '// 磁盘有、索引无\n');
 put('.github/workflows/ci.yml', ['name: ci', 'on: push', 'jobs:', '  t:', '    steps:', '      - run: |',
   '          node test/committed.mjs', '          node test/ghost.mjs', ''].join('\n'));
+// .zcodeignore 排除范围的夹具（2026-10-29）：pstack extras 下三棵子树，其中两棵是「跑不了的产物」
+// 必须被排除、effort-agents 应留在索引里。基线写成合法形态，破坏形态由下面的 cases 逐条制造。
+for (const d of ['plugins/pstack/extras/poteto-mode-scripts', 'plugins/pstack/extras/upstream-reference',
+  'plugins/pstack/extras/effort-agents']) fs.mkdirSync(path.join(REPO, d), { recursive: true });
+const ZCODEIGNORE_OK = [
+  'node_modules/',
+  '# ----- ↑ 以上为 ZCode 默认排除规则 -----',
+  'plugins/pstack/extras/poteto-mode-scripts/',
+  'plugins/pstack/extras/upstream-reference/',
+  '',
+].join('\n');
+put('.zcodeignore', ZCODEIGNORE_OK);
 fs.copyFileSync(path.join(SRC_REPO, 'scripts', 'manifest-lint.mjs'), path.join(REPO, 'scripts', 'manifest-lint.mjs'));
 
 const git = (args) => spawnSync(GIT, args, { cwd: REPO, encoding: 'utf8' });
 git(['init', '-q']);
-git(['add', 'plugins', 'test/committed.mjs', '.github', 'scripts']);
+git(['add', 'plugins', 'test/committed.mjs', '.github', 'scripts', '.zcodeignore']);
 git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init']);
 
 const lint = () => {
@@ -116,6 +128,15 @@ const cases = [
   ['对外文案的 skill 数与实现不符', /声称 3 个/, () => {
     put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 3 个 skill。\n');
   }, () => put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n')],
+  ['.zcodeignore 排除了整个 pstack/extras（与「随插件分发」的文档口径冲突）', /排除了整个/, () => {
+    put('.zcodeignore', 'node_modules/\nplugins/pstack/extras/\n');
+  }, () => put('.zcodeignore', ZCODEIGNORE_OK)],
+  ['.zcodeignore 未排除 bun 专属子树 poteto-mode-scripts', /未排除 plugins\/pstack\/extras\/poteto-mode-scripts/, () => {
+    put('.zcodeignore', 'node_modules/\nplugins/pstack/extras/upstream-reference/\n');
+  }, () => put('.zcodeignore', ZCODEIGNORE_OK)],
+  ['.zcodeignore 未排除上游参考子树 upstream-reference', /未排除 plugins\/pstack\/extras\/upstream-reference/, () => {
+    put('.zcodeignore', 'node_modules/\nplugins/pstack/extras/poteto-mode-scripts/\n');
+  }, () => put('.zcodeignore', ZCODEIGNORE_OK)],
 ];
 for (const [desc, re, breakIt, restore] of cases) {
   breakIt();

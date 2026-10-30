@@ -1,7 +1,16 @@
 # extras/ — 按需启用的非核心组件
 
-本目录集中存放**默认不参与运行、需要额外条件才能用**的组件。它们仍随插件一起分发（不额外下载），
-但已移出标准目录树：宿主不会加载它们，ZCode 工作区索引也忽略整个目录（见仓库根 `.zcodeignore`）。
+本目录集中存放**默认不参与运行、需要额外条件才能用**的组件。它们已移出标准目录树，宿主不会加载。
+
+**分发**：这些文件都在 git 里（`git ls-files plugins/pstack/extras` 可查），所以按仓库安装的客户端会拿到它们——
+不含 `node_modules`，那部分是 `bootstrap.ts` 首次运行时装的。
+
+**索引**：仓库根 `.zcodeignore` 把 `poteto-mode-scripts/` 与 `upstream-reference/` 两棵子树挡在 ZCode 工作区索引之外
+（bun 专属 TS 与上游 `.sh`/`.awk` 参考，读它们对理解本插件没有帮助）。本 README 与 `effort-agents/` 不在排除范围里。
+
+⚠️ 未实测：ZCode 的**安装**路径是否也尊重 `.zcodeignore`（而不只是工作区索引）。若它也尊重，则 ZCode 装出来的副本
+不含这两个子树——此时 `poteto-mode-scripts/` 的脚本需要另外取一份。这是「ZCode 运行时行为」，本仓库无从验证。
+
 用到时按各目录的启用条件操作即可，不需要的安装可以完全无视这里。
 
 | 目录 | 内容 | 启用条件 |
@@ -16,5 +25,13 @@
 零依赖、随装随用，与 bun 无关。
 
 bun 测试套件（`poteto-mode-scripts/` 下的 `bun test`，覆盖 `orch`、`watch-pr` 与 `check-plan.test.ts`）
-仅在上游 POSIX 环境验证过。Windows 下它有三类已知失败：fake 可执行文件无 `.exe` 后缀、`orch` store
-锁竞争时序、`watch-pr` 默认 5s 超时，均属平台兼容问题而非本移植回归。
+仅在上游 POSIX 环境验证过。**Windows 实测 253 例 / 235 pass / 18 fail**（2026-10-29 第三轮），
+两类都属平台兼容问题而非本移植回归：
+
+- `orch` store 锁竞争 6 条：断言写的是多进程竞争下的具体结果，而 Windows 的目录 rename 语义
+  （目标已存在即 `EPERM`）让竞争分布与上游假设不同。
+- `watch-pr/transport` 12 条：假 gh 是 shebang 脚本，Windows 上既不能被裸名 `gh` 解析，
+  也不能经 `.cmd` 转发（GraphQL 参数含 cmd.exe 特殊字符）。已排除的修法与剩余方向见
+   插件 README 的「bun 套件的 Windows 平台性失败」一节。
+
+CI 不纳入该套件。
