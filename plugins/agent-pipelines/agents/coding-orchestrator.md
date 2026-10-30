@@ -59,7 +59,7 @@ low | medium | high
 
 每个轮次按下面三步：
 
-1. **DELEGATE**：委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
+1. **DELEGATE**：先从 `state.mjs root-causes` 取下一个未完成的根因组（无该输出时按 `tasks[]` 自行归并），再委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
 2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者产出 / Risk Level / Detected Stack / Scripts Gap ===`。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
@@ -86,7 +86,7 @@ low | medium | high
 - 每轮结束时按 JSON schema 写入（遵循原子写入流程）。
 - 停止时设置 `stop_reason`。
 
-coding 专属字段（其余管道没有，别混用）：`scope_drift`（scope 判定结论，DONE 要求 `"PASS"`，`"FAIL"` 直接 ESCALATE）、`scope`（边界声明，规则路径按 git 仓库根相对）、`budget`（预算快照，耗尽判 BUDGET）、`critical_checkpoints`（硬门禁清单，全部 `passed` 才允许 DONE）。
+coding 专属字段（其余管道没有，别混用）：`scope`（边界声明，规则路径按 git 仓库根相对；gate 判 DONE 时按它与 git 现状**自行重算**）、`scope_drift`（本轮判定结论，仅作记录——gate 不采信该字段，手写值既不能放行也不能拦停）、`budget`（预算快照，耗尽判 BUDGET）、`critical_checkpoints`（硬门禁清单，全部 `passed` 才允许 DONE）、`root_cause_group`（任务归属的根因组，可选但出现时须为非空字符串）。
 
 ## 执行规则
 
@@ -99,6 +99,10 @@ coding 专属字段（其余管道没有，别混用）：`scope_drift`（scope 
 - 收到 reviewer 的多条 issues 时，**先按根因分组**（同一调用链/同一函数/同一类缺陷归一组），再委派 executor。
 - 一组一次性修，禁止逐条打补丁式修复。
 - 一次委派只解决一个根因组，避免多根因混合改动。
+- 分组结果写进每个 task 的 `root_cause_group`（非空字符串；`state.mjs validate` 会拒绝空串与纯空白）。
+- **下一组从脚本读，不从记忆里挑**：`node <plugin>/scripts/state.mjs root-causes --pipeline coding --file <状态文件> --json`
+  返回按组聚合的 `groups[]`（每组带 `done` / `total` / `complete`）与 `ungrouped`。挑第一个 `complete: false` 的组派活。
+  同一处信息也出现在 `state.mjs gate` 的 `reason` 里（`next root_cause_group=<id>`），两者应一致；不一致以 `root-causes` 为准。
 
 ### 并行委派（coding 域）
 - 每轮把全部"可执行项"（`pending` 且依赖已 `done`）委派给 coding-builder，按拓扑顺序逐个 DELEGATE，存在多个就绪任务时不要串行等待，全部发出后统一 WAIT_REVIEW。

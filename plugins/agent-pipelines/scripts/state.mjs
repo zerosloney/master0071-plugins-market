@@ -316,6 +316,14 @@ function validateState(state, pipeline) {
       if (task.max_attempts !== undefined && (!Number.isInteger(task.max_attempts) || task.max_attempts < 1)) {
         errors.push(`task ${task.id}: max_attempts must be an integer >= 1 when present`);
       }
+      // root_cause_group（2026-10-29 补）此前只存在于提示词里：reviewer / builder / orchestrator
+      // 三份 agent 文档都承诺「同一根因的多个 issue 共用同一 id，executor 一次修一组」，
+      // 而脚本从不读它——写错类型、留空串、跨任务拼写漂移都无人发现，那句承诺无法被验证。
+      // 现在至少把形状钉死：出现时必须是非空字符串。空串与纯空白是最常见的「占位符没填」。
+      if (task.root_cause_group !== undefined
+        && (typeof task.root_cause_group !== 'string' || task.root_cause_group.trim() === '')) {
+        errors.push(`task ${task.id}: root_cause_group must be a non-empty string when present`);
+      }
     }
     for (const task of state.tasks) {
       if (!isObject(task) || !Array.isArray(task.depends_on)) continue;
@@ -439,6 +447,42 @@ function recheckScope(state, cwd) {
   return { state: "PASS", reason: `scope 复算 PASS（base ${base}，${files.length} 个变更文件）`, files };
 }
 
+// 按 root_cause_group 把任务分桶——「一次修一组」这句承诺的可执行形态。
+// 没有分组的任务单独归到 ungrouped，不硬塞进某个组（那会凭空造出一个组）。
+function groupTasksByRootCause(tasks) {
+  const groups = new Map();
+  const ungrouped = [];
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    if (!isObject(task) || typeof task.id !== 'string') continue;
+    const key = typeof task.root_cause_group === 'string' ? task.root_cause_group.trim() : '';
+    if (!key) {
+      ungrouped.push({ id: task.id, status: task.status });
+      continue;
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ id: task.id, status: task.status });
+  }
+  const describe = (entries) => {
+    const done = entries.filter((e) => e.status === 'done').length;
+    return { tasks: entries, done, total: entries.length, complete: entries.length > 0 && done === entries.length };
+  };
+  return {
+    groups: [...groups.entries()].map(([id, entries]) => ({ id, ...describe(entries) })),
+    ungrouped: describe(ungrouped),
+  };
+}
+
+// continue 分支的「下一步」提示：还没修完的根因组按「全部完成后才能并行」的语义点名，
+// 让 orchestrator 不必自己从 tasks[] 里再算一遍该派哪一组。
+function nextRootCauseHint(state) {
+  const { groups } = groupTasksByRootCause(state.tasks);
+  const open = groups.filter((group) => !group.complete);
+  if (open.length === 0) return '';
+  const first = open[0];
+  const pending = first.tasks.filter((t) => t.status !== 'done').map((t) => `${t.id}(${t.status})`);
+  return `next root_cause_group=${first.id}（${first.done}/${first.total} done；未完成 ${pending.join(', ')}）`;
+}
+
 function codingGateBlockers(state, cwd) {
   const blockers = [];
   const checkpoints = Array.isArray(state.critical_checkpoints) ? state.critical_checkpoints : [];
@@ -514,8 +558,11 @@ function gateFor(state, pipeline, cwd = process.cwd()) {
   if (state.round >= maxCycles) {
     return withNote({ stop_reason: "MAX_CYCLES", reason: `round ${state.round} >= ${maxCycles}` });
   }
-  // 继续本轮：把未通过的硬门禁写进 reason，调用方能直接看到卡在哪一条
-  return withNote({ stop_reason: null, reason: blockers.length > 0 ? blockers.join("；") : "continue" });
+  // 继续本轮：把未通过的硬门禁写进 reason，调用方能直接看到卡在哪一条。
+  // root_cause_group 的「下一步该派哪一组」也在这里点名（此前该字段只有提示词在讲）。
+  const hint = pipeline === "coding" ? nextRootCauseHint(state) : "";
+  const parts = [...blockers, ...(hint ? [hint] : [])];
+  return withNote({ stop_reason: null, reason: parts.length > 0 ? parts.join("；") : "continue" });
 }
 
 // 落盘规则：只要重算结果与现值不同就更新——**包括重算为 null 的情形**。
@@ -532,8 +579,8 @@ function applyGate(file, state, result) {
 function main() {
   const [command, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest, { boolean: ["force", "json", "apply"], value: ["pipeline", "file", "prompt", "tail"] });
-  if (!command || !["init", "validate", "write", "gate", "events"].includes(command)) {
-    fail("usage: state.mjs init|validate|write|gate|events --pipeline ralph|coding [--file <path>] [--json]");
+  if (!command || !["init", "validate", "write", "gate", "events", "root-causes"].includes(command)) {
+    fail("usage: state.mjs init|validate|write|gate|events|root-causes --pipeline ralph|coding [--file <path>] [--json]");
   }
   const pipeline = pipelineOf(args);
   const file = stateFile(args, pipeline);
@@ -662,6 +709,26 @@ function main() {
           ? ` [${event.transitions.map((t) => `${t.id}:${t.from}->${t.to}`).join(", ")}]`
           : "";
         console.log(`${event.ts} ${event.event} round=${event.round ?? "-"} stop=${event.stop_reason ?? "null"}${tasks}${transitions}`);
+      }
+    }
+    return;
+  }
+
+  // root-causes：把「一次修一组」变成机器可读的分桶，供 orchestrator 直接消费，
+  // 不必自己遍历 tasks[] 去归并。只读，不写状态、不取锁。
+  if (command === "root-causes") {
+    const state = readState(file);
+    const grouped = groupTasksByRootCause(state.tasks);
+    if (args.json) console.log(JSON.stringify({ file, ...grouped }));
+    else {
+      if (grouped.groups.length === 0) console.log("(no root_cause_group assigned)");
+      for (const group of grouped.groups) {
+        const states = group.tasks.map((t) => `${t.id}:${t.status}`).join(", ");
+        console.log(`${group.id}  ${group.done}/${group.total} done${group.complete ? " ✓" : ""}  [${states}]`);
+      }
+      if (grouped.ungrouped.total > 0) {
+        const states = grouped.ungrouped.tasks.map((t) => `${t.id}:${t.status}`).join(", ");
+        console.log(`(ungrouped) ${grouped.ungrouped.done}/${grouped.ungrouped.total} done  [${states}]`);
       }
     }
     return;

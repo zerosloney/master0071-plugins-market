@@ -78,7 +78,7 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 - `scope_drift`：本轮 scope 判定结论 `"PASS"` / `"FAIL"`，未判定时为 `null`。**这是记录，不是 DONE 判据**：gate 判 DONE 时会按 `scope` 规则与 git 现状自己重算，手写值既不能放行也不能拦停。
 - `scope`：可选的 `{ hard: [], soft: [], forbidden: [] }` 规则集，路径按 **git 仓库根相对**解释；`scripts/scope.mjs --file` 可直接读它，命令行 `--hard/--soft/--forbidden` 优先。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成「上限为 0」立刻 BUDGET）。
-- `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。
+- `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。出现时必须是非空字符串（`state.mjs validate` 会拒绝空串 / 纯空白 / 非字符串）。用 `scripts/state.mjs root-causes --file <状态文件> --json` 可拿到按组统计的完成度，`gate` 在 continue 时也会在 reason 里点名下一个该派的组（`next root_cause_group=<id>`）——这两处是「同一根因一次修一组」的机器侧落点，不只是措辞约定。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 - `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
 - `critical_checkpoints`：coding 专属的硬门禁清单；全部 `passed` 为 `true` 才允许 DONE，未通过时 `state.mjs gate` 不判 DONE 并在 reason 里点名是哪一条没过。

@@ -493,6 +493,108 @@ console.log("\n== 2026-10-29 第二轮：gate 不采信 state.scope_drift，改�
   );
 }
 
+
+console.log("\n== root_cause_group：从「只有提示词」变成可校验、可聚合的字段 ==");
+// 背景（2026-10-29 第三轮）：reviewer / builder / orchestrator 三份 agent 文档都承诺
+// 「同一根因的多个 issue 共用同一 root_cause_group，executor 一次修一组」，
+// 但 scripts/ 里零实现——字段类型写错、留空串、拼写漂移全部无人发现，那句承诺无法被验证。
+{
+  const rcFile = path.join(sandbox, "root-cause.json");
+  const codingWith = (tasks) => ({
+    ...codingState(),
+    tasks,
+    scope: { base: "HEAD", hard: ["src/**"], soft: [], forbidden: [] },
+  });
+  const taskOf = (over = {}) => ({
+    id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0, ...over,
+  });
+  const validateWith = (state) => {
+    writeFileSync(rcFile, JSON.stringify(state));
+    return run("state.mjs", ["validate", "--pipeline", "coding", "--file", rcFile, "--json"]);
+  };
+  const validateJson = (state) => parseJson(validateWith(state).stdout);
+
+  // ① 形状校验：空串 / 纯空白 / 非字符串都算错
+  check(
+    'root_cause_group 缺席合法（该字段可选）',
+    validateJson(codingWith([taskOf()]))?.valid === true,
+    validateWith(codingWith([taskOf()])).stdout,
+  );
+  check(
+    'root_cause_group 为空串被判非法（占位符没填）',
+    validateJson(codingWith([taskOf({ root_cause_group: "" })]))?.valid === false,
+  );
+  check(
+    'root_cause_group 为纯空白被判非法',
+    validateJson(codingWith([taskOf({ root_cause_group: "   " })]))?.valid === false,
+  );
+  check(
+    'root_cause_group 非字符串被判非法',
+    validateJson(codingWith([taskOf({ root_cause_group: 7 })]))?.valid === false,
+  );
+  check(
+    '非法时 reason 点名是哪个任务的哪个字段',
+    /root_cause_group/.test(String(validateJson(codingWith([taskOf({ root_cause_group: "" })]))?.errors)),
+  );
+
+  // ② 聚合：同一组的多任务 + 未分组任务分开统计
+  const grouped = codingWith([
+    taskOf({ id: "t1", root_cause_group: "rc-a", status: "done" }),
+    taskOf({ id: "t2", root_cause_group: "rc-a" }),
+    taskOf({ id: "t3", root_cause_group: "rc-b", status: "done" }),
+    taskOf({ id: "t4" }),
+  ]);
+  writeFileSync(rcFile, JSON.stringify(grouped));
+  const rc = parseJson(run("state.mjs", ["root-causes", "--pipeline", "coding", "--file", rcFile, "--json"]).stdout);
+  check(
+    'root-causes 按 root_cause_group 分桶',
+    JSON.stringify((rc?.groups ?? []).map((g) => g.id)) === JSON.stringify(["rc-a", "rc-b"]),
+    JSON.stringify(rc),
+  );
+  check(
+    '分组带完成度（rc-a 1/2、rc-b 1/1 完成）',
+    rc?.groups?.[0]?.done === 1 && rc.groups[0].total === 2 && rc.groups[0].complete === false
+      && rc?.groups?.[1]?.complete === true,
+    JSON.stringify(rc?.groups),
+  );
+  check(
+    '没有分组的任务单独归入 ungrouped，不被硬塞进某个组',
+    rc?.ungrouped?.total === 1 && rc.ungrouped.tasks[0].id === "t4",
+    JSON.stringify(rc?.ungrouped),
+  );
+
+  // ③ gate 的 continue 分支点名「下一步该派哪一组」
+  const gatedRc = run("state.mjs", ["gate", "--pipeline", "coding", "--file", rcFile, "--json"]);
+  const rcReason = String(parseJson(gatedRc.stdout)?.reason);
+  check(
+    'gate continue 时点名仍未完成的根因组',
+    /root_cause_group=rc-a/.test(rcReason),
+    rcReason,
+  );
+  check(
+    '已完成的根因组不再被点名',
+    !/root_cause_group=rc-b/.test(rcReason),
+    rcReason,
+  );
+  check(
+    '该提示不改变判停（仍是继续）',
+    parseJson(gatedRc.stdout)?.stop_reason === null,
+    gatedRc.stdout,
+  );
+
+  // ④ 全部任务都归组且完成时，提示不再出现（不制造幽灵组）
+  const allGrouped = codingWith([
+    taskOf({ id: "t1", root_cause_group: "rc-a", status: "done" }),
+  ]);
+  writeFileSync(rcFile, JSON.stringify(allGrouped));
+  const doneOut = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", rcFile, "--json"]).stdout);
+  check(
+    'root_cause_group 不参与 DONE 判据（全部 done 且 scope 可复算外仍按原规则）',
+    !/root_cause_group=/.test(String(doneOut?.reason)),
+    String(doneOut?.reason),
+  );
+}
+
 rmSync(sandbox, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
