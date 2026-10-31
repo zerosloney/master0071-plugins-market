@@ -394,6 +394,18 @@ function recheckScope(state, cwd) {
   if (hard.length === 0 && soft.length === 0 && forbidden.length === 0) {
     return { state: "unknown", reason: "scope 规则为空（DONE 需要至少一条 hard/soft/forbidden）" };
   }
+  // 排除清单与 scope.mjs 同源：`--apply` 时由 applyVerdict 把实际生效的清单落进 scope.exclude
+  // （自定义 --exclude 在此生效）；旧状态没有该字段时退回 scope.mjs 的默认排除。
+  const excludedRules = rulesOf(scope.exclude);
+  const exclude = excludedRules.length > 0 ? excludedRules : [".loop-cli/**"];
+  // 模式必须仓库根相对（与 scope.mjs 的 rootRelativePattern 同判）：绝对路径或 ../ 段在这里
+  // 永远匹配不到任何文件，静默沿用就是复算口径失真——按「无法复算」拦下，把修配置还给调用方。
+  const malformed = [hard, soft, forbidden, exclude]
+    .flat()
+    .find((p) => p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split("/").includes(".."));
+  if (malformed) {
+    return { state: "unknown", reason: `scope 模式非法（须仓库根相对路径）:${malformed}` };
+  }
   const base = typeof scope.base === "string" && scope.base.trim() ? scope.base.trim() : "HEAD";
   if (base.startsWith("-") || /\s/.test(base)) {
     return { state: "unknown", reason: `scope.base 非法：${base}` };
@@ -408,16 +420,6 @@ function recheckScope(state, cwd) {
   if (run(["rev-parse", "--show-toplevel"]) === null) {
     return { state: "unknown", reason: "不在 git 仓库内（无法复算 scope）" };
   }
-  const changed = new Set();
-  const add = (line) => {
-    const f = line.trim().replace(/\\/g, "/");
-    if (f && !f.startsWith(".loop-cli/")) changed.add(f);
-  };
-  const diffed = run(["diff", "--name-only", base]);
-  if (diffed === null) return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
-  for (const line of diffed.split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--exclude-standard"]) || "").split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"]) || "").split("\n")) add(line);
 
   const glob = (pattern) => {
     let p = String(pattern).replace(/\\/g, "/").trim();
@@ -426,7 +428,7 @@ function recheckScope(state, cwd) {
     for (let i = 0; i < p.length; i += 1) {
       const ch = p[i];
       if (ch === "*") {
-        if (p[i + 1] === "*") { src += ".*"; i += 1; } else { src += "[^/]*"; }
+        if (p[i + 1] === "**") { src += ".*"; i += 1; } else { src += "[^/]*"; }
       } else if (ch === "?") src += "[^/]";
       else if ("/.+()[]{}^$|\\".includes(ch)) src += `\\${ch}`;
       else src += ch;
@@ -434,6 +436,17 @@ function recheckScope(state, cwd) {
     return new RegExp(`^${src}$`);
   };
   const matchAny = (file, patterns) => patterns.some((p) => glob(p).test(file));
+  const changed = new Set();
+  const add = (line) => {
+    const f = line.trim().replace(/\\/g, "/");
+    if (f && !matchAny(f, exclude)) changed.add(f);
+  };
+  const diffed = run(["diff", "--name-only", base]);
+  if (diffed === null) return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
+  for (const line of diffed.split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--exclude-standard"]) || "").split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"]) || "").split("\n")) add(line);
+
   const files = [...changed].sort();
   const forbiddenHits = files.filter((f) => matchAny(f, forbidden));
   const outside = files.filter((f) => !matchAny(f, hard) && !matchAny(f, soft) && !matchAny(f, forbidden));

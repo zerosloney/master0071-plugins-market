@@ -111,14 +111,15 @@ function rootRelativePattern(pattern, root) {
 // 复用 state.mjs write：落盘、校验、加锁与事件日志只有一份实现，不在 scope.mjs 里再写一套原子写与锁。
 // 已知局限：读—改—写跨两个进程，中间没有跨进程锁，并发写同一状态文件的会话可能被这次写回覆盖
 // （与「同一仓库并发跑两条同类管道会互相覆盖状态」是同一条已记录的并发限制）。
-function applyVerdict(file, pipeline, verdict, state, base) {
+function applyVerdict(file, pipeline, verdict, state, base, exclude) {
   const stateScript = fileURLToPath(new URL("./state.mjs", import.meta.url));
   const prevScope = state && typeof state === "object" && state.scope && typeof state.scope === "object" && !Array.isArray(state.scope)
     ? state.scope
     : null;
-  // 一并记下本次判定用的基线：下次不传 --base 时以它为起点（见 main 里的 base 回退），
-  // 这样「已提交的越界改动」不会因为默认 HEAD 而永远落在 diff 之外。
-  const scope = { ...(prevScope || {}), base };
+  // 一并记下本次判定用的基线与排除清单：下次不传 --base/--exclude 时以它们为起点。
+  // exclude 不落盘的话，gate 的复算只认 .loop-cli/ 前缀——自定义 --exclude 判 PASS 后
+  // 复算却把同样文件算成越界，管道永久 ESCALATE（口径必须与 scope.mjs 同宽，见 state.mjs）。
+  const scope = { ...(prevScope || {}), base, exclude };
   const next = { ...state, scope, scope_drift: verdict };
   const result = spawnSync(process.execPath, [stateScript, "write", "--pipeline", pipeline, "--file", file], {
     input: JSON.stringify(next),
@@ -254,7 +255,7 @@ function main() {
 
   // 把本次 base 一并记进状态：下一次调用不传 --base 时就有确定的起点可用，
   // 而不是退回 HEAD（那样已提交的越界改动永远看不见）。
-  if (args.apply) applyVerdict(statePath, pipeline, verdict, state, base);
+  if (args.apply) applyVerdict(statePath, pipeline, verdict, state, base, exclude);
 
   if (args.json) console.log(JSON.stringify(result));
   else {

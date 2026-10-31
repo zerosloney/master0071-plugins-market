@@ -494,6 +494,71 @@ console.log("\n== 2026-10-29 第二轮：gate 不采信 state.scope_drift，改�
 }
 
 
+console.log("\n== 2026-10-31 第五轮：--exclude 口径与 gate 复算同宽 ==");
+// 背景：scope.mjs --apply 只落 base 不落 exclude，而 gate 复算只认 .loop-cli/ 前缀——
+// 自定义 --exclude（如 node_modules/**）判 PASS 后，复算把同样文件算成越界 → 管道永久 ESCALATE。
+{
+  const exRepo = makeRepo("scope-exclude-repo");
+  const exStatePath = path.join(exRepo.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(exStatePath), { recursive: true });
+  const exState = () => ({
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+    // --exclude 是替换语义（与 scope.mjs 一致）：自定义清单不叠加默认的 .loop-cli/**，
+    // 用户须一并写上——本状态照此写法（这也是状态文件自己不被判越界的前提）。
+    scope: { base: exRepo.base, hard: ["src/**"], soft: [], forbidden: [], exclude: ["node_modules/**", ".loop-cli/**"] },
+    scope_drift: "PASS",
+  });
+  const gateEx = () =>
+    run("state.mjs", ["gate", "--pipeline", "coding", "--file", exStatePath, "--json"], undefined, exRepo.repo);
+
+  // ① 被 exclude 命中的未跟踪改动不算越界 → DONE（改前：node_modules/x.js 被算成 outside → ESCALATE）
+  mkdirSync(path.join(exRepo.repo, "node_modules"), { recursive: true });
+  writeFileSync(path.join(exRepo.repo, "node_modules", "x.js"), "x\n");
+  writeFileSync(exStatePath, JSON.stringify(exState()));
+  check("exclude 命中的文件不阻断 DONE", parseJson(gateEx().stdout)?.stop_reason === "DONE", gateEx().stdout);
+
+  // ② exclude 之外的新越界改动仍要拦（排除清单不是万能通行证）
+  writeFileSync(path.join(exRepo.repo, "outside.js"), "x\n");
+  const outsideEx = parseJson(gateEx().stdout);
+  check("exclude 未命中的越界改动照常拦截", outsideEx?.stop_reason === "ESCALATE", JSON.stringify(outsideEx));
+  rmSync(path.join(exRepo.repo, "outside.js"));
+
+  // ③ scope.mjs --apply 落盘实际生效的排除清单（不传 --exclude 落默认；多值逗号分隔）。
+  // 注意退出码：node_modules/x.js 在默认清单下是越界 → 判 FAIL → exit 1，但落盘照常发生
+  //（applyVerdict 在 exit 之前写回），断言只看落盘内容。
+  const appliedDefault = run("scope.mjs", ["--file", exStatePath, "--apply"], undefined, exRepo.repo);
+  const persistedDefault = JSON.parse(readFileSync(exStatePath, "utf8")).scope;
+  check(
+    "--apply 不传 --exclude 时落默认排除清单",
+    JSON.stringify(persistedDefault.exclude) === JSON.stringify([".loop-cli/**"]),
+    `exit=${appliedDefault.status} ${JSON.stringify(persistedDefault)}`,
+  );
+  const appliedCustom = run(
+    "scope.mjs",
+    ["--file", exStatePath, "--apply", "--exclude", "node_modules/**,vendor/**"],
+    undefined,
+    exRepo.repo,
+  );
+  const persistedCustom = JSON.parse(readFileSync(exStatePath, "utf8")).scope;
+  check(
+    "--apply 把自定义排除清单原样落盘",
+    JSON.stringify(persistedCustom.exclude) === JSON.stringify(["node_modules/**", "vendor/**"]),
+    `exit=${appliedCustom.status} ${JSON.stringify(persistedCustom)}`,
+  );
+
+  // ④ 绝对路径 / ../ 段的模式：永远匹配不到文件，复算口径失真 → 按无法复算拦下
+  writeFileSync(exStatePath, JSON.stringify({ ...exState(), scope: { ...exState().scope, hard: ["C:/abs/**"] } }));
+  const abs = parseJson(gateEx().stdout);
+  check(
+    "绝对路径模式 → 无法复算、不判 DONE",
+    abs?.stop_reason !== "DONE" && /非法|无法复算/.test(String(abs?.reason)),
+    JSON.stringify(abs),
+  );
+}
+
+
 console.log("\n== root_cause_group：从「只有提示词」变成可校验、可聚合的字段 ==");
 // 背景（2026-10-29 第三轮）：reviewer / builder / orchestrator 三份 agent 文档都承诺
 // 「同一根因的多个 issue 共用同一 root_cause_group，executor 一次修一组」，
