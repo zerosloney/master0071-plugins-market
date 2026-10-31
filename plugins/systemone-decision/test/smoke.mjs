@@ -10,7 +10,7 @@ import path from 'node:path';
 import { rejectDataPath, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
 import { renderTemplate, deriveFields } from '../mcp/format.mjs';
 import { extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
-import { BUILTIN_SCENARIOS } from '../mcp/scenarios.mjs';
+import { BUILTIN_SCENARIOS, resolveScenarios } from '../mcp/scenarios.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
@@ -1685,6 +1685,25 @@ const main = async () => {
       assert.deepEqual(Object.keys(request), ['__proto__']);
       assert.equal(Object.getPrototypeOf(request), null);
       assert.match(JSON.stringify(request), /"__proto__"/);
+    });
+  }
+
+  // 自定义场景的问题 id 为 __proto__（2026-10-31 市场审查）：normalizeScenario 曾用裸 {}
+  // 承载问题表，赋值落进原型 setter、该题静默消失，而 validateScenario 判它合法——
+  // 场景能加载但少了题，运行期表现为莫名其妙的 invalid_params。JSON 串直写避免 JS 字面量
+  // 的 __proto__ 特殊语义。
+  {
+    const { scenarios } = resolveScenarios([
+      {
+        label: 'custom',
+        json: '[{"id":"proto-question","title":"t","description":"","questions":{"__proto__":{"type":"noul","label":"可接受吗","instructions":"可接受吗？"}},"derive":{},"recommendation":""}]',
+      },
+    ]);
+    const loaded = scenarios.find((s) => s.id === 'proto-question');
+    check('自定义场景 __proto__ 问题 id 不被静默丢弃', () => {
+      assert.ok(loaded, '场景应已加载');
+      assert.deepEqual(Object.keys(loaded.questions), ['__proto__']);
+      assert.match(JSON.stringify(loaded.questions), /"__proto__"/);
     });
   }
 

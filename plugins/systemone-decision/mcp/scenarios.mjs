@@ -733,7 +733,10 @@ export function resolveScenarios(sources) {
 
 /** 规范化自定义场景：补齐可选字段、字符串化 criteria，标记 source: 'custom'。 */
 function normalizeScenario(spec) {
-  const questions = {};
+  // 无原型对象承载问题表（2026-10-31 市场审查）：问题 id 为 __proto__ 时，裸 {} 的赋值会
+  // 落进原型 setter、该题静默消失，而 validateScenario 对 JSON.parse 出的自有键判它合法
+  // ——与 server.mjs / format.mjs 的同类修复同一款修法。
+  const questions = Object.create(null);
   for (const [qid, q] of Object.entries(spec.questions)) {
     const question = {
       type: q.type,

@@ -46,13 +46,27 @@ function readOne(file) {
 export function writeEndpointConfig({ baseUrl, model, timeoutMs }) {
   const payload = `${JSON.stringify({ baseUrl, model, timeoutMs }, null, 2)}\n`;
   const targets = DATA_FILE ? [DATA_FILE, LEGACY_FILE] : [LEGACY_FILE];
+  const sleepMs = (ms) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  };
   let lastErr = null;
   for (const file of targets) {
-    const tmp = `${file}.tmp`;
+    const tmp = `${file}.${process.pid}.tmp`;
     try {
       if (file === DATA_FILE) mkdirSync(dataDir, { recursive: true });
       writeFileSync(tmp, payload);
-      renameSync(tmp, file); // 临时文件 + 原子替换，读方不会读到半截 JSON
+      // Windows 上目标文件正被 hook 并发读时 rename 可能 EPERM/EBUSY（decision-cache.mjs /
+      // precheck-quota.mjs 同款场景已修）：有界重试，耗尽走外层告警——hook 回退环境变量。
+      let renamed = false;
+      for (let attempt = 0; !renamed; attempt += 1) {
+        try {
+          renameSync(tmp, file); // 临时文件 + 原子替换，读方不会读到半截 JSON
+          renamed = true;
+        } catch (e) {
+          if (attempt >= 5 || !e || (e.code !== 'EPERM' && e.code !== 'EBUSY')) throw e;
+          sleepMs(25 * (attempt + 1));
+        }
+      }
       // 写到 PLUGIN_DATA 后清掉插件根的旧文件：两份副本日后只回退到旧文件会读到过期端点。
       if (file === DATA_FILE) {
         try {
@@ -145,10 +159,11 @@ export function rejectDataPath(value, extensions) {
   if (!path.isAbsolute(raw)) return '必须是绝对路径（相对路径会落进插件安装目录，跨项目共享且随插件更新丢失）';
 
   const resolved = path.resolve(raw);
-  // 段比较统一小写（2026-10-29 修复）：Windows 与 macOS 默认卷大小写不敏感，`.GIT` 与 `.git`
-  // 是同一个目录，而旧实现按原样比较 `.git`，于是 `.GIT/` 下的路径轻松通过护栏——
-  // 「不得落在 .git 目录内」在大小写不敏感卷上形同虚设。
-  const norm = (s) => (process.platform === 'win32' ? s.toLowerCase() : s).replace(/[\\/]+$/, '');
+  // 段比较统一小写（2026-10-29 修复；2026-10-31 补 darwin）：Windows 与 macOS 默认卷大小写
+  // 不敏感，`.GIT` 与 `.git` 是同一个目录，而旧实现按原样比较 `.git`，于是 `.GIT/` 下的路径轻松
+  // 通过护栏——「不得落在 .git 目录内」在大小写不敏感卷上形同虚设。初版只落了 win32，
+  // 注释声称管 macOS 代码却没管——darwin 默认卷（APFS/HFS+）同样大小写不敏感。
+  const norm = (s) => (process.platform === 'win32' || process.platform === 'darwin' ? s.toLowerCase() : s).replace(/[\\/]+$/, '');
   const segments = resolved.split(/[\\/]+/);
   if (segments.some((s) => s.toLowerCase() === '.git')) return '路径位于 .git 目录内';
   const pluginRoot = norm(PLUGIN_ROOT);

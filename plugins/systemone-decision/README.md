@@ -163,6 +163,8 @@ systemone_scenario(action: "run",
 | Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 15 个场景 |
 | Scenarios File | 自定义场景 JSON 文件路径（便于纳入版本管理），优先级低于上面的 JSON | 不用场景文件 |
 | Decision Log (JSONL) | 审计日志文件路径，每次决策逐条追加，`action=stats` 消费 | 不记录 |
+| Hook: Requirement Precheck | 需求明确度预检开关：`on` / `off` / `first:N`（每会话仅前 N 条输入做预检），等价环境变量 `SYSTEMONE_HOOK_PRECHECK` | 留空按 `on` |
+| Hook: Shell Risk Gate | shell 命令风险闸开关：`on` / `off`（`off` = 一律放行且不发判定请求），等价环境变量 `SYSTEMONE_HOOK_RISK_GATE` | 留空按 `on` |
 
 优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
 
@@ -180,6 +182,7 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_BASE_URL` | 否 | `https://maas-api.unisound.com/v1` | SystemOne 兼容端点根地址 |
 | `SYSTEMONE_MODEL` | 否 | `u2-decision` | 模型编码 |
 | `SYSTEMONE_TIMEOUT_MS` | 否 | `30000` | 请求超时（毫秒） |
+| `SYSTEMONE_BATCH_BUDGET_MS` | 否 | `25000` | 批量判定（`action=batch`）整批总预算（毫秒）：串行判定多条时防单次工具调用超出宿主 MCP 客户端超时；预算用尽后剩余条目逐条标注 `budget_exhausted`，已完成的条目照常返回；`0` = 全部条目直接标记未执行 |
 | `SYSTEMONE_SCENARIOS` | 否 | — | 自定义场景 JSON 数组（与设置页同源，优先级低于设置页） |
 | `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件）。**须为绝对路径、`.json` 扩展名，且不在插件安装目录或任何 `.git` 内**；不合格则忽略该文件并告警，内置场景照常可用 |
 | `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费。**须为绝对路径、`.jsonl` 扩展名，且不在插件安装目录或任何 `.git` 内**（插件安装目录跨项目共享、且随插件更新被覆盖）。超过 5 MB 时**轮转**为 `<文件>.1` 保留上一段，不再原地清空 |
@@ -205,11 +208,11 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`，任何失败都 fail-open，绝不阻塞输入或工具调用）：
+插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 只覆盖网络故障/超时与缺 Key**（拿到响应就按判定走），另有 4 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、命令超 100K 上限、三答残缺（幻觉选项或题型错乱）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
-**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
+**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；**deny 是自动拦截的硬动作，三问最低置信度 < 0.7 时降级为 `"ask"` 交还用户**（偏低注记保留在理由里）；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
 
 **非标准命令字段的处置（2026-10-28 加固）**：命令字段只认 `command` / `cmd` / `script` / `execution_input`。宿主若用别的字段承载命令（如把命令塞进 `args` 数组），判定模型只会收到「字段名 + 截断值摘要」，**看不到命令内容**——此时模型判「放行」不构成安全信号，故一律升级为 `"ask"` 转人工确认，不自动放行（判定为拒绝/需确认的照常生效，拦截不会因看不到命令而漏）。摘要路径只发字段名、不外发整个 `tool_input`（防把大段文件内容或凭据片段送到端点）。
 
@@ -265,6 +268,7 @@ node test/contract.smoke.mjs
 mcp/
 ├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用（含本地缓存）、信任边界校验、审计日志、2 个工具定义
 ├── scenarios.mjs  场景库（15 个内置 + 场景文件/设置页/环境变量自定义合并，纯数据）+ 校验与查找
+├── question-types.mjs 题型（choice / noul / score）知识的唯一来源：判据校验、答案归一化、判定值提取（server / scenarios / format 三方导入）
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
 hooks/
