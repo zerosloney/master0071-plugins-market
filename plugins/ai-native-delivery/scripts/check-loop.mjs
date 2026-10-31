@@ -9,7 +9,7 @@
 //   pre-push 车道却从不拦任何东西；承载力已前移到动作时刻（§3 → closeout skill §0 第 2 项；
 //   §14 → confirm-doc/stage-gates 落态前置门），下沉不丢校验，只改何时跑。
 //   hard 车道现存 5 段 = §1 §3x §8 §15 §23（全部有阻断力）；hygiene 车道 17 段（含 §25——
-//   其可见性依赖 hygiene 日检，pre-push loop-watch 已接线每日一次）。
+//   其可见性依赖 --hygiene 被人工/项目自定期运行——本插件无 loop-watch 自动接线，不随 git hooks 跑）。
 // 2026-10-22 门禁收敛批 4：§20 已退役（挂载条件为包源环境，本仓恒不触发）。编号留疤不重排。
 // 2026-10-23 P1：§28 消费端脚本覆盖对账（hygiene）——按本仓 .agents/scripts 真实面重判覆盖，
 //   替代 §20 的包源判据；豁免表 .agents/config/scripts-test-exempt.txt。

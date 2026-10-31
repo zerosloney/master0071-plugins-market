@@ -4,8 +4,8 @@ AI-Native 交付治理引擎：把 Shipyard.Material 里跑通 14 个 policy ver
 
 ## 三层闭环定位
 
-1. **任务级硬闭环**：任何任务先过"两问定级"进 L1（实现级）/ L2（规则契约）/ L3（数据与运行时结构）风险泳道，级别决定审计成本；L2 有触达面闭集（4 条），L1 plan 勾红线即判低拦截、强制升级；check-loop 硬门 5 段（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账）在关单与 pre-push 两个物理闸门上校验闭环证据。
-2. **状态收敛闭环**：台账三件套（intents / specs / plans）+ INDEX 作为跨会话物理内存；收敛对账保证台账与 git 实际状态不背离；loop-watch 日检与 compact / archive 负责台账卫生，read_context + INDEX 支撑断崖恢复。
+1. **任务级硬闭环**：任何任务先过"两问定级"进 L1（实现级）/ L2（规则契约）/ L3（数据与运行时结构）风险泳道，级别决定审计成本；L2 有触达面闭集（4 条），L1 plan 勾红线即判低拦截、强制升级；check-loop 硬门 5 段（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账）在 init-engine 安装的 pre-commit / pre-push 两个 git hook 物理闸门上校验闭环证据；关单是程序性自检（skills/workflow-closeout §0 + confirm-doc/stage-gates），不经 check-loop。
+2. **状态收敛闭环**：台账三件套（intents / specs / plans）+ INDEX 作为跨会话物理内存；收敛对账保证台账与 git 实际状态不背离；compact / archive 负责台账卫生，mechanism-retire-watch 治理检视由人工 / 项目自定期运行（不随 git hooks 自动跑），read_context + INDEX 支撑断崖恢复。
 3. **治理进化闭环**：judgment-ledger 按 per-rule 计数积累判定事实，连续 6 月零命中的规则进退役候选，门禁段数棘轮锁死上限（只减不增），gate 预算以实测墙钟为据。
 
 三层在 0.1.0 一次交付、不分段发布（安装即得全量机制面）。
@@ -78,6 +78,42 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 > **`confirm` 的引文接地**：`evidence` 是「用户真的放行过这件事」的唯一可对质证据，所以它复用文件侧同一模块 `scripts/quote-grounding.mjs`（逐字命中 / ≥8 字逐字锚点 / 纯放行语三层，任一成立即接地），而不是另立一套口径。传 `doc`（workflow/ 树内台账文档）才会接地，结果如实记进台账行的 `quoteGrounding`：`verbatim` / `anchor` / `generic` / `ungrounded` / `unanchored`（未带 doc）。**默认只留痕不拦**——该模块头注的 873 条历史委托实测显示，中文口语是复述而非引用，词面判据硬拦会误杀 8–18% 合规放行，而对无关文档仍有 71.2% 通过率（判别力不足）；要收硬请显式传 `strict_quote: true`。只有客观缺陷硬拒：`doc` 在活跃目录与归档里都不存在、路径逃逸出 workflow/ 树（与 `update_ledger` 同围栏）。task 行**恒不带 `stage`**——§15 的文档配对判据是 `doc && VALID_STAGES.has(stage)`，带上 stage 就等于给了任务级确认伪造文档关单凭证的能力（该不变量由 `test/mcp-tools.test.mjs` 钉住）。
 >
 > **`root` 参数（重要）**：本插件的 `mcp.json` 声明 `cwd: "${PLUGIN_ROOT}"`，即宿主默认把服务起在**插件安装目录**。此时服务进程的 cwd 落在插件根内，`requireRoot` 会**直接拒绝**并提示——这是刻意的 fail-closed（台账若落进插件目录，会被别的项目当成关单凭证）。因此在这种部署形态下，**每次工具调用都要显式传 `root=<使用项目的 git 仓库根>`**。想让工具免传 root，就把宿主启动本服务时的工作目录设为项目根（部分宿主可配）。
+
+## 命令 / 角色 / skills 清单
+
+命令（`commands/`，8 个）、角色（`agents/`，3 个）、技能（`skills/`，6 个）按各宿主约定目录加载（见「宿主与 hook 降级」），不支持对应约定的宿主跳过加载即可，MCP 工具不受影响。
+
+### 命令（8 个）
+
+| 命令 | 一句话用途 |
+| --- | --- |
+| `/new-task` | 闭环总入口：6 阶段指令索引（Plan→Design→Build→Test→Deploy→Maintain），含 L1 快速道 |
+| `/plan` | Plan 阶段：L2/L3 立 intent（L1 plan 在 new-task 快速道内完成） |
+| `/design` | Design 阶段：起 spec（仅 L2/L3；L1 不进本阶段） |
+| `/build` | Build 阶段：起 plan + 实现代码 + 自验（确认后才动代码） |
+| `/test` | Test 阶段：静态门（架构红线 + build + test）+ UI 实测（headless Chrome） |
+| `/deploy` | Deploy 阶段：prod 上线清单（静态门 + 配对检查 + 回归 + DB + 授权 + 24h 观察；文档关单在 test） |
+| `/maintain` | Maintain 阶段：立 incident + 复盘三件套（修复 / 防复发 / 规范条目） |
+| `/review` | 代码评审标准（横切：合入前使用，不占 6 阶段之一）：机器兜底 + AI 自查出清单，用户决策定性和合入 |
+
+### 角色（3 个）
+
+| 角色 | 一句话定位 |
+| --- | --- |
+| `implementer` | 受控实施者：范围明确任务的实现与自验，最小 diff，授权边界外即 HALT |
+| `independent-reviewer` | 独立复核者：独立上下文只读复核 spec/plan/diff，证据驱动，落盘行交主智能体写入 |
+| `ui-verifier` | UI 实测者：只验证不修复的浏览器实测，DOM 几何取证，证据交还主智能体 |
+
+### skills（6 个）
+
+| 技能 | 一句话用途 |
+| --- | --- |
+| `autonomous-run` | 无人值守长跑合同：长任务/过夜时逐单元签收、自底向上落地、何时停机 |
+| `decision-log` | 长跑/无人值守的决策轨迹：append-only TSV，一行一个决策（what/why/evidence/result） |
+| `review-method` | 代码复核走查方法（Standards×Spec 双轴 + 坏味道清单 + 合入标尺），`commands/review.md` 的方法层单源 |
+| `session-resume` | 会话重入与中断落盘：接手/切换 worktree/压缩续作前先用机器事实重建当前态 |
+| `verify-ui` | 启动本地服务并用浏览器实测 UI 改动（只读验证、不留脏数据） |
+| `workflow-closeout` | 关单序列：verify --scope、验收勾验、confirm-doc、索引与确认分片提交 |
 
 ## hooks
 

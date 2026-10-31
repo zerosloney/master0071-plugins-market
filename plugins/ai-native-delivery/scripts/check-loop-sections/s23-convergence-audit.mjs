@@ -20,15 +20,25 @@ import {
 } from '../check-loop-kit.mjs';
 
 // 与 s21 命令面同源的声明白名单（advisory 档：文本命中即认）。hard 档不再凭命中放行。
-const CMD_RE = /npm\s+(run\s+)?test|dotnet\s+test|run-tests|regression-smoke|verify\.mjs|check-scope|verify-ui|ui-verifier|vue-tsc|dotnet\s+build|npm\s+run\s+build/;
+const CMD_RE_BASE = /npm\s+(run\s+)?test|dotnet\s+test|run-tests|regression-smoke|verify\.mjs|check-scope|verify-ui|ui-verifier|vue-tsc|dotnet\s+build|npm\s+run\s+build/;
 // 引用切分：长选项在前，避免 npm run build 被更短的模式截断。verify-ui 先于不会与 verify.mjs 重叠的独立词。
-const CITE_RE = /npm\s+run\s+build|npm\s+(?:run\s+)?test|dotnet\s+build|dotnet\s+test|verify\.mjs|verify-ui|ui-verifier|regression-smoke|run-tests|check-scope|vue-tsc/g;
+const CITE_RE_BASE = /npm\s+run\s+build|npm\s+(?:run\s+)?test|dotnet\s+build|dotnet\s+test|verify\.mjs|verify-ui|ui-verifier|regression-smoke|run-tests|check-scope|vue-tsc/g;
+// 项目可扩展命令（2026-10-31 市场审查）：GATE_CMD 原是源项目工具链硬编码（npm/dotnet/vue-tsc/
+// verify.mjs），使用项目引用自己的工具链（pytest、go test 等）永远过不了硬档收敛。engine.json 的
+// convergenceCommands 数组按项目声明扩展三处口径（advisory 白名单 / 引用切分 / 全量门集合）；
+// 「有不早于 spec 日期的全绿行」要求不变——项目声明的命令仍须由其 verify.mjs 全量门实际跑出来。
+const EXTRA_CMD = (Array.isArray(kitPolicy && kitPolicy.convergenceCommands) ? kitPolicy.convergenceCommands : [])
+  .filter((c) => typeof c === 'string' && c.trim() !== '');
+const escCmd = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const extraAlt = EXTRA_CMD.slice().sort((a, b) => b.length - a.length).map(escCmd).join('|');
+const CMD_RE = EXTRA_CMD.length ? new RegExp(`${extraAlt}|${CMD_RE_BASE.source}`) : CMD_RE_BASE;
+const CITE_RE = EXTRA_CMD.length ? new RegExp(`${extraAlt}|${CITE_RE_BASE.source}`, 'g') : CITE_RE_BASE;
 // verify.mjs 全绿行（suite=all-gates）实际覆盖的命令。不在此集的白名单命令没有对应绿记录。
 // vue-tsc（2026-10-21 verify-diet ④）：本地关单前端门 = npm run type-check（vue-tsc -b），
 // vite bundle 分离到 deploy/CI（TF_BUILD 下 frontend-build 门仍 npm run build）——两形态都是门实跑命令。
 // 方向注意（复核 P2）：npm run build 的绿记录只在 **CI 行**（runId 有值）；本地全绿行实跑 vue-tsc。
 // 按行环境严格对账挂 papercuts 2026-10-21（摘要行 runId 列已可辨 CI/本地）。
-const GATE_CMD = new Set(['npm run build', 'npm test', 'npm run test', 'dotnet build', 'dotnet test', 'verify.mjs', 'vue-tsc']);
+const GATE_CMD = new Set(['npm run build', 'npm test', 'npm run test', 'dotnet build', 'dotnet test', 'verify.mjs', 'vue-tsc', ...EXTRA_CMD]);
 // 扩展名交替**最长优先**（2026-10-20 修复：原 `mjs|js|ts|tsx|...|json` 中 js/ts 是 mjs/json/tsx 的
 // 前缀且交替无尾锚，`.json`/`.tsx` 路径被截断成 `.js`/`.ts` → existsSync 恒 false → 证据永不可验，
 // po-close-replace-mark-completed 关单实证）
@@ -118,7 +128,7 @@ export function run() {
  }
  if (missed.length) {
  const detail = `${base} ${rows.length} 条判据中 ${missed.length} 条证据无效（${missed.join('; ')}）`;
- if (hard) blockers.push(`- [收敛未覆盖] ${detail}——状态列自报不作数；命令须是全量门（npm test / dotnet test / dotnet build / npm run build / verify.mjs）且 workflow/verify-evidence.md 有不早于本 spec 日期的全绿行；路径只认存在（检查 23，含 .vue 与中文目录）。若本 spec 已标 done：先标后补会与本门互为前提（verify 门序含 check-loop）——解锁序：改正文 → 状态改回 approved（勿改 draft，L3 必须 approved/done）→ confirm-doc 重录指纹 → 再标 done。中间态不要提交`);
+ if (hard) blockers.push(`- [收敛未覆盖] ${detail}——状态列自报不作数；命令须是全量门（npm test / dotnet test / dotnet build / npm run build / verify.mjs）且 workflow/verify-evidence.md 有不早于本 spec 日期的全绿行；本项目的全量门命令可在 .agents/config/engine.json 的 convergenceCommands 数组里声明扩展；路径只认存在（检查 23，含 .vue 与中文目录）。若本 spec 已标 done：先标后补会与本门互为前提（verify 门序含 check-loop）——解锁序：改正文 → 状态改回 approved（勿改 draft，L3 必须 approved/done）→ confirm-doc 重录指纹 → 再标 done。中间态不要提交`);
  else warnings.push(`- [WARN 收敛未覆盖] ${detail}——状态列自报不作数，证据须存在或为验证命令（检查 23）`);
  }
  }

@@ -309,6 +309,38 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   fs.rmSync(raceRoot, { recursive: true, force: true });
 }
 
+// ---- resolveLedgerTarget 符号链接逃逸（2026-10-31 市场审查）----
+// path.resolve 不解引用：`workflow/<symlink>/x` 指向树外时白名单按字面路径放行，写却落在
+// workflow/ 之外。解引用后须重走 containment + workflow 白名单；指向树内的 symlink 不受影响。
+// Windows 无符号链接特权时整段跳过（junction 型不需要特权，通常可达）。
+{
+  const { resolveLedgerTarget, ToolError } = await import('../mcp/core.mjs');
+  const sroot = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-symlink-'));
+  fs.mkdirSync(path.join(sroot, 'workflow', 'intents'), { recursive: true });
+  fs.mkdirSync(path.join(sroot, '.agents'), { recursive: true });
+  const throws = (fn) => {
+    try { fn(); return null; } catch (e) { return e; }
+  };
+  try {
+    fs.symlinkSync(path.join(sroot, '.agents'), path.join(sroot, 'workflow', 'leak'), 'junction');
+    fs.symlinkSync(path.join(sroot, 'workflow', 'intents'), path.join(sroot, 'workflow', 'alias'), 'junction');
+    const out = throws(() => resolveLedgerTarget(sroot, 'workflow/leak/x.md'));
+    check('symlink 指向 workflow 外 → 拒（解引用后判）', out instanceof ToolError || (out && /逃逸|离开/.test(String(out.message))), String(out && out.message));
+    const inside = throws(() => resolveLedgerTarget(sroot, 'workflow/alias/2026-10-31-a.md'));
+    check('symlink 指向 workflow 内 → 放行', inside === null, String(inside && inside.message));
+    const plain = throws(() => resolveLedgerTarget(sroot, 'workflow/intents/2026-10-31-a.md'));
+    check('无 symlink 的常规路径不受影响', plain === null, String(plain && plain.message));
+  } catch (e) {
+    if (e && (e.code === 'EPERM' || e.code === 'EACCES')) {
+      console.log('SKIP  符号链接用例（本机无创建权限）');
+    } else {
+      throw e;
+    }
+  } finally {
+    fs.rmSync(sroot, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 fs.rmSync(root, { recursive: true, force: true });
 process.exit(fail ? 1 : 0);

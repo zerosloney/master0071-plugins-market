@@ -177,11 +177,18 @@ export function loadKitPolicy(root) {
   } catch { /* 无 kit 或不可解析 */ }
   const requested = raw && Number.isInteger(raw.policyVersion) ? raw.policyVersion : 1;
   const policyVersion = Object.prototype.hasOwnProperty.call(POLICIES, requested) ? requested : 1;
+  // convergenceCommands（2026-10-31 市场审查）：检查 23 的全量门命令按项目扩展（使用项目引用
+  // pytest / go test 等自己的工具链时，源项目硬编码的 npm/dotnet/vue-tsc 白名单永远对不上账）。
+  // 只透传非空字符串数组，其余形态忽略——坏值按「未配置」处理，不误扩白名单。
+  const extraCommands = raw && Array.isArray(raw.convergenceCommands)
+    ? raw.convergenceCommands.filter((c) => typeof c === 'string' && c.trim() !== '')
+    : [];
   return {
     ...POLICIES[policyVersion],
     policyVersion,
     requestedVersion: requested,
     audit: raw && typeof raw.audit === 'boolean' ? raw.audit : undefined,
+    ...(extraCommands.length ? { convergenceCommands: extraCommands } : {}),
   };
 }
 

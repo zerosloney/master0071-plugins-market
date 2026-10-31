@@ -163,6 +163,25 @@ export function resolveLedgerTarget(root, file) {
     throw new ToolError(`\`${file}\` 不在 workflow/ 树内（解析为 ${relPosix}）——update_ledger 的白名单只有交付台账树。`);
   }
   if (relPosix === 'workflow') throw new ToolError('`workflow` 本身是目录——请给具体文件路径。');
+  // 符号链接逃逸（2026-10-31 市场审查）：path.resolve 不解引用——`workflow/<symlink>/x` 指向
+  // 树外时，上面的白名单按字面路径放行、写却落在外面。对 target 的最深**现存**祖先做 realpath
+  // （新建文件的未存在尾段原样接回），解引用后重走 containment + workflow 白名单两道判定。
+  const realRoot = fs.realpathSync(root);
+  let probe = target;
+  const tail = [];
+  while (probe !== path.dirname(probe) && !fs.existsSync(probe)) {
+    tail.unshift(path.basename(probe));
+    probe = path.dirname(probe);
+  }
+  const realTarget = path.join(fs.realpathSync(probe), ...tail);
+  const realRel = path.relative(realRoot, realTarget);
+  if (!realRel || realRel.startsWith('..') || path.isAbsolute(realRel)) {
+    throw new ToolError(`路径逃逸被拒（符号链接解引用后）：\`${file}\` 实际指向项目根之外（${realTarget}）。`);
+  }
+  const realRelPosix = realRel.split(path.sep).join('/');
+  if (realRelPosix !== 'workflow' && !realRelPosix.startsWith('workflow/')) {
+    throw new ToolError(`\`${file}\` 经符号链接离开 workflow/ 树（实际为 ${realRelPosix}）——update_ledger 的白名单只有交付台账树。`);
+  }
   return { target, relPosix };
 }
 

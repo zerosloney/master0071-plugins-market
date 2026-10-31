@@ -151,7 +151,7 @@ hygiene 段（索引/宿主/词表/指标签名/委派等 17 段）只告警不�
 | 层 | 载体 | 拦截时点 | 覆盖面 | 逃逸面 |
 |---|---|---|---|---|
 | **L-hook** | 插件 `hooks/`（PreToolUse） | 动作执行前 | Bash / Edit / Write 类工具调用：deny 清单（`git reset --hard`、`git push -f`、`drop database` 等，源自源项目 settings.json permissions）、ask 清单、破坏性命令风险闸 | 仅支持 Claude 式 hook 的宿主生效（本仓 systemone-decision `pretool-risk.mjs` 同款限制，README 需标注）；白名单绕过 |
-| **L-git** | 项目侧 git hooks（初始化时安装，pre-commit / pre-push） | 提交/推送前 | 一切落盘改动：check-loop hard 段 + loop-watch 日检接线 | `--no-verify`、绕过 git 的操作 |
+| **L-git** | 项目侧 git hooks（初始化时安装，pre-commit / pre-push） | 提交/推送前 | 一切落盘改动：check-loop hard 段 | `--no-verify`、绕过 git 的操作 |
 | **L-ci** | CI workflow 模板（项目适配点） | 合入/构建时 | 全量：check-loop `--all` + 测试矩阵，最后一道兜底 | 本地不推、私有分支不跑 CI |
 
 三层职责递进：hook 拦"动作"、git 拦"提交"、CI 拦"合入"。任何单层都可被绕过，三层叠加后逃逸需要蓄意规避——这是"强制"的真实强度，插件文档按此口径宣传，不承诺绝对拦截。
@@ -373,7 +373,7 @@ workflow/           # 交付台账（人类可读）
 | 件 | 内容 |
 |---|---|
 | 对账 | §23 收敛对账进 MVP（v2 初版后置项提前） |
-| 日检 | loop-watch 接线 pre-push 每日一次 hygiene |
+| 机制退役检视 | mechanism-retire-watch.mjs 由人工/项目自定期跑（无自动调度，不随 git hooks）；hygiene 段同样人工/自定期跑 `check-loop --hygiene` |
 | 台账卫生 | compact-ledgers / archive-sweep / check-ledger-invariant + 修剪/重建清单 |
 | 断崖恢复 | `read_context` + INDEX |
 | hygiene 段 | 17 段随迁，按 workflow-modules.txt 配置启用：引擎通用段默认开，项目特异段（dotnet 迁移检查等）默认关 |

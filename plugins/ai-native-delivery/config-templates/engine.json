@@ -1,6 +1,7 @@
 {
   "policyVersion": 14,
   "createdAt": "2026-09-23T16:23:32.092Z",
+  "convergenceCommands": [],
   "options": {
     "hosts": [
       "opencode",

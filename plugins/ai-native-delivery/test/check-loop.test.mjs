@@ -3416,6 +3416,48 @@ SCEN(async () => {
   check('检查23 硬锚起无验收判据表 → 仍 WARN 不阻断',
     r.status === 0 && outOf(r).includes('[WARN 收敛无判据]'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
+  // ⑯ convergenceCommands（2026-10-31 市场审查）：未配置时引用自家工具链命令（pytest）→ 硬档对不上账 → HARD
+  T = mkSpec(TABLE([
+    '| 全量套件绿 | pytest | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  w(T, 'workflow/verify-evidence.md', [
+    '# 验证绿凭证摘要',
+    '',
+    '| 提交(短SHA) | 时间(UTC) | 门数 | 断言计数 | runId |',
+    '|---|---|---|---|---|',
+    '| `abc1234` | 2026-10-12T01:00:00.000Z | 15 | PASS 1 / FAIL 0 | — |',
+    '',
+  ].join('\n'));
+  r = run(T, { git: true });
+  check('检查23 未扩展 convergenceCommands 时 pytest → HARD（源项目白名单不认）',
+    r.status !== 0 && outOf(r).includes('[收敛未覆盖]'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑰ 声明扩展后：pytest 落进全量门口径 + 当日全绿行 → 收敛放行（绿行要求不变）
+  T = mkSpec(TABLE([
+    '| 全量套件绿 | pytest | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  w(T, '.agents/config/engine.json', '{"policyVersion":11,"convergenceCommands":["pytest","go test ./..."]}\n');
+  w(T, 'workflow/verify-evidence.md', [
+    '# 验证绿凭证摘要',
+    '',
+    '| 提交(短SHA) | 时间(UTC) | 门数 | 断言计数 | runId |',
+    '|---|---|---|---|---|',
+    '| `abc1234` | 2026-10-12T01:00:00.000Z | 15 | PASS 1 / FAIL 0 | — |',
+    '',
+  ].join('\n'));
+  r = run(T, { git: true });
+  check('检查23 convergenceCommands 声明 pytest + 当日全绿行 → 无收敛告警',
+    r.status === 0 && !outOf(r).includes('收敛'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑱ 声明扩展但无全绿行：命令进了口径，绿凭证要求仍不放水
+  T = mkSpec(TABLE([
+    '| 全量套件绿 | pytest | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  w(T, '.agents/config/engine.json', '{"policyVersion":11,"convergenceCommands":["pytest"]}\n');
+  r = run(T, { git: true });
+  check('检查23 convergenceCommands 无全绿行 → 仍 HARD（绿凭证不放水）',
+    r.status !== 0 && outOf(r).includes('[收敛未覆盖]'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
 });
 
 // ---- 检查 24：incident 归因字段核查（2026-10-11 incident-attribution；锚 attributionSince）----

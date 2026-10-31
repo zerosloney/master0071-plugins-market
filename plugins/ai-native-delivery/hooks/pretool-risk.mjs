@@ -11,7 +11,8 @@
 //     **按内置 deny 地板继续执法**（2026-10-28 收紧：此前整体 fail-open 放行，等于「把配置文件
 //     写坏」就能解除风险闸）；ask 回退内置默认；
 //   输入截断 / 坏 JSON → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令）；
-//   任何异常 → stderr 后 exit 0，绝不阻塞工具调用。
+//   任何异常 → stderr 告警 + 转 ask（2026-10-31 收紧：静默 exit 0 会凭 hook 自身故障放行
+//     本该命中 deny 的命令；ask 只加确认、不硬阻塞工具调用）。
 // 清单来源：项目侧 .agents/settings.json（permissions.deny / ask，§5.2）→ 插件种子
 // （config-templates/settings.json）→ 代码内最小兜底；其中 **deny 取「内置地板 ∪ 来源追加」，
 // 被治理项目只能加严、不能放宽**（ask 仍可被项目侧整体接管）。
@@ -200,6 +201,13 @@ async function main() {
     };
   }
 
+  // 测试注入口（2026-10-31，同 verify.mjs --test-cmd 的夹具通道惯例）：内部故障路径无法从
+  // 外部自然触发（settings 损坏已被地板执法降级处理），顶层 catch 的转 ask 行为由
+  // test/hook.test.mjs 经此开关锁住。生产不设此环境变量。
+  if (process.env.AI_NATIVE_HOOK_FAULT_INJECT === '1') {
+    throw new Error('fault injection (test only)');
+  }
+
   const root = findProjectRoot();
   const lists = loadLists(root);
   if (lists.warn) process.stderr.write(`[ai-native-delivery hook] ${lists.warn}\n`);
@@ -234,6 +242,18 @@ main()
     process.stdout.once('drain', () => process.exit(0));
   })
   .catch((e) => {
-    process.stderr.write(`[ai-native-delivery hook] 风险闸跳过：${e && e.message ? e.message : e}\n`);
-    process.exit(0);
+    // 内部故障转 ask（2026-10-31 市场审查）：能走到清单加载/匹配，输入已是「shell 工具 + 有
+    // 命令」——静默 exit 0 等于让一条本会命中 deny 的命令凭 hook 自身故障放行，与「输入不可信
+    // 转 ask」的 fail-closed 方向相反。ask 不阻断（宿主只加一次确认），「绝不硬阻塞」的契约仍守。
+    const msg = e && e.message ? e.message : String(e);
+    process.stderr.write(`[ai-native-delivery hook] 风险闸内部故障，转 ask 由用户确认：${msg}\n`);
+    const text = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: `[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`,
+      },
+    });
+    if (!text || process.stdout.write(text)) process.exit(0);
+    process.stdout.once('drain', () => process.exit(0));
   });

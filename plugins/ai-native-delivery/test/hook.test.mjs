@@ -4,7 +4,9 @@
 //       阻断语义在 stdout 决策体，照 systemone hook 同款）；②普通命令（git status）→ 静默放行；
 //       ③settings.json 损坏 → WARN + 内置 deny 地板继续执法；④项目侧 ask 整体接管 / deny 不可
 //       下调；⑤ask 清单 / 非 shell 工具不管辖；⑥deny 键缺失或空数组 → 地板仍拦；⑦坏 JSON 输入
-//       → fail-closed 转 ask；⑧声明面 matcher 与代码 SHELL_TOOL 同口径（防风险闸静默不被调用）。
+//       → fail-closed 转 ask；⑧声明面 matcher 与代码 SHELL_TOOL 同口径（防风险闸静默不被调用）；
+//       ⑨内部故障 → 转 ask 而非静默放行（2026-10-31 市场审查：顶层 catch 曾 exit 0 无决策体，
+//         一条本该命中 deny 的命令凭 hook 自身故障被放行）。
 // 零依赖，Node ≥ 18 直接运行：node test/hook.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -264,6 +266,25 @@ const mkRepo = () => {
       }
     }
   }
+}
+
+// ---- ⑨ 内部故障 → 转 ask（2026-10-31 市场审查）----
+// 内部故障无法从外部自然触发（settings 损坏已被地板执法降级），走 hook 自带的测试注入口
+// AI_NATIVE_HOOK_FAULT_INJECT。要点：deny 清单命令在场时，故障的结局是「ask 由用户确认」，
+// 不是静默放行、也不是硬 deny（「绝不硬阻塞」契约仍守）。
+{
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git push -f' } }),
+    encoding: 'utf8',
+    cwd: process.cwd(),
+    env: { ...process.env, AI_NATIVE_HOOK_FAULT_INJECT: '1' },
+  });
+  const d = decisionOf(r);
+  check('内部故障 → exit 0（宿主协议）', r.status === 0, `exit=${r.status} stderr=${r.stderr}`);
+  check('内部故障 → 转 ask 而非静默放行', d && d.permissionDecision === 'ask', r.stdout);
+  check('内部故障 → 理由点明内部故障', d && /内部故障/.test(d.permissionDecisionReason || ''),
+    d && d.permissionDecisionReason);
+  check('内部故障 → stderr 同步留痕', /内部故障/.test(r.stderr || ''), r.stderr);
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

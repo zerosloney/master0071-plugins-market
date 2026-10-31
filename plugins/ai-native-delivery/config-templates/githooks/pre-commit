@@ -6,16 +6,23 @@
 // 车道：LANE = '' 为 check-loop 默认 hard 车道（判低/L3 状态/回归证据/验收勾验/确认指纹/收敛对账）；
 // 项目可改 LANE 为 '--hygiene' 或 '--all'（§3.2 L-git 层：git 拦「提交」，一切落盘改动都过这道闸）。
 // 不要用 git commit --no-verify 绕过——hard-block 应先修 workflow 文档再提交。
-const { spawnSync } = require('node:child_process');
-const fs = require('node:fs');
+// 模块中立（2026-10-31 市场审查）：无扩展名钩子的模块系统随项目最近 package.json 的 "type" 决定，
+// 顶层 require() 在 "type":"module" 的项目里直接 ReferenceError——每次提交都被神秘报错拦下。
+// 改用两种模块系统都支持的动态 import()，行为不变（spawnSync + existsSync + 相同报错与退出码）。
+import('node:child_process').then(async ({ spawnSync }) => {
+  const { existsSync } = await import('node:fs');
 
-const ENGINE_SCRIPT = "@@ENGINE_SCRIPT@@";
-const LANE = "@@LANE@@";
+  const ENGINE_SCRIPT = "@@ENGINE_SCRIPT@@";
+  const LANE = "@@LANE@@";
 
-const args = LANE ? [LANE] : [];
-const r = spawnSync(process.execPath, [ENGINE_SCRIPT, ...args], { stdio: 'inherit', windowsHide: true });
-if (r.error || !fs.existsSync(ENGINE_SCRIPT)) {
-  console.error(`pre-commit: 无法启动闭环扫描（${ENGINE_SCRIPT}）——提交已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
+  const args = LANE ? [LANE] : [];
+  const r = spawnSync(process.execPath, [ENGINE_SCRIPT, ...args], { stdio: 'inherit', windowsHide: true });
+  if (r.error || !existsSync(ENGINE_SCRIPT)) {
+    console.error(`pre-commit: 无法启动闭环扫描（${ENGINE_SCRIPT}）——提交已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
+    process.exit(1);
+  }
+  process.exit(r.status === null ? 1 : r.status);
+}).catch((error) => {
+  console.error(error);
   process.exit(1);
-}
-process.exit(r.status === null ? 1 : r.status);
+});
