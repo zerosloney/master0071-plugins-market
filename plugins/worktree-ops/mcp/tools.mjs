@@ -208,7 +208,12 @@ const tools = [
       // README 承诺 worktree 建在配置根目录下：显式 path 也必须落在受管根内
       const dir = args.path ? path.resolve(String(args.path)) : path.join(rootDir, slug(branch));
       if (args.path && !isInside(dir, rootDir)) {
-        return fail(`explicit \`path\` resolves to ${dir}, outside the managed root ${rootDir}.\nChoose a directory inside the managed root, or drop \`path\` to use <root>/<branch-slug>.`);
+        // 相对 path 的真实病灶：它按本服务进程的 cwd（插件根）解析，不是按调用方的仓库——
+        // 不点破的话，「在受管根外」这条报错会把人引向去改受管根配置。
+        const relativeNote = path.isAbsolute(String(args.path))
+          ? ""
+          : `\n\`path\` was relative, so it resolved against this server's working directory (the plugin root), not your repository — pass an absolute path.`;
+        return fail(`explicit \`path\` resolves to ${dir}, outside the managed root ${rootDir}.${relativeNote}\nChoose a directory inside the managed root, or drop \`path\` to use <root>/<branch-slug>.`);
       }
 
       // 落点在仓库工作树内：git 会照建（实测），但 checkout 混进 .git 对象库是病态配置且
@@ -625,6 +630,8 @@ const tools = [
           // （会话就在该 worktree 里时），此时 git 连 rev-parse 都跑不起来 —— 删成功了却报
           // `spawnSync git ENOENT`，用户会以为删除失败。用 removeCwd（必然存活）。
           `Remaining worktrees: ${listWorktrees(removeCwd).map((w) => w.branch || w.path).join(", ")}`,
+          ``,
+          `Config: ${configSummary(config, repo)}`,
         ].join("\n"),
       );
     },
@@ -645,6 +652,7 @@ const tools = [
     },
     handler: (args) => {
       const repo = repoRoot(args.repoPath);
+      const { config } = loadConfig();
       const entry = pickWorktree(repo, args.name);
       if (samePath(entry.path, mainWorktreePath(repo))) {
         return fail("refusing to lock the primary worktree.");
@@ -658,7 +666,7 @@ const tools = [
       }
       git(["worktree", "lock", ...(reason ? [`--reason=${reason}`] : []), entry.path], repo);
       return ok(
-        `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove now refuses to touch it, and worktree_merge_back refuses when asked to remove after the merge; unlock with worktree_unlock.`,
+        `Locked worktree ${entry.path}${reason ? ` (reason: ${reason})` : ""}.\nworktree_remove now refuses to touch it, and worktree_merge_back refuses when asked to remove after the merge; unlock with worktree_unlock.\n\nConfig: ${configSummary(config, repo)}`,
       );
     },
   },
@@ -676,9 +684,10 @@ const tools = [
     },
     handler: (args) => {
       const repo = repoRoot(args.repoPath);
+      const { config } = loadConfig();
       const entry = pickWorktree(repo, args.name);
       git(["worktree", "unlock", entry.path], repo);
-      return ok(`Unlocked worktree ${entry.path}. Removal and merge-back are allowed again.`);
+      return ok(`Unlocked worktree ${entry.path}. Removal and merge-back are allowed again.\n\nConfig: ${configSummary(config, repo)}`);
     },
   },
   {

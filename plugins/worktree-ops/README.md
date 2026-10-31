@@ -1,6 +1,6 @@
 # worktree-ops
 
-Git worktree 操作台：**在仓库之外的可配置目录**里创建、查看、审计、合并回主干与安全清理 worktree，附带把工作交接到新会话的完整指引。
+Git worktree 操作台：**在可配置的根目录**（仓库内外皆可）里创建、查看、审计、合并回主干与安全清理 worktree，附带把工作交接到新会话的完整指引。
 
 解决的问题很简单：多数 agent 宿主在会话启动时就固定了工作目录，子 agent 继承这个目录，所以"开一个隔离的分支工作区"要么被写死在某个路径（`isolation: "worktree"`），要么根本做不到。这个插件接管 worktree 的生命周期，把**建在哪**变成配置项，并把"换目录开工"变成一段可以直接粘贴的交底文本。
 
@@ -33,14 +33,14 @@ node --version && git --version
 
 | 工具 | 作用 |
 |------|------|
-| `worktree_create` | 在配置根目录下从基线新建分支，或检出既有分支（如 PR 分支）做验证，产出绝对路径 + 新会话交底。既有分支按原名检出（`develop` 这类无斜杠分支同样支持）；短任务名不含 ASCII 字母数字时用稳定哈希后缀，并在返回里提示 |
+| `worktree_create` | 在配置根目录下从基线新建分支，或检出既有分支（如 PR 分支）做验证，产出绝对路径 + 新会话交底。既有分支按原名检出（`develop` 这类无斜杠分支同样支持）；短任务名不含 ASCII 字母数字时用稳定哈希后缀，并在返回里提示。`noCheckout: true` 以 `--no-checkout` 创建（只设 HEAD 不检出工作区文件，适合超大仓库）；显式 `path` 必须落在受管根内，否则拒绝 |
 | `worktree_list` | 列出全部 worktree：分支、HEAD、是否干净、领先/落后、是否已合并、闲置天数 |
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中（标准客户端下传 `sessionCwd` 可确认） |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
 | `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；受管目录外一律拒绝，`force` 也不放宽 |
 | `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
-| `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还 |
+| `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还。`ff: true` 配合 `merge` 做 fast-forward-only 合并（线性历史、无合并提交），分支已分叉时拒绝 |
 | `worktree_config` | 读写全部 worktree 配置（`root` / `baseRef` / `branchPrefix` / `staleDays`），`scope: global` 或单仓库覆盖。`scope: "global"` 下 `repoPath` 可选，仅用于回执附上该仓库的生效值（传了就必须是 git 仓库，路径无效整次调用报错） |
 | `worktree_handoff` | 生成可粘贴的交接简报（路径、分支、基线、任务、约束） |
 

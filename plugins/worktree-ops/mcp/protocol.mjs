@@ -12,7 +12,7 @@ import { tools } from "./tools.mjs";
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/worktree-ops/plugin.json 同步，由 `node scripts/release.mjs worktree-ops <x.y.z>` 统一改
-const SERVER_INFO = { name: 'worktree-ops', version: '0.4.12' };
+const SERVER_INFO = { name: 'worktree-ops', version: '0.4.13' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 
@@ -51,6 +51,13 @@ function reply(id, result) {
 function replyError(id, code, message) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`);
 }
+
+// 宿主关闭 stdio 管道的瞬间，挂起的 write 会抛 EPIPE——不挂 error 处理就是未捕获异常加
+// 崩栈收场，长驻服务在正常关停时也以错误退出。EPIPE 只意味着对端已不在：安静退出即可。
+process.stdout.on("error", (err) => {
+  if (err && err.code === "EPIPE") process.exit(0);
+  throw err;
+});
 
 async function handle(message) {
   const { id, method, params } = message;

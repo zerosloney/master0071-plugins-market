@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// worktree-ops: MCP server (stdio) that manages git worktrees in a configurable
-// directory outside the repository.
+// worktree-ops: MCP server (stdio) that manages git worktrees under a configurable
+// root directory, inside or outside the repository.
 //
 // Agent hosts generally pin a session's working directory at start, so this server
 // does not pretend to relocate the running session. It owns the worktree lifecycle,

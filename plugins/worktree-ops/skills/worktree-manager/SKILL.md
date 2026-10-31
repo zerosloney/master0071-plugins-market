@@ -1,6 +1,6 @@
 ---
 name: worktree-manager
-description: Create, inspect, audit, hand off, merge back, and clean up git worktrees in a user-configurable directory outside the repository. Use when the user wants an isolated branch working directory, a parallel writer workspace, a worktree outside the repo, a custom worktree root, a worktree cleanup or disk-reclaim pass, or asks to move work into / start a session in a worktree. Never use it to change the running location of the current session.
+description: Create, inspect, audit, hand off, merge back, and clean up git worktrees in a configurable root directory, inside or outside the repository. Use when the user wants an isolated branch working directory, a parallel writer workspace, a worktree outside the repo, a custom worktree root, a worktree cleanup or disk-reclaim pass, or asks to move work into / start a session in a worktree. Never use it to change the running location of the current session.
 license: MIT
 compatibility: Requires git and Node.js 18+ (both must be on the PATH the host uses to launch the plugin MCP server), plus a configured worktree root (WORKTREE_ROOT or worktree_config).
 ---
