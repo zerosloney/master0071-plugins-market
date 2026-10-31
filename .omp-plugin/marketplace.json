@@ -15,7 +15,7 @@
     {
       "name": "worktree-ops",
       "source": "./plugins/worktree-ops",
-      "version": "0.4.12",
+      "version": "0.4.13",
       "description": "Git worktree 操作台：10 个 MCP 工具在可配置目录（仓库内外皆可，须先配置根）里创建 / 列出 / 审计 / 合并回主干 / 安全清理 worktree；删除默认拒绝脏工作树与未合并提交——force=true 单独无效，须与 confirmDiscard=true 同时为真才丢弃（两者缺一即拒），锁定中与受管目录外一律拒绝删除且 force 不放开。",
       "category": "productivity",
       "keywords": ["git", "worktree", "mcp", "branch"]
