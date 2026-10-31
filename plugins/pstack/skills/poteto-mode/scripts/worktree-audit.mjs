@@ -14,7 +14,7 @@
 // Every probe yields a Fact, { known: true, value } or { known: false }. A hold
 // bucket needs only its own fact; `safe` needs every fact known.
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import process from "node:process";
@@ -249,11 +249,41 @@ export function duSize(output) {
   return output.trim().split(/\s/)[0];
 }
 
+// du is POSIX coreutils and absent on stock Windows, so size() degrades every
+// row to "?" there. Walk the tree in Node instead and emit du's human-readable
+// shape (du counts disk blocks, we count bytes — close enough for an audit
+// table). Symlinks are skipped via lstat to keep the walk finite.
+export function fallbackSize(path) {
+  let total = 0;
+  const stack = [path];
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    const stat = lstatSync(entry, { throwIfNoEntry: false });
+    if (stat === undefined) continue;
+    if (stat.isFile()) total += stat.size;
+    else if (stat.isDirectory()) {
+      for (const name of readdirSync(entry)) stack.push(join(entry, name));
+    }
+  }
+  const units = ["", "K", "M", "G", "T", "P"];
+  let value = total;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 || value >= 10 ? Math.round(value) : Math.round(value * 10) / 10}${units[unit]}`;
+}
+
 function size(path) {
   try {
     return duSize(execFileSync("du", ["-sh", path], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   } catch {
-    return "?";
+    try {
+      return fallbackSize(path);
+    } catch {
+      return "?";
+    }
   }
 }
 

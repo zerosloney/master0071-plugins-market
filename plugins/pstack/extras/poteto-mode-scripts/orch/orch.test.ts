@@ -368,7 +368,10 @@ const flag = (suffix) => ${JSON.stringify(`${flags}/${name}.`)} + suffix;
 const peer = (suffix) => existsSync(${JSON.stringify(`${flags}/`)} + suffix);
 const lock = ${JSON.stringify(join(directory, ".orch.lock"))};
 const spin = (ready) => {
-  const deadline = Date.now() + 4000;
+  // Windows（2026-10-31）：全套件并行负载下子进程启动 + 锁协调实测可到 ~9s，4s 的
+  // 路障会把健康用例误判为 barrier timeout。20s 仍低于 bun 的 30s 单测预算，真死锁
+  // 照样先以 barrier timeout 暴露。
+  const deadline = Date.now() + 20000;
   while (!ready()) {
     if (Date.now() > deadline) throw new Error("barrier timeout");
   }
@@ -651,7 +654,7 @@ const { openStore } = await import(${JSON.stringify(join(import.meta.dir, "store
 const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
 const flag = (suffix) => ${JSON.stringify(`${flags}/`)} + suffix;
 const spin = (ready) => {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 20000;
   while (!ready()) {
     if (Date.now() > deadline) throw new Error("barrier timeout");
   }

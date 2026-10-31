@@ -219,7 +219,7 @@ function resumeContract(T, first, n, w) {
     // this was ported from (index() yields 0). Compare against >= 0, or every
     // bare `--project .` flag truncates to an unknown key and the gate goes
     // silent on exactly the forms the contract exists to approve.
-    const eq = arg.indexOf('=') >= 0 ? arg.indexOf('=') : -1;
+    const eq = arg.indexOf('=');
     const key = eq >= 0 ? arg.slice(0, eq) : arg;
     if (key !== '--project' && key !== '--note' && key !== '--artifact') return false;
     if (op !== 'publish' && key !== '--project') return false;

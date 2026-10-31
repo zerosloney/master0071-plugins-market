@@ -1811,7 +1811,11 @@ export function openStore(
           await rename(drained, inbox);
           throw error;
         }
-        await rm(drained, { recursive: true, force: true });
+        // Windows（2026-10-31）：到这里 drain 已提交——inbox 已重建为空目录、rows 已
+        // 读出，删 parked 旧目录只是清理。Windows 的句柄滞后会让 rm 报 EBUSY/EPERM，
+        // 把它当失败会谎报一个已经成功的 drain。残留的 .inbox-drain-* 不影响后续
+        // （下次 drain 用新的 pid+UUID 命名），吞掉即可。
+        await rm(drained, { recursive: true, force: true }).catch(() => {});
         return rows;
       },
       peek: async () => {
