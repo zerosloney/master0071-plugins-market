@@ -16,7 +16,7 @@
 //   node test/merge-main.mjs
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cleanupFailedReply, tools } from '../mcp/tools.mjs';
@@ -34,6 +34,22 @@ const check = (name, cond, detail = '') => {
 };
 
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+// 回执里是否点名了某个路径。同一目录在 Windows 上可能以 8.3 短名（RUNNER~1）、长名或不同
+// 大小写出现；工具侧统一走 realpathSync.native 归一，回执给的是长名，而测试拿到的是
+// mkdtempSync 的原始形态——纯字符串比较会把「指向了正确路径」误判成没指向。
+// 归一到 realpath + 分隔符统一 + 大小写折叠后再比（2026-11-01 修 CI 上的既有红项）。
+const textNamesPath = (text, p) => {
+  let real = p;
+  try {
+    real = realpathSync.native(p);
+  } catch {
+    /* 路径不存在就只比字面量 */
+  }
+  const norm = (s) => String(s).replace(/\\/g, '/').toLowerCase();
+  const hay = norm(text);
+  return hay.includes(norm(p)) || hay.includes(norm(real));
+};
 
 // ── 一次性仓库 ────────────────────────────────────────────────────────────────
 const sandbox = mkdtempSync(path.join(os.tmpdir(), 'worktree-merge-main-'));
@@ -112,7 +128,11 @@ git(['commit', '-m', 'feat: feature'], linkWt);
   );
   check(
     '拒绝语指向主检出路径（而不是会话 worktree）',
-    r.text.includes(repo) && !r.text.includes(`Check out \`wt/feature\` in ${linkWt}`),
+    // 路径比较必须容忍大小写与 8.3 短名（2026-11-01 修 CI）：Windows runner 的 TEMP 是
+    // `C:\Users\RUNNER~1\...`，`mkdtempSync` 拿回短名形态，而工具侧统一走
+    // `realpathSync.native` 归一（README「路径比较解析 8.3 短名」那条），回执里是长名
+    // `C:\Users\runneradmin\...`——纯字符串 includes 在这台机器上恒假，与实现对错无关。
+    textNamesPath(r.text, repo) && !r.text.includes(`Check out \`wt/feature\` in ${linkWt}`),
     r.text,
   );
 }
