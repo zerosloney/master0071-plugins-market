@@ -1,5 +1,14 @@
 # NOTICE
 
+> **本文件是上游 pstack-claude 的原文，随包保留以保全署名链，正文未作改动。**
+> 因此正文里描述的**文件清单与布局是上游那一份**：`plugins/pstack/.claude-plugin/plugin.json`、
+> `.codex-plugin/prompts/*.md`、`hooks/codex-hooks.json` 等路径在本包内并不存在，本包已按
+> [`NOTICE-PORT.md`](NOTICE-PORT.md) 第 1–8 条搬迁与重写；同样，"六个 cursor-team-kit skill
+> 逐字复制、无需改写"（"What changed in the port" 节）描述的是上游那一次移植，本包按
+> `NOTICE-PORT.md` 第 6 条对 frontmatter 做了中性化改写、正文补了 `compatibility` 声明。
+> **本包的实际布局、改动与逐项差异，一律以 `NOTICE-PORT.md` 为准。**
+> （2026-11-01 市场审查补：原文没有这句自我标注，再分发者按它核对归属会找不到文件。）
+
 This plugin is a port of upstream MIT-licensed work. The port's modifications and additions are (c) 2026 Michael Denyer and are also released under the [MIT license](LICENSE). All upstream copyright notices and license terms are preserved.
 
 ## Upstream sources

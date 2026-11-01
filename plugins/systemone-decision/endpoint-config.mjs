@@ -35,16 +35,31 @@ function readOne(file) {
     const model = typeof cfg.model === 'string' && cfg.model.trim() !== '' ? cfg.model : null;
     const t = Number(cfg.timeoutMs);
     const timeoutMs = Number.isFinite(t) && t > 0 ? t : null;
-    return baseUrl || model || timeoutMs ? { baseUrl, model, timeoutMs } : null;
+    // hook 开关也走这条共享通道（2026-11-01 修复）：设置页注入的 SYSTEMONE_PLUGIN_HOOK_* 只进
+    // MCP 子进程的 env，hook 进程拿不到；而 README 曾承诺设置页开关"等价环境变量"。
+    // 现在 MCP 启动时把这两个开关的解析结果一并落盘，hook 读这里——与端点共用同一条已验证通道。
+    const hookPrecheck = typeof cfg.hookPrecheck === 'string' && cfg.hookPrecheck.trim() !== '' ? cfg.hookPrecheck : null;
+    const hookRiskGate = typeof cfg.hookRiskGate === 'string' && cfg.hookRiskGate.trim() !== '' ? cfg.hookRiskGate : null;
+    return baseUrl || model || timeoutMs || hookPrecheck || hookRiskGate
+      ? { baseUrl, model, timeoutMs, hookPrecheck, hookRiskGate }
+      : null;
   } catch {
     return null;
   }
 }
 
+/** 设置页 hook 开关的跨进程取值：只读 MCP 落盘的共享文件（hook 进程没有设置页注入的 env）。
+ *  返回 '' 表示共享文件里没有该项，调用方接着回退环境变量。 */
+export function sharedHookSwitch(name) {
+  const cfg = readEndpointConfig();
+  const v = cfg && cfg[name];
+  return typeof v === 'string' ? v : '';
+}
+
 /** best-effort 落盘：失败仅 stderr 告警（hook 回退环境变量），绝不影响服务启动。
  *  写 PLUGIN_DATA（存在时）优先；它不可写就退回插件根，两处都失败才告警。 */
-export function writeEndpointConfig({ baseUrl, model, timeoutMs }) {
-  const payload = `${JSON.stringify({ baseUrl, model, timeoutMs }, null, 2)}\n`;
+export function writeEndpointConfig({ baseUrl, model, timeoutMs, hookPrecheck = null, hookRiskGate = null }) {
+  const payload = `${JSON.stringify({ baseUrl, model, timeoutMs, hookPrecheck, hookRiskGate }, null, 2)}\n`;
   const targets = DATA_FILE ? [DATA_FILE, LEGACY_FILE] : [LEGACY_FILE];
   const sleepMs = (ms) => {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

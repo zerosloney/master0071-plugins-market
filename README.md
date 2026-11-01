@@ -4,11 +4,11 @@
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.5.12 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
-| [worktree-ops](plugins/worktree-ops/) | 0.4.13 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
-| [agent-pipelines](plugins/agent-pipelines/) | 0.1.22 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
-| [pstack](plugins/pstack/) | 0.1.19 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体（4 个随插件注册，其余 10 个 effort 分级在 `extras/`，默认不加载）与会话启动 hook |
-| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.10 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
+| [systemone-decision](plugins/systemone-decision/) | 0.5.13 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 15 个业务场景（工单分流、内容审核、Agent 路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [worktree-ops](plugins/worktree-ops/) | 0.4.14 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
+| [agent-pipelines](plugins/agent-pipelines/) | 0.1.23 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
+| [pstack](plugins/pstack/) | 0.1.20 | `skills/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 65 个 skill，含 24 条 principle 原则、14 个子智能体（4 个随插件注册，其余 10 个 effort 分级在 `extras/`，默认不加载）与会话启动 hook |
+| [ai-native-delivery](plugins/ai-native-delivery/) | 0.1.11 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 5 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线，机制保真、运行数据不迁） |
 
 ## 共装注意：两个 PreToolUse 风险闸
 
@@ -22,6 +22,8 @@
 | systemone 的模型闸（能判语义） | 删除 `plugins/ai-native-delivery/hooks/hooks.json` 的 `PreToolUse` 段 | **命令全文会外发到所配置的第三方端点**（默认 unisound），并需在该插件设置页配 API Key |
 
 默认两者都开、都只读命令文本（不读文件内容）。要外发这件事本身就是选型依据，所以写在装之前看的那一页上，而不是埋在各自 README 里。
+
+**这一节只对「执行插件 hook 的宿主」成立**（Claude Code / ZCode 等）。本仓对 Codex 的实测结论是**不执行插件 hook**（codex-cli 0.163.0，见 [pstack README](plugins/pstack/README.md)「宿主支持」节）：那类宿主上两道闸都不生效，也就不会双判——`systemone-decision` 在该宿主上没有命令闸，`ai-native-delivery` 退化为 git hooks 单层拦截（其 README「宿主与 hook 降级」一节）。装之前先确认你的宿主属于哪一类，别把"清单里声明了 hooks"当成"hook 会被执行"。
 
 ## 标准包结构
 
@@ -153,7 +155,7 @@ codex plugin add pstack@master0071-plugins
 codex plugin add ai-native-delivery@master0071-plugins
 ```
 
-Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/` 是 Claude 式宿主的约定，Codex 不加载（effort 分级变体在 `extras/`，任何宿主都不加载）。
+Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/` 是 Claude 式宿主的约定，Codex 不加载（effort 分级变体在 `extras/`，任何宿主都不加载）。**注意"声明"与"执行"是两件事**：截至本仓实测（codex-cli 0.163.0，2026-10-23，见 [pstack README](plugins/pstack/README.md)「宿主支持」节），Codex **没有执行**插件清单里声明的 hook——声明仍保留（宿主支持后无需再改插件），但在那之前不要按"hook 已生效"规划你的闸门。
 
 ### Oh My Pi（omp）
 

@@ -305,6 +305,53 @@ const main = async () => {
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
   });
 
+  // 8b. 设置页的两个 hook 开关走共享文件（2026-11-01 修复）。
+  // 设置页注入的 SYSTEMONE_PLUGIN_HOOK_* 只进 MCP 子进程 env，hook 进程读不到；旧实现里
+  // 这两个开关在 hook 侧**没有任何通道**，而 README 把它们写成"等价环境变量""off = 停掉外发"。
+  // 现在 MCP 启动时把解析结果一并落盘，hook 读共享文件——本用例是那条通道的端到端证据。
+  received = [];
+  writeFileSync(
+    path.join(runRoot, '.endpoint.json'),
+    JSON.stringify({
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      model: 'u2-decision',
+      timeoutMs: 9000,
+      hookPrecheck: 'off',
+      hookRiskGate: 'off',
+    })
+  );
+  r = await run('帮我把这个项目优化一下，尽快弄好'); // 无任何开关环境变量
+  check('设置页 hook_precheck=off 经共享文件到达 hook：不预检、不发请求', () => {
+    assert.equal(r.status, 0);
+    assert.equal(received.length, 0, 'off 意味着一个判定请求都不该发');
+    assert.equal(String(r.stdout).trim(), '', 'off 时不应注入任何上下文');
+  });
+
+  // 同一个共享文件喂给风险闸内核：开关从 env 拿不到，必须从文件拿到
+  const switchProbe = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [
+      '-e',
+      `Promise.all([import(${JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'risk-gate.mjs')).href)}),`
+      + ` import(${JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'precheck-quota.mjs')).href)})])`
+      + `.then(([rg, pq]) => { process.stdout.write(JSON.stringify({ gate: rg.riskGateEnabled({}), pre: pq.precheckMode({}) })); })`
+      + `.catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1); })`,
+    ], {
+      env: cleanEnv({ PLUGIN_DATA: '', SYSTEMONE_HOOK_RISK_GATE: '', SYSTEMONE_HOOK_PRECHECK: '' }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (c) => (out += c));
+    child.stderr.on('data', (c) => (err += c));
+    child.on('exit', (code) => resolve({ code, out, err }));
+  });
+  check('风险闸内核从共享文件读到开关（env 为空也算数）', () => {
+    assert.equal(switchProbe.code, 0, switchProbe.err);
+    const parsed = JSON.parse(switchProbe.out);
+    assert.equal(parsed.gate, false, 'hookRiskGate=off 应让 riskGateEnabled 返回 false');
+    assert.equal(parsed.pre.mode, 'off', 'hookPrecheck=off 应让 precheckMode 返回 off');
+  });
+
   // 8. 共享文件损坏 → 回退环境变量（即落盘机制不存在时的旧行为）
   received = [];
   writeFileSync(path.join(runRoot, '.endpoint.json'), '{"oops');

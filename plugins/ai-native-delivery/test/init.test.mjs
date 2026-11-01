@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { initEngine, GITIGNORE_BEGIN, GITIGNORE_END } from '../scripts/init-engine.mjs';
+import { PLUGIN_ROOT } from '../scripts/paths.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
@@ -101,7 +102,7 @@ const snapDiff = (a, b) => {
   const body = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   check('块内旧条目被替换', !body.includes('.agents/old-stale-entry/'), body);
   check('块外内容原样保留', body.includes('node_modules/') && body.includes('dist/') && body.includes('keep-me-custom.txt'), body);
-  check('块内含六条本机不入库项', ['.agents/cache/', '.agents/judgments.jsonl', '.agents/verifications.jsonl', '.agents/tmp/', '.agents/config/model-roles.local.json', '.agents/notes/runtime-env.local.md'].every((e) => body.includes(e)), body);
+  check('块内含七条本机不入库项', ['.agents/cache/', '.agents/judgments.jsonl', '.agents/verifications.jsonl', '.agents/tmp/', '.agents/config/model-roles.local.json', '.agents/notes/runtime-env.local.md', 'workflow/**/*.lock'].every((e) => body.includes(e)), body);
 
   const snap1 = snapshot(root);
   const r2 = initEngine(root);
@@ -133,6 +134,27 @@ const snapDiff = (a, b) => {
   check('用户钩子不被覆盖', fs.readFileSync(userHook, 'utf8').includes('my-custom-hook'));
   check('同名钩子列入 skipped', r.hooks.skipped.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks.skipped));
   check('其余钩子照常安装', r.hooks.installed.length === 1 && r.hooks.installed[0].includes('pre-push'), JSON.stringify(r.hooks.installed));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ④b 本插件旧装钩子指向已失效的引擎脚本 → 覆盖刷新（2026-11-01）----
+// 插件安装目录随宿主缓存迁移，钩子里 baked 的绝对路径会失效；此时 commit 崩在 MODULE_NOT_FOUND，
+// 而钩子给出的修复指引正是"重跑 init-engine"——旧实现"已存在即跳过"让该指引变成 no-op。
+{
+  const root = mkRepo();
+  const pre = path.join(root, '.git', 'hooks', 'pre-commit');
+  initEngine(root);
+  const before = fs.readFileSync(pre, 'utf8');
+  check('④b 前置：首装钩子里 baked 的是现存引擎脚本', before.includes('check-loop.mjs') && fs.existsSync(PLUGIN_ROOT), before.slice(0, 160));
+  // 模拟插件目录迁移：把 baked 路径改成插件根下一个不存在的子目录
+  const stale = path.join(PLUGIN_ROOT, 'gone-after-move', 'check-loop.mjs');
+  const patched = before.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(stale)}`);
+  fs.writeFileSync(pre, patched, 'utf8');
+  const r = initEngine(root);
+  const after = fs.readFileSync(pre, 'utf8');
+  check('④b 陈旧自装钩子被刷新（不再跳过）', r.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks));
+  check('④b 刷新后 baked 路径回到现存脚本', !after.includes('gone-after-move') && after.includes('check-loop.mjs'), after.slice(0, 200));
+  check('④b 刷新原因写进 skipped（可审计）', r.hooks.skipped.some((s) => s.includes('覆盖刷新')), JSON.stringify(r.hooks.skipped));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

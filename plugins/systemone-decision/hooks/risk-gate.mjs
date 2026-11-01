@@ -5,6 +5,7 @@
 // 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与需求预检同一份）。
 
 import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
+import { sharedHookSwitch } from '../endpoint-config.mjs';
 import { STDIN_MAX_CHARS } from './hook-io.mjs';
 
 // 门限：拒绝 = 判定为 deny，或（高风险 且 不可逆）；确认 = 判定 confirm，或中风险以上，或不可逆。
@@ -92,11 +93,17 @@ const FIND_MUTATES = /\s-(delete|exec|execdir|ok|okdir|fls|fprintf|fprint)\b/i;
 // --pre=<prog> 与 --pre <prog> 两种写法都算。挂着只读首 token，实际在执行命令，必须在捷径前剔掉。
 const PRE_EXECUTES = /\s--pre(?:=|\s)/i;
 
-/** 风险闸总开关。设置页注入的 SYSTEMONE_PLUGIN_HOOK_RISK_GATE 优先于裸环境变量。
+/** 风险闸总开关。设置页开关优先于裸环境变量——但设置页注入的 SYSTEMONE_PLUGIN_HOOK_RISK_GATE
+ *  只存在 MCP 子进程里，hook 进程读不到，所以真实取值顺序是：
+ *  MCP 落盘的共享文件（sharedHookSwitch，设置页的解析结果）> 本进程 env 的 SYSTEMONE_PLUGIN_* > 裸环境变量。
+ *  2026-11-01 修复：此前只读 env，设置页那个开关在 hook 侧**没有任何通道**，
+ *  而 README 把它写成"off = 一律放行且不发判定请求，等于停掉命令外发"。
  *  开关必须存在：拦不住又关不掉的闸，用户只剩卸载一条路——那不是想要的收敛方式。
  *  非法值告警后按默认 on（与 precheckMode 同口径：坏值不毒死流程，但也不静默关灯）。 */
 export function riskGateEnabled(env = process.env) {
-  const raw = String(env.SYSTEMONE_PLUGIN_HOOK_RISK_GATE || env.SYSTEMONE_HOOK_RISK_GATE || '').trim().toLowerCase();
+  const raw = String(
+    env.SYSTEMONE_PLUGIN_HOOK_RISK_GATE || sharedHookSwitch('hookRiskGate') || env.SYSTEMONE_HOOK_RISK_GATE || '',
+  ).trim().toLowerCase();
   if (raw === '' || raw === 'on' || raw === 'true') return true;
   if (raw === 'off' || raw === 'none' || raw === 'false' || raw === '0') return false;
   process.stderr.write(`[systemone-decision hook] SYSTEMONE_HOOK_RISK_GATE 值 "${raw}" 无法识别（可用：on/off），按默认 on 处理\n`);

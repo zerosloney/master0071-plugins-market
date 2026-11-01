@@ -733,7 +733,7 @@ const tools = [
           : info.clean
             ? "yes"
             : `no (${info.dirtyCount} uncommitted)`;
-      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`];
+      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`, `- gitignored files: ${info.ignoredCount > 0 ? `${info.ignoredCount} (removal will be kept back)` : "none"}`];
       if (info.clean === false) return fail(`${steps.join("\n")}\nUncommitted changes block merge-back. Commit, stash, or discard them first.`);
       // 与 worktree_remove 同口径：状态不可得（clean=null）时不能当作干净继续，
       // 恰恰是护栏最该拦住的时候。prunable 例外与 remove 一致（目录已被移走，无未提交工作可丢）。
@@ -856,6 +856,19 @@ const tools = [
         } else if (!mergedNow) {
           // 分支未并入 target 时禁止强删：--force 会连带丢掉未合并提交
           steps.push(`- kept worktree ${info.path}: ${info.branch ? `branch` : "HEAD"} not merged into ${target}; run worktree_remove if intentional`);
+        } else if (info.ignoredCount > 0) {
+          // 与 worktree_remove:553-561 同一道闸（2026-11-01 修复）。gitignored 内容（.env / build/）
+          // 不在 `git status` 的普通输出里，裸 `git worktree remove` 会把它们连目录一起删掉且无法恢复；
+          // 此前只有 worktree_remove 带这道闸，功能等价的 merge_back+remove 是第二个删除出口，
+          // 却没有任何确认环节——两条删除路径对同一现象给出相反行为（实测：只含 .env 的已合并
+          // 工作树，merge_back{remove:true} 不带任何 force/confirmDiscard 直接删掉）。
+          // 这里不新增 force/confirmDiscard 参数（避免再造一套丢弃语义），而是保留工作树并把
+          // 调用方导向唯一那道带二次确认的出口。
+          const sample = info.ignoredFiles.slice(0, 5).join(", ");
+          steps.push(
+            `- kept worktree ${info.path}: contains ${info.ignoredCount} gitignored file(s) that would be deleted with it (${sample}${info.ignoredCount > 5 ? ", …" : ""}).\n`
+            + `  If the user explicitly accepts losing them, run worktree_remove with force: true and confirmDiscard: true.`,
+          );
         } else {
           const removeCwd = mutationCwd(repo, info.path);
           // 同 worktree_remove：本进程 cwd 落在待删目录里时，Windows 上必然 Permission denied

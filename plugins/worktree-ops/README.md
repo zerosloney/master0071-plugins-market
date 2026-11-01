@@ -40,7 +40,7 @@ node --version && git --version
 | `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；受管目录外一律拒绝，`force` 也不放宽 |
 | `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
-| `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还。`ff: true` 配合 `merge` 做 fast-forward-only 合并（线性历史、无合并提交），分支已分叉时拒绝 |
+| `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还。`ff: true` 配合 `merge` 做 fast-forward-only 合并（线性历史、无合并提交），分支已分叉时拒绝。`remove: true` 与 `worktree_remove` 同一道删除护栏：锁定 / 受管根外 / 未合并 / 脏 / **含 gitignored 文件**一律保留工作树并说明原因（2026-11-01 补：此前只有 `worktree_remove` 带 gitignored 闸，`merge_back` 是第二个删除出口却无确认环节，只含 `.env` 的已合并工作树会被静默删掉） |
 | `worktree_config` | 读写全部 worktree 配置（`root` / `baseRef` / `branchPrefix` / `staleDays`），`scope: global` 或单仓库覆盖。`scope: "global"` 下 `repoPath` 可选，仅用于回执附上该仓库的生效值（传了就必须是 git 仓库，路径无效整次调用报错） |
 | `worktree_handoff` | 生成可粘贴的交接简报（路径、分支、基线、任务、约束） |
 
@@ -85,6 +85,16 @@ node --version && git --version
 用 `WORKTREE_CONFIG_HOME` 可以整体改掉这个目录。支持设置页的宿主（ZCode）会把设置项映射成上面那组环境变量，用户在界面里填的值优先级最高。
 
 ## 版本变更
+
+**0.4.14**
+
+- **`merge_back` 的 remove 出口补齐删除护栏**。`worktree_remove` 一直拒绝删含 gitignored 文件的工作树，但功能等价的 `merge_back { remove: true }` 是**第二个删除出口**且没有确认环节：只含 `.env` 的已合并工作树被判 clean 后，裸 `git worktree remove` 连目录带文件一起删掉且无法恢复（实测）。现在它与 `worktree_remove` 同闸（锁定 / 受管根外 / 未合并 / 脏 / 含 gitignored 文件一律保留并说明原因），计划阶段就标注"removal will be kept back"，需要真丢弃时导向唯一带二次确认的 `worktree_remove`（`force` + `confirmDiscard`）。README 与 `worktree-manager` skill 同步，smoke 补 merge_back + gitignored 用例。
+
+**0.4.13**
+
+- **stdout EPIPE 不再崩栈**：宿主提前关闭管道时以退出码 0 静默收场，而不是抛 EPIPE 打一屏栈。
+- **`status` / `lock` / `unlock` 三个工具的回执补 `Config:` 来源行**，与其余工具同口径——来源（env / 单仓覆盖 / 全局 / 默认）在回执里可直接核对。
+- 文档口径同步：README、SKILL 与 marketplace 条目按实现改写。
 
 **0.4.12**
 

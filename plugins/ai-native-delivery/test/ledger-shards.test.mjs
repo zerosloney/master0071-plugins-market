@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // ledger-shards.test.mjs — 分片读写单源 fixture（2026-10-13 ledger-shard-ledgers）
 // 覆盖：数据行判定（含节限定）/ 月提取 / 主台账∪分片读 / 迁移幂等 / 追加 / 表头自带 / fail-loud
+// 　　/ 多进程并发追加不丢行（S23，2026-11-01）
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import {
   LEDGERS, isDataRow, inScope, monthOf, readLedger, readLedgerText,
   splitMain, appendRows, shardPathFor, renderShard,
@@ -354,6 +356,79 @@ const wf = (root, ...p) => path.join(root, 'workflow', ...p);
   let thrown3 = null;
   try { shardPathFor(root, 'papercuts', '2026-13'); } catch (e) { thrown3 = e; }
   check('S22d 月份 13 判非法（不造无意义目录）', thrown3 !== null, thrown3 ? thrown3.message : 'no throw');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S23 并发追加不丢行（2026-11-01 修复回归）----
+// 旧实现是 readFileSync 全文 → 内存拼 → writeFileSync 整写：后写者拿的是自己的陈旧快照，
+// 把别人刚写的行整个抹掉，而 CLI 照样打印「✓ 追加 1 行」（市场审查实测 24 并发全 0 退出、
+// 全打成功，落盘只有 18 行、缺 6）。同一缺陷 mcp/core.mjs:242-247 早已确认并改走
+// appendFileSync，但那条修复没覆盖 --append 这条口——而 commands/deploy.md:57 与
+// confirm-doc.mjs:464 明确引导用户与 agent 走它。
+// 两点让这条断言在 CI 上是确定性的而非碰运气：
+//   · 分片先撑到 ~1.6 MB：read→拼→write 的窗口拉长到毫秒级，重叠才可能发生（小分片下
+//     旧实现也能"侥幸"全落，那种测试不守任何东西——本断言初版就是这么漏的，已修正）；
+//   · 绝对时刻栅栏：所有子进程空转到同一个时间点才进入 appendRows，消除进程启动耗时带来的
+//     错开，24 路真正同时进场。
+// 正确实现（O_APPEND）在任何调度下都不会丢行，所以本断言只会漏报、不会误红。
+{
+  const root = mkroot();
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+  const goEpoch = Date.now() + 2500; // 统一进场时刻
+  // 子进程实参：argv[1]=root argv[2]=行 argv[3]=opts（'-'=空对象）argv[4]=台账名 argv[5]=栅栏时刻
+  const spawnAppend = (name, line, opts) => spawn(process.execPath,
+    ['-e', `import(${JSON.stringify(modUrl)}).then(m=>{const g=+process.argv[5];while(Date.now()<g){}return m.appendRows(process.argv[1],process.argv[4],[process.argv[2]],process.argv[3]==='-'?{}:JSON.parse(process.argv[3]));}).catch(e=>{console.error(String(e&&e.message||e));process.exit(1);})`,
+     root, line, opts, name, String(goEpoch)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const exitCode = (c) => new Promise((res) => { let err = ''; c.stderr.on('data', (d) => { err += d; }); c.on('exit', (code) => res({ code, err })); });
+
+  // 把分片撑大（直接落盘，不走被测函数）：1 行表头 + 40000 行数据 ≈ 1.6 MB
+  const bigRows = Array.from({ length: 40000 }, (_, i) => `| 2026-11-01 | seed${i} | 撑窗口 | x |`);
+  const shard = shardPathFor(root, 'papercuts', '2026-11');
+  fs.mkdirSync(path.dirname(shard), { recursive: true });
+  fs.writeFileSync(shard, `${bigRows.join('\n')}\n`, 'utf8');
+  const SEED = bigRows.length;
+  check('S23 前置：分片已撑到可复现规模', fs.statSync(shard).size > 1_000_000, `size=${fs.statSync(shard).size}`);
+
+  // ① 文末追加路径（papercuts 无 section）：24 路并发各追一行
+  const N = 24;
+  const tailKids = [];
+  for (let i = 0; i < N; i++) tailKids.push(spawnAppend('papercuts', `| 2026-11-02 | race-tail-${i} | s | f |`, '-'));
+  const tailCodes = await Promise.all(tailKids.map(exitCode));
+  const tailText = fs.readFileSync(shard, 'utf8');
+  const tailRows = tailText.split(/\r?\n/).filter((l) => isDataRow('papercuts', l));
+  check('S23a 并发追加无进程失败', tailCodes.every((r) => r.code === 0),
+    JSON.stringify(tailCodes.map((r) => r.code)) + ' ' + (tailCodes.find((r) => r.code !== 0)?.err || ''));
+  check(`S23b ${N} 路并发追加一行都不丢（旧实现拿陈旧快照整写，实测 24 路只落 18 行）`,
+    tailRows.length === SEED + N, `期望 ${SEED + N}，实得 ${tailRows.length}`);
+  check('S23c 每一路各自的行确实落盘',
+    Array.from({ length: N }, (_, i) => i).every((i) => tailText.includes(`race-tail-${i}`)),
+    '有行被陈旧快照整写抹掉');
+
+  // ② 特定节插入路径（delegations 带 section，读-改-写不可避免 → 写前指纹校验 + 重读重试）。
+  // 这一路径的契约不是「一定成功」而是「绝不谎报成功」：极端抢写下允许抛错（fail-loud），
+  // 不允许丢行还回 exit 0。所以断言按"成功的那几路必须真的落盘"来判，不误红也不放过假绿。
+  const secShard = shardPathFor(root, 'delegations', '2026-11');
+  fs.mkdirSync(path.dirname(secShard), { recursive: true });
+  const secHead = '## 委派结果\n\n| 日期 | 被委派方(模型) | 任务一句话 | 结果 | 备注 | 返工原因 |\n|------|----------------|------------|------|------|----------|\n';
+  const secRows = Array.from({ length: 40000 }, (_, i) => `| 2026-11-01 | m-seed${i} | 撑窗口 | 一次通过 |  | |`);
+  fs.writeFileSync(secShard, `${secHead}${secRows.join('\n')}\n`, 'utf8');
+  const secKids = [];
+  for (let i = 0; i < N; i++) {
+    secKids.push(spawnAppend('delegations', `| 2026-11-02 | m${i} | 委派${i} | 一次通过 |  | |`, JSON.stringify({ section: '委派结果' })));
+  }
+  const secRes = await Promise.all(secKids.map(exitCode));
+  const secText = fs.readFileSync(secShard, 'utf8');
+  const lied = secRes.map((r, i) => ({ r, i })).filter(({ r, i }) => r.code === 0 && !secText.includes(`| m${i} |`));
+  check('S23d 分节插入路径不谎报成功（回 exit 0 的行必须真在盘上）',
+    lied.length === 0, lied.map(({ i }) => `race-${i}`).join(','));
+  const loud = secRes.filter((r) => r.code !== 0);
+  check('S23e 若抢写失败必须是响亮抛错（拒绝陈旧快照整写），不是静默丢行',
+    loud.every((r) => /并发修改|陈旧快照/.test(String(r.err))), loud.map((r) => r.err).join(' | ').slice(0, 200));
+  const secRowCount = secText.split(/\r?\n/).filter((l) => isDataRow('delegations', l)).length;
+  const okCount = secRes.filter((r) => r.code === 0).length;
+  check('S23f 分节路径落盘行数 = 种子 + 成功路数（不多不少，无整写覆盖）',
+    secRowCount === secRows.length + okCount, `实得 ${secRowCount}，种子 ${secRows.length}，成功 ${okCount}/${N}`);
+
   fs.rmSync(root, { recursive: true, force: true });
 }
 

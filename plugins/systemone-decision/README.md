@@ -170,7 +170,7 @@ systemone_scenario(action: "run",
 
 **API Key 例外**：ZCode 目前没有安全凭据存储，插件设置页不支持保存敏感值，Key 仍只能走环境变量 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）。
 
-**hook 端点共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）落盘到共享文件，需求预检 hook 优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商后，预检自动跟随同一端点，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为。
+**hook 端点与开关共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）**以及两个 hook 开关的解析结果**（`hookPrecheck` / `hookRiskGate`）落盘到共享文件；需求预检与风险闸都优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商或关闸后，hook 自动跟随，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为（此时设置页的开关不生效，需改用裸环境变量）。**开关取值顺序**：共享文件里的设置页值 > hook 进程自身的 `SYSTEMONE_PLUGIN_HOOK_*` > 裸 `SYSTEMONE_HOOK_*` > 默认 `on`。2026-11-01 修复：此前只落盘端点、不落盘开关，于是设置页上那两个"一举停掉外发"的开关在 hook 侧没有任何通道。
 
 **共享文件位置**：Agent Plugins 规范的客户端会提供 `PLUGIN_DATA`（跨插件更新保留的可写数据目录），此时文件落在 `$PLUGIN_DATA/endpoint.json`——插件更新后端点配置不丢，也不会把运行时产物留在包目录里。没有 `PLUGIN_DATA` 的宿主（Claude Code / ZCode 等）沿用插件根的 `.endpoint.json`。读时两处都看、`PLUGIN_DATA` 优先；写时只写 `PLUGIN_DATA`（存在时）并清掉插件根的旧文件，避免同一份配置留两个副本、日后回退旧文件时读到过期端点。**注意：无 `PLUGIN_DATA` 时 `.endpoint.json` / `decision-cache.json` / `precheck-quota.json` 会回退写入插件安装目录，目录只读时各写入路径自行降级——端点共享文件失败会 stderr 告警，判定缓存与预检配额静默跳过，均不影响主流程。**
 
@@ -208,7 +208,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 只覆盖网络故障/超时与缺 Key**（拿到响应就按判定走），另有 4 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、命令超 100K 上限、三答残缺（幻觉选项或题型错乱）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
+插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key，以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这三类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 4 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、命令超 100K 上限、三答残缺（幻觉选项或题型错乱）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
@@ -289,3 +289,18 @@ mcp.json           Agent Plugins 标准 MCP 声明（mcpServers / type: stdio）
 .omp-plugin/       Oh My Pi 兼容垫片，非标准（skills + 内联 mcpServers）
 icon.png           界面 logo
 ```
+
+## 版本变更
+
+**0.5.13**
+
+- **`params` 覆盖路径的 `__proto__` 丢题**：`applyParams` 用裸 `{}` 承载问题表，`params` 里覆盖任意一题时，自定义场景中 id 为 `__proto__` 的那道题会静默消失（0.5.12 修的是加载路径，这是第二处承载点）。改用无原型对象；预检配额会话桶同型一并收口。
+- **设置页的两个 hook 开关真正到达 hook 进程**：开关此前只注入 MCP 子进程的 env，hook 读不到，于是设置页上"off = 停掉外发"的承诺在 hook 侧没有生效路径。现在 MCP 启动时把两个开关的解析结果一并写入共享端点文件，hook 按「共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸环境变量」取值，README 两处自相矛盾的说法同步改写。
+- **审计日志轮转的 rename 加有界重试**：Windows 上日志正被 `action=stats` 或外部 tail 打开时 rename 会 EPERM/EBUSY，旧写法一抛就永久停用本进程审计；现在与端点 / 缓存 / 配额三处同款重试。
+- 预检 hook 失败语义的文档范围按实现校正（响应级坏消息——非 2xx、非 JSON、缺 `answers`——实际仍 fail-open）。
+
+**0.5.12**
+
+- **自定义场景里 id 为 `__proto__` 的问题不再丢失**：问题表改用无原型对象承载，赋值不再触发原型 setter，模型能收到该题。
+- **原子写的 Windows 竞态**：端点共享文件、判定缓存、预检配额三处的临时文件改用「同目录 + pid + 随机后缀」并在 rename 上做有界重试，避免并发下 EPERM/EBUSY 互踩。
+- 文档口径校正。

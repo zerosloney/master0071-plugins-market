@@ -17,7 +17,7 @@ description: 启动本地服务并用浏览器实测 UI 改动（只读验证、
 
 ### 1. 环境准备
 - **服务启动**：参考 `.agents/notes/runtime-env.md` 启动必要服务。记录所有启动进程。
-- **多 worktree 并行**：设环境变量 `ENGINE_SLOT`（2026-10-27 插件化迁移脱敏更名，机制不变；缺省 0 = 主仓端口）使 API / 前端 / CDP 三组端口整体偏移，避免与另一棵 worktree 抢端口；端口表、每棵 worktree 执行序与残留风险见 `.agents/notes/runtime-env.md` §6.1b（端口字面量单一权威 `scripts/verify/e2e/ports.mjs`）。
+- **多 worktree 并行**：设环境变量 `ENGINE_SLOT`（2026-10-27 插件化迁移脱敏更名，机制不变；缺省 0 = 主仓端口）使 API / 前端 / CDP 三组端口整体偏移，避免与另一棵 worktree 抢端口；端口表、每棵 worktree 执行序与残留风险见项目侧的 `.agents/notes/runtime-env.md` §6.1b（**插件不附带也不生成该文件**；项目未维护时以本项目实际端口约定为准），端口字面量的单一权威是项目侧的 `scripts/verify/e2e/ports.mjs`。
 - **浏览器配置**：使用较新版本的 Chromium 内核 headless 模式（如 Edge `--headless=new`）。
 - **鉴权注入**：通过 API 获取 token $\rightarrow$ 注入 localStorage $\rightarrow$ **执行整页重载** (Page.reload)。
 
@@ -46,7 +46,7 @@ description: 启动本地服务并用浏览器实测 UI 改动（只读验证、
 ## 技术要求与约束
 
 ### 技术细节单源 = harness（勿在本文件复制）
-`scripts/verify/e2e/harness.mjs` 是 UI 实测技术细节的**单一真相源**——写脚本时 import 其导出，勿手写等价逻辑（完整清单：`grep '^export' scripts/verify/e2e/harness.mjs`）。覆盖：会话/导航、交互（Vue 原生 setter、去空白点击、Escape 关弹层）、断言取数（覆盖层可见且末位、虚拟滚动**以接口响应为准禁数 DOM**、请求计数**已排除 OPTIONS 预检**）、网络/控制台/toast 采集、断言汇总与证据落盘、直连 SQL。
+`scripts/verify/e2e/harness.mjs` 是 UI 实测技术细节的**单一真相源**——写脚本时 import 其导出，勿手写等价逻辑（完整清单：`grep '^export' scripts/verify/e2e/harness.mjs`）。**这是项目侧文件**：插件不附带、也不生成它（`check-scripts-syntax.mjs` 对项目侧三目录按"存在才守护"处理），首次接入的项目需先按本节覆盖清单自建，缺失时不要假定它存在。覆盖：会话/导航、交互（Vue 原生 setter、去空白点击、Escape 关弹层）、断言取数（覆盖层可见且末位、虚拟滚动**以接口响应为准禁数 DOM**、请求计数**已排除 OPTIONS 预检**）、网络/控制台/toast 采集、断言汇总与证据落盘、直连 SQL。
 
 ### 仅剩的纪律（harness 无法代劳）
 - **协议**：优先 HTTP 避免自签证书拦截。
@@ -58,7 +58,7 @@ description: 启动本地服务并用浏览器实测 UI 改动（只读验证、
 - **本人门/权限门页面以「真身」播种会话（2026-10-23 追加；2026-10-26 缺省身份改为真身）**：`seedSession(ctx, token)` 已改为从所播 token 解出的**真实登录身份**写入会话（不再写死管理员——管理员身份下「当前用户 vs 记录创建人」判可操作性的页面所有入口恒置灰，脚本会误判成「没有可编辑行」而看不出真因）。判据在页面里通常是「状态 + 是否创建人」两个条件的合取，二者都要单独验。仅当需要**与 token 账号不同**的身份（如双账号测创建人/他人门）才手工播种：从你所测产品自己的登录响应里取身份字段，写进该产品前端的会话存储后 reload；哪些账号真能过门，记进对应 `features/<特性>.md` 的「到达路径」（**账号与人名属项目侧数据，不分发进本插件**）。验证锚：2026-10-23 需求变更编辑抽屉实测（连续 3 轮「编辑入口: none」）。
 - **表格选择态**：清空遗留勾选按 `data-row-key` 去重逐行点击，且与后续勾选**分两拍**执行（同一 tick 内行勾选处理器读到的是重渲染前的旧 `selectedRowKeys`，连点会把已清行又选回）；表头全选框在半选/无选态下点击是「全选」而非「清空」（antd 循环：无→全、全→无、部分→全）。验证锚：verify-po-field-alignment-ui A10（2026-10-22 连续 4 轮返工后收口）。
 - **汇总行必须能区分「跑完」与「中途异常」（2026-10-23 追加）**：把断言汇总写在 `finally` 里、只按 `pass == results.length` 判 GREEN 的脚本，在断言途中抛异常时会「跑一半 + 打印 GREEN + 退出码 0」——**假绿**。写法：主体包 `try/catch`，`catch` 里追加一条失败断言（含错误信息）并落进报告，退出码随之为 1。实测锚：`scripts/verify/business/verify-pml-pbs-relation-host-ui.mjs` 首版（脚本内 `dbQuery` 因缺技能脚本抛错，只跑到第 3 条断言却报 3/3 GREEN）。
-- **脚本内直连库前先确认 `dbQuery` 可用**：`harness.dbQuery` 依赖本机 `~/.agents/skills/database-explorer/scripts/db_tool.py`，未安装该技能时直接抛 python 报错。不连库也能立的判据优先（如「两条读路径顺序一致」）；必须连库核对的基准值，改为取到人工证据里留痕，别让门禁依赖未装工具。
+- **脚本内直连库前先确认 `dbQuery` 可用**：`harness.dbQuery` 依赖一个**数据库访问技能**提供的 python 脚本（本仓作者环境里的 database-explorer 技能，位于宿主的用户级 skill 目录下），插件不附带它，未安装时直接抛 python 报错。具体路径按宿主的映射来定，不要把这句当成硬编码依赖。不连库也能立的判据优先（如「两条读路径顺序一致」）；必须连库核对的基准值，改为取到人工证据里留痕，别让门禁依赖未装工具。
 - **覆盖层/抽屉内探针交互三坑（2026-10-24 基础数据四模块实测，连续 3 轮返工后收口）**：① antd 对两字中文按钮插空格（「保 存」「返 回」），`innerText.trim()` 精确匹配必落空——比较前先 `.replace(/\s+/g,'')` 归一；② 输入赋值按 placeholder 找元素须**限定在目标容器内**（`layer.querySelectorAll('input')`），全局 `querySelectorAll` 会命中覆盖层底下的列表/树搜索框（如仓库页「搜索仓库名称/编码」包含「仓库名称」，表单赋值静默落空 → 必填校验拦保存，POST 计数为 0 的假象）；③ `a-select` 的 `.ant-select-clear` 图标**悬停才渲染**，直接 click 查不到节点——先对 select 派发 mouseenter/mouseover、等一拍再点。验证锚：`tmp/e2e/verify-basedata-overlay-ui.mjs`（run5 三类断言全红 → run7 38/38 绿）。
 - **写断言前先探真实 DOM 形状，勿从 CSS 源码反推（2026-10-23 追加）**：皮肤/控件规则常写成**后代选择器**（`.foo .ant-input-affix-wrapper`），而 antd 会把组件传入的 `class` 与内部结构类打在**同一元素**上（`<a-input class="foo">` 带 `#prefix` 时渲染为 `<span class="ant-input-affix-wrapper foo">`），后代组合子因此**永不命中**——照 CSS 源码读出来的「期望几何」是假的。写法：先跑一次性探针（打印目标元素 `outerHTML` + `getComputedStyle`）再定断言；拿不准时改用与规范数值解耦的不变量（如「两页容器几何逐项相等」），把规范对账降为 NOTE，避免把错误几何固化成期望值。验证锚：`scripts/verify/e2e/warehouse-tree-search-align-check.mjs` 首版按 CSS 断言「容器 32px / 3px / 灰底 / 无边框」，实测两页（含未报障的对照页）全是 antd 默认 42px / 6px / 白底 / `#D9D9D9` 边框，8 条断言全红、整轮返工（incident 2026-10-23-warehouse-tree-search-box-align）。
 - **覆盖层/弹层页驱动表单控件须把查询限定到覆盖层根（2026-10-24 追加）**：列表页开覆盖层后，搜索栏与覆盖层表单存在同名 label/占位（如 `/pml` 的「项目号」「托盘号」），`.querySelector('.ant-form-item')` / `setInput` 全局找会命中**被覆盖层挡住的搜索栏控件**——真实鼠标点击落空、选择/填值全不生效且不报错（下拉都打不开，不是选项点不中）。写法：表单定位一律加覆盖层根类前缀（如 `.pml-detail .ant-form-item`）再找 label/控件；验证锚：PML 覆盖层跃迁实测（连续 2 轮 C5-C8 全红后收口，探针 `tmp/e2e/verify-pml-detail-layer.mjs`）。

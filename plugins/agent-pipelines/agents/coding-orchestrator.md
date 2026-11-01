@@ -59,8 +59,8 @@ low | medium | high
 
 每个轮次按下面三步：
 
-1. **DELEGATE**：先从 `state.mjs root-causes` 取下一个未完成的根因组（无该输出时按 `tasks[]` 自行归并），再委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
-2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者产出 / Risk Level / Detected Stack / Scripts Gap ===`。
+1. **DELEGATE**：先从 `state.mjs root-causes` 取下一个未完成的根因组（无该输出时按 `tasks[]` 自行归并），再委派给子代理 `coding-builder`，上下文注入 `=== 任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap / Critical Checkpoints ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。**Critical Checkpoints** 见下节必注入段（缺了 builder 就收不到硬门禁清单——2026-11-01 与同文件 `:27-48`、SKILL:220/248/264、commands:194/222/237 及 `coding-builder.md:35` 的契约对齐）。
+2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者检查结果 / Risk Level / Detected Stack / Scripts Gap / prior_cycles_summary / Critical Checkpoints ===`（段名是"执行者检查结果"而非"执行者产出"，`coding-reviewer.md:38-39` 按此名取值）。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
 **参数名按宿主实际 schema 填写**，语义映射如下：

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // agent-pipelines 缺陷回归测试：审计实测确认过的缺陷，各自锁一条断言。
-// 覆盖四条独立缺陷（改前会红、改后必须绿）：
+// 覆盖七条独立缺陷（改前会红、改后必须绿）：
 //   1. scope 判定基准未锚 git 根：同一处越界改动，从子目录调用被判成合规（零容忍失效）；
 //   2. DONE 判定不校验 critical_checkpoints[].passed：未通过的硬门禁被跨过；
 //   3. scope 结论没接进门禁：scope 判 FAIL 后 gate 仍按自报字段放行；
-//   4. args 静默吞掉以 -- 开头的值：整条 scope 规则凭空消失。
+//   4. args 静默吞掉以 -- 开头的值：整条 scope 规则凭空消失；
+//   5. gate 复算体的 git 工作目录仍是 cwd（1 的修复只落在 scope.mjs 原件上）；
+//   6. 复算体内联 glob 的 `**` 判定恒假，退化成单段（`**` 跨段承诺形同虚设 + DONE 不可达）；
+//   7. completion_promise 只有文档没有实现，且 --apply 反向抹除编排器写的 DONE。
 // 零依赖纯 Node，与既有三个套件同风格（PASS/FAIL 逐条打印，末尾汇总，失败退出码 1）。
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -658,6 +661,68 @@ console.log("\n== root_cause_group：从「只有提示词」变成可校验、�
     !/root_cause_group=/.test(String(doneOut?.reason)),
     String(doneOut?.reason),
   );
+}
+
+console.log("\n== 2026-11-01：gate 复算体与 scope.mjs 同口径（第二轮复制体漂移）==");
+// recheckScope 是 scope.mjs 的第二次实现，2026-10-29 那次修复只落在原件上，复制体没跟上，
+// 于是同一批规则给出相反结论。三条断言各锁一处：git 工作目录、`**` 跨段、promise 早停。
+{
+  const rp = makeRepo("recheck-repo");
+  const rFile = path.join(rp.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(rFile), { recursive: true });
+  const rState = () => ({
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+    scope: { base: rp.base, hard: ["src/**"], soft: [], forbidden: [] },
+    scope_drift: "PASS",
+  });
+
+  // ① 越界件放在**仓库根**，从子目录调 gate 必须照样拦（改前：ls-files 在 cwd 执行，
+  //    sub/ 以下没有未跟踪文件 → 变更清单为空 → 判 DONE，零容忍形同虚设）。
+  writeFileSync(path.join(rp.repo, "leak-at-root.txt"), "x\n");
+  writeFileSync(rFile, JSON.stringify(rState()));
+  const fromRoot = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", rFile, "--json"], undefined, rp.repo).stdout);
+  const fromSub = parseJson(
+    run("state.mjs", ["gate", "--pipeline", "coding", "--file", rFile, "--json"], undefined, path.join(rp.repo, "sub")).stdout,
+  );
+  check("仓库根的越界改动从子目录调 gate 仍拦（ESCALATE 而非 DONE）", fromSub?.stop_reason === "ESCALATE", JSON.stringify(fromSub));
+  check("同一状态同一 --file，仓库根与子目录调用结论一致", fromRoot?.stop_reason === fromSub?.stop_reason, `${JSON.stringify(fromRoot)} vs ${JSON.stringify(fromSub)}`);
+  rmSync(path.join(rp.repo, "leak-at-root.txt"));
+
+  // ② `**` 必须跨段：改动落在两层深的 hard 目录内、且状态文件本身是两层深的默认路径
+  //    （`.loop-cli/state/<pipeline>-pipeline.json`，contract.mjs 要求的就是这个形态），
+  //    改前 `**` 退化成 `*` → 两处都判 outside scope → DONE 永不可达。
+  mkdirSync(path.join(rp.repo, "src", "auth"), { recursive: true });
+  mkdirSync(path.join(rp.repo, ".loop-cli", "state"), { recursive: true });
+  writeFileSync(path.join(rp.repo, "src", "auth", "login.js"), "l\n");
+  const deepFile = path.join(rp.repo, ".loop-cli", "state", "coding-pipeline.json");
+  writeFileSync(deepFile, JSON.stringify(rState()));
+  const deepGate = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", deepFile, "--json"], undefined, rp.repo).stdout);
+  check("两层深的 hard 命中件不再被判 outside（DONE 可达）", deepGate?.stop_reason === "DONE", JSON.stringify(deepGate));
+  const deepScopeOut = run("scope.mjs", ["--base", rp.base, "--hard", "src/**", "--json"], undefined, rp.repo);
+  check("gate 复算与 scope.mjs 对同一批规则同结论（原件 PASS → 复算 PASS）",
+    parseJson(deepScopeOut.stdout)?.verdict === "PASS" && deepGate?.stop_reason === "DONE",
+    `${deepScopeOut.stdout} vs ${JSON.stringify(deepGate)}`);
+
+  // ③ completion_promise 命中必须真的早停，且 --apply 不再把它抹成 null
+  //    （改前：gateFor 全文不读该字段，文档承诺的覆盖在脚本模式下不生效，
+  //     applyGate 还按「重算为 null 也要写回」把编排器写的 DONE 清掉）。
+  const pState = { ...rState(), completion_promise: "全部验收项已由用户确认通过", tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }] };
+  const pFile = path.join(rp.repo, ".loop-cli", "promise.json");
+  writeFileSync(pFile, JSON.stringify(pState));
+  const pGate = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
+  check("completion_promise 命中 → DONE（任务仍 pending 也按人授意早停）", pGate?.stop_reason === "DONE", JSON.stringify(pGate));
+  check("promise 的 DONE 点明是显式覆盖（调用方看得见绕过面）", /completion_promise/.test(String(pGate?.reason)), String(pGate?.reason));
+  run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json", "--apply"], undefined, rp.repo);
+  check("--apply 后落盘仍是 DONE（不再被重算抹成 null）",
+    JSON.parse(readFileSync(pFile, "utf8")).stop_reason === "DONE",
+    readFileSync(pFile, "utf8").slice(0, 200));
+
+  // ④ 反面对照：没有 promise 时，同样的 pending 任务不会因上面的修复而误放
+  writeFileSync(pFile, JSON.stringify({ ...pState, completion_promise: null }));
+  const noPromise = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
+  check("completion_promise 为空时 DONE 铁律如常（任务未全 done 不放行）", noPromise?.stop_reason !== "DONE", JSON.stringify(noPromise));
 }
 
 rmSync(sandbox, { recursive: true, force: true });

@@ -144,7 +144,12 @@ merge that branch.
    main worktree has a different branch checked out. Check that first; a dirty main checkout turns
    the merge into a conflict for the user. Pass `ff: true` for a fast-forward-only merge (linear
    history, no merge commit); it refuses when the branches diverged — rebase first or drop `ff`.
-4. `remove: true` (+ `deleteBranch`) once the merge is verified.
+4. `remove: true` (+ `deleteBranch`) once the merge is verified. This uses the same removal guard
+   as `worktree_remove`: a locked worktree, one outside the managed root, one with unmerged
+   commits, uncommitted changes, or **gitignored files** (`.env`, `build/`) is kept back with a
+   stated reason. Ignored files are invisible to plain `git status` but vanish with the directory,
+   so if the user really accepts losing them, run `worktree_remove` with `force: true` and
+   `confirmDiscard: true` instead — that is the only exit with an explicit second confirmation.
 
 After the merge, run the repository's own checks before telling the user the branch is ready.
 

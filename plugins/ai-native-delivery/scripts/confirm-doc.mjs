@@ -53,6 +53,22 @@ import { confirmGateFor, doneGateFor, acceptanceEvidenceGate, laneOfDoc, specCon
 import { loadKitPolicy, hasFreshVerifyLine } from './policy.mjs';
 import { groundQuote, resolveFamilyTexts, GROUND_ANCHOR_MIN } from './quote-grounding.mjs';
 
+// 台账时间戳的唯一时钟（2026-11-01 修复）。CONFIRM_DOC_TEST_NOW 此前只有下面 `today` 那一处
+// 读取，四处台账写入仍各取真实墙钟——而 workflow 归档的**目的地月**由 archive-sweep.mjs:119
+// 从台账 ts（家族最晚终态月 = max(tTime).slice(0,7)）派生，于是「归档落哪个月」跟着真实日历走，
+// confirm-doc.test.mjs:938-939/:966 里钉死的 `workflow/archive/2026-10/` 自 11 月 1 日起必红，
+// 并连带把 test/acceptance.mjs §10.10（断言每个 test 文件 exit 0）一起拖红：一条墙钟耦合点亮
+// 两道 CI 门。生产不设该变量时行为完全不变（取当日）。
+// 注入值允许写成日期（YYYY-MM-DD，测试用法）或任何可解析的时间串；统一归一成完整 ISO 时间戳，
+// 因为下游有按 ts 排序与比日的读法，不能突然变成 10 字符。不可解析则回退真实当日（不制造假时钟）。
+function nowIso() {
+  const pinned = String(process.env.CONFIRM_DOC_TEST_NOW || '').trim();
+  if (!pinned) return new Date().toISOString();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return `${pinned}T12:00:00.000Z`;
+  const t = Date.parse(pinned);
+  return Number.isNaN(t) ? new Date().toISOString() : new Date(t).toISOString();
+}
+
 // hasFreshVerify(root)：读 <root>/.agents/verifications.jsonl 判 24h 窗口绿行（判定单源
 // policy.hasFreshVerifyLine）。只读，台账缺失/不可读一律 false（=无凭证，advisory 层 fail-open）。
 function hasFreshVerify(root) {
@@ -364,7 +380,7 @@ if (isMain) {
       }
       fs.writeFileSync(abs, rtext);
       ledgerFile = appendLedger(root, {
-        ts: new Date().toISOString(), doc, stage: 'approved', fingerprint: rfp, prev: st,
+        ts: nowIso(), doc, stage: 'approved', fingerprint: rfp, prev: st,
         commit: rcommit,
         source: 'chat-delegated', quote: String(delegatedQuote),
         quoteGrounding: grounding.reason,
@@ -501,7 +517,7 @@ if (isMain) {
       const pol = loadKitPolicy(root);
       if (typeof pol.verifySince === 'string'
         && /^##\s*[^#]*验收标准/m.test(text) && !hasFreshVerify(root)) {
-        const today = (process.env.CONFIRM_DOC_TEST_NOW || new Date().toISOString()).slice(0, 10);
+        const today = nowIso().slice(0, 10);
         const hard = typeof pol.verifyHardSince === 'string' && today >= pol.verifyHardSince;
         console.error(`${hard ? '❌' : '⚠️'} ${doc} 置 done：24h 内无测试绿凭证（verifications.jsonl）——关单勾验的「测试绿」声明缺机器事实`);
         console.error(`   跑 node <插件根>/scripts/verify.mjs（全绿自动落账）后重新关单；本次${hard ? '拒绝落账、不改盘（hard，灰度第二档：policy v8 verifyHardSince）' : '不拦截（advisory，灰度第一档）'}`);
@@ -553,7 +569,7 @@ if (isMain) {
       }
       fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
       ledgerFile = appendLedger(root, {
-        ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
+        ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: `ai-auto-trust-L${trustConfig.level}`, quote: `AI 自治放行 (Trust Level ${trustConfig.level})`,
         batch, seq, of: docs.length,
@@ -594,7 +610,7 @@ if (isMain) {
       }
       fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
       ledgerFile = appendLedger(root, {
-        ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
+        ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: 'chat-delegated', quote: String(delegatedQuote),
         // 引文接地判据结果（delegated-quote-grounding）：verbatim/anchor/generic = 接地成立；
@@ -625,7 +641,7 @@ if (isMain) {
     }
     fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
     ledgerFile = appendLedger(root, {
-      ts: new Date().toISOString(), doc, stage: target, fingerprint: fp, prev: st,
+      ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
       commit: commitFp,
       source: 'tty',
       batch, seq, of: docs.length, // 调用事实（形态无关：TTY 多文档天然逐件过目，of>1 不构成违规）

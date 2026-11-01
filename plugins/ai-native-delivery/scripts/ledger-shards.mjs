@@ -27,6 +27,7 @@
 // 测试：node <插件根>/test/ledger-shards.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { projectRoot } from './paths.mjs';
 
 // 受管台账清单（单源）：键 = 台账基名，值 = 数据行判定
@@ -271,10 +272,129 @@ function insertIntoSection(text, section, lines) {
   return `${parts.join(eol)}${eol}`;
 }
 
+// 台账写锁（2026-11-01 加）：`workflow/` 台账有两个写者——本文件的 --append（分节插入必须
+// 读-改-写整文件）与 MCP update_ledger 的 append 模式。前者拿陈旧快照整写会抹掉后者刚 append
+// 的行，后者不持锁就挡不住前者，所以锁是**两个写者共用**的单源（core.mjs 从本文件 import）。
+// 写法沿用本仓既有约定（worktree-ops/mcp/core.mjs:acquireConfigLock、systemone 的
+// decision-cache/precheck-quota 同族）：`openSync(lock,'wx')` 独占创建 + 锁内写 pid +
+// 陈旧锁接管 + Atomics.wait 退避 + 释放前比对 owner（迟到的 release 不能误删接管者的锁）。
+const SHARD_LOCK_STALE_MS = 15_000;
+const SHARD_LOCK_WAIT_MS = 3_000;
+// 锁竞争的错误码：EEXIST 是 POSIX 的"已存在"；Windows 在创建/删除同一文件的瞬间
+// 会给出 EPERM/EBUSY/EACCES（本仓 decision-cache / precheck-quota 处理 rename 时同族）。
+const LOCK_CONTENDED = new Set(['EEXIST', 'EPERM', 'EBUSY', 'EACCES']);
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 对 target 的写临界区加锁执行。拿不到锁**抛错**（fail-loud），不静默降级成无锁写——
+ * 无锁写正是本次要修的丢行根因。
+ * @param {string} target 待写文件绝对路径
+ * @param {() => T} fn 临界区
+ * @returns {T}
+ */
+export function withLedgerLock(target, fn) {
+  const lockPath = `${target}.lock`;
+  // owner 带随机后缀而不只是 pid：同一 pid 的两次重入（或 pid 复用）不该互相认成同一把锁
+  const owner = `${process.pid}:${randomBytes(4).toString('hex')}`;
+  const deadline = Date.now() + SHARD_LOCK_WAIT_MS;
+  let acquired = false;
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.writeSync(fd, owner);
+      fs.closeSync(fd);
+      acquired = true;
+      break;
+    } catch (err) {
+      // 竞争的表现不只有 EEXIST：Windows 上同一文件正被别的进程创建/删除时，
+      // `openSync(...,'wx')` 会报 EPERM/EBUSY/EACCES（实测 24 路并发撞过一次 EPERM，
+      // 那一路直接抛错丢行）。它们与 EEXIST 一样是「有人正在动这把锁」，
+      // 按同一套退避 + 陈旧接管处理；其余错误码才是真故障。
+      if (!err || !LOCK_CONTENDED.has(err.code)) throw err;
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > SHARD_LOCK_STALE_MS) {
+          fs.unlinkSync(lockPath); // 持锁进程崩溃留下的死锁不该永久挡住写侧
+          continue;
+        }
+      } catch {
+        /* 锁刚好被别人释放 */
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`台账写锁等待超时（${lockPath}）——另一个进程正在整写同一台账。`
+          + `拒绝在无锁状态下读-改-写（那会把别人刚追加的行抹掉还回成功），请稍后重跑本次写入`);
+      }
+      sleepSync(25);
+    }
+  }
+  if (!acquired) throw new Error(`台账写锁未获取即返回（${lockPath}）——不可能到这里，防御性抛出`);
+  try {
+    return fn();
+  } finally {
+    try {
+      // 只释放仍属于自己的锁：被陈旧判定接管后，迟到的释放不能删掉新持锁者的锁
+      if (fs.readFileSync(lockPath, 'utf8') === owner) fs.unlinkSync(lockPath);
+    } catch {
+      /* 已被清理或已被接管 */
+    }
+  }
+}
+
+// 文件指纹（size + mtime 毫秒）：读-改-写路径用它判断「我读到的现状是否仍然成立」。
+// 不追求密码学强度——同一毫秒内被写入且尺寸恰好分毫不差的两次追加，在按行追加的台账上
+// 不存在（两条不同的数据行不可能同长）。
+function fingerprintOf(p) {
+  try {
+    const st = fs.statSync(p);
+    return `${st.size}:${st.mtimeMs}`;
+  } catch {
+    return 'absent';
+  }
+}
+
+// 文末追加：与原实现同样保证「文件以且仅以一个换行收尾」，但不整写全文。
+// appendFileSync 改不了已有末尾空白，所以只在末字节不是 \n 时补一个换行，
+// 免得把新行粘在一条残缺的末行上。
+function appendTailLines(p, lines) {
+  if (!lines.length) return;
+  let prefix = '';
+  try {
+    const st = fs.statSync(p);
+    if (st.size > 0) {
+      const fd = fs.openSync(p, 'r');
+      try {
+        const buf = Buffer.alloc(1);
+        fs.readSync(fd, buf, 0, 1, st.size - 1);
+        if (buf[0] !== 0x0a) prefix = '\n';
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+  } catch {
+    // 读不到末字节就按「已有换行」处理：最坏是空一行，读者一律 filter(l=>l.trim())
+  }
+  fs.appendFileSync(p, `${prefix}${lines.join('\n')}\n`, 'utf8');
+}
+
 // appendRows(root, name, rows, { month, section })：把数据行追加进指定月分片（缺省取行内日期月）。
 // rows 可为字符串数组或 { line, section } 数组（多表台账须带 section 才能归对表）。
 // 分片已存在时：带 section 的行插入该节（不落到文末自做表）；不带 section 的行仍追加到文末。
 // 返回实际写入的分片路径列表。写失败 fail-loud（不静默吞）。
+//
+// 并发口径（2026-11-01 修复）：此前这里是「readFileSync 全文 → 内存里拼 → writeFileSync 整写」，
+// 多进程同时追加时后写者拿的是自己的陈旧快照，会把别人刚写的行整个抹掉，而 CLI 照样回
+// 「✓ 追加 1 行」（实测 24 并发全 0 退出、全打成功，落盘只有 18 行、缺 6）。同一个缺陷在
+// mcp/core.mjs:242-247 已确认并修过（改走 appendFileSync），但那道修复只覆盖了 MCP
+// update_ledger 一条口，而 --append 才是 commands/deploy.md:57 与 confirm-doc.mjs:464
+// 明确引导用户与 agent 去走的正式写入口。现在三条路径分别是：
+//   · 分片不存在 → 'wx' 独占创建，撞 EEXIST 的一方退回追加路径（不再互相盖掉整个文件）；
+//   · 纯文末追加 → appendFileSync（O_APPEND），与 MCP 侧同招，从根上没有陈旧快照；
+//   · 需要插进特定 `## ` 节 → 读-改-写不可避免，改为写前比对指纹、陈旧则重读重算，
+//     连续八次仍被抢写就抛错（fail-loud），而不是丢行回成功；
+//   · 以上三条都在 `<分片>.lock` 的临界区内执行（withLedgerLock），MCP update_ledger 的
+//     append 也持同一把锁——否则「append 持锁 + 裸读-改-写」仍然互踩，锁只锁住自己等于没锁。
 export function appendRows(root, name, rows, { month, section = '' } = {}) {
   const written = [];
   const byMonth = new Map();
@@ -288,18 +408,40 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
     if (!byMonth.has(m)) byMonth.set(m, []);
     byMonth.get(m).push({ line, section: sec });
   }
-  for (const [m, rs] of byMonth) {
-    const p = shardPathFor(root, name, m);
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
-    const existingRows = new Set(existing.split(/\r?\n/).filter((l) => l.trim()));
-    const fresh = rs.filter((r) => !existingRows.has(r.line));
-    if (!fresh.length) { written.push(p); continue; } // 已在分片 → 幂等跳过
-    let next;
-    if (!existing) next = renderShard(name, fresh, '\n');
-    else {
-      const placed = fresh.filter((r) => r.section);
-      const tail = fresh.filter((r) => !r.section);
+
+  // 单个分片的写临界区（持锁调用）。返回 true 表示有内容落盘。
+  const writeShard = (p, rs) => {
+    const dedupe = (text, cand) => {
+      const seen = new Set(text.split(/\r?\n/).filter((l) => l.trim()));
+      return cand.filter((r) => !seen.has(r.line));
+    };
+    let existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+    let fresh = dedupe(existing, rs);
+    if (!fresh.length) return false; // 已在分片 → 幂等跳过
+
+    if (!existing) {
+      try {
+        fs.writeFileSync(p, renderShard(name, fresh, '\n'), 'utf8', { flag: 'wx' });
+        return true;
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        // 别的进程抢先建好了：按现状重来（去重后走下面的追加/插入路径）
+        existing = fs.readFileSync(p, 'utf8');
+        fresh = dedupe(existing, fresh);
+        if (!fresh.length) return false;
+      }
+    }
+
+    const tail = fresh.filter((r) => !r.section);
+    const placed = fresh.filter((r) => r.section);
+    if (!placed.length) {
+      appendTailLines(p, tail.map((r) => r.line));
+      return true;
+    }
+
+    let done = false;
+    for (let attempt = 0; attempt < 8 && !done; attempt++) {
+      const before = fingerprintOf(p);
       let text = existing;
       const bySec = new Map();
       for (const r of placed) {
@@ -308,9 +450,29 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
       }
       for (const [sec, lines] of bySec) text = insertIntoSection(text, sec, lines);
       if (tail.length) text = `${text.replace(/\s*$/, '')}\n${tail.map((r) => r.line).join('\n')}\n`;
-      next = text.endsWith('\n') ? text : `${text}\n`;
+      const next = text.endsWith('\n') ? text : `${text}\n`;
+      if (fingerprintOf(p) === before) {
+        fs.writeFileSync(p, next, 'utf8');
+        done = true;
+        break;
+      }
+      // 现状在拼串期间被改过：重读，摘掉已被别人写进去的行，再来一轮
+      existing = fs.readFileSync(p, 'utf8');
+      fresh = dedupe(existing, fresh);
+      if (!fresh.length) { done = true; break; }
     }
-    fs.writeFileSync(p, next, 'utf8');
+    if (!done) {
+      throw new Error(`appendRows: ${p} 连续 8 次在写入前被并发修改——拒绝用陈旧快照整写`
+        + `（那会抹掉别人刚追加的台账行），请重跑本次追加`);
+    }
+    return true;
+  };
+
+  for (const [m, rs] of byMonth) {
+    const p = shardPathFor(root, name, m);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    // 返回的路径列表是「本次涉及的分片」，与旧实现同口径（幂等跳过也算涉及，CLI 据此打印回执）
+    withLedgerLock(p, () => writeShard(p, rs));
     written.push(p);
   }
   return written;

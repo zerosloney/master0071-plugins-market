@@ -33,7 +33,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.12' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.13' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -83,8 +83,15 @@ for (const problem of [...scenarioLoadProblems, ...scenarioProblems]) {
 }
 // 把已解析端点（设置页 > 环境变量 > 默认）落盘共享给需求预检 hook——hook 进程拿不到
 // SYSTEMONE_PLUGIN_* 注入，不落盘的话设置页切换供应商后 hook 会打旧端点并静默失效。
+// 两个 hook 开关一并落盘（2026-11-01 修复）：否则设置页的 off 开关到不了 hook 进程，
+// 而 README 承诺它"等价环境变量"、"off = 停掉外发"。开关优先级与端点同口径：
+// 设置页注入的 SYSTEMONE_PLUGIN_HOOK_* > 裸环境变量 > 未配置（按默认 on）。
 // config() 是函数声明，已提升，此处可先调用。
-writeEndpointConfig(config());
+writeEndpointConfig({
+  ...config(),
+  hookPrecheck: process.env.SYSTEMONE_PLUGIN_HOOK_PRECHECK || process.env.SYSTEMONE_HOOK_PRECHECK || null,
+  hookRiskGate: process.env.SYSTEMONE_PLUGIN_HOOK_RISK_GATE || process.env.SYSTEMONE_HOOK_RISK_GATE || null,
+});
 
 /** 结构化错误码（与 README「错误码」一节一一对应）。 */
 const ERROR_CODES = {
@@ -193,7 +200,23 @@ function appendLog(entry) {
       } catch {
         /* 还没有归档 */
       }
-      renameSync(LOG_FILE, archive);
+      // 与 0.5.12 给 endpoint-config / decision-cache / precheck-quota 加的同款有界重试
+      // （2026-11-01 补）：审计日志可被另一宿主进程的 action=stats（createReadStream）或外部
+      // tail 打开，Windows 上 renameSync 撞 EPERM/EBUSY 是常态；多实例并发轮转时第二者还会
+      // ENOENT。旧写法这里一抛，外层 catch 就把 logBroken 置真、本进程**永久停用审计**——
+      // 一次瞬时占用换来整段留痕缺失。ENOENT（中间被别人轮转走了）与 EPERM/EBUSY 都按有界重试，
+      // 耗尽再交给外层降级；文件已不存在时视为「别人已转走」，直接继续写新文件。
+      let rotated = false;
+      for (let attempt = 0; attempt < 5 && !rotated; attempt += 1) {
+        try {
+          renameSync(LOG_FILE, archive);
+          rotated = true;
+        } catch (err) {
+          if (err && err.code === 'ENOENT') { rotated = true; break; } // 已被并发的轮转挪走
+          if (!err || (err.code !== 'EPERM' && err.code !== 'EBUSY') || attempt === 4) throw err;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+        }
+      }
       writeFileSync(LOG_FILE, `# 已达 ${LOG_MAX_BYTES} 字节上限，上一段记录轮转至 ${archive}\n`);
     }
     appendFileSync(LOG_FILE, line);
@@ -592,7 +615,11 @@ function applyParams(scenario, params) {
       throw new ToolError(`params 包含未知问题 id "${qid}"，场景 ${scenario.id} 可覆盖：${knownIds.join('、')}`);
     }
   }
-  const merged = {};
+  // 与 executeDecision 的问题表同口径（2026-11-01 修复）：问题 id 来自调用方 JSON，
+  // qid="__proto__" 时 `merged[qid] = …` 会触发原型 setter——该题静默不进 merged 的自有键，
+  // Object.entries 就此丢题，模型收不到、判定照常返回。0.5.12 修过 executeDecision 里同一个洞
+  // （见 :414-418），这里漏了；params 覆盖路径是第二个承载点。
+  const merged = Object.create(null);
   for (const [qid, question] of Object.entries(scenario.questions)) {
     const override = params[qid];
     if (override === undefined) {

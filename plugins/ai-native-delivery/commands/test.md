@@ -46,7 +46,7 @@ L1 快速道在 `commands/new-task.md` §L1 快速道。本文件留给 L2/L3、
 1. **Schema 比对**: 目标库实际 Schema $\leftrightarrow$ 代码期望（近期变更脚本 + 基础表）
 2. **接口探活**: 运行冒烟脚本 $\rightarrow$ 验证 6 个核心端点 $\text{HTTP 200}$
 **Output**: 探活通过证据
-**Fact**: 探活脚本路径见 `.agents/notes/runtime-env.md` §6.1
+**Fact**: 探活脚本路径以项目侧的 `.agents/notes/runtime-env.md` §6.1 为准；**该文件属项目资产，插件不附带也不生成**，项目未维护时按实际冒烟脚本自行确定并本批记录一次，别让它挡住门禁。
 **Fail**: 任一非 200 $\rightarrow$ **HARD-BLOCK** $\rightarrow$ 停在此步，禁部署。
 
 ## 3. UI 实测 (UI Verification)

@@ -34,7 +34,7 @@ coding 管道额外约束：
 | `scripts/state.mjs` | `init`（已存在的**非状态文件**一律拒绝，`--force` 也不越过；带进度的真状态文件需 `--force` 重置）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移；缺省时继承 `scope_drift` 与 `scope`——它们是判定产物，不该被推进轮次抹掉）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` **重算** `stop_reason`，不采信状态文件里的预设值；`--apply` 写回）/ `events`（读事件日志，含轮转段）/ `root-causes`（按 `root_cause_group` 把任务分桶聚合，只读不写状态） |
 
 **根因分组**：coding 管道的任务可带 `root_cause_group` 字段，经 `state.mjs` 校验为非空字符串；`root-causes` 子命令按它分桶聚合供 orchestrator 直接消费（不必自己遍历 `tasks[]` 归并），`gate` 判 continue 时也会点名下一个未完成的根因组。
-| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件**与 gitignored 文件**，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--base` 缺省取状态文件里的 `scope.base`，再退到 `HEAD`；`--apply` 把结论与本次基线写回状态文件；默认排除 `.loop-cli/**` |
+| `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件**与 gitignored 文件**，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--base` 缺省取状态文件里的 `scope.base`，再退到 `HEAD`；`--apply` 把结论与本次基线写回状态文件；默认排除 `.loop-cli/**`（**替换语义**：自定义 `--exclude` 会整体顶掉默认清单，需并列写 `.loop-cli/**`，否则自家状态文件会被判越界） |
 | `scripts/graph.mjs` | 依赖拓扑排序、循环依赖检测、子任务预算检查（ralph 8 / coding 6） |
 | `scripts/dag.mjs` | 依赖图分析单源（未知依赖 / 拓扑序 / 环 / 分层），`graph.mjs` 与 `render.mjs` 共用 |
 | `scripts/render.mjs` | 只读渲染：状态文件 + 事件日志 → 自包含单文件 HTML（依赖图 DAG、事件轨迹、预算） |
@@ -154,3 +154,19 @@ node test/regression.mjs
 ```
 
 零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致、orchestrator 的 `tools` 白名单含子代理派发工具与 Bash。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举 / `action` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。`regression.mjs` 在临时 git 仓里复现审计实测过的缺陷（scope 判定基准、critical checkpoint 门禁、scope→gate 串联、`--` 开头参数值），防止它们回归。它们不执行管道，也不替代真实宿主上的端到端验证。
+
+## 版本变更
+
+**0.1.23**
+
+- **`gate` 的 scope 复算锚到仓库根**：`state.mjs` 的复算体是 `scope.mjs` 的第二份实现，它的三条列清单命令仍以 `process.cwd()` 为 git 工作目录——从子目录调用时，仓库其它目录的未跟踪/ignored 改动整个消失，越界仓库被判 DONE（实测：同一状态同一 `--file`，仓库根判 ESCALATE、子目录判 DONE）。现在先取 `rev-parse --show-toplevel` 的根，三条命令统一在根上执行。
+- **`**` 跨段判定修正**：复算体内联 glob 把它写成与两字符常量比较（恒假），`src/**` 匹配不到 `src/auth/login.js`，自家两层深的状态文件也被判越界——任何真实仓库都到不了 DONE。与 `scope.mjs` 的同名函数改正同判，并补"两层路径"与"子目录调用"两组回归断言。
+- **`completion_promise` 早停落地**：六处文档承诺"命中即 DONE、绕过后续门禁"，脚本侧 `gateFor` 此前完全不读该字段，`gate --apply` 还会把编排器按文档写好的 DONE 重算成 null；现在 promise 非空即 DONE，预设终态仍不采信。
+- **`render` / `serve` 合并轮转段**：事件日志 5 MiB 轮转后，看板与静态 HTML 上的历史事件不再静默消失。
+- **`serve --port` / `--interval` 校验**：越界端口不再由 `listen()` 同步抛 `ERR_SOCKET_BAD_PORT` 崩栈，非法值也不再静默回落默认端口。
+- **编排器注入段与角色契约对齐**：DELEGATE / WAIT_REVIEW 补 `Critical Checkpoints` 与 `prior_cycles_summary`，段名改为契约里的"执行者检查结果"。
+- README 标明 `--exclude` 是**替换**语义（需并列写 `.loop-cli/**`）。
+
+**0.1.22**
+
+- **`--exclude` 口径与 gate 复算同宽**：`scope.mjs --apply` 落盘的自定义排除清单，gate 复算时按同一清单判定，消除"合法改动被永久判 ESCALATE"。

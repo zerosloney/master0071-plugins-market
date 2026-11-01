@@ -25,7 +25,7 @@
 // 测试：node test/init.test.mjs（幂等 / gitignore 块替换 / 已存在跳过 / 钩子不覆盖）
 import fs from 'node:fs';
 import path from 'node:path';
-import { findProjectRoot, engineDir, ledgerDir, PLUGIN_CONFIG_TEMPLATES_DIR, scriptPath, gitHooksDir } from './paths.mjs';
+import { findProjectRoot, engineDir, ledgerDir, PLUGIN_ROOT, PLUGIN_CONFIG_TEMPLATES_DIR, scriptPath, gitHooksDir } from './paths.mjs';
 
 export const GITIGNORE_BEGIN = '# BEGIN ai-native-delivery engine';
 export const GITIGNORE_END = '# END ai-native-delivery engine';
@@ -37,6 +37,10 @@ export const GITIGNORE_ENTRIES = [
   '.agents/tmp/',
   '.agents/config/model-roles.local.json',
   '.agents/notes/runtime-env.local.md',
+  // 台账写锁的临时锁文件（2026-11-01）：ledger-shards 与 MCP update_ledger 共用
+  // `<分片>.md.lock` 做读-改-写临界区。正常路径写完即删；进程被 kill 时残留物最多留 15s
+  // 就会被接管，但那一瞬间不该污染项目的 git status。
+  'workflow/**/*.lock',
 ];
 
 const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];
@@ -131,13 +135,34 @@ function installHooks(root, report) {
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const name of ['pre-commit', 'pre-push']) {
     const target = path.join(hooksDir, name);
+    const engine = scriptPath(root, 'check-loop.mjs');
     if (fs.existsSync(target)) {
-      report.hooks.skipped.push(`${name}（已存在同名钩子——不覆盖用户钩子）`);
-      continue;
+      // 陈旧自装钩子刷新（2026-11-01 修复）：钩子里 baked 的是**插件安装目录的绝对路径**，
+      // 而插件目录随宿主缓存迁移（paths.mjs:13-14 自己写明"随安装缓存目录漂移，不作项目侧
+      // 路径用"）。迁移后旧钩子指向不存在的脚本 → 每次 commit 崩在 MODULE_NOT_FOUND，
+      // 而钩子自带的修复指引正是"重跑 init-engine"，这里"已存在即跳过"让该指引变成 no-op
+      //（实测：重跑打印 skip、commit 仍 exit 1），真修法只剩手工删钩子。
+      // 只刷新「本插件装的、且 baked 的引擎脚本已不存在」的那一类；不是本插件装的钩子
+      // 保持"不覆盖用户钩子"的语义不变。
+      let staleOwn = false;
+      try {
+        const cur = fs.readFileSync(target, 'utf8');
+        const baked = /const\s+ENGINE_SCRIPT\s*=\s*("(?:[^"\\]|\\.)*")/.exec(cur);
+        if (baked) {
+          const p = JSON.parse(baked[1]);
+          staleOwn = typeof p === 'string' && p.startsWith(PLUGIN_ROOT) && !fs.existsSync(p);
+        }
+      } catch {
+        staleOwn = false; // 读不出/解析不出 → 当作别人的钩子，不动
+      }
+      if (!staleOwn) {
+        report.hooks.skipped.push(`${name}（已存在同名钩子——不覆盖用户钩子）`);
+        continue;
+      }
+      report.hooks.skipped.push(`${name}（本插件旧装钩子指向已不存在的引擎脚本——覆盖刷新）`);
     }
     let tpl = '';
     try { tpl = fs.readFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'githooks', name), 'utf8'); } catch { continue; }
-    const engine = scriptPath(root, 'check-loop.mjs');
     // 占位符（带引号的整体字符串）全局替换为 JSON 字面量——JSON.stringify 的转义保证 Windows
     // 反斜杠路径在 JS 串里合法；种子未安装时占位串保持原样（语法仍合法，spawn 时 fail-closed）。
     // 种子头注的机制说明也提到 @@ENGINE_SCRIPT@@（散文，无引号），故匹配必须带引号整体替换。

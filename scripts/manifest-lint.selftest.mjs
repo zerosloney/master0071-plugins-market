@@ -54,7 +54,10 @@ put('plugins/demo/mcp/tools.mjs', [
   "  { name: 'demo_two', handler: () => 2 },", '];', '',
 ].join('\n'));
 put('plugins/demo/mcp/server.mjs', '// 读取 DEMO_ROOT 的服务端\nconst root = process.env.DEMO_ROOT;\nexport default root;\n');
-put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n');
+// 夹具 README 必须带「版本变更」段且覆盖 plugin.json 的版本——2026-11-01 新增的规则会查它，
+// 夹具漏写会让所有用例连带变红（那正是该规则要拦的形态，只是不该出现在夹具里）。
+const README_OK = '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n\n## 版本变更\n\n**0.0.1**\n\n- 初始版本。\n';
+put('plugins/demo/README.md', README_OK);
 put('plugins/demo/hooks/hooks.json', JSON.stringify({
   hooks: { PreToolUse: [{ matcher: '[bB][aA][sS][hH]', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs"', timeout: 15 }] }] },
 }, null, 2));
@@ -123,11 +126,19 @@ const cases = [
   // 数字承诺对账：实现是 2 个工具 / 1 个 skill，文案改错就必须点名（这条规则曾因为
   // 「文本得含插件名」的二次守卫而静默空转，实测靠这两例才暴露）
   ['对外文案的工具数与实现不符', /声称 5 个/, () => {
-    put('plugins/demo/README.md', '# demo\n\n本插件提供 5 个 MCP 工具与 1 个 skill。\n');
-  }, () => put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n')],
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 5 个 MCP 工具与 1 个 skill。\n\n## 版本变更\n\n**0.0.1**\n\n- 初始版本。\n');
+  }, () => put('plugins/demo/README.md', README_OK)],
   ['对外文案的 skill 数与实现不符', /声称 3 个/, () => {
-    put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 3 个 skill。\n');
-  }, () => put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n')],
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 3 个 skill。\n\n## 版本变更\n\n**0.0.1**\n\n- 初始版本。\n');
+  }, () => put('plugins/demo/README.md', README_OK)],
+  // 版本变更段（2026-11-01 新规则）：SECURITY.md 把「修复记录」指到各插件 README 的这一节，
+  // 所以它既不能缺、也必须覆盖当前版本。这两例各锁一半。
+  ['README 缺「版本变更」段', /缺「## 版本变更」/, () => {
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n');
+  }, () => put('plugins/demo/README.md', README_OK)],
+  ['版本变更段未覆盖当前版本', /未覆盖当前版本 0\.0\.1/, () => {
+    put('plugins/demo/README.md', '# demo\n\n本插件提供 2 个 MCP 工具与 1 个 skill，均随包分发。\n\n## 版本变更\n\n**0.0.0**\n\n- 旧版本。\n');
+  }, () => put('plugins/demo/README.md', README_OK)],
   ['.zcodeignore 排除了整个 pstack/extras（与「随插件分发」的文档口径冲突）', /排除了整个/, () => {
     put('.zcodeignore', 'node_modules/\nplugins/pstack/extras/\n');
   }, () => put('.zcodeignore', ZCODEIGNORE_OK)],

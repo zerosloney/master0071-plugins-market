@@ -56,6 +56,27 @@ for (const plugin of plugins) {
   if (!manifest.name) fail(`${manifestRel}: 缺 name`);
   if (!manifest.author || !manifest.author.url) fail(`${manifestRel}: author 缺 url`);
 
+  // 版本变更段必须存在且覆盖当前版本（2026-11-01 补）。SECURITY.md:48 对外承诺
+  // 「已知历史问题与修复记录在各插件 README 的版本变更段与提交历史」——此前只有
+  // worktree-ops 有这一节，另外四份 README 一个标题都没有，承诺 5 个里缺 4 个；
+  // 而 worktree-ops 那一节自己又落后一个版本（0.4.13 的修复零留痕）。
+  // 判据取实现（plugin.json 的 version），发版时 release.mjs 改了版本位、这里就会要求
+  // README 同时出现该版本号——changelog 不再是「想起来才写」的可选项。
+  {
+    const readmeRel = `plugins/${plugin}/README.md`;
+    const readmeAbs = path.join(ROOT, readmeRel);
+    if (!fs.existsSync(readmeAbs)) {
+      fail(`${readmeRel}: 插件缺 README（版本变更段与安装/配置说明都靠它）`);
+    } else {
+      const text = fs.readFileSync(readmeAbs, 'utf8');
+      if (!/^##\s*版本变更\s*$/m.test(text)) {
+        fail(`${readmeRel}: 缺「## 版本变更」一节——SECURITY.md 承诺修复记录写在各插件 README，别让取证人找不到`);
+      } else if (manifest.version && !text.includes(manifest.version)) {
+        fail(`${readmeRel}: 版本变更段未覆盖当前版本 ${manifest.version}——发版时补一条，否则该版本的修复无从追溯`);
+      }
+    }
+  }
+
   for (const shim of SHIMS) {
     const rel = `plugins/${plugin}/${shim}/plugin.json`;
     if (!fs.existsSync(path.join(ROOT, rel))) { fail(`${rel}: 清单不存在`); continue; }
@@ -288,9 +309,14 @@ for (const plugin of plugins) {
 // 不再靠"口口相传的实测结论"——那样下次加插件必然漏。
 const COMPONENTS = ['skills', 'commands', 'agents', 'hooks', 'mcpServers'];
 const SHIM_COMPONENT_EXEMPTIONS = {
-  // Codex 不执行插件 hook（本仓实测，见 plugins/pstack/README.md「宿主与 hook 降级」）→ 声明无意义
+  // Codex 不执行插件 hook（本仓实测，见 plugins/pstack/README.md「宿主支持」节 :51
+  //  的 codex-cli 0.163.0 实测记录）→ 声明无意义。
+  //  2026-11-01 修正出处：原注释指向 plugins/pstack/README.md「宿主与 hook 降级」，该标题
+  //  只存在于 plugins/ai-native-delivery/README.md:27，pstack 的对应小节叫「宿主支持」——
+  //  出处指向了不存在的章节，等于把 :287-288 立的「注明出处」纪律落成一句无法核对的引用。
   'systemone-decision/.codex-plugin': ['hooks'],
-  // ZCode 按约定路径注册 hooks、不理会 hooks 指针（见 plugins/pstack/README.md）→ pstack 选择不写
+  // ZCode 按约定路径注册 hooks、不理会 hooks 指针（见 plugins/pstack/README.md「宿主支持」节
+  //  :55 的实测记录）→ pstack 选择不写
   'pstack/.zcode-plugin': ['hooks'],
 };
 for (const shim of SHIMS) {
@@ -476,11 +502,16 @@ const measure = (plugin) => {
   }
   // ai-native 的「check-loop 硬门 5 段」：check-loop.mjs 的 lane 表里 hard 段数。
   // 注意引用的是**硬门段数**（阻断面），不是 22 段总数——README 写的是「硬门 5 段」。
+  // 2026-11-01 收紧两处口径：
+  //   ① 引号无关：原先用 `l.includes("'hard'")`，只认单引号；一旦格式化工具把 lane 表
+  //      归一成双引号，测量恒 0 → 键缺席 → `CLAIM_RES` 的 `if (!(key in m)) continue` 让
+  //      「硬门 5 段」变成无人对账的空转检查（同族自曝先例见 :444-446 的 scenarios 键）。
+  //   ② 有 lane 表就登记硬门数（含 0）：`if (hard > 0)` 会把「确实一段硬门都没有」也当成
+  //      "没有测量面"跳过，于是声称 5 段而实现 0 段时不报红——这正是数字对账要拦的形态。
   const checkLoop = path.join(ROOT, 'plugins', plugin, 'scripts', 'check-loop.mjs');
   if (fs.existsSync(checkLoop)) {
     const laneLines = fs.readFileSync(checkLoop, 'utf8').split(/\r?\n/).filter((l) => l.includes('lane:'));
-    const hard = laneLines.filter((l) => l.includes("'hard'")).length;
-    if (hard > 0) out.hardGates = hard;
+    if (laneLines.length > 0) out.hardGates = laneLines.filter((l) => /lane:\s*['"]hard['"]/.test(l)).length;
   }
   return out;
 };

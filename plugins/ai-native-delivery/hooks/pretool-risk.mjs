@@ -21,6 +21,8 @@
 //   - 词元全含：规则的每个词都出现在命令里即命中（不限相邻、不限顺序）。补的是参数位置差异——
 //     `git push --force` 是子串，但 `git push origin main --force`、`git push -C x` 这类把选项
 //     写在参数之后/之中时子串对不上，规则就静默漏判（2026-10-28 实测：最常见的 force 写法恰好漏）。
+//   - 短选项簇先展开（2026-11-01 补）：git 的 `-uf` 等价 `-u -f`，不展开的话规则里的 `-f`
+//     与 `-n` 都对不上，deny 地板被一个字符形态整体绕过（详见 expandCluster 注释）。
 //     两边都是确定性清单匹配，不做语义猜测；词元判据要求规则至少两个词，避免单词规则满盘命中。
 // 曾有第三个 `allow` 清单（2026-10-28 移除）：它排在判定链末端、命中后返回 null，与「清单外
 // 静默放行」完全等价，是条空转配置；而它的内容（git commit / git push / node / npm run）会让
@@ -54,6 +56,10 @@ const applies = (toolName) =>
 // `--no-verify` 单列（2026-10-29 市场审查补）：它是从 shell 层**单方面解除**已安装 git hook 的
 // 唯一开关。插件装的 pre-push 种子钩子 + 本 hook 是「两层拦截」，其中一层能被一条参数关掉，
 // 那层拦截就不成立。push 与 commit 两条实际路径都要点出来，其余工具的 `--no-verify` 不归这里管。
+// `git commit -n` 单列（2026-11-01 市场审查补）：`--no-verify` 其实有两个名字——
+// `git commit -h` 显示 `-n, --no-verify bypass pre-commit and commit-msg hooks`，所以"唯一开关"
+// 当时是假的，短写形态把这一层照样关掉。注意 **push 的 `-n` 是 `--dry-run`**（`git push -h`：
+// `-n, --[no-]dry-run`），不解除任何东西，因此不进地板——把它加进去只会制造误拦。
 const BUILTIN = {
   deny: [
     'git reset --hard',
@@ -61,6 +67,7 @@ const BUILTIN = {
     'git push -f',
     'git push --no-verify',
     'git commit --no-verify',
+    'git commit -n',
     'drop database',
   ],
   ask: ['git checkout', 'git clean', 'git branch -D', 'rm -rf'],
@@ -77,9 +84,27 @@ const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
 const UNQUOTE = /["'`]/g;
 const unquote = (s) => String(s).replace(UNQUOTE, '');
 
+// 短选项簇展开（2026-11-01 市场审查修复）：git 的短选项可以合写，`-uf` 等价 `-u -f`、
+// `-nam` 等价 `-n -a -m`。此前判据把整串当一个词元，规则里的 `-f` / `-n` 都对不上，
+// 子串判据同样落空（`git push -uf` 不含 `git push -f`）——于是「不可下调的 deny 地板」被
+// 一个字符形态整体绕过（实测 `git push -uf`、`git push -uf origin HEAD`、`cd app && git push -uf`、
+// `git commit -n`、`git commit -nam` 全部静默放行，而长写与引号变体全判 deny；
+// `git push -fu` 当时能命中纯属运气——`git push -f` 恰好是它的子串）。
+// 这与 0.1.10 修的引号变体是同一个开关的第二张脸，SECURITY.md 把这类「看起来有闸、实际没有」
+// 列为正面靶子。命令侧与规则侧**都要**展开：只展命令侧的话，规则 `rm -rf` 遇命令 `rm -fr`
+// 仍判不中。
+// 只动「单个 - 开头、体部是纯字母数字、长度 > 1」的形态；`--x`（长选项）、裸 `-`、`-3`
+// 这类单字符值一律按原样保留。方向是 fail-safe：展开只会让判据更容易命中，不会少拦。
+const expandCluster = (tok) => {
+  if (tok.length < 2 || tok[0] !== '-' || tok[1] === '-') return [tok];
+  const body = tok.slice(1);
+  if (body.length < 2 || !/^[a-z0-9]+$/i.test(body)) return [tok];
+  return body.split('').map((c) => `-${c}`);
+};
+
 // 词元化：按空白与 shell 分隔符切，供「词元全含」判据使用（保留 `--flag` 原样，去引号后
 // 再切——否则 `"--force"` 会带着引号成为一个独立词元）。
-const tokensOf = (s) => norm(unquote(s)).split(/[\s;&|()]+/).filter(Boolean);
+const tokensOf = (s) => norm(unquote(s)).split(/[\s;&|()]+/).filter(Boolean).flatMap(expandCluster);
 
 // 规则命中：子串命中，或（规则 ≥2 个词且每个词都作为词元出现）。
 // 后者补「选项位置」差异——`git push --force` 是子串，`git push origin main --force` 不是；

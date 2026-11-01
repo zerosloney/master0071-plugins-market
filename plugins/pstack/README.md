@@ -117,3 +117,14 @@ node scripts/release.mjs pstack <新版本>
 先跑一次 `setup-pstack` 确认模型分工是否符合你的账号与供应商；其余按目标直接说，或手动 `/poteto-mode`。
 
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
+
+## 版本变更
+
+**0.1.20**
+
+- **`NOTICE.md` 自标为上游原文**：该文件按上游 pstack-claude 的布局列出"port-authored files"，其中若干路径在本包内并不存在（本包已按 `NOTICE-PORT.md` 的搬迁记录改布局），"六个 cursor-team-kit skill 逐字复制"一句也与本包的 frontmatter 中性化改写不符。文件头补一句"本文件为上游原文，本包实际布局与差异以 NOTICE-PORT.md 为准"，并修正该处与 `CHANGES.md` 归属的矛盾。
+
+**0.1.19**
+
+- **`orch` 多进程锁套件在 Windows 稳定全绿**（253/253 连续两轮），`store.ts` 的静默失败路径同批修掉。
+- `skills/poteto-mode/scripts/worktree-audit.mjs` 兼容新版 transcript 目录布局。

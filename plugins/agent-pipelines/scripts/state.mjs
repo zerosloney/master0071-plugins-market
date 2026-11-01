@@ -410,16 +410,25 @@ function recheckScope(state, cwd) {
   if (base.startsWith("-") || /\s/.test(base)) {
     return { state: "unknown", reason: `scope.base 非法：${base}` };
   }
-  const run = (args) => {
+  const run = (args, dir = cwd) => {
     try {
-      return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      return execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
     } catch {
       return null;
     }
   };
-  if (run(["rev-parse", "--show-toplevel"]) === null) {
+  const toplevel = run(["rev-parse", "--show-toplevel"]);
+  if (toplevel === null) {
     return { state: "unknown", reason: "不在 git 仓库内（无法复算 scope）" };
   }
+  // 三条列清单的命令必须在**仓库根**执行，输出才与 scope 规则同基准（仓库根相对路径）。
+  // 2026-11-01 修复：此前只在 cwd 跑一条 rev-parse 判断「在不在 git 里」，取到的根没用上，
+  // 列清单仍按调用目录执行——`git ls-files --others` 只列该目录以下的未跟踪/ignored 文件，
+  // 仓库其它目录的越界改动整个消失（实测：同一状态同一 --file，仓库根跑判 FAIL/ESCALATE，
+  // 子目录跑判 DONE，forbidden 目录下未跟踪的泄漏文件对门禁不可见）。scope.mjs:232-233
+  // 修过同一个缺陷并留了注释，这份复算体当时没跟上。`git diff --name-only` 本就输出仓库根
+  // 相对路径，改到根上执行不改变其结果，只让三条命令同基准。
+  const root = toplevel || cwd;
 
   const glob = (pattern) => {
     let p = String(pattern).replace(/\\/g, "/").trim();
@@ -428,7 +437,13 @@ function recheckScope(state, cwd) {
     for (let i = 0; i < p.length; i += 1) {
       const ch = p[i];
       if (ch === "*") {
-        if (p[i + 1] === "**") { src += ".*"; i += 1; } else { src += "[^/]*"; }
+        // 与 scope.mjs:globToRegExp 同判：下一个字符是单个 "*" 才算 `**`（跨段）。
+        // 2026-11-01 修复：此前写成与 "**" 比较——p[i+1] 是长度 1 的子串，与两字符常量
+        // 永不相等，`**` 分支恒不进入、退化成 `*`（单段），于是 `src/**` 匹配不到
+        // `src/auth/login.js`，而 README:61 与 SKILL:122 都写明 `**` = 跨段。后果不是放行
+        // 而是反向：自家 .loop-cli/state/ 两层深的状态文件被判 outside scope，任何改动触及
+        // ≥2 层路径的仓库 DONE 永不可达、且 reason 把排查方向带偏。
+        if (p[i + 1] === "*") { src += ".*"; i += 1; } else { src += "[^/]*"; }
       } else if (ch === "?") src += "[^/]";
       else if ("/.+()[]{}^$|\\".includes(ch)) src += `\\${ch}`;
       else src += ch;
@@ -441,11 +456,11 @@ function recheckScope(state, cwd) {
     const f = line.trim().replace(/\\/g, "/");
     if (f && !matchAny(f, exclude)) changed.add(f);
   };
-  const diffed = run(["diff", "--name-only", base]);
+  const diffed = run(["diff", "--name-only", base], root);
   if (diffed === null) return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
   for (const line of diffed.split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--exclude-standard"]) || "").split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"]) || "").split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--exclude-standard"], root) || "").split("\n")) add(line);
+  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"], root) || "").split("\n")) add(line);
 
   const files = [...changed].sort();
   const forbiddenHits = files.filter((f) => matchAny(f, forbidden));
@@ -534,6 +549,24 @@ function gateFor(state, pipeline, cwd = process.cwd()) {
   const withNote = (result) => (presetNote ? { ...result, presetNote } : result);
   if (state.stop_reason === "STOPPED") {
     return { stop_reason: "STOPPED", reason: "stopped by an operator (STOPPED is not recomputable)" };
+  }
+  // completion_promise 是 DONE 铁律的**显式覆盖**（六处文档同口径：coding SKILL.md:314、
+  // commands/coding-pipeline.md:276-278、agents/coding-orchestrator.md:76，ralph 三处同）。
+  // 2026-11-01 修复：此前 gateFor 全文不读这个字段——它只在 validateState:268 被校验类型、
+  // 在 :610 被初始化为 null——于是文档承诺的早停在脚本模式下根本不生效；更糟的是 applyGate
+  // 按"重算为 null 也要写回"的规矩把编排器依文档写好的 DONE 抹成 null，管道继续烧轮次与预算，
+  // 与 README:77「两种入口，机制完全一致」直接冲突。promise 命中即 DONE，按文档绕过
+  // verdict / scope_drift / 验证 / critical 门禁（它是人明确授意的早停，不是可伪造的自报终态：
+  // 预设 stop_reason 仍然不采信，见上）。
+  const promise = typeof state.completion_promise === "string" ? state.completion_promise.trim() : "";
+  if (promise) {
+    const result = {
+      stop_reason: "DONE",
+      reason: `completion_promise 命中：${promise}（DONE 铁律的显式覆盖，绕过 verdict/scope/验证/critical 门禁）`,
+    };
+    // 预设值本就等于 DONE 时不再挂「未采信」注记——这一次 DONE 是有依据的。
+    if (state.stop_reason && state.stop_reason !== "DONE" && presetNote) result.presetNote = presetNote;
+    return result;
   }
   if (tasks.length > 0 && tasks.every((t) => t.status === "done") && blockers.length === 0) {
     return withNote({ stop_reason: "DONE", reason: "all tasks are done" });

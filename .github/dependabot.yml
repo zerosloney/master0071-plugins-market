@@ -8,8 +8,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # 两个 action 各自独立 PR，升级可逐个审（SHA 变更必须对照官方 release 核对）
-    groups:
-      actions:
-        patterns:
-          - "*"
+    # 两个 action 各自独立 PR，升级可逐个审（SHA 变更必须对照官方 release 核对）。
+    # 2026-11-01 修正：此前这里配了 `groups.actions.patterns: ["*"]`，而 `groups` 的作用正是
+    # 把多条更新**打包成一个 PR**——与上一句注释的意图相反。本仓唯一的供应链面就是这两个
+    # action，"逐个核对 SHA"是刻意立在这一层的控制，被分组静默抵消掉了。删掉 groups，
+    # 让每条 SHA 变更落成独立 PR（每周至多两条，量级不需要合并）。

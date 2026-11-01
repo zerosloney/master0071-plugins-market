@@ -26,6 +26,8 @@ import { readContext } from '../scripts/read-context.mjs';
 import { computeFingerprint } from '../scripts/confirm-doc.mjs';
 import { groundQuote, resolveDocText, resolveFamilyTexts } from '../scripts/quote-grounding.mjs';
 import { readAllJudgments, retireCandidates, aggFromRows } from '../scripts/agg-judgments.mjs';
+// workflow/ 台账写锁与 CLI 共用同一把（单源）：两边各写各的锁等于没锁，见 ledger-shards 的注释
+import { withLedgerLock } from '../scripts/ledger-shards.mjs';
 
 const SPAWN_TIMEOUT_MS = 120_000;   // 不变量前置等轻量子进程的墙钟上限
 const OUTPUT_CLIP = 8 * 1024;       // verify_gate 回传 stdout/stderr 摘要的截断上限（防爆）
@@ -251,27 +253,38 @@ export function toolUpdateLedger(args) {
   // 否则先在末尾补一个换行（单独一次 append，仍是 O_APPEND，不会覆盖任何已有内容）。
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const body = content.endsWith('\n') ? content : `${content}\n`;
-  let needsLeadingNewline = false;
-  try {
-    const size = fs.statSync(target).size;
-    if (size > 0) {
-      const fd = fs.openSync(target, 'r');
-      try {
-        const buf = Buffer.alloc(1);
-        fs.readSync(fd, buf, 0, 1, size - 1);
-        needsLeadingNewline = buf[0] !== 0x0a;
-      } finally {
-        fs.closeSync(fd);
+  // 持锁追加（2026-11-01 补）：append-only 对 append-only 是安全的，但 `workflow/` 台账还有
+  // 第二个写者——ledger-shards 的分节插入必须整文件读-改-写。两者不共用一把锁时，
+  // 「A 追加 → B 拿陈旧快照整写 → A 的行消失」仍会发生。所以目标落在 workflow/ 下时，
+  // 与 CLI 共用 scripts/ledger-shards.mjs 的 withLedgerLock（同一把 <文件>.lock）。
+  // 非 workflow 目标（.agents/*.jsonl 等纯 append-only 面）不加锁，保持零额外开销。
+  const appendOnce = () => {
+    let needsLeadingNewline = false;
+    try {
+      const size = fs.statSync(target).size;
+      if (size > 0) {
+        const fd = fs.openSync(target, 'r');
+        try {
+          const buf = Buffer.alloc(1);
+          fs.readSync(fd, buf, 0, 1, size - 1);
+          needsLeadingNewline = buf[0] !== 0x0a;
+        } finally {
+          fs.closeSync(fd);
+        }
       }
+    } catch {
+      /* 文件不存在或读不到：直接追加即可（mkdir 已建目录） */
     }
-  } catch {
-    /* 文件不存在或读不到：直接追加即可（mkdir 已建目录） */
-  }
-  try {
-    fs.appendFileSync(target, `${needsLeadingNewline ? '\n' : ''}${body}`, 'utf8');
-  } catch (err) {
-    throw new ToolError(`写入失败：${target}（${err.message}）——追加未完成，请核对后重试`);
-  }
+    try {
+      fs.appendFileSync(target, `${needsLeadingNewline ? '\n' : ''}${body}`, 'utf8');
+    } catch (err) {
+      throw new ToolError(`写入失败：${target}（${err.message}）——追加未完成，请核对后重试`);
+    }
+  };
+  // 目标落在 workflow/ 下才加锁：那是会被 ledger-shards 整文件重写的面。
+  // 锁拿不到时 withLedgerLock 抛错（fail-loud），退回无锁写等于把本次修复作废。
+  if (relPosix === 'workflow' || relPosix.startsWith('workflow/')) withLedgerLock(target, appendOnce);
+  else appendOnce();
   return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
 }
 

@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sharedHookSwitch } from '../endpoint-config.mjs';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FILE_NAME = 'precheck-quota.json';
@@ -27,7 +28,12 @@ function sleepMs(ms) {
  * 非法值告警到 stderr 后按默认 on 处理（与其他环境量「坏值不毒死流程」的口径一致）。
  */
 export function precheckMode(env = process.env) {
-  const raw = String(env.SYSTEMONE_PLUGIN_HOOK_PRECHECK || env.SYSTEMONE_HOOK_PRECHECK || '').trim().toLowerCase();
+  // 取值顺序（2026-11-01 修复）：MCP 落盘的共享文件（设置页解析结果）> 本进程 env 的
+  // SYSTEMONE_PLUGIN_* > 裸环境变量。此前只读 env，而设置页注入只进 MCP 子进程，
+  // hook 侧压根收不到——README 却把它写成"等价环境变量""off = 停掉提示外发"。
+  const raw = String(
+    env.SYSTEMONE_PLUGIN_HOOK_PRECHECK || sharedHookSwitch('hookPrecheck') || env.SYSTEMONE_HOOK_PRECHECK || '',
+  ).trim().toLowerCase();
   if (raw === '' || raw === 'on' || raw === 'true') return { mode: 'on' };
   if (raw === 'off' || raw === 'none' || raw === 'false') return { mode: 'off' };
   const m = raw.match(/^(?:first[:=]?(\d+)|(\d+))$/);
@@ -44,18 +50,23 @@ function quotaFile() {
   return dataDir ? path.join(dataDir, FILE_NAME) : path.join(PLUGIN_ROOT, FILE_NAME);
 }
 
-/** 读取会话桶表；文件缺失/损坏/形状不对一律返回空表（= 不限额）。 */
+/** 读取会话桶表；文件缺失/损坏/形状不对一律返回空表（= 不限额）。
+ *  一律用**无原型对象**承载（2026-11-01 修复）：桶键是宿主给的 session_id，原样当属性名用。
+ *  `"__proto__"` 作键时 `sessions["__proto__"] = {count:…}` 走原型 setter、不进自有键，
+ *  JSON.stringify 也不序列化原型 → 该会话的 first:N 计数永远不涨（配额对该会话失效）。
+ *  与 mcp/server.mjs:executeDecision / applyParams 是同一类洞的第三处。 */
 function loadSessions(file) {
+  const out = Object.create(null);
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
         parsed.sessions && typeof parsed.sessions === 'object' && !Array.isArray(parsed.sessions)) {
-      return parsed.sessions;
+      for (const [k, v] of Object.entries(parsed.sessions)) out[k] = v;
     }
   } catch {
     // 首次运行或写者替换瞬间
   }
-  return {};
+  return out;
 }
 
 function sessionKey(sessionId) {

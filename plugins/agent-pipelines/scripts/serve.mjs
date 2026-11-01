@@ -12,8 +12,33 @@ const args = parseArgs(process.argv.slice(2), { boolean: ["json"], value: ["pipe
 const pipeline = pipelineOf(args);
 const file = stateFile(args, pipeline);
 const eventsFile = file.replace(/\.json$/, ".events.jsonl");
-const port = Number(args.port) > 0 ? Number(args.port) : 8787;
-const interval = Number(args.interval) > 0 ? Number(args.interval) : 1000;
+// --port / --interval 的取值校验（2026-11-01 修复）。旧写法 `Number(args.port) > 0 ? … : 8787`
+// 只挡下界：70000 这类越界值会一路传到 server.listen()，由 net 层**同步**抛
+// ERR_SOCKET_BAD_PORT（`server.on("error")` 收不到同步抛出），用户看到的是崩栈而不是可读报错；
+// 而 -1 / abc 会被静默换成默认端口——端口被人占用时看板悄悄换了地方，调用方无从察觉。
+// 与 README.md:63「参数或环境错误 → 退出码 2」及下方 error 处理器自称的「可读报错 + 退出码 2」对齐。
+function positivePort(raw, label, fallback) {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    console.error(`agent-pipelines live board: --${label} 需要 1-65535 的整数端口，收到「${raw}」`);
+    process.exit(2);
+  }
+  return n;
+}
+
+function positiveInt(raw, label, fallback) {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error(`agent-pipelines live board: --${label} 需要正整数，收到「${raw}」`);
+    process.exit(2);
+  }
+  return n;
+}
+
+const port = positivePort(args.port, "port", 8787);
+const interval = positiveInt(args.interval, "interval", 1000);
 
 let clients = new Set();
 let lastHtml = "";

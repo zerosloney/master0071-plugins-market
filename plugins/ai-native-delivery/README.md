@@ -121,8 +121,9 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 - **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask 两清单静态匹配（曾有的 `allow` 清单已于 2026-10-28 移除——它在判定链末端空转，且列着 `git commit`/`git push`，容易让人误以为这些命令已被预先批准）。清单来源为项目侧 `.agents/settings.json`（`permissions.deny` / `permissions.ask`）→ 插件种子 `config-templates/settings.json` → 代码内兜底，但两清单的信任边界不同：
   - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `git push --no-verify` / `git commit --no-verify` / `drop database` 六项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
-    - `--no-verify` 单列（2026-10-29 补）：它是从 shell 层关掉已安装 git hook 的唯一开关，能一条参数解除两层中的一层。
+    - `--no-verify` 单列（2026-10-29 补，2026-11-01 补短写）：它是从 shell 层关掉已安装 git hook 的开关，能一条参数解除两层中的一层——而且它有**两个名字**：`git commit -h` 显示 `-n, --no-verify`，所以地板里 `git commit --no-verify` 与 `git commit -n` 两条都在。反面对照：`git push -n` 是 `--dry-run`（不解除任何东西），故有意不放进地板。
     - 匹配前先剥引号（2026-10-29 补）：`git push "--force"` 与 `git push --force` 是同一个命令，旧判据按原样切词元导致引号变体全部静默放行。
+    - 短选项簇先展开（2026-11-01 补）：`git push -uf` 与 `git push -u -f` 是同一个命令，旧判据把 `-uf` 当一个词元，规则里的 `-f` 对不上、子串判据也落空，实测 `git push -uf` 与 `git commit -n` 双双静默放行——与引号变体是同一个洞的第二张脸。命令侧与规则侧同时展开，`rm -rf` 规则也才判得中 `rm -fr`。
   - **ask 仍可被项目侧整体接管**（ask 只是多问一句，由项目自定是合理的；不写 `ask` 键则回退内置默认）。
   - 想放宽地板只能由**人**在宿主侧关掉这个插件的 hook，不提供项目内配置位——这是刻意的：治理引擎的门不该由被治理的仓库拆。
 - **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
@@ -160,3 +161,28 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；
 - 全量：`test/` 全部套件逐个可跑（CI 逐行接线）；设计文档 §10 十条验收断言收口在 `test/acceptance.mjs`（黑盒、全走 CLI/stdio 入口），样板仓端到端闭环在 `test/e2e-fixture.mjs`；
 - 迁移口径见 [NOTICE-ORIGIN.md](NOTICE-ORIGIN.md)：只迁机制不迁运行数据；实现收口记录（v2.3 → 0.1.0 落地偏差与裁决）见设计文档 `design/ai-native-delivery.md` §12。
+
+## 项目侧约定（插件不附带）
+
+`commands/` 与 `skills/` 里会提到下面这些路径，但它们属于**使用项目的资产**：插件不附带、`init-engine` 也不生成。首次接入的项目自行准备；缺失时按"按项目实际约定执行"处理——门禁脚本对项目侧目录一律"存在才守护"（`scripts/check-scripts-syntax.mjs`），不会因缺席判红。
+
+- `.agents/notes/runtime-env.md`（`§6.1` 探活脚本、`§6.1b` 端口表等）——`commands/test.md`、`commands/deploy.md` 与若干门禁脚本的说明会指向它
+- `scripts/verify/e2e/harness.mjs`、`scripts/verify/e2e/ports.mjs`——`verify-ui` 的 UI 实测单源与端口字面量单源
+- 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
+
+## 版本变更
+
+**0.1.11**
+
+- **台账写入不再随真实日历漂移**：`confirm-doc` 的四处台账 `ts` 改用与关单门同一个可注入时钟（`CONFIRM_DOC_TEST_NOW`），workflow 归档的目的地月不再跟着跑测试那天的月份走。此前每到新的一个月，`confirm-doc` 与 `acceptance` 两道 CI 门会同时变红。
+- **台账并发追加不再丢行**：`ledger-shards --append` 走的是读-改-写整写，多进程并发时后写者用陈旧快照覆盖，丢行却回成功。现在文末追加改 `appendFileSync`、分片创建改独占、分节插入加指纹校验与重读重试，并与 MCP `update_ledger` 共用一把 `<分片>.lock` 写锁（拿不到锁即响亮报错，不降级成无锁写）。
+- **deny 地板补短选项簇**：`git push -uf`、`git commit -n` 这类合写短路了"不可下调的 deny 地板"——`tokensOf` 现在展开短选项簇（命令侧与规则侧都展开），地板同时补 `git commit -n`（push 的 `-n` 是 dry-run，有意不加）。
+- **陈旧自装 git hook 自动刷新**：插件安装目录迁移后，钩子里 baked 的引擎路径失效会让 commit 崩在 `MODULE_NOT_FOUND`，而钩子提示的"重跑 init-engine"此前是 no-op；现在只刷新"本插件装且引擎脚本已不存在"的那一类，别人的钩子仍不覆盖。
+- `verify-ui` 里写死的用户主目录路径改为宿主中立表述；`.gitignore` 种子增台账写锁的临时文件。
+- 文档补"项目侧约定路径"边界：`commands`/`skills` 里指向的 `.agents/notes/runtime-env.md`、`scripts/verify/e2e/*` 属**项目侧**文件，插件不附带也不生成。
+
+**0.1.10**
+
+- **`type: module` 项目的 git hooks 崩溃修复**：hook 由 shell 启动、按 CommonJS 解析时不再因包内 `"type": "module"` 报错。
+- §23 收敛审计的命令白名单可经 `engine.json` 配置（`convergenceCommands`），不再写死。
+- **风险闸 fail-closed 收紧**：任何异常转 `ask`（此前静默 exit 0 会凭 hook 自身故障放行本该命中 deny 的命令）；deny 取"内置地板 ∪ 来源追加"，被治理项目只能加严。

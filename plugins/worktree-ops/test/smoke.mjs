@@ -1472,6 +1472,27 @@ section('P1：gitignored 文件阻止无确认删除');
   check('确认后目录被删掉', !existsSync(wtPath), wtPath);
 }
 
+section('P1：merge_back 的 remove 出口同样受 gitignored 护栏约束');
+// 回归（2026-11-01 市场审查实测）：worktree_remove 有 ignoredCount 闸，但功能等价的
+// merge_back{remove:true} 是**第二个删除出口**且没有确认环节——只含 .env 的已合并工作树被判
+// clean 后，裸 `git worktree remove`（无 --force）会连目录带 .env 一起删掉且无法恢复。
+// 修复后 merge_back 保留该工作树并在 steps 里点名，把调用方导向唯一带二次确认的出口；
+// 这里不引入 force/confirmDiscard 的第二套语义。
+{
+  await session.tool('worktree_create', { repoPath: repo, name: 'ignored-mb' });
+  const mbDir = path.join(root, 'wt-ignored-mb');
+  writeFileSync(path.join(mbDir, '.env'), 'SECRET=1\n'); // .git/info/exclude 已在 P1 段排除 .env
+  const mb = await session.tool('worktree_merge_back', { repoPath: repo, name: 'ignored-mb', remove: true });
+  check('merge_back remove 遇 gitignored 文件时保留工作树并点名',
+    !mb.isError && /kept worktree/.test(mb.text) && /gitignored/.test(mb.text), mb.text);
+  check('merge_back 保留后 .env 与目录都还在', existsSync(path.join(mbDir, '.env')), mb.text);
+  const mbPlan = await session.tool('worktree_merge_back', { repoPath: repo, name: 'ignored-mb' });
+  check('计划阶段就告知删除会被保留（不必等执行才知道）',
+    /gitignored files: \d+ \(removal will be kept back\)/.test(mbPlan.text), mbPlan.text);
+  const mbGone = await session.tool('worktree_remove', { repoPath: repo, name: 'ignored-mb', force: true, confirmDiscard: true });
+  check('确认后仍可用 worktree_remove 删除', !mbGone.isError && /Removed worktree/.test(mbGone.text), mbGone.text);
+}
+
 section('P1：未配置受管根时 audit 不报 safe');
 // 回归（2026-10-29 实测）：bucketOf 旧实现 `if (managedPath && !isInside(...))` 在 root 为
 // null 时整条跳过 → audit 报 "safe to remove"，remove 却回 "outside the managed root
