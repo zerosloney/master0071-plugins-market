@@ -105,11 +105,11 @@ before you have tried the obvious correction.
 
 ## Listing and auditing
 
-- `worktree_list` — cheap inventory: branch, clean state, ahead/behind, merge state.
+- `worktree_list` — cheap inventory: branch, HEAD, clean state, ahead/behind, merge state.
 - `worktree_audit` — the cleanup pass. Buckets are `safe` (clean, already merged, and inside
   the managed root — so `worktree_remove` will actually accept it), `review` (clean but not
-  merged yet, idle, or outside the managed root), `hold` (dirty, has unmerged commits, locked,
-  prunable, or the primary worktree).
+  merged yet, idle, or outside the managed root), `hold` (dirty, has unmerged commits, contains
+  gitignored files, locked, prunable, or the primary worktree).
 
 Neither deletes anything. Report the table, then ask before removing anything, even `safe` rows.
 
@@ -123,7 +123,8 @@ answer that data was destroyed. Worktrees outside the managed root are always re
 flag widens that boundary. After removing, offer `deleteBranch: true` when the branch is fully
 merged.
 
-Lock a worktree someone else is working in with `worktree_lock` (release it with `worktree_unlock`);
+Lock a worktree someone else is working in with `worktree_lock` (release it with `worktree_unlock`;
+locking the primary worktree is refused);
 `worktree_remove` refuses to touch locked worktrees, `worktree_merge_back` refuses only when asked
 to remove after the merge, and the audit buckets them `hold`.
 

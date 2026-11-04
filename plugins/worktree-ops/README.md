@@ -38,7 +38,7 @@ node --version && git --version
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中（标准客户端下传 `sessionCwd` 可确认） |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
 | `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；受管目录外一律拒绝，`force` 也不放宽 |
-| `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
+| `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：主检出（primary worktree）会被拒绝；`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
 | `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还。`ff: true` 配合 `merge` 做 fast-forward-only 合并（线性历史、无合并提交），分支已分叉时拒绝。`remove: true` 与 `worktree_remove` 同一道删除护栏：锁定 / 受管根外 / 未合并 / 脏 / **含 gitignored 文件**一律保留工作树并说明原因（2026-11-01 补：此前只有 `worktree_remove` 带 gitignored 闸，`merge_back` 是第二个删除出口却无确认环节，只含 `.env` 的已合并工作树会被静默删掉） |
 | `worktree_config` | 读写全部 worktree 配置（`root` / `baseRef` / `branchPrefix` / `staleDays`），`scope: global` 或单仓库覆盖。`scope: "global"` 下 `repoPath` 可选，仅用于回执附上该仓库的生效值（传了就必须是 git 仓库，路径无效整次调用报错） |
@@ -85,6 +85,20 @@ node --version && git --version
 用 `WORKTREE_CONFIG_HOME` 可以整体改掉这个目录。支持设置页的宿主（ZCode）会把设置项映射成上面那组环境变量，用户在界面里填的值优先级最高。
 
 ## 版本变更
+
+**0.4.16**
+
+功能与代码全量审查的 Minor 批量收口（16 修 / 3 评估后不修）。四组：
+
+- **配置与锁的健壮性**。`saveConfig` 写临时文件本身失败（ENOSPC/EACCES）不再留下半截 `.tmp`；取锁时 `writeSync` 失败不再泄漏 fd（退避/超时路径照常走）；手写在 config.json 里的未知**顶层**键在任意一次配置写盘后原样保留（此前无提示消失）；`WORKTREE_CONFIG_HOME` 相对路径被忽略并回退默认位置（此前随宿主进程 cwd 漂移，表现为「设置改了不生效」）；`baseRef: ""` 与 `branchPrefix: ""` 同待遇——上报 issue、不落盘（此前静默降级 auto，无任何提示）。
+- **输出与口径**。`worktree_list` 真的带 HEAD 短 sha 列（文档一直这么承诺，实现此前缺失）；`merge_back` 计划行的「合并状态未知」显示 `?` 而不是写死 `no`（与同行 ahead 的 `?` 口径对齐）；单条最后提交的 subject 含 tab 不再被截断（与批量版同口径）；`slug` 命中 Windows 保留设备名（con / nul / com1…）时自动加 `-wt` 后缀，不再让 git 报晦涩的 Win32 错误；create 去掉对既有分支名的重复 rev-parse；**prunable 且 HEAD 不可达的登记，remove 无需 force 即可清除**——与紧邻的 clean 检查同口径：目录已不存在、磁盘无文件可删，清的只是 git 自己判为残骸的过期登记，等价于 prune。
+- **协议层**。带 `enum` 的参数（`action` / `scope`）在协议层即校验，拼错值立刻报错点名合法集合（此前落到工具内部兜底）；`type: "array"` 判定修正（潜伏缺口，当前无工具使用）；无 id 的 ping 按 JSON-RPC 2.0 不再违规回包；unknown tool 按 MCP 规范回 JSON-RPC error（-32602，含被拒工具名）而非 content+isError；stdin 读错误对齐 stdout EPIPE 的既有口径（EPIPE 静默退出，不再未捕获崩栈）。
+- **文档**。lock 拒绝主检出补进 README / SKILL / schema description；SKILL 的 audit `hold` 枚举补上 `gitignored`；list 描述补 HEAD。
+
+**0.4.15**
+
+- **配置锁的陈旧接管不再「删锁重建」，改为原子替换 + 写盘前归属校验**。原接管路径 stat 判陈旧后无条件 unlink：两进程并发接管同一把陈旧锁时，后到者的 unlink 删掉的是前者刚建好的**新**锁，两个写者同时进临界区，后写者覆盖先写者的配置改动（该路径此前无测试覆盖）。现在接管方把自己的 pid 写临时文件后 `rename` 原子替换锁文件——rename 要么整体换掉要么不动，不存在误删他人新锁的中间态，并发接管时最后替换者即唯一持锁者；`worktree_config` 落盘前校验锁内容仍为本进程 pid，输掉接管竞态的一方中止保存并给出重试指引，不落盘、不吞错。lock 测试补齐接管三场景（陈旧锁仍可接管 / 接管后锁内容为新持有者 / 临界区内锁换主则拒绝落盘）。
+- **`create` 对「分支已检出于同名路径的活 worktree」不再误报为残留目录**。原「目录非空」检查先于「git 已注册」检查：活工作树目录必非空，先命中前者，报错指引 `remove the leftover directory first`——照做会删掉活树的未提交内容，而精确诊断不可达。现在注册检查先行，活树报 `git already registers this worktree`；真正的残留目录场景不受影响，smoke 补两侧回归用例。
 
 **0.4.14**
 

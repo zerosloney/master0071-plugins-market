@@ -199,6 +199,14 @@ try {
 
   const listed = await session.tool('worktree_list', { repoPath: repo });
   check('list 同时列出主工作树与新 worktree', listed.text.includes('feat/login') && listed.text.includes('myrepo'), listed.text);
+  // HEAD 短 sha 列：工具描述与 README 都承诺列出 HEAD，表格此前缺该列。
+  // 短 sha 长度 7 与 core describe()/label 的既有口径一致。
+  const featHeadSha = git(['rev-parse', 'refs/heads/feat/login'], repo).trim().slice(0, 7);
+  check(
+    'list 表格含 HEAD 列并显示新建 worktree 的 HEAD 短 sha',
+    /\bHEAD\b/.test(listed.text) && listed.text.includes(featHeadSha),
+    `${listed.text}\n(expect ${featHeadSha})`,
+  );
 
   section('状态与交接');
   git(['config', 'user.email', 'smoke@test.invalid'], wtPath);
@@ -428,7 +436,8 @@ try {
   const zHdrCols = zHdr >= 0 ? zl[zHdr].trim().split(/\s{2,}/).length : 0;
   const zRowCols = zRow ? zRow.trim().split(/\s{2,}/).length : -1;
   check('list：ahead=0 / ageDays=0 的行与表头列数一致', zHdrCols > 0 && zRowCols === zHdrCols, zeroList.text);
-  check('list：ahead=0 显示为 0 而不是丢列', Boolean(zRow) && zRow.trim().split(/\s{2,}/)[4] === '0', zeroList.text);
+  // 列序含 HEAD 后 AHEAD 从第 4 列移到第 5 列
+  check('list：ahead=0 显示为 0 而不是丢列', Boolean(zRow) && zRow.trim().split(/\s{2,}/)[5] === '0', zeroList.text);
   const zeroAudit = await session.tool('worktree_audit', { repoPath: repo });
   const za = zeroAudit.text.split('\n');
   const aHdr = za.findIndex((l) => l.includes('BUCKET'));
@@ -729,6 +738,38 @@ try {
   );
   const paForced = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-ahead', force: true, confirmDiscard: true, deleteBranch: true });
   check('确认意图后 force 可清理', !paForced.isError && /Removed worktree/.test(paForced.text), paForced.text);
+
+  // prunable 且 HEAD 不可解析（分支引用被底层删除，登记还挂着）：clean 与 ahead 双双为 null。
+  // 这是 git 自己都标 prunable 的残骸登记，清掉的只有登记本身，删除等价于 prune，无需 force。
+  // `git branch -D` 会被「分支被 worktree 占用」拒绝，须用 update-ref 删引用才能造出该状态。
+  await session.tool('worktree_create', { repoPath: repo, name: 'prunable-dead-head' });
+  const pdDir = path.join(overrideRoot, 'wt-prunable-dead-head');
+  writeFileSync(path.join(pdDir, 'wip.txt'), 'wip\n');
+  git(['add', '.'], pdDir);
+  git(['commit', '-m', 'wip: prunable-dead-head'], pdDir);
+  renameSync(pdDir, `${pdDir}-gone`);
+  git(['update-ref', '-d', 'refs/heads/wt/prunable-dead-head'], repo);
+  const pdPlan = await session.tool('worktree_merge_back', { repoPath: repo, name: 'prunable-dead-head' });
+  // 「already merged: ?」的 null 通道在本机 git 2.53 下 e2e 不可达：porcelain 对不可解析
+  // HEAD 恒输出全零 sha（非空字符串），且 core 的 isAncestor 把 rev 解析失败折叠为 false，
+  // mergedIntoTarget 只会取 true/false。这里钉住可达口径：ahead 未知显示 "?"、merged
+  // 非空时按布尔渲染；工具侧的三元 null 分支（未知出 "?"）已按审查口径对齐 ahead 写法。
+  check(
+    'merge_back 计划：ahead 未知显示 "?"',
+    !pdPlan.isError && /- commits ahead of main: \?/.test(pdPlan.text),
+    pdPlan.text,
+  );
+  check(
+    'merge_back 计划：merged 为布尔时按 yes/no 渲染',
+    !pdPlan.isError && /- already merged: (?:yes|no)$/m.test(pdPlan.text),
+    pdPlan.text,
+  );
+  const pdRemove = await session.tool('worktree_remove', { repoPath: repo, name: 'prunable-dead-head' });
+  check(
+    'prunable 且 head 不可解析时 remove 无需 force',
+    !pdRemove.isError && /Removed worktree/.test(pdRemove.text) && /already gone \(prunable\)/.test(pdRemove.text),
+    pdRemove.text,
+  );
 
   section('仓库内 root 自动写入本地忽略');
   // A4 回归：受管根允许设在仓库工作树内，但 create 必须先把该目录幂等写进
@@ -1539,6 +1580,35 @@ section('P2：合并冲突后不留下进行中的合并态');
   // 清理：先让 merge 能快进/无冲突，再删掉工作树
   git(['checkout', '--', 'conflict.txt'], repo);
   await session.tool('worktree_remove', { repoPath: repo, name: 'conflict-probe', force: true, confirmDiscard: true, deleteBranch: true });
+}
+
+section('M-B：已注册检查先于残留目录非空检查');
+// 回归（审查 M-B）：活 worktree 占着默认 slug 路径时目录必然非空，旧实现先查「非空」，
+// 把活树误报成 "remove the leftover directory first" —— 照做会删掉活树里的未提交内容。
+// 精确诊断 "git already registers this worktree" 必须先于非空检查可达。
+{
+  const mbCreated = await session.tool('worktree_create', { repoPath: repo, name: 'mb-dup-probe' });
+  check('M-B 前置：mb-dup-probe 创建成功', !mbCreated.isError, mbCreated.text);
+  const mbDup = await session.tool('worktree_create', { repoPath: repo, name: 'mb-dup-probe' });
+  check(
+    '重复创建活 worktree 报 already registers，不误报 leftover directory',
+    mbDup.isError && mbDup.text.includes('already registers') && !mbDup.text.includes('leftover directory'),
+    mbDup.text,
+  );
+  const mbDupRemoved = await session.tool('worktree_remove', { repoPath: repo, name: 'mb-dup-probe', deleteBranch: true });
+  check('M-B 清理：mb-dup-probe 可正常删除', !mbDupRemoved.isError, mbDupRemoved.text);
+
+  // 真「残留目录」场景：路径未被 git 注册时才轮到非空检查，仍应提示 leftover
+  const mbLeftoverDir = path.join(root, 'wt-mb-leftover-probe');
+  mkdirSync(mbLeftoverDir, { recursive: true });
+  writeFileSync(path.join(mbLeftoverDir, 'stale.txt'), 'x\n');
+  const mbLeftover = await session.tool('worktree_create', { repoPath: repo, name: 'mb-leftover-probe' });
+  check(
+    '未注册的残留目录仍报 not empty / leftover directory',
+    mbLeftover.isError && mbLeftover.text.includes('not empty') && mbLeftover.text.includes('leftover directory'),
+    mbLeftover.text,
+  );
+  rmSync(mbLeftoverDir, { recursive: true, force: true });
 }
 } catch (err) {
   failures += 1;

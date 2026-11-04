@@ -40,6 +40,13 @@ if (NODE_MAJOR < 18) {
 }
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+// stdin 读错误（非正常 EOF）此前没人接：readline 会把 input 流的 error 转发到 rl，
+// rl 上没有监听者就是未捕获异常加崩栈收场。口径与 protocol.mjs 里 stdout EPIPE 一致：
+// 管道对端已不在就安静退出 0，其余错误照抛。
+rl.on("error", (err) => {
+  if (err && err.code === "EPIPE") process.exit(0);
+  throw err;
+});
 rl.on("line", (line) => {
   const trimmed = line.trim();
   if (!trimmed) return;

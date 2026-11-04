@@ -40,7 +40,9 @@ const DEFAULT_CONFIG = {
 
 function configDir() {
   const override = process.env.WORKTREE_CONFIG_HOME;
-  if (override) return override;
+  // 相对路径会按宿主启动 MCP 的 cwd 解析，配置位置随进程 cwd 漂移。与 WORKTREE_ROOT
+  // （envOverrides）的同类守卫一致：忽略这一层，回退默认位置。
+  if (override && path.isAbsolute(override)) return override;
   if (process.platform === "win32") {
     const base = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
     return path.join(base, "worktree-ops");
@@ -121,6 +123,12 @@ function normalizeRepoOverride(key, value, issues) {
       issues.push(`repos["${key}"].branchPrefix: expected a non-empty string, got ""`);
       continue;
     }
+    // 空 baseRef 到生效点（resolveBase 的 if (e.baseRef && ...)）会因 falsy 被当成未配置、
+    // 静默走 auto：与空 branchPrefix 的显式报错口径分裂。同样在源头拒绝并上报 issue。
+    if (field === "baseRef" && v === "") {
+      issues.push(`repos["${key}"].baseRef: expected a non-empty string, got ""`);
+      continue;
+    }
     // 相对 root 会按宿主 cwd 解析（标准客户端下是插件根），把受管根指到错误位置。
     if (field === "root" && !path.isAbsolute(v)) {
       issues.push(`repos["${key}"].root: expected an absolute path, got ${JSON.stringify(v)}`);
@@ -166,6 +174,13 @@ function loadConfig() {
     issues.push(`branchPrefix: expected a non-empty string, got ""`);
     delete source.branchPrefix;
   }
+  // baseRef 同口径：空串在生效点（resolveBase 的 if (e.baseRef && ...)）falsy 静默走 auto，
+  // 与 branchPrefix 空串的显式报错分裂。环境变量路径（envOverrides）的空串已被 falsy 守卫
+  // 挡住、到不了这里，此守卫只针对手编配置文件。
+  if (source.baseRef === "") {
+    issues.push(`baseRef: expected a non-empty string, got ""`);
+    delete source.baseRef;
+  }
   const config = {
     file,
     parseError,
@@ -191,36 +206,63 @@ function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** 取配置文件的写锁，返回释放函数。持锁者崩溃会留下陈旧锁：超过阈值就当作失效锁清掉。 */
+/** 取配置文件的写锁，返回释放函数。持锁者崩溃会留下陈旧锁：超过阈值就把锁文件
+*  原子替换为自己的 pid 接管（见下方竞争分支内的注释）。 */
 function acquireConfigLock(file) {
   const lockPath = `${file}.lock`;
   const deadline = Date.now() + 2000;
+  const owner = String(process.pid);
+  const release = () => {
+    try {
+      // 只释放仍属于自己的锁：陈旧锁超时被后来者接管后，迟到的 release 不能误删新持锁者的锁，
+      // 否则第三方可再获取，两个写者并发读-改-写
+      if (fs.readFileSync(lockPath, "utf8") !== owner) return;
+      fs.unlinkSync(lockPath);
+    } catch {
+      /* 已被清理 */
+    }
+  };
   for (;;) {
     try {
       const fd = fs.openSync(lockPath, "wx");
-      const owner = String(process.pid);
-      fs.writeSync(fd, owner);
-      fs.closeSync(fd);
-      return () => {
-        try {
-          // 只释放仍属于自己的锁：陈旧锁超时被后来者接管后，迟到的 release 不能误删新持锁者的锁，
-          // 否则第三方可再获取，两个写者并发读-改-写
-          if (fs.readFileSync(lockPath, "utf8") !== owner) return;
-          fs.unlinkSync(lockPath);
-        } catch {
-          /* 已被清理 */
-        }
-      };
+      // writeSync 失败也要关 fd：锁文件句柄一旦泄漏，Windows 上该文件一直被本进程
+      // 占用，后续 unlink/接管都会被拖累。
+      try {
+        fs.writeSync(fd, owner);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return release;
     } catch (err) {
       if (!err || err.code !== "EEXIST") throw err;
       try {
         const age = Date.now() - fs.statSync(lockPath).mtimeMs;
         if (age > CONFIG_LOCK_STALE_MS) {
-          fs.unlinkSync(lockPath);
-          continue;
+          // 接管不用 unlink：stat 判陈旧到 unlink 之间锁可能已被他人接管重建，
+          // 无条件删会误删新持锁者的锁，两个写者同时进临界区（后写覆盖先写）。
+          // 改为把自身 pid 写临时文件后 rename 原子替换锁文件——rename 要么整体
+          // 换掉要么不动，不存在「删掉别人新锁」的中间态。并发接管时最后替换者
+          // 的 pid 留在锁里，输家由 saveConfig 写盘前的归属校验拦下，其 release
+          // 的 pid 校验也保证输家不会误删赢家的锁。
+          const tmp = `${lockPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+          let replaced = false;
+          try {
+            fs.writeFileSync(tmp, owner, "utf8");
+            fs.renameSync(tmp, lockPath);
+            replaced = true;
+          } finally {
+            if (!replaced) {
+              try {
+                fs.unlinkSync(tmp);
+              } catch {
+                /* 临时文件可能已被 rename 或根本没写成 */
+              }
+            }
+          }
+          return release;
         }
       } catch {
-        /* 锁刚好被别人释放 */
+        /* 锁刚好被别人释放，或原子替换没成功（Windows 上目标被占用）→ 按普通竞争退避重试 */
       }
       if (Date.now() > deadline) {
         throw new Error(
@@ -252,6 +294,7 @@ function saveConfig(changes = {}) {
   const file = path.join(configDir(), "config.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const release = acquireConfigLock(file);
+  const lockPath = `${file}.lock`;
   try {
     const { parsed, parseError } = readConfigFile();
     if (parseError) {
@@ -277,6 +320,12 @@ function saveConfig(changes = {}) {
           : DEFAULT_CONFIG.staleDays,
       repos: disk.repos && typeof disk.repos === "object" && !Array.isArray(disk.repos) ? { ...disk.repos } : {},
     };
+    // 磁盘上既存的未知顶层键原样带回（round-trip）：body 曾只由固定四键 + repos 构成，
+    // 用户手写的自定义顶层键会在任意一次配置写盘后无提示消失（repos 内部未知字段反而
+    // 保留）。固定键恒在 body 上，hasOwnProperty 判定保证未知键不会覆盖本次合法化结果。
+    for (const [key, value] of Object.entries(disk)) {
+      if (!Object.prototype.hasOwnProperty.call(body, key)) body[key] = value;
+    }
     if (changes.top) {
       for (const key of REPO_OVERRIDE_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(changes.top, key)) body[key] = changes.top[key];
@@ -293,11 +342,30 @@ function saveConfig(changes = {}) {
         body.repos[key] = current;
       }
     }
+    // 提交前最后校验锁归属（临界区内、写临时文件前的最后一道闸）：陈旧锁改为原子
+    // 替换接管后，并发接管者可能都以为自己持锁——rename 恒成功，只有最后替换者的
+    // pid 留在锁里。此刻锁内容不是本进程 pid（含锁已被删）说明输掉了接管竞态，必须
+    // 中止本次保存：继续落盘会覆盖真正持锁者刚提交的配置。校验尽量贴近写盘点，
+    // 把校验 → 写盘的窗口压到最小。
+    let lockOwner = null;
+    try {
+      lockOwner = fs.readFileSync(lockPath, "utf8");
+    } catch {
+      /* 锁已不存在：归属同样已失 */
+    }
+    if (lockOwner !== String(process.pid)) {
+      throw new Error(
+        `lost the config lock (${lockPath}) before saving — it is now owned by ${lockOwner ?? "(missing)"}, not this process (${process.pid}).\n` +
+          `Another process took over the config lock concurrently; nothing was written. Re-run the config command to apply the change.`
+      );
+    }
     // 原子写：先落临时文件再 rename 覆盖，避免写一半进程退出留下截断的 config.json。
     // 临时名带 pid + 随机后缀：固定的 config.json.tmp 会让并发写者互相截断对方的写入。
     const tmp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+    // 清理 try 必须从写盘之前开始：writeFileSync 本身失败（ENOSPC/EACCES）时，刚建的
+    // .tmp 半截文件同样要清掉，不能只在 rename 阶段兜底。
     try {
+      fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
       // Windows 上目标文件正被其他进程读取时，rename 覆盖会抛 EPERM（POSIX 不会）。
       // 有界重试即可：并发写者都是「整份覆盖」，最后一次成功写入即最终值。
       for (let attempt = 0; ; attempt += 1) {
@@ -780,6 +848,10 @@ function slug(value) {
   // "." / ".." 是路径原语：拼进受管根就是「上一层目录」。在源头拒绝，不靠下游兜底
   //（目标目录非空、git 拒绝非法分支名）——下游兜底会随实现调整而失效。
   if (s === "." || s === "..") return createHash("sha1").update(String(value).trim()).digest("hex").slice(0, 8);
+  // Windows 保留设备名（con/prn/aux/nul/com1-9/lpt1-9，全名匹配）作目录名时，git 建目录
+  // 会报晦涩的 Win32 错。s 已经过 toLowerCase，这里小写全名匹配即覆盖各种大小写写法；
+  // 命中即追加 -wt 后缀使名字合法（com10 / console 等非保留名不误伤）。
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(s)) return `${s}-wt`;
   // 非 ASCII 任务名（如纯中文）剥完可能为空：用原名的稳定短哈希兜底，避免不同名字都落到 "worktree" 互相撞目录
   return s || createHash("sha1").update(String(value).trim()).digest("hex").slice(0, 8);
 }
@@ -891,13 +963,15 @@ function isAncestor(repo, branch, target) {
 function lastCommit(dir) {
   const line = git(["log", "-1", "--format=%h%x09%an%x09%cI%x09%s"], dir, { allowFail: true });
   if (!line || !line.trim()) return null;
-  const [sha, author, date, subject] = line.trim().split("\t");
+  // subject 自身可能含 tab：与批量版（lastCommits 的 rest.join("\t")）同口径，取首个
+  // tab 之后的全部段拼回，不能让 split 直接截断。
+  const [sha, author, date, ...rest] = line.trim().split("\t");
   const ts = Date.parse(date || "");
   return {
     sha,
     author,
     date,
-    subject,
+    subject: rest.join("\t"),
     ageDays: Number.isFinite(ts) ? Math.floor((Date.now() - ts) / DAY_MS) : null,
   };
 }

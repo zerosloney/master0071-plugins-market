@@ -12,7 +12,7 @@ import { tools } from "./tools.mjs";
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/worktree-ops/plugin.json 同步，由 `node scripts/release.mjs worktree-ops <x.y.z>` 统一改
-const SERVER_INFO = { name: 'worktree-ops', version: '0.4.14' };
+const SERVER_INFO = { name: 'worktree-ops', version: '0.4.16' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 
@@ -31,6 +31,10 @@ function matchesType(type, value) {
   if (value === null) return types.includes("null");
   // 空串在本仓是「未传」的约定（numArg("") → null、设置页回传空串），不按类型不匹配处理
   if (value === "") return true;
+  // typeof [] === "object"：数组会掉进 object 判定，声明 type:"array" 的实参数组被误拒
+  // （下面的 jsonTypeName 却能正确报 "array"，错误文案自相矛盾）。数组只匹配 "array"，
+  // 非数组对象不匹配 "array"；当前无工具声明 array，属潜伏缺口，在此钉住语义。
+  if (Array.isArray(value)) return types.includes("array");
   const actual = typeof value;
   if (types.includes(actual)) return true;
   if (types.includes("number") && actual === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return true;
@@ -76,6 +80,9 @@ async function handle(message) {
     case "initialized":
       return undefined;
     case "ping":
+      // JSON-RPC 2.0 的 notification（无 id）不回包——与 default 分支的既有处理对齐，
+      // ping 此前漏了这层判断，会回一个没有 id 的 result。
+      if (id === undefined) return undefined;
       return reply(id, {});
     case "tools/list":
       return reply(id, {
@@ -84,7 +91,10 @@ async function handle(message) {
     case "tools/call": {
       const name = params && params.name;
       const tool = TOOL_MAP.get(name);
-      if (!tool) return reply(id, { content: [{ type: "text", text: `Error: unknown tool ${name}` }], isError: true });
+      // MCP 规范把 Unknown tools 归入 Protocol Errors：回 JSON-RPC error（Invalid
+      // Params, -32602），消息保留被拒的工具名；此前回 content+isError 的 result，
+      // 客户端无法按协议错误分流。
+      if (!tool) return replyError(id, -32602, `unknown tool: ${name}`);
       const args = params.arguments || {};
       // 未知参数直接报错：拼错的字段名（forse / repoPaths）被静默忽略时，调用方会以为
       // force 已经生效、或以为传了路径。破坏性工具上这种静默尤其危险。
@@ -120,6 +130,29 @@ async function handle(message) {
               text:
                 `Error: invalid parameter type for ${name}: ${detail}\n` +
                 `Pass a value of the declared type; a mismatched value is rejected instead of being silently ignored.`,
+            },
+          ],
+          isError: true,
+        });
+      }
+      // enum 约束此前同样没人执行：拼错的枚举值穿过协议层落到工具内部兜底（config 的
+      // action/scope 各有一套工具侧拒绝文案），协议层不点名。对齐上面的 unknown-key /
+      // type 处理在协议层拒绝；文案保留「invalid <参数名>」前缀，与工具侧文案衔接。
+      // 空串是「未传」约定，放行。
+      const badEnums = Object.keys(args).filter(
+        (k) => known.has(k) && args[k] !== "" && schema[k] && Array.isArray(schema[k].enum) && !schema[k].enum.includes(args[k]),
+      );
+      if (badEnums.length > 0) {
+        const detail = badEnums
+          .map((k) => `invalid ${k} value for ${name}: expected one of ${schema[k].enum.join(", ")}, got ${JSON.stringify(args[k])}`)
+          .join("; ");
+        return reply(id, {
+          content: [
+            {
+              type: "text",
+              text:
+                `Error: ${detail}\n` +
+                `Pass one of the allowed values; a misspelled value is rejected here instead of falling back inside the tool.`,
             },
           ],
           isError: true,

@@ -192,7 +192,9 @@ const tools = [
       }
       // 分支已存在时不再 -b 重建（git 必然拒绝），改为直接检出——
       // 检出既有分支（如 PR 分支）做验证是 worktree 的高频用法
-      const branchExists = Boolean(
+      // branch === name 时（名字即既有分支，或显式斜杠名）上面的 rev-parse 已查过同一引用，
+      // 直接复用结果；只有合成名（短任务名 + 前缀 + slug）才需要第二次查询。
+      const branchExists = branch === name ? nameIsExistingBranch : Boolean(
         (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo, { allowFail: true }) || "").trim(),
       );
       // 分支已存在时 baseRef 只用于新建分支，传了就是矛盾意图
@@ -234,11 +236,13 @@ const tools = [
       const clashHint = slugClash
         ? `\nNote: branch \`${slugClash.branch}\` (worktree ${slugClash.path}) is a different branch but slugifies to the same directory \`${slug(branch)}\` — letter case and non-ASCII differences do not survive directory naming.`
         : "";
+      // 已注册的活 worktree 目录必然非空：先查 git 登记，否则活树会被误报成
+      // 「残留目录」，引导用户 remove leftover 删掉未提交内容（审查 M-B）
+      const existing = registered.find((w) => samePath(w.path, dir));
+      if (existing) return fail(`git already registers this worktree: ${dir} (branch ${existing.branch || "detached"}).${clashHint}`);
       if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
         return fail(`target directory is not empty: ${dir}\nChoose another \`path\`, or remove the leftover directory first.${clashHint}`);
       }
-      const existing = registered.find((w) => samePath(w.path, dir));
-      if (existing) return fail(`git already registers this worktree: ${dir} (branch ${existing.branch || "detached"}).${clashHint}`);
 
       fs.mkdirSync(path.dirname(dir), { recursive: true });
       const noCheckout = boolArg(args.noCheckout);
@@ -324,12 +328,13 @@ const tools = [
       const infos = describeMany(repo, entries, target, { includeSize, sizeDeadline });
 
       // 列只在 includeSize 时追加/省略 SIZE；禁用 filter(Boolean)，否则 ahead=0 / ageDays=0 这类有效零值会被丢掉导致列错位
-      const rows = [["WORKTREE", "PATH", "BRANCH", "CLEAN", "AHEAD", "BEHIND", "MERGED", "AGE(d)", ...(includeSize ? ["SIZE"] : [])].map(String)];
+      const rows = [["WORKTREE", "PATH", "BRANCH", "HEAD", "CLEAN", "AHEAD", "BEHIND", "MERGED", "AGE(d)", ...(includeSize ? ["SIZE"] : [])].map(String)];
       for (const i of infos) {
         rows.push([
           i.isMain ? "main" : "wt",
           i.path,
           i.label || "-",
+          i.head || "-",
           i.clean === null ? "?" : i.clean ? "yes" : `dirty(${i.dirtyCount})`,
           i.ahead ?? "-",
           i.behind ?? "-",
@@ -570,7 +575,11 @@ const tools = [
         // 已改用 entry.head 做 rev，ahead 对 detached 也是真实值。旧实现写成
         // `entry.branch && info.ahead === null`，detached 时 entry.branch 为 null 导致本句永假，
         // 叠加 `null > 0` 亦为假，两道护栏同时失效，未合并提交被静默删除。
-        if (info.ahead === null) {
+        // 例外与上面的 prunable 同口径：prunable 登记的目录早已不存在，HEAD 不可达
+        // （gc 回收提交、或分支引用被底层删除）时 rev-list 同样数不出 ahead。此时磁盘上
+        // 已无任何文件可删，`git worktree remove` 清掉的只是 git 自己都判定为残骸的过期登记，
+        // 删除等价于 prune——没有任何东西因这次删除而丢失，故无需 force。
+        if (info.ahead === null && !entry.prunable) {
           return fail(`refusing to remove: cannot determine whether ${info.label} is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force: true and confirmDiscard: true if the user accepts losing unmerged commits.`);
         }
         if (info.ahead > 0) {
@@ -639,7 +648,7 @@ const tools = [
   {
     name: "worktree_lock",
     description:
-      "Lock a worktree (git worktree lock). worktree_remove refuses to touch locked worktrees, and worktree_merge_back refuses when asked to remove after the merge — use this while another agent session or person is working in it, so cleanup passes leave it alone.",
+      "Lock a worktree (git worktree lock). worktree_remove refuses to touch locked worktrees, and worktree_merge_back refuses when asked to remove after the merge — use this while another agent session or person is working in it, so cleanup passes leave it alone. The primary worktree is refused.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -733,7 +742,7 @@ const tools = [
           : info.clean
             ? "yes"
             : `no (${info.dirtyCount} uncommitted)`;
-      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget ? "yes" : "no"}`, `- gitignored files: ${info.ignoredCount > 0 ? `${info.ignoredCount} (removal will be kept back)` : "none"}`];
+      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget === null ? "?" : info.mergedIntoTarget ? "yes" : "no"}`, `- gitignored files: ${info.ignoredCount > 0 ? `${info.ignoredCount} (removal will be kept back)` : "none"}`];
       if (info.clean === false) return fail(`${steps.join("\n")}\nUncommitted changes block merge-back. Commit, stash, or discard them first.`);
       // 与 worktree_remove 同口径：状态不可得（clean=null）时不能当作干净继续，
       // 恰恰是护栏最该拦住的时候。prunable 例外与 remove 一致（目录已被移走，无未提交工作可丢）。
