@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。65 个 skill + 14 个子智能体（`agents/` 4 个基础；另 10 个 effort 分级变体在 `extras/`，当前无宿主加载）+ 1 条会话启动 hook。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 14 个子智能体（`agents/` 4 个基础；另 10 个 effort 分级变体在 `extras/`，当前无宿主加载）+ 1 条会话启动 hook。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -24,13 +24,13 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 审查 | 6 | `interrogate`（对抗式审 diff）、`thermos` / `thermo-nuclear-review` / `thermo-nuclear-code-quality-review`、`no-comments`（去掉噪音评论）、`figure-it-out` |
 | 写作 | 4 | `unslop`、`deslop`、`technical-writing`、`in-your-own-words` |
 | 工程纪律 | 5 | `tdd`、`how`、`why`、`sharpen`、`benchmark-checklist` |
-| PR / CI / 协作 | 8 | `make-pr-easy-to-review`、`fix-ci`、`fix-merge-conflicts`、`get-pr-comments`、`what-did-i-get-done`、`babysit`、`ketchup`、`bro` |
+| PR / CI / 协作 | 9 | `make-pr-easy-to-review`、`fix-ci`、`fix-merge-conflicts`、`get-pr-comments`、`what-did-i-get-done`、`babysit`、`ketchup`、`ketchup-video`、`bro` |
 | 并行 / 复盘 | 2 | `swarm`（覆盖矩阵 / 竞速 / 分区）、`recall` |
 | 验证资产 | 5 | `create-verification-skill`、`maintain-verification-skill`、`create-formal-verification-skill`、`maintain-formal-verification-skill`、`teach` |
 | 其他 | 4 | `automate-me`、`reflect`、`show-me-your-work`、`typescript-best-practices` |
 | 原则 | 24 | `principle-laziness-protocol`、`principle-subtract-before-you-add`、`principle-model-the-domain`、`principle-type-system-discipline` 等 |
 
-41 + 24 = 65。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
+42 + 24 = 66。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
 
 ## 原则层
 
@@ -42,7 +42,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 |------|------|
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
-| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 65 个 skill，无需 prompts 垫片 |
+| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 66 个 skill，无需 prompts 垫片 |
 | `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
 | `agents/` | **客户端约定**；4 个基础子智能体（ZCode 实证注册）。10 个 effort 分级变体已移至 `extras/effort-agents/`：Agent Plugins 1.0.0 的 `extensions` 命名空间尚无客户端实现（Claude Code 用自有目录约定且只认 `agents/`），ZCode 也只注册 `agents/` 的 4 个，effort 语义不可用，按上游原样隔离保留 |
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口）。`hooks/copilot-hooks.json` **未被任何清单引用**，Copilot 上需手工登记，见下 |
@@ -86,7 +86,7 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 
 ## 与上游的差异
 
-移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 的全部 skill 级变更（基线为 fork 同步自的 v0.15.25）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。0.1.5 起把 bun 专属 vendored 脚本从 `skills/poteto-mode/scripts/` 迁到 `extras/poteto-mode-scripts/`（无 bun 的宿主跑不了它们，playbook 与映射文档已同步改路径）。
+移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 及 v0.15.28→v0.15.36 的 skill 级变更（基线为 fork 同步自的 v0.15.25；ketchup-video 已纳入，statechart 与 benny 自动化未纳入，orchestrate 的 agentic 改写未采纳——orch 保留本地 Windows 加固版）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。0.1.5 起把 bun 专属 vendored 脚本从 `skills/poteto-mode/scripts/` 迁到 `extras/poteto-mode-scripts/`（无 bun 的宿主跑不了它们，playbook 与映射文档已同步改路径）。
 
 **剔除项**（上游有、本移植不随附）：
 
@@ -119,6 +119,11 @@ node scripts/release.mjs pstack <新版本>
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
 
 ## 版本变更
+
+**0.1.21**
+
+- **同步上游 v0.15.28→v0.15.36 的 skill 级变更**（`c742dd6`）：swarm 步骤编号修复、sharpen 重写、interrogate 重构为 arena 驱动的对抗验证（`references/` 四文件随上游删除）、arena 弃座回填与 cross-judge 家族规则、poteto-mode 首条消息触发器与模型拒绝回退链、6 个 playbook 更新、check-plan.mjs 行内代码定界符正则修复；watch-pr 的 fork 识别与 deadline 封顶经核对已由本地实现覆盖，无需改动。
+- **新增 `ketchup-video` skill**（66 个 skill）；orchestrate 的上游 agentic 改写未采纳，orch 保留本地 Windows 加固版；statechart 与 benny 未纳入。取舍明细见 `NOTICE-PORT.md` 第 9 条。
 
 **0.1.20**
 
