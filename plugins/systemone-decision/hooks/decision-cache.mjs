@@ -23,9 +23,16 @@ function sleepMs(ms) {
 // TTL 与 MCP 侧（mcp/server.mjs 的 CACHE_TTL_MS）同一个开关：宿主注入的
 // SYSTEMONE_PLUGIN_CACHE_TTL_MS 优先（hook 进程通常拿不到它），常态走 SYSTEMONE_CACHE_TTL_MS，
 // 默认 5 分钟；0 = 关闭（读写都跳过）。
+// 坏值不静默（2026-11-05）：非法/负值旧实现悄悄取默认——静默的方向恰好是更激进缓存
+//（如设 -1 想关缓存，结果按 5 分钟照常缓存）。与 precheckMode / riskGateEnabled 同口径：
+// stderr 告警后取默认；两个变量都未设置不算坏值，安静取默认，不给每次 hook 运行刷告警。
 export function hookCacheTtlMs() {
-  const raw = Number(process.env.SYSTEMONE_PLUGIN_CACHE_TTL_MS || process.env.SYSTEMONE_CACHE_TTL_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000;
+  const rawText = process.env.SYSTEMONE_PLUGIN_CACHE_TTL_MS || process.env.SYSTEMONE_CACHE_TTL_MS;
+  if (rawText === undefined) return 300_000;
+  const raw = Number(rawText);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  process.stderr.write(`[systemone-decision hook] SYSTEMONE_CACHE_TTL_MS 值 "${rawText}" 无法识别（需 ≥0 的毫秒数，0 = 关闭），按默认 300000 处理\n`);
+  return 300_000;
 }
 
 function cacheFile() {

@@ -94,7 +94,7 @@ systemone_scenario(action: "run",
 - **批量** `action=batch`：同一场景对多条 `states`（2~10 条）依次判定，单条失败不中断（逐条标注 `error`），条目为精简形状（不含逐题明细与原始响应）。
 - **精简模式** `format: "brief"`（run / decide 可选）：只返回 `decision` / `labels` / `derived` / `confidences` / `recommendation` 与复核标记，不含 `answers` / `summary` / `raw`——长会话里省上下文。
 - **本地缓存**：相同输入（模型 + state + 问题）5 分钟内命中缓存，`cached: true` 标记且不发远端请求；`SYSTEMONE_CACHE_TTL_MS=0` 关闭（默认 300000，上限 200 条 LRU）。
-- **审计日志**：设置 `SYSTEMONE_LOG_FILE`（或设置页 Decision Log）指向一个 JSONL 文件后，每次决策逐条落盘（判定值、置信度、延迟、复核标记）；`action=stats` 汇总各场景的判定次数、复核率、缓存命中与高频判定——场景判据调优的数据基础。路径受护栏约束（绝对路径、`.jsonl`、不得落在插件安装目录或 `.git` 内）：设置值来自用户可写位置，过去未经校验就交给截断写入，指到一个超过体积上限的非日志文件时会被一行标记整体替换——用户数据当场消失。超上限现在改为**轮转**（上一段改名成 `<文件>.1` 保留一代），不再原地清空。
+- **审计日志**：设置 `SYSTEMONE_LOG_FILE`（或设置页 Decision Log）指向一个 JSONL 文件后，每次决策逐条落盘（判定值、置信度、延迟、复核标记）；`action=stats` 汇总各场景的判定次数、复核率、缓存命中与高频判定——场景判据调优的数据基础；轮转出的 `<文件>.1` 上一段一并计入统计（只保留一代，更早段落自然不在口径内）。路径受护栏约束（绝对路径、`.jsonl`、不得落在插件安装目录或 `.git` 内）：设置值来自用户可写位置，过去未经校验就交给截断写入，指到一个超过体积上限的非日志文件时会被一行标记整体替换——用户数据当场消失。超上限现在改为**轮转**（上一段改名成 `<文件>.1` 保留一代），不再原地清空。
 - **阈值优先级**：调用参数 `confidenceThreshold` > 场景默认（如 `security_triage` 0.8）> 全局 0.7。
 
 ## 自定义场景（设置页 / 场景文件 / 环境变量）
@@ -208,7 +208,7 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key，以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这三类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 4 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、命令超 100K 上限、三答残缺（幻觉选项或题型错乱）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
+插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key、stdin 读取错误（协议壳读输入异常，stderr 留一行诊断后 exit 0），以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这四类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 5 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、stdin 不是合法 JSON（识别不了工具名，不外发判定请求）、命令超 100K 上限、三答残缺（幻觉选项、题型错乱或 score 越出量表——界外分值不可解释，按响应不完整处理）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
@@ -230,7 +230,9 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
 
-**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；非法值告警后按默认 `on` 处理。
+**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；非法值告警后按默认 `on` 处理。配额计数在判定请求成功往返之后才落盘，判定失败（网络故障/超时）不扣额度。
+
+**无 `PLUGIN_DATA` 的宿主（多实例共装注意）**：判定缓存、会话配额与端点共享文件（`decision-cache.json` / `precheck-quota.json` / `.endpoint.json`）此时回退落在插件安装目录（见「共享文件位置」）——同一份安装目录被本机多个宿主实例共用时，这三类文件**互相覆盖**：缓存与配额 last-writer-wins，端点共享文件以后启动的 MCP 服务为准。计数与缓存在实例间串用不构成正确性问题（配额只是节流手段，缓存丢的只是一次命中机会），但配额额度不按实例隔离、缓存可能命中别的实例刚写的答案，排查行为差异时不要假设各宿主独立。
 
 ## 结果解读
 
@@ -291,6 +293,17 @@ icon.png           界面 logo
 ```
 
 ## 版本变更
+
+**0.5.16**
+
+backlog 批次：MCP 层 10 项 + hooks 层 5 项收口。
+
+- **MCP 层**：data_governance 判据 `unknown` 改 `other`（原选项与全局哨兵冲突，该档恒转人工不可用）；`SYSTEMONE_CACHE_TTL_MS`/`BATCH_BUDGET_MS` 空串按未配置（此前 `Number('')===0` 关缓存/清零预算）；`action=stats` 计入轮转段 `<文件>.1`；permission 提示限定 401/403 且措辞改「可能」；`coerceOptionMap` 拒绝对象/数组值（不再产出 `[object Object]` 垃圾描述）；full 格式 `raw` 超 100K 截断注明；`PLUGIN_DATA` 相对路径告警后按未提供处理（MCP 与 hook 相对路径会解析到不同文件，共享通道静默断裂）；`validateScenario` 三层拒绝未知键并列出合法键（拼写错不再静默回退默认）；stdin 单行超 1MiB 拒收、stdout EPIPE 静默退出（对齐 worktree-ops 先例）；MCP 与 hook 两侧缓存 key 的**有意差异**（hook 含 baseUrl）补契约测试钉住。
+- **hooks 层**：`scoreOf` 界外钳制（score 是分级下标，越出 `[0,254]` 归 null → 三答残缺 fail-closed ask，对齐 `noulOf`；legend 文本进理由前截 80 字符）；`SYSTEMONE_CACHE_TTL_MS` 非法/负值 stderr 告警后按默认（不再静默取更激进的缓存值）；配额改为判定成功往返后才扣减（网络失败不白扣）；非 JSON stdin 打到风险闸不再外发「工具：undefined」请求，直接 fail-closed ask。README hook 章节同步：fail-open 枚举补 stdin 读取错误、fail-closed 4→5 条、无 PLUGIN_DATA 多实例覆盖行为。
+
+**0.5.15**
+
+- **hook killer 按入口分 kill 策略（挂起≠静默放行）**：协议壳的 14s 硬自毁此前一律 exit 0 + 空 stdout——stdin 永不关闭或滴流超 14s 时，「预算耗尽→ask」的 fail-closed 分支永远轮不到执行，风险闸在挂起场景静默放行。现在 `pretool-risk` 入口传 `emit-ask` 策略：killer 触发时先输出与预算耗尽分支同构的 ask 载荷（`askOutput` 一处定义两处用）再退出，转人工而非放行；`requirement-clarity`（UserPromptSubmit 通道，有意 fail-open）保持 silent 策略不变。补注入时钟的挂起用例与 silent 现状钉住。
 
 **0.5.14**
 

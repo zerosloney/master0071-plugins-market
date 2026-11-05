@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { rejectDataPath, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
 import { renderTemplate, deriveFields } from '../mcp/format.mjs';
-import { extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
+import { coerceOptionMap, extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
 import { BUILTIN_SCENARIOS, resolveScenarios, validateScenario } from '../mcp/scenarios.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -149,9 +149,26 @@ const mock = http.createServer((req, res) => {
       return;
     }
     if (parsed.state === 'mock:permission-error') {
+      res.statusCode = 403;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ base_resp: { status_code: 100105, status_msg: 'model error: no model u2-decision permission' } }));
+      return;
+    }
+    // 权限提示误报面夹具：404 的正文也可能碰巧含 permission 字样（网关/路由层文案），
+    // 但 404 不是鉴权状态码——不得据此断言「Key 认证已通过但没有模型权限」
+    if (parsed.state === 'mock:permission-404') {
       res.statusCode = 404;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ base_resp: { status_code: 100105, status_msg: 'model error: no model u2-decision permission' } }));
+      return;
+    }
+    // 响应侧上限夹具：上游返回异常大的响应（>100K 字符）。100K 上限只护请求侧（STATE_MAX_CHARS），
+    // full 格式的 raw 在结果整形时收敛——否则上游响应整体进工具结果、撑爆宿主上下文
+    if (parsed.state === 'mock:huge') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) answers[qid] = answerFor(qid, q);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers, echo: 'x'.repeat(150_000) }));
       return;
     }
     // server 侧错误分支的三个哨兵：200 但 body 非 JSON / 200 但缺 answers / 普通 5xx（无权限提示）
@@ -351,6 +368,16 @@ class McpClient {
 }
 
 const approx = (actual, expected, eps = 1e-6) => assert.ok(Math.abs(actual - expected) < eps, `期望 ${actual} ≈ ${expected}`);
+
+// 轮询等待子进程产出某种响应（超限行拒绝这类异步路径没有可 await 的句柄）
+const waitFor = async (fn, ms) => {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return fn();
+};
 
 let failed = false;
 const check = (name, fn) => {
@@ -761,6 +788,21 @@ const main = async () => {
       assert.match(nullAddCriteria.result.content[0].text, /null/);
     });
 
+    // 对象/数组描述此前被静默 String 化成 "[object Object]" 混进判据表——与 decide 直提路径
+    // （validateOptionEntries 只收非空字符串）不同严。params 路径同样必须报错，不产垃圾选项。
+    const garbageCriteria = await runScenario(client, {
+      action: 'run',
+      scenario: 'customer_service',
+      state: '普通工单',
+      params: { department: { addCriteria: { vip: {} } } },
+    });
+    check('params.addCriteria 对象描述被拒绝并指明问题 id 与键名（不产 "[object Object]" 选项）', () => {
+      assert.equal(garbageCriteria.result.isError, true);
+      assert.match(garbageCriteria.result.content[0].text, /params\.department\.addCriteria/);
+      assert.match(garbageCriteria.result.content[0].text, /vip/);
+      assert.ok(!/\[object Object\]/.test(garbageCriteria.result.content[0].text), '错误文案与判据表都不得出现 String 化垃圾');
+    });
+
     const nullLevelParam = await runScenario(client, {
       action: 'run',
       scenario: 'customer_service',
@@ -871,6 +913,19 @@ const main = async () => {
       assert.ok('answers' in emptyFormat, '回退 full 应含逐题明细');
     });
 
+    // 响应侧上限：100K 上限只护请求侧（STATE_MAX_CHARS），full 格式的 raw 是上游响应整体——
+    // 上游异常大的响应不得原样进工具结果撑爆宿主上下文，超限截断并附注记
+    const oversizeRun = toolResult(await decide(client, { state: 'mock:huge', questions: { q: { type: 'noul', instructions: '是吗？' } } }));
+    check('full 格式 raw 超过 100K 字符被截断并附「已截断，原长度 N」注记', () => {
+      assert.equal(oversizeRun.ok, true);
+      assert.ok(oversizeRun.raw && typeof oversizeRun.raw === 'object', 'raw 超限时应是截断形态的对象');
+      assert.match(String(oversizeRun.raw.note || ''), /已截断/);
+      assert.ok(oversizeRun.raw.original_length > 100_000, `应记录原长度（>100K），实际：${oversizeRun.raw.original_length}`);
+      assert.ok(typeof oversizeRun.raw.head === 'string' && oversizeRun.raw.head.length <= 100_000, 'head 应是原文前缀切片且有界');
+      const rawLen = JSON.stringify(oversizeRun.raw).length;
+      assert.ok(rawLen < 250_000, `截断后 raw 序列化长度应有界，实际 ${rawLen}`);
+    });
+
     await decide(client, { state: '缓存探测', questions: { q: { type: 'noul', instructions: '是吗？' } } });
     const afterFirst = received.length;
     const cachedRun = toolResult(
@@ -887,6 +942,34 @@ const main = async () => {
       assert.equal(cacheOff.cached, false);
       assert.equal(received.length, afterFirst + 1);
     });
+
+    // 空串 env = 未配置（config() / thresholdOf / formatOf 同一套约定）：Number('') === 0，
+    // 曾把「宿主注入了空值」变成「缓存 TTL=0（关缓存）」与「批量预算 0ms（全部条目直接标未执行）」
+    const emptyEnvClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      SYSTEMONE_PLUGIN_CACHE_TTL_MS: '',
+      SYSTEMONE_CACHE_TTL_MS: '',
+      SYSTEMONE_PLUGIN_BATCH_BUDGET_MS: '',
+      SYSTEMONE_BATCH_BUDGET_MS: '',
+    });
+    try {
+      await decide(emptyEnvClient, { state: '空串env缓存一号', questions: { q: { type: 'noul', instructions: '是吗？' } } });
+      const emptyCacheHit = toolResult(
+        await decide(emptyEnvClient, { state: '空串env缓存一号', questions: { q: { type: 'noul', instructions: '是吗？' } } })
+      );
+      const emptyBudgetBatch = toolResult(
+        await runScenario(emptyEnvClient, { action: 'batch', scenario: 'customer_service', states: ['空串预算一', '空串预算二'] })
+      );
+      check('env 空串视为未配置：缓存回退默认 TTL、批量预算回退默认（不再被 Number("") 变成 0）', () => {
+        assert.equal(emptyCacheHit.cached, true, '空串 TTL 应回退默认 5 分钟（缓存生效），而不是关掉缓存');
+        assert.equal(emptyBudgetBatch.ok, true);
+        assert.equal(emptyBudgetBatch.failed, 0, '空串预算应回退默认 25s 正常执行，而不是全部标 budget_exhausted');
+        assert.equal(emptyBudgetBatch.budget_exhausted, false);
+      });
+    } finally {
+      emptyEnvClient.close();
+    }
 
     const batch = toolResult(
       await runScenario(client, {
@@ -923,7 +1006,7 @@ const main = async () => {
       assert.equal(batchMixed.failed, 1);
       assert.equal(batchMixed.results[0].ok, true);
       assert.equal(batchMixed.results[1].ok, false);
-      assert.match(batchMixed.results[1].error, /HTTP 404/);
+      assert.match(batchMixed.results[1].error, /HTTP 403/);
       assert.equal(batchMixed.results[2].ok, true);
     });
 
@@ -1106,12 +1189,70 @@ const main = async () => {
       assert.ok(!client.seen.some((m) => m.id && typeof m.id === 'object'), '对象 id 的消息不应收到响应');
     });
 
+    // stdin 单行上限：宿主/网络异常时一行没有换行地无限灌入，旧实现会无限累积缓冲吃光内存。
+    // 超 1MiB 的行被拒并回 JSON-RPC Parse error（id=null，行级内容无法可靠取 id），后续请求照常服务。
+    // 注意先终止垃圾行再发后续请求：不换行的垃圾与后续请求会拼成同一行、一起被丢弃。
+    {
+      client.child.stdin.write('x'.repeat(1024 * 1024 + 1024)); // 无换行，超限
+      const rejected = await waitFor(() => client.seen.some((m) => m.error), 10_000);
+      client.child.stdin.write('\n'); // 终止垃圾行（旧实现按解析失败静默丢弃；新实现已在超限时拒收并清空缓冲）
+      const afterHuge = await client.call('tools/list');
+      check('stdin 单行超过 1MiB 上限被拒并回 JSON-RPC 错误，服务器继续处理后续请求', () => {
+        const err = client.seen.find((m) => m.error);
+        assert.ok(rejected && err, '超限行应收到错误响应');
+        assert.equal(err.id, null, '行级超限无法可靠解析 id，按 JSON-RPC 约定回 id=null');
+        assert.equal(err.error.code, -32700);
+        assert.ok(afterHuge.result.tools, '超限行丢弃后后续请求照常处理');
+      });
+    }
+
+    // EPIPE：宿主关停关闭 stdio 管道时挂起的 write 会抛 EPIPE——不挂 error 处理就走
+    // uncaughtException 兜底（退出码 1 + 崩栈），正常关停也以失败收场。EPIPE 只意味着
+    // 对端已不在：静默 exit 0（口径同 worktree-ops/mcp/protocol.mjs 既有先例）。
+    {
+      const epipeChild = spawn(
+        process.execPath,
+        [serverPath],
+        { env: cleanEnv({ PLUGIN_DATA: '', SYSTEMONE_API_KEY: 'test-key', SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1` }), stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      epipeChild.stderr.resume();
+      epipeChild.stdout.setEncoding('utf8');
+      const gotInit = new Promise((resolve) => {
+        epipeChild.stdout.on('data', function onData(c) {
+          if (String(c).includes('"id":1')) {
+            epipeChild.stdout.removeListener('data', onData);
+            resolve();
+          }
+        });
+      });
+      epipeChild.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } })}\n`);
+      await gotInit;
+      epipeChild.stdout.destroy(); // 宿主侧先关读端，再触发一次写 → 子进程 EPIPE
+      await new Promise((r) => setTimeout(r, 100));
+      const exited = new Promise((resolve) => epipeChild.on('exit', (code) => resolve(code)));
+      epipeChild.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' })}\n`);
+      const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r('timeout'), 10_000))]);
+      check('宿主关闭 stdout 后 EPIPE 静默退出 0（不走 uncaughtException 崩溃路径）', () => {
+        assert.equal(code, 0, `EPIPE 应安静退出 0，实际：${code}`);
+      });
+      try {
+        epipeChild.kill();
+      } catch {}
+    }
+
     const perm = await decide(client, { state: 'mock:permission-error', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
-    check('模型无权限错误附带排查提示', () => {
+    check('401/403 且正文含 permission：附「可能」句式的权限排查提示', () => {
       assert.equal(perm.result.isError, true);
-      assert.match(perm.result.content[0].text, /HTTP 404/);
+      assert.match(perm.result.content[0].text, /HTTP 403/);
+      assert.match(perm.result.content[0].text, /可能/, '401/403 上鉴权失败与缺模型权限不可区分，必须是「可能」句式而非断言');
       assert.match(perm.result.content[0].text, /模型权限/);
       assert.match(perm.result.content[0].text, /环境变量快照/);
+    });
+    const perm404 = await decide(client, { state: 'mock:permission-404', questions: { q1: { type: 'noul', instructions: '是吗？' } } });
+    check('非 401/403（404）正文含 permission 不再附权限断言（提示误报面收敛）', () => {
+      assert.equal(perm404.result.isError, true);
+      assert.match(perm404.result.content[0].text, /HTTP 404/);
+      assert.ok(!/模型权限/.test(perm404.result.content[0].text), '404 不是鉴权状态码，不得断言「Key 认证已通过但没有模型权限」——403 鉴权失败时那句话是假的');
     });
 
     // server 侧响应处理错误分支（此前零覆盖）：HTTP 非 2xx 的「无提示」路径 + 200 的两类坏 body
@@ -1319,6 +1460,26 @@ const main = async () => {
     brokenClient.close();
   }
 
+  // 未知键拦截端到端：confidence_threshold 这类拼写错此前被静默忽略（阈值静默回退默认、
+  // 场景照常加载），现在校验层整条跳过并在 problems 里指明未知键与支持的键
+  const typoClient = new McpClient({
+    SYSTEMONE_PLUGIN_SCENARIOS: JSON.stringify([
+      { id: 'typo_gate', title: '拼写错键', questions: { q: { type: 'noul', instructions: 'i' } }, confidence_threshold: 0.9 },
+    ]),
+  });
+  try {
+    const typoList = toolResult(await runScenario(typoClient, { action: 'list' }));
+    check('场景含拼写错键（confidence_threshold）整条跳过并指明未知键与支持键', () => {
+      assert.ok(!typoList.scenarios.some((s) => s.id === 'typo_gate'), '拼写错键的场景应被跳过，而不是静默回退默认阈值照常加载');
+      assert.ok(
+        typoList.problems.some((p) => p.includes('typo_gate') && p.includes('confidence_threshold') && p.includes('confidenceThreshold')),
+        `problems 应指明未知键与正确拼写：${typoList.problems.join('；')}`
+      );
+    });
+  } finally {
+    typoClient.close();
+  }
+
   // 审计日志 + stats：专用 client 把决策逐条落盘到临时 JSONL
   const logFile = path.join(scratchRoot, 'decisions-audit.jsonl');
   const logClient = new McpClient({
@@ -1346,6 +1507,37 @@ const main = async () => {
     });
   } finally {
     logClient.close();
+  }
+
+  // 轮转归档段 <file>.1 也计入 stats：轮转（appendLog 达 5MB 上限时改名保留一代归档）后，
+  // 只读当前段的话每次轮转都会把更早的记录从统计里「清零」。归档有界（只保留一代），读两段即全覆盖。
+  const rotLogFile = path.join(scratchRoot, 'decisions-rotated.jsonl');
+  writeFileSync(
+    `${rotLogFile}.1`,
+    [
+      JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', scenario: 'legacy_a', decision: { q: 'x' }, needs_human_review: true, cached: false, latency_ms: 5 }),
+      '# 已达 5242880 字节上限，上一段记录轮转至（轮转标记行，stats 应按坏行跳过）',
+      JSON.stringify({ ts: '2026-01-01T00:01:00.000Z', scenario: 'legacy_b', decision: { q: 'y' }, needs_human_review: false, cached: true, latency_ms: 7 }),
+      '',
+    ].join('\n')
+  );
+  const rotClient = new McpClient({
+    SYSTEMONE_API_KEY: 'test-key',
+    SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    SYSTEMONE_LOG_FILE: rotLogFile,
+  });
+  try {
+    await runScenario(rotClient, { action: 'run', scenario: 'customer_service', state: '轮转统计样本' });
+    const rotStats = toolResult(await runScenario(rotClient, { action: 'stats' }));
+    check('action=stats 计入轮转归档段 <file>.1（有界一代），标记行/坏行不计入', () => {
+      assert.equal(rotStats.total, 3, `应 = 归档 2 条 + 当前段 1 条，实际 ${rotStats.total}`);
+      assert.equal(rotStats.scenarios.legacy_a.count, 1);
+      assert.equal(rotStats.scenarios.legacy_b.cached, 1);
+      assert.equal(rotStats.scenarios.customer_service.count, 1);
+      assert.equal(rotStats.cached, 1);
+    });
+  } finally {
+    rotClient.close();
   }
 
   // 场景文件加载：SYSTEMONE_PLUGIN_SCENARIOS_FILE + 设置页 JSON 同 id 覆盖文件
@@ -1507,6 +1699,32 @@ const main = async () => {
     });
   } finally {
     uiClient.close();
+  }
+
+  // PLUGIN_DATA 为相对路径时按「未提供」处理并告警、回退插件根：宿主给相对值时 MCP（cwd=插件根）
+  // 与 hook（cwd=工作区）会各自把相对路径 resolve 到不同文件——共享通道静默断裂。
+  // 回退插件根后两个进程至少还指向同一处（旧行为）。
+  {
+    const relDataDir = 'systemone-relative-plugin-data';
+    const relClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      PLUGIN_DATA: relDataDir,
+    });
+    try {
+      await relClient.call('tools/call', {
+        name: 'systemone_scenario',
+        arguments: { action: 'run', scenario: 'customer_service', state: 'rel-data' },
+      });
+      check('PLUGIN_DATA 相对路径按未提供处理：回退插件根落盘（共享通道不静默断裂）', () => {
+        assert.ok(existsSync(path.join(runRoot, '.endpoint.json')), '相对 PLUGIN_DATA 应回退插件根写 .endpoint.json');
+        assert.ok(!existsSync(path.resolve(relDataDir)), '不得在相对 cwd 下创建 PLUGIN_DATA 目录');
+      });
+    } finally {
+      relClient.close();
+      // 修复前的旧行为会在 cwd（=测试进程 cwd）下落相对目录：测试自造自清
+      rmSync(path.resolve(relDataDir), { recursive: true, force: true });
+    }
   }
 
   // so-M4 钉住：applyParams 的 params 覆盖路径曾用裸 {} 承载合并结果，qid="__proto__" 时
@@ -1773,6 +1991,35 @@ const main = async () => {
       });
       assert.deepEqual(problems, []);
     });
+    check('validateScenario 拒绝场景对象的未知键并列出支持的键（拼写错不再静默回退默认）', () => {
+      const problems = validateScenario({ id: 'x', title: 't', questions: { q: { type: 'noul', instructions: 'i' } }, confidence_threshold: 0.9 });
+      assert.ok(
+        problems.some((p) => p.includes('"confidence_threshold"') && p.includes('confidenceThreshold')),
+        `应指明未知键与正确拼写：${problems.join('；')}`
+      );
+      // 支持的全部键都在合法定义里出现过，不得误伤
+      const ok = validateScenario({
+        id: 'x', title: 't', description: 'd', aliases: ['a'], questions: { q: { type: 'choice', label: 'l', instructions: 'i', criteria: { a: 'A', b: 'B' } } },
+        derive: { dv: { question: 'q', map: { a: '高' } } }, recommendation: '{q}', confidenceThreshold: 0.9,
+      });
+      assert.deepEqual(ok, [], `合法键不得被拦：${ok.join('；')}`);
+    });
+    check('validateScenario 拒绝问题对象与派生条目里的未知键', () => {
+      const qp = validateScenario({ id: 'x', title: 't', questions: { q: { type: 'choice', instructions: 'i', crieteria: { a: 'A', b: 'B' } } } });
+      assert.ok(qp.some((p) => p.includes('"crieteria"') && p.includes('criteria')), `问题对象未知键应被拦：${qp.join('；')}`);
+      const dp = validateScenario({
+        id: 'x', title: 't',
+        questions: { q: { type: 'score', instructions: 'i', criteria: ['低', '高'] } },
+        derive: { d: { question: 'q', value: ['A', 'B'] } },
+      });
+      assert.ok(dp.some((p) => p.includes('派生') && p.includes('"value"')), `派生条目未知键应被拦：${dp.join('；')}`);
+    });
+    check('15 个内置场景全部通过严格键校验（内置定义无未知键）', () => {
+      for (const s of BUILTIN_SCENARIOS) {
+        const problems = validateScenario(s);
+        assert.deepEqual(problems, [], `${s.id}：${problems.join('；')}`);
+      }
+    });
   }
 
   // criteria / spec.map 的原型链（2026-10-29 修复）：模型回 choice="constructor" 时，
@@ -1792,6 +2039,43 @@ const main = async () => {
       const derived = deriveFields({ risk: { question: 'sev', map: { Hi: '高' } } }, { sev: 'constructor' });
       assert.equal(derived.risk, 'constructor', '取不到映射值应回退原始值');
       assert.ok(!/native code/.test(renderTemplate('结论「{risk}」', { derived })));
+    });
+  }
+
+  // data_governance 判据表与全局哨兵的冲突（2026-11 市场审查）：choice 返回 unknown 是
+  // 「必须转人工」的哨兵值（isBorderlineAnswer），判据表里再放一个 unknown 选项等于该档
+  // 永远不可用——模型如实答 unknown 就恒转人工。改用 other 档（对齐 test_failure 先例），
+  // 哨兵语义本身不动。
+  {
+    const dg = BUILTIN_SCENARIOS.find((s) => s.id === 'data_governance');
+    const rootCause = dg.questions.root_cause;
+    check('data_governance 判据无 unknown 档（unknown 是转人工哨兵）；other 档可用且不转人工', () => {
+      assert.ok(
+        !Object.hasOwn(rootCause.criteria, 'unknown'),
+        `root_cause 不得含 unknown 选项（会与全局哨兵冲突，该档恒转人工）：${JSON.stringify(rootCause.criteria)}`
+      );
+      assert.ok(Object.hasOwn(rootCause.criteria, 'other'), '应对齐 test_failure 先例提供 other 档承接「无法归类」');
+      const q = { type: 'choice', criteria: rootCause.criteria };
+      assert.equal(
+        isBorderlineAnswer({ type: 'choice', value: 'other', confidence: 0.9 }, q, { choice: 'other' }),
+        false,
+        'other 是判据表内的合法选项，不应转人工'
+      );
+      assert.equal(
+        isBorderlineAnswer({ type: 'choice', value: 'unknown', confidence: 0.9 }, q, { choice: 'unknown' }),
+        true,
+        'unknown 哨兵语义保持不变：仍必须转人工'
+      );
+    });
+    check('coerceOptionMap 拒绝对象/数组描述（不产 "[object Object]" 垃圾选项）', () => {
+      const obj = coerceOptionMap({ a: {}, b: 'B' });
+      assert.ok(obj.problem && obj.problem.includes('"a"') && /对象/.test(obj.problem), `对象描述应报错并指明键名：${JSON.stringify(obj)}`);
+      const arr = coerceOptionMap({ a: [], b: 'B' });
+      assert.ok(arr.problem && /数组/.test(arr.problem), `数组描述应报错：${JSON.stringify(arr)}`);
+      // 既有宽容口径保留：数字键/枚举值、数字描述 String 化；null/undefined 拦截不变
+      assert.equal(coerceOptionMap({ 1: 'A', b: 'B' }).criteria['1'], 'A', '数字键 String 化宽容保留');
+      assert.equal(coerceOptionMap({ a: 5, b: 'B' }).criteria.a, '5', '数字描述 String 化宽容保留');
+      assert.ok(coerceOptionMap({ a: null, b: 'B' }).problem, 'null 描述拦截不变');
     });
   }
 

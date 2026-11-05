@@ -295,6 +295,13 @@ function main() {
   if (path.extname(file) !== ".json") {
     fail(`state file should have a .json extension (got ${file}): without it, the derived output and events paths collide`);
   }
+  // 显式 --out 指向已存在的非 .html 文件时拒绝（2026-11-05）：上面两条只拦派生碰撞，
+  // `--out <state>.events.jsonl` 这类显式路径仍会被 HTML 静默覆盖——事件日志是唯一不可重建的
+  // 运行记录，其他 .json 也可能是状态/数据文件。只拦「已存在」的文件：重复渲染到同一 .html
+  // 与首渲染到新路径的合法流程不受影响。
+  if (args.out && existsSync(out) && path.extname(out) !== ".html") {
+    fail(`--out refuses to overwrite an existing non-HTML file: ${out} (event logs and state files cannot be rebuilt); pass a .html path`);
+  }
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, buildHtml({ pipeline, file, state, events, graph, warnings }), "utf8");
   if (args.json) console.log(JSON.stringify({ file, out, events: events.length, graph }));

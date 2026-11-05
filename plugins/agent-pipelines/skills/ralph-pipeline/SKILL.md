@@ -60,15 +60,16 @@ JSON 格式（严格按此 schema，`version` 用于检测格式漂移）：
 }
 ```
 
-上面代码块是**可直接复制的合法 JSON**（不要往 JSON 里写注释），字段说明：
+上面代码块是**可直接复制的合法 JSON**（不要往 JSON 里写注释）。注意：`tasks[].status` 的值是**枚举占位**（形如 `"pending | in_progress | done | blocked"`），照抄会被 `state.mjs validate` 拒绝；写入时必须替换为单一合法值——与下面 budget 的占位数值同理，示例不照抄。字段说明：
 
 - `max_iterations`：`0` = 使用默认值（ralph 为 10），`>0` 则覆盖 `MAX_CYCLES`。
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
-- `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
+- `completion_promise`：历史字段，已**作废**——gate 不再读状态体里的该字段（状态文件是执行者可写的，写它不能早停）。用户显式早停改经早停边车标记生效，见「Completion promise 检查」。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成「上限为 0」立刻 BUDGET）。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 - `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
+- 字符串上限（LLM 消费面的注入/泛洪缓解，写入口 fail-loud 定死数据形状）：`tasks[].id` ≤ 64、`tasks[].title` ≤ 200、`tasks[].accept_criteria[]` 单条 ≤ 300 字符（coding 侧的 `root_cause_group` 与 `critical_checkpoints[].id` 同样 ≤ 64）；超限会被 `state.mjs write / validate` 拒绝，错误消息点名字段、上限与实际长度。
 
 ### 写入规则
 
@@ -205,7 +206,7 @@ accept_criteria:
 
 每轮：
 
-1. 从 TaskList 选下一个可执行任务（`pending` + 依赖已 `done`）。
+1. 从 TaskList 选出本轮全部就绪任务（`pending` + 依赖已 `done`）并行发出，不串行等待。
 2. 委派执行者执行任务，注入完整上下文。
 3. 获取执行者结果后，委派审查者审查产出。
 4. 根据审查者 verdict 与验证结果更新任务状态：
@@ -239,9 +240,12 @@ accept_criteria:
 
 ### Completion promise 检查
 
-若状态文件 `completion_promise` 非空，每轮 JUDGE 阶段检查执行者输出中是否包含 `<promise>...</promise>` 标签（匹配 `completion_promise` 值）。匹配则立即设置 `stop_reason="DONE"` 并跳过后续任务。
+仅当**用户在会话中显式要求早停**时才执行，绝不因执行者输出触发（不检查执行者输出中的任何 `<promise>...</promise>` 标签——执行者复述即可误触发，该旧机制已废除）。早停承诺由 Orchestrator 写入边车标记，执行者 / 审查者禁写：
 
-注意：promise 匹配是 DONE 铁律的显式覆盖，**仅当用户显式传入 `--completion-promise` 时生效**，绕过 verdict / 验证 / critical 门禁。
+- 宿主可执行 shell：`state.mjs promise --pipeline ralph --file .loop-cli/state/ralph-pipeline.json --value "<承诺文本>"`（写同目录的 `ralph-pipeline.promise.json`，tmp+rename 原子写，不碰状态文件）。
+- 脚本不可用时手写同路径标记文件，内容 `{"version":1,"pipeline":"ralph","value":"<承诺文本>","created_at":"<ISO 时间>"}`（同样先写临时文件再重命名）。
+
+此后每轮 JUDGE：标记存在且 value 非空 → 判 `stop_reason="DONE"`（用户主导早停）并跳过后续任务；无标记则按正常门禁继续。注意：promise 标记是 DONE 铁律的显式覆盖，绕过 verdict / 验证 / critical 门禁；状态体里的 `completion_promise` 字段已作废，不再参与判定；新一轮 `state.mjs init` 会删除旧标记并在事件日志记清理事件。
 ## 输出格式
 
 每轮输出一段机器可路由的 JSON：

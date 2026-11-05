@@ -9,6 +9,9 @@
 //   - 登记为 boolean 的开关只取布尔值，不吃下一项（`--json --file x` 仍是 json=true、file=x）；
 //   - 登记为 value 的开关一律把下一项当自己的值，值以 -- 开头也照收
 //     （`--forbidden --weird` 与 `--forbidden=--weird` 等价）；
+//   - 登记为 value 的开关不接受空值（2026-11-05）：`--file=` / `--file ""` 显式传了空串一律报错。
+//     旧实现让 args.file 落成 ""，脚本侧 `if (args.file)` 判假，静默回退默认路径——用户以为
+//     写进了指定文件、实际写去了别处。未传该开关仍走各脚本自己的默认值，语义不变。
 //   - 未登记的 -- 形式按未知参数报错并列出已知开关，不静默吞掉。
 export function parseArgs(argv, spec = {}) {
   const booleans = new Set(spec.boolean || []);
@@ -26,8 +29,14 @@ export function parseArgs(argv, spec = {}) {
       const key = body.slice(0, eq);
       if (!key) fail(`invalid argument "${arg}": missing option name`);
       assertKnown(key, booleans, values);
-      // 布尔开关允许 --flag=false 显式关掉；其余取值按原样保留
-      out[key] = booleans.has(key) ? body.slice(eq + 1) !== "false" && body.slice(eq + 1) !== "0" : body.slice(eq + 1);
+      // 布尔开关允许 --flag=false 显式关掉；其余取值按原样保留（空值除外，见下）
+      if (booleans.has(key)) {
+        out[key] = body.slice(eq + 1) !== "false" && body.slice(eq + 1) !== "0";
+        continue;
+      }
+      const value = body.slice(eq + 1);
+      if (value === "") fail(`--${key} requires a non-empty value`);
+      out[key] = value;
       continue;
     }
     if (booleans.has(body)) {
@@ -37,6 +46,7 @@ export function parseArgs(argv, spec = {}) {
     if (values.has(body)) {
       const next = argv[i + 1];
       if (next === undefined) fail(`--${body} requires a value`);
+      if (next === "") fail(`--${body} requires a non-empty value`);
       out[body] = next;
       i += 1;
       continue;

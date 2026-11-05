@@ -99,6 +99,10 @@ function validateOptionEntries(criteria) {
 /**
  * 选项映射（criteria / addCriteria）的规整：键值 String 化以容忍 JSON 里的数字键/枚举值，
  * 但 null / undefined 先于字符串化拦截并指明键名（边界收紧），字符串化后仍须非空。
+ * 对象/数组同样先拦（2026-11 市场审查）：String({}) === '[object Object]'、String([])
+ * === ''——前者是垃圾描述直接混进判据表，后者过不了非空校验，但报错都该发生在源头
+ * 而不是产出一个莫名其妙的选项。只保留字符串/数字两类可 String 化的宽容（与 decide
+ * 直提路径 validateOptionEntries 的「只收非空字符串」对齐，数字描述是 JSON 常见的宽松写法）。
  * @param {object} map - {选项ID: 描述}
  * @returns {{ criteria?: object, problem?: string }} problem 存在时表示校验失败
  */
@@ -109,6 +113,10 @@ export function coerceOptionMap(map) {
   for (const [k, v] of Object.entries(map)) {
     if (v === null || v === undefined) {
       return { problem: `选项 "${k}" 的描述不能是 null/undefined` };
+    }
+    const kind = Array.isArray(v) ? '数组' : typeof v === 'object' ? '对象' : typeof v;
+    if (typeof v !== 'string' && typeof v !== 'number') {
+      return { problem: `选项 "${k}" 的描述必须是非空字符串或数字（收到 ${kind}）` };
     }
   }
   const criteria = Object.fromEntries(Object.entries(map).map(([k, v]) => [String(k), String(v)]));

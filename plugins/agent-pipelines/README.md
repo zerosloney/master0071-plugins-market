@@ -70,7 +70,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 首次实测，机制未变；0.1.14 起脚本为 `scripts/` 目录共享 `args.mjs`）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（118 断言，含角色文件与 references 注入段落一致性），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志（含轮转）、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（135 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定（83 断言），`test/regression.mjs` 锁住审计实测过的缺陷回归（scope 判定锚 git 根 / DONE 校验 critical_checkpoints / scope 接入门禁 / args 不吞 `--` 开头的值，70 断言）。四者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（118 断言，含角色文件与 references 注入段落一致性），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志（含轮转）、任务状态迁移、预算、依赖图、可视化渲染、实时看板、单任务上限与字符串上限/定界（161 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定（83 断言），`test/regression.mjs` 锁住审计实测过的缺陷回归（scope 判定锚 git 根 / DONE 校验 critical_checkpoints / scope 接入门禁 / args 不吞 `--` 开头的值 / promise 边车标记机制，93 断言），`test/scripts.mjs` 覆盖 dag 环语义与重复 id、graph 根形状、render --out 碰撞、args 空值与 serve 渲染次数（26 断言）。五者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
@@ -156,6 +156,32 @@ node test/regression.mjs
 零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致、orchestrator 的 `tools` 白名单含子代理派发工具与 Bash（coding / ralph 两条管线的 orchestrator 均按此登记，contract 机器校验 coding 侧清单）。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举 / `action` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。`regression.mjs` 在临时 git 仓里复现审计实测过的缺陷（scope 判定基准、critical checkpoint 门禁、scope→gate 串联、`--` 开头参数值），防止它们回归。它们不执行管道，也不替代真实宿主上的端到端验证。
 
 ## 版本变更
+
+**0.1.26**
+
+backlog 批次：脚本层 11 项 + 编排文档 10 项收口，新增 `test/scripts.mjs`（26 断言，第五套）。
+
+- **锁竞态两处**：release 前校验锁内容归属（非己不删）；陈旧接管改 tmp+rename 原子替换（消灭「误删他人新锁」中间态）；等待超时且持有者 pid 已死（`kill(pid,0)` ESRCH）时提前原子接管——崩溃残留的新鲜锁不再阻塞管道 30 秒。模式移植自 worktree-ops 0.4.15 的已验证实现。
+- **write 继承读入锁**：scope/stop_reason 继承读移进 withLock 临界区，并发 `gate --apply` 刚写入的结论不再被陈旧快照覆盖。
+- **dag 环语义与重复 id**：环报告改 Tarjan SCC，只报真环成员（此前把环的下游节点也点名为「存在环」误导排查）；重复 id 不再静默合并，graph 侧与 validateState 同宽报错。
+- **graph 根形状 fail-closed**：JSON 根为 null/标量不再 TypeError 崩栈、被误读成 FAIL 退出码；空任务组合法仍 ok。
+- **render --out 碰撞守卫**：显式 `--out` 指向已存在的非 `.html` 文件（如事件日志）时拒绝——事件日志是唯一不可重建的运行记录。
+- **args 显式空值拒绝**：`--file=` 不再静默回退默认路径，四个脚本共用同一解析。
+- **serve 渲染去重**：一次变更渲染一次（50ms 去抖合并 state+events 双 watch 的分离触发），事件日志全量读次数减半以上。
+- **validateState 默认补齐**：缺 `max_failures`/`retry_on_failure` 按默认回填（兑现 commands「读取规则 2」的既有承诺），显式错类型仍拒。
+- **预设 STOPPED 注记**：被采信时输出标注 `(executor-reported preset; 未鉴别来源)`。
+- **事件日志跨盘符**：`path.relative` 退化绝对路径时回退 basename，不泄露本机目录结构。
+- **writeAtomic tmp 清扫**：机会性清理同目录 5 分钟以上的他 pid 残留 tmp。
+- 编排文档十项：失败教训段补入四份执行者契约、`=== 当前任务 ===` 段名统一、executor/TaskList 等术语收敛、状态模板枚举占位交代、验证命令来源指向真实载体、`prior_cycles_summary` 生成规则、`critical_checkpoints` 翻转规则（Builder 证据 + Reviewer PASS → Orchestrator 置 true）、command/SKILL 双入口同步指引、行号审计注释清除、执行路径「选下一个」统一为「本轮全部就绪任务并行发出」。
+
+**0.1.25**
+
+第 3 组设计取舍落地（用户已裁决方向）+ 证据分工修正：
+
+- **`completion_promise` 来源可鉴别（方案 b）**：早停此前只看状态体里一个非空字符串——状态文件是执行者可写的，被注入或出错的执行者写一行就能伪造「用户显式早停」、绕过全部门禁判 DONE。现在 gate 只认 orchestrator 专属子命令 `state.mjs promise` 写入的边车标记 `<状态>.promise.json`（原子写、记 `promise_set` 事件），状态体字段彻底退出判定；`init` 清理旧标记并记 `promise_cleared`；「检查执行者输出中 `<promise>` 标签」的误触发旧机制废除——六处文档统一为「仅当用户在会话中显式要求早停，orchestrator 才执行 promise 子命令，绝不因执行者输出触发」。
+- **任务字符串上限与输出定界（注入/泛洪缓解）**：task / root_cause_group / checkpoint 的 id ≤64、title ≤200、accept_criteria 单条 ≤300（具名常量一处定义），validateState 写入口 fail-loud 拒绝——LLM 消费面的数据形状在入口定死；gate reason、root-causes、events 输出里拼接的字符串值一律 JSON.stringify 定界，防分隔符/指令伪装。schema 文档同步上限。
+- **reviewer 证据分工修正**：ralph 侧契约此前要求 reviewer「重跑只读无落盘产物命令」，但其 tools 白名单无 Bash（只读是硬保证）——指令不可达成。改为「审阅执行者提交的验证输出，证据不足或可疑时打回要求重跑/补充证据」；coding 侧同步补显式分工。产出证据归执行者、审查证据归 reviewer，零写入性质保持。
+- README 断言数声明随测试增长对齐（pipeline 135→154、regression 70→75）。
 
 **0.1.24**
 

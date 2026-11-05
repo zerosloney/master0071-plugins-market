@@ -30,6 +30,13 @@ function main() {
   } catch (err) {
     fail(`state file is not valid JSON: ${err.message}`);
   }
+  // 根形状 fail-closed（2026-11-05，与 state.mjs validateState / render.mjs loadState 同款口径）：
+  // null/标量根此前让 state.tasks 抛未捕获 TypeError，崩栈退出码 1 恰是契约里的 graph FAIL 码，
+  // 调用方会误读成「检查通过但有环」；根为数组此前反而 ok=true。形状不对走 fail()（退出码 2，
+  // 参数或环境错误），不与 graph FAIL（1：有环/未知依赖/超预算）混用；tasks 为空数组是合法空图。
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    fail(`state must be a JSON object: ${file}`);
+  }
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   // 依赖图分析（未知依赖 / 拓扑序 / 环）走 dag.mjs 单源——与 render.mjs 的看板分层共用同一份算法。
   const { order, cycles, errors } = analyzeDependencies(tasks);

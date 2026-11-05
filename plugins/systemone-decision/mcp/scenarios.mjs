@@ -290,7 +290,10 @@ export const BUILTIN_SCENARIOS = [
           pipeline_bug: '采集/加工链路缺陷',
           schema_change: '模型或口径变更',
           business_change: '业务规则变更',
-          unknown: '无法判断',
+          // 不得用 unknown 作选项：choice 返回 unknown 是「必须转人工」的全局哨兵
+          //（question-types.isBorderlineAnswer），判据表里放它等于该档恒转人工、实际不可用。
+          // 「无法归类」语义由 other 档承接（对齐 test_failure 判据）。
+          other: '其他或暂无法归类',
         },
       },
       sensitive: {
@@ -577,6 +580,17 @@ export function findScenario(scenarios, ref) {
 
 // ---------- 自定义场景（设置页 SYSTEMONE_PLUGIN_SCENARIOS / 环境变量 SYSTEMONE_SCENARIOS 注入） ----------
 
+// 各层对象支持的键（未知键拦截用）。拼写错的键会被静默忽略——confidence_threshold 写成蛇形
+// 就静默回退默认阈值，场景照常加载、行为却不是定义者想要的，且没有任何报错，所以校验层直接拒绝。
+const SCENARIO_KEYS = ['id', 'title', 'description', 'aliases', 'questions', 'derive', 'recommendation', 'confidenceThreshold'];
+const QUESTION_KEYS = ['type', 'label', 'instructions', 'criteria'];
+const DERIVE_KEYS = ['question', 'values', 'map'];
+
+/** 报「未知键」问题：列出该对象支持的键，写错的人不用翻文档。 */
+function unknownKeyProblem(where, key, allowed) {
+  return `${where}含未知键 "${key}"（支持的键：${allowed.join('、')}）——拼写错的键会被静默忽略，请修正键名`;
+}
+
 /**
  * 校验一个自定义场景定义。
  * @param {unknown} spec - 场景定义
@@ -585,6 +599,9 @@ export function findScenario(scenarios, ref) {
 export function validateScenario(spec) {
   const problems = [];
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return ['场景必须是对象'];
+  for (const key of Object.keys(spec)) {
+    if (!SCENARIO_KEYS.includes(key)) problems.push(unknownKeyProblem('场景', key, SCENARIO_KEYS));
+  }
   if (typeof spec.id !== 'string' || spec.id.trim() === '') problems.push('缺少 id');
   if (typeof spec.title !== 'string' || spec.title.trim() === '') problems.push('缺少 title');
   const questions = spec.questions;
@@ -599,6 +616,9 @@ export function validateScenario(spec) {
     if (!q || typeof q !== 'object' || Array.isArray(q)) {
       problems.push(`问题 ${qid} 必须是对象`);
       continue;
+    }
+    for (const key of Object.keys(q)) {
+      if (!QUESTION_KEYS.includes(key)) problems.push(unknownKeyProblem(`问题 ${qid} `, key, QUESTION_KEYS));
     }
     if (!isSupportedType(q.type)) {
       problems.push(`问题 ${qid} 的 type 必须是 choice/noul/score`);
@@ -626,6 +646,9 @@ export function validateScenario(spec) {
         if (!d || typeof d !== 'object' || Array.isArray(d)) {
           problems.push(`派生 ${name} 必须是 {question, values|map} 对象`);
           continue;
+        }
+        for (const key of Object.keys(d)) {
+          if (!DERIVE_KEYS.includes(key)) problems.push(unknownKeyProblem(`派生 ${name} `, key, DERIVE_KEYS));
         }
         if (typeof d.question !== 'string' || d.question.trim() === '') {
           problems.push(`派生 ${name} 的 question 必须是非空字符串`);

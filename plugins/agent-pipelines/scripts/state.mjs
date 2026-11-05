@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // agent-pipelines 状态机辅助：init / validate / write / gate。
 // 提示词仍是主入口；宿主能执行 shell 时用本脚本落盘与判停，不能执行时退回 SKILL 里的手写规则。
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { parseArgs } from "./args.mjs";
@@ -12,6 +12,12 @@ const PIPELINES = {
 };
 const TASK_STATUS = new Set(["pending", "in_progress", "done", "blocked"]);
 const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL", "MAX_CYCLES", "STOPPED"]);
+// 字符串上限（LLM 消费面的注入/泛洪缓解）：id/title/criteria 是执行者可写的字符串，会被原样拼进
+// gate reason、root-causes/events stdout。数据形状在写入口（validateState）定死，超限 fail-loud 拒绝；
+// 错误消息点名字段、上限、实际长度，但不回显超限值本身——错误消息也是消费面，不能成为泛洪面。
+const LIMIT_ID = 64; // task.id / root_cause_group / critical_checkpoints[].id
+const LIMIT_TITLE = 200; // task.title
+const LIMIT_CRITERION = 300; // accept_criteria 单条
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -85,6 +91,35 @@ function ensureStateIgnored(file) {
   }
 }
 
+// 其它 pid 残留的 `${file}.*.tmp`（持有者被 kill -9，无法自我清理）会在同目录永久堆积。
+// writeAtomic 成功路径上机会性清扫：只删同目录匹配 `${file}.*.tmp` 且 mtime 超过 5 分钟的
+// tmp——正在写的 tmp mtime 是新鲜的，不会误删；锁接管产生的 `${file}.lock.*.tmp` 同模式
+// 一并被覆盖。纯卫生，任何失败静默，不挡主流程。
+const TMP_STALE_MS = 5 * 60 * 1000;
+
+function sweepStaleTmp(file) {
+  try {
+    const dir = path.dirname(file);
+    const prefix = `${path.basename(file)}.`;
+    const now = Date.now();
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+      const full = path.join(dir, name);
+      let mtimeMs;
+      try {
+        mtimeMs = statSync(full).mtimeMs;
+      } catch {
+        continue; // 可能刚被别的进程清掉
+      }
+      if (now - mtimeMs > TMP_STALE_MS) {
+        try {
+          unlinkSync(full);
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
 function writeAtomic(file, value) {
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -101,6 +136,7 @@ function writeAtomic(file, value) {
     } catch {}
     throw err;
   }
+  sweepStaleTmp(file);
 }
 
 // readState 的非退出版本：gate --apply 要在锁内读状态，而锁内 process.exit 不会跑 withLock 的 finally、
@@ -120,12 +156,30 @@ function readState(file) {
   return state;
 }
 
-const LOCK_STALE_MS = 30000;
-const LOCK_WAIT_MS = 2000;
-
 function eventsFile(file) {
   const base = path.basename(file).replace(/\.json$/, "");
   return path.join(path.dirname(file), `${base}.events.jsonl`);
+}
+
+// completion_promise 早停的边车标记（2026-11-05，方案 b）：与状态文件同目录的 <状态基名>.promise.json，
+// 由 orchestrator 专属的 `promise` 子命令经 writeAtomic（tmp+rename）写入，不碰状态文件本体。
+// 路径派生与 eventsFile 同款（.json → .promise.json）；无 .json 后缀时退化为直接追加。
+function promiseFile(file) {
+  return `${file.replace(/\.json$/, "")}.promise.json`;
+}
+
+// gate 只认边车标记：存在且 value 非空（trim 后）才构成早停依据。状态体里的 completion_promise
+// 字段彻底不参与判定——状态文件是执行者可写的普通 JSON，写一行字符串就能伪造「用户显式早停」，
+// 旧机制已被伪造实测利用。标记损坏/字段缺失按「无标记」处理（继续 = 安全默认，不因垃圾早停）。
+function readPromiseValue(file) {
+  const marker = promiseFile(file);
+  if (!existsSync(marker)) return "";
+  try {
+    const parsed = JSON.parse(readFileSync(marker, "utf8"));
+    return isObject(parsed) && typeof parsed.value === "string" ? parsed.value.trim() : "";
+  } catch {
+    return "";
+  }
 }
 
 // 事件日志上限（2026-10-28 市场审查）：无人值守长跑会让 <file>.events.jsonl 无界增长，而 readEvents
@@ -145,12 +199,14 @@ function rotateEventsIfNeeded(log) {
 
 function logEvent(file, pipeline, event, state, extra = {}) {
   try {
+    // 相对路径（相对 cwd）：事件日志可能随仓库分发，绝对路径会泄露本机目录结构。
+    // Windows 跨盘符时 path.relative 无法相对化、直接返回绝对路径——退化为 basename 守住承诺。
+    const relFile = path.relative(process.cwd(), file);
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       event,
       pipeline,
-      // 相对路径（相对 cwd）：事件日志可能随仓库分发，绝对路径会泄露本机目录结构
-      file: path.relative(process.cwd(), file) || path.basename(file),
+      file: !relFile || path.isAbsolute(relFile) ? path.basename(file) : relFile,
       round: state && state.round,
       stop_reason: state ? state.stop_reason ?? null : null,
       tasks:
@@ -217,37 +273,108 @@ function diffTaskStatus(file, nextState) {
 }
 
 // 写状态与 gate --apply 共用一把锁：同一仓库两个会话同时写时串行化，避免整份覆盖。
+// 锁内容是 `<pid> <iso时间>`：release 与陈旧接管都靠内容判归属（迟到的释放不能误删
+// 接管者的新锁；持有者已死的残留锁可以提前接管，不必等满陈旧阈值）。
+const LOCK_STALE_MS = 30000;
+const LOCK_WAIT_MS = 2000;
+
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// 锁内容首段是持有者 pid；解析不出（垃圾内容/旧格式）返回 null，此时只按 mtime 龄判陈旧。
+function lockOwnerPid(content) {
+  const pid = Number.parseInt(String(content), 10);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM"; // 进程存在但无权发信号 → 仍视为存活
+  }
+}
+
 function withLock(file, fn) {
   const lock = `${file}.lock`;
   mkdirSync(path.dirname(file), { recursive: true });
+  const owner = `${process.pid} ${new Date().toISOString()}\n`;
   const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
+  // 只释放仍属于自己的锁：fn 持锁超过 STALE 阈值时锁可能已被后来者原子接管，迟到的 release
+  // 若无条件 unlink 会删掉新持有者的锁，第三方便可再获取，两个写者并发读-改-写。
+  const release = () => {
     try {
-      const fd = openSync(lock, "wx");
-      writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
-      closeSync(fd);
-      try {
-        return fn();
-      } finally {
-        try {
-          unlinkSync(lock);
-        } catch {}
+      if (readFileSync(lock, "utf8") !== owner) return;
+      unlinkSync(lock);
+    } catch {
+      /* 已被接管/清理 */
+    }
+  };
+  // 陈旧锁接管（移植 worktree-ops/mcp/core.mjs acquireConfigLock 的已验证模式）：
+  // 不用 unlink+重建——stat 判陈旧到删掉之间锁可能已被他人接管重建，无条件删会误删新
+  // 持锁者的锁、还留下「无锁窗口」让第三方插空。改为把自身 pid 写临时文件后 rename 原子
+  // 替换锁文件：要么整体换掉要么不动，不存在「误删他人新锁」的中间态。并发接管时最后
+  // 替换者的 pid 留在锁里，输家 release 的内容比对保证不误删赢家的锁。返回是否接管成功。
+  const takeOverStale = () => {
+    try {
+      const mtimeMs = statSync(lock).mtimeMs;
+      let stale = Date.now() - mtimeMs > LOCK_STALE_MS;
+      if (!stale && Date.now() > deadline) {
+        // 崩溃残留锁的 30s 阻塞：接管原本必须等锁龄超过 LOCK_STALE_MS，而 LOCK_WAIT_MS=2s
+        // 早到——残留锁出现后的头 30s 里每个操作都白等 2s 再 exit 2。锁内容带持有者 pid：
+        // 等待已超 deadline 且 pid 已死即为残留锁实锤，立即进入接管；pid 存活（正当持锁者
+        // 只是慢）绝不提前接管，互斥与超时报错语义都不变。
+        const pid = lockOwnerPid(readFileSync(lock, "utf8"));
+        stale = pid !== null && !pidAlive(pid);
       }
-    } catch (err) {
-      if (!err || err.code !== "EEXIST") throw err;
+      if (!stale) return false;
+      const tmp = `${lock}.${process.pid}.${Date.now().toString(36)}.tmp`;
+      let replaced = false;
       try {
-        const mtimeMs = statSync(lock).mtimeMs;
-        if (Date.now() - mtimeMs > LOCK_STALE_MS) {
-          // 二次 stat 防误删：第一次判陈旧后、unlink 前，锁可能已被原持有者重建；
-          // mtime 变了就放弃接管，走下方等待/失败路径。第二次 stat 与 unlink 之间仍残余极窄竞态，属有意取舍。
-          if (statSync(lock).mtimeMs === mtimeMs) {
-            unlinkSync(lock);
-            continue;
+        writeFileSync(tmp, owner, "utf8");
+        renameSync(tmp, lock);
+        replaced = true;
+      } finally {
+        if (!replaced) {
+          try {
+            unlinkSync(tmp);
+          } catch {
+            /* 临时文件可能已被 rename 或根本没写成 */
           }
         }
-      } catch {}
+      }
+      return replaced;
+    } catch {
+      /* 锁刚好被释放/替换（Windows 上 rename 目标被占用等）→ 按普通竞争退避重试 */
+      return false;
+    }
+  };
+  for (;;) {
+    let acquired = false;
+    try {
+      const fd = openSync(lock, "wx");
+      // writeSync 失败也要关 fd：锁文件句柄一旦泄漏，Windows 上该文件一直被本进程占用，
+      // 后续 unlink/接管都会被拖累。
+      try {
+        writeSync(fd, owner);
+      } finally {
+        closeSync(fd);
+      }
+      acquired = true;
+    } catch (err) {
+      if (!err || err.code !== "EEXIST") throw err;
+    }
+    if (!acquired && !takeOverStale()) {
       if (Date.now() > deadline) fail(`state file is locked by another process: ${lock}`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      sleepMs(25);
+      continue;
+    }
+    try {
+      return fn();
+    } finally {
+      release();
     }
   }
 }
@@ -269,6 +396,12 @@ function validateState(state, pipeline) {
   if (state.version !== 1) errors.push("version must be 1");
   if (typeof state.prompt !== "string" || state.prompt.trim() === "") errors.push("prompt must be a non-empty string");
   if (!Number.isInteger(state.max_iterations) || state.max_iterations < 0) errors.push("max_iterations must be an integer >= 0");
+  // 文档承诺（commands/ralph-pipeline.md、commands/coding-pipeline.md 的读取规则 2）：旧版本
+  // 状态文件缺少 max_failures / retry_on_failure 时按默认值补齐、不算损坏。此前只有文档没有
+  // 实现，这里对**缺失**（undefined）回填默认值——write / gate --apply 路径会把补齐后的对象
+  // 连带落盘；显式 null / 错误类型仍走下方校验拒绝，补齐不是放松。
+  if (state.max_failures === undefined) state.max_failures = 3;
+  if (state.retry_on_failure === undefined) state.retry_on_failure = false;
   if (!Number.isInteger(state.max_failures) || state.max_failures < 1) errors.push("max_failures must be an integer >= 1");
   if (typeof state.retry_on_failure !== "boolean") errors.push("retry_on_failure must be a boolean");
   if (!(state.completion_promise === null || typeof state.completion_promise === "string")) {
@@ -308,15 +441,22 @@ function validateState(state, pipeline) {
         continue;
       }
       if (typeof task.id !== "string" || task.id.trim() === "") errors.push("task.id must be a non-empty string");
-      else if (ids.has(task.id)) errors.push(`duplicate task id: ${task.id}`);
+      else if (task.id.length > LIMIT_ID) {
+        errors.push(`task.id length ${task.id.length} exceeds limit ${LIMIT_ID}`);
+        continue; // 超限 id 不进后续按 id 点名的错误消息（错误消息不放大无界字符串）
+      } else if (ids.has(task.id)) errors.push(`duplicate task id: ${task.id}`);
       else ids.add(task.id);
       if (typeof task.title !== "string" || task.title.trim() === "") errors.push(`task ${task.id}: title must be a non-empty string`);
+      else if (task.title.length > LIMIT_TITLE) errors.push(`task ${task.id}: title length ${task.title.length} exceeds limit ${LIMIT_TITLE}`);
       if (!TASK_STATUS.has(task.status)) errors.push(`task ${task.id}: invalid status ${JSON.stringify(task.status)}`);
       if (!Array.isArray(task.depends_on) || task.depends_on.some((d) => typeof d !== "string")) {
         errors.push(`task ${task.id}: depends_on must be an array of strings`);
       }
       if (!Array.isArray(task.accept_criteria) || task.accept_criteria.some((c) => typeof c !== "string")) {
         errors.push(`task ${task.id}: accept_criteria must be an array of strings`);
+      } else {
+        const over = task.accept_criteria.findIndex((c) => c.length > LIMIT_CRITERION);
+        if (over >= 0) errors.push(`task ${task.id}: accept_criteria[${over}] length ${task.accept_criteria[over].length} exceeds limit ${LIMIT_CRITERION}`);
       }
       if (!Number.isInteger(task.failures) || task.failures < 0) errors.push(`task ${task.id}: failures must be an integer >= 0`);
       if (task.max_attempts !== undefined && (!Number.isInteger(task.max_attempts) || task.max_attempts < 1)) {
@@ -329,6 +469,8 @@ function validateState(state, pipeline) {
       if (task.root_cause_group !== undefined
         && (typeof task.root_cause_group !== 'string' || task.root_cause_group.trim() === '')) {
         errors.push(`task ${task.id}: root_cause_group must be a non-empty string when present`);
+      } else if (typeof task.root_cause_group === 'string' && task.root_cause_group.length > LIMIT_ID) {
+        errors.push(`task ${task.id}: root_cause_group length ${task.root_cause_group.length} exceeds limit ${LIMIT_ID}`);
       }
     }
     for (const task of state.tasks) {
@@ -365,6 +507,8 @@ function validateState(state, pipeline) {
       for (const checkpoint of state.critical_checkpoints) {
         if (!isObject(checkpoint) || typeof checkpoint.id !== "string" || typeof checkpoint.description !== "string" || typeof checkpoint.passed !== "boolean") {
           errors.push("coding: each critical_checkpoint needs id, description and passed");
+        } else if (checkpoint.id.length > LIMIT_ID) {
+          errors.push(`coding: critical_checkpoints[].id length ${checkpoint.id.length} exceeds limit ${LIMIT_ID}`);
         }
       }
     }
@@ -513,8 +657,9 @@ function nextRootCauseHint(state) {
   const open = groups.filter((group) => !group.complete);
   if (open.length === 0) return '';
   const first = open[0];
-  const pending = first.tasks.filter((t) => t.status !== 'done').map((t) => `${t.id}(${t.status})`);
-  return `next root_cause_group=${first.id}（${first.done}/${first.total} done；未完成 ${pending.join(', ')}）`;
+  // id 拼进 stdout 前一律 JSON.stringify 定界（引号+转义），防状态体字符串伪装分隔符/指令
+  const pending = first.tasks.filter((t) => t.status !== 'done').map((t) => `${JSON.stringify(t.id)}(${t.status})`);
+  return `next root_cause_group=${JSON.stringify(first.id)}（${first.done}/${first.total} done；未完成 ${pending.join(', ')}）`;
 }
 
 function codingGateBlockers(state, cwd) {
@@ -522,7 +667,7 @@ function codingGateBlockers(state, cwd) {
   const checkpoints = Array.isArray(state.critical_checkpoints) ? state.critical_checkpoints : [];
   const failed = checkpoints
     .filter((checkpoint) => !isObject(checkpoint) || checkpoint.passed !== true)
-    .map((checkpoint) => (isObject(checkpoint) && typeof checkpoint.id === "string" ? checkpoint.id : "(未命名)"));
+    .map((checkpoint) => (isObject(checkpoint) && typeof checkpoint.id === "string" ? JSON.stringify(checkpoint.id) : "(未命名)"));
   if (failed.length > 0) blockers.push(`critical checkpoints 未通过: ${failed.join(", ")}`);
   const actual = recheckScope(state, cwd);
   if (actual.state === "FAIL") blockers.push(`scope_drift=FAIL（${actual.reason}）`);
@@ -530,7 +675,7 @@ function codingGateBlockers(state, cwd) {
   return { blockers, actual };
 }
 
-function gateFor(state, pipeline, cwd = process.cwd()) {
+function gateFor(state, pipeline, cwd = process.cwd(), promiseValue = "") {
   const spec = PIPELINES[pipeline];
   const maxCycles = state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
   const stallMax = spec.stallMax;
@@ -554,21 +699,28 @@ function gateFor(state, pipeline, cwd = process.cwd()) {
       : "";
   const withNote = (result) => (presetNote ? { ...result, presetNote } : result);
   if (state.stop_reason === "STOPPED") {
-    return { stop_reason: "STOPPED", reason: "stopped by an operator (STOPPED is not recomputable)" };
+    // STOPPED 是唯一被采信的预设终态（人主动叫停没有可计算依据替代），但状态文件是执行者
+    // 可写的普通 JSON，写一个 "STOPPED" 就能伪装「人主动叫停」，且没有任何机制可鉴别来源。
+    // 不做机制变更，只做与其它预设终态「未采信」注记同族的透明化：采信时在 reason 里明示
+    // 这是执行者自报值。
+    return {
+      stop_reason: "STOPPED",
+      reason: "stopped by an operator (STOPPED is not recomputable) (executor-reported preset; 未鉴别来源)",
+    };
   }
-  // completion_promise 是 DONE 铁律的**显式覆盖**（六处文档同口径：coding SKILL.md:314、
-  // commands/coding-pipeline.md:276-278、agents/coding-orchestrator.md:76，ralph 三处同）。
-  // 2026-11-01 修复：此前 gateFor 全文不读这个字段——它只在 validateState:268 被校验类型、
-  // 在 :610 被初始化为 null——于是文档承诺的早停在脚本模式下根本不生效；更糟的是 applyGate
-  // 按"重算为 null 也要写回"的规矩把编排器依文档写好的 DONE 抹成 null，管道继续烧轮次与预算，
-  // 与 README:77「两种入口，机制完全一致」直接冲突。promise 命中即 DONE，按文档绕过
-  // verdict / scope_drift / 验证 / critical 门禁（它是人明确授意的早停，不是可伪造的自报终态：
-  // 预设 stop_reason 仍然不采信，见上）。
-  const promise = typeof state.completion_promise === "string" ? state.completion_promise.trim() : "";
+  // completion_promise 早停（2026-11-05 第二轮，方案 b）：只认 `state.mjs promise` 写的边车标记
+  // （<状态基名>.promise.json，orchestrator 专属命令写入），状态体的 completion_promise 字段
+  // **彻底不再参与判定**。旧机制（状态体非空即 DONE）已封死：状态文件是执行者（builder/worker）
+  // 可写的普通 JSON，被注入或出错时写一行字符串就能伪造「用户显式早停」；边车标记只在用户于
+  // 会话中显式要求早停时由 orchestrator 写入，且 init 会清掉旧标记（新一轮不继承早停）。
+  // 标记命中即 DONE，按文档绕过 verdict / scope_drift / 验证 / critical 门禁（人明确授意的早停
+  // 不是可伪造的自报终态：预设 stop_reason 仍然不采信，见上）。
+  const promise = typeof promiseValue === "string" ? promiseValue.trim() : "";
   if (promise) {
     const result = {
       stop_reason: "DONE",
-      reason: `completion_promise 命中：${promise}（DONE 铁律的显式覆盖，绕过 verdict/scope/验证/critical 门禁）`,
+      // 用户提供的自由文本拼进 stdout 前 JSON.stringify 定界（引号+转义），防分隔符/指令伪装
+      reason: `completion_promise 标记命中：${JSON.stringify(promise)}（经 promise 边车标记的用户主导早停，绕过 verdict/scope/验证/critical 门禁；状态体字段不再参与判定）`,
     };
     // 预设值本就等于 DONE 时不再挂「未采信」注记——这一次 DONE 是有依据的。
     if (state.stop_reason && state.stop_reason !== "DONE" && presetNote) result.presetNote = presetNote;
@@ -586,7 +738,7 @@ function gateFor(state, pipeline, cwd = process.cwd()) {
     if (!task || typeof task.failures !== "number") continue;
     const limit = Number.isInteger(task.max_attempts) && task.max_attempts > 0 ? task.max_attempts : attemptLimit;
     if (task.failures >= limit) {
-      return withNote({ stop_reason: "ESCALATE", reason: `task ${task.id} failures ${task.failures} >= max_attempts ${limit}` });
+      return withNote({ stop_reason: "ESCALATE", reason: `task ${JSON.stringify(task.id)} failures ${task.failures} >= max_attempts ${limit}` });
     }
   }
   if (pipeline === "coding" && scopeGate.actual && scopeGate.actual.state === "FAIL") {
@@ -630,9 +782,12 @@ function applyGate(file, state, result) {
 
 function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const args = parseArgs(rest, { boolean: ["force", "json", "apply"], value: ["pipeline", "file", "prompt", "tail"] });
-  if (!command || !["init", "validate", "write", "gate", "events", "root-causes"].includes(command)) {
-    fail("usage: state.mjs init|validate|write|gate|events|root-causes --pipeline ralph|coding [--file <path>] [--json]");
+  const args = parseArgs(rest, { boolean: ["force", "json", "apply"], value: ["pipeline", "file", "prompt", "tail", "value"] });
+  if (!command || !["init", "validate", "write", "gate", "events", "root-causes", "promise"].includes(command)) {
+    fail(
+      "usage: state.mjs init|validate|write|gate|events|root-causes|promise --pipeline ralph|coding [--file <path>] [--json]\n" +
+        "       promise（orchestrator 专属）：--value <text> 写边车标记 <状态>.promise.json，gate 据此判用户显式早停",
+    );
   }
   const pipeline = pipelineOf(args);
   const file = stateFile(args, pipeline);
@@ -674,6 +829,8 @@ function main() {
     //   · foreignFile（根本不是状态文件）→ `--force` **也不放行**：把 package.json 覆盖成状态文件
     //     不是「重置管道」，是毁掉别人的文件。要初始化就换个路径。
     let foreignFile = false;
+    let promiseCleanupError = null;
+    let promiseCleared = false;
     withLock(file, () => {
       if (existsSync(file)) {
         try {
@@ -694,10 +851,24 @@ function main() {
         }
       }
       if (!existingProgress && !foreignFile) {
+        // 新一轮管线不留旧早停：删掉同路径 promise 边车标记（删不掉则中止 init——静默保留会让
+        // 新管线继承上一轮的早停）。清理与写入同锁，防止与并发 promise/gate 竞争。
+        const marker = promiseFile(file);
+        if (existsSync(marker)) {
+          try {
+            unlinkSync(marker);
+            promiseCleared = true;
+          } catch (err) {
+            promiseCleanupError = `failed to remove stale promise marker ${marker}: ${err.message}`;
+            return;
+          }
+        }
         writeAtomic(file, base);
         logEvent(file, pipeline, "init", base);
+        if (promiseCleared) logEvent(file, pipeline, "promise_cleared", base);
       }
     });
+    if (promiseCleanupError) fail(promiseCleanupError);
     if (foreignFile) {
       fail(
         `refusing to overwrite ${file}: it exists but is not a pipeline state file (no version/prompt).\n` +
@@ -727,37 +898,42 @@ function main() {
     // 推进一轮 → scope_drift 变空 → gate 判「尚未判定」，用户看到的是「刚判过又没判」。
     // 这两个字段是**判定产物**而非执行者输入，缺省时从磁盘现值继承；显式传值仍然优先
     // （scope.mjs 就是这么写回新结论的）。
-    try {
-      const current = JSON.parse(readFileSync(file, "utf8"));
-      if (isObject(current)) {
-        if (state.scope_drift === undefined && current.scope_drift !== undefined) state.scope_drift = current.scope_drift;
-        if (state.scope === undefined && current.scope !== undefined) state.scope = current.scope;
-      }
-    } catch {
-      /* 文件不存在或不是 JSON：没有可继承的现值 */
-    }
-    const { errors, warnings } = validateState(state, pipeline);
-    if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
-    // 防误覆盖（对齐 init 的 foreignFile 检测）：write 也可能被指到别人的文件——
-    // `write --file package.json` 实测会把 package.json 整份替换成状态对象、exit 0。
-    // 判定口径与 init 完全一致（looksLikeState：有 version/prompt 才算状态文件）。
-    // 检测在锁内完成（避免 TOCTOU），fail 放在锁外——process.exit 不会跑 withLock 的 finally，
-    // 锁内 fail 会把锁留在盘上。
+    // 2026-11-05 修复：继承读原来在锁外——并发 `gate --apply` / `scope --apply` 在「继承读
+    // 之后、落盘之前」写下的结论，会被这份基于陈旧快照的副本整份覆盖。继承、校验、落盘现在
+    // 都在同一把 withLock 临界区内完成（锁内重读现值）；fail 纪律不变：process.exit 不会跑
+    // withLock 的 finally，校验错误经 flag 带出锁外再 fail。
     let foreignFile = false;
+    let invalidErrors = null;
+    let warnings = [];
     withLock(file, () => {
+      let current = null;
       if (existsSync(file)) {
         try {
-          if (!looksLikeState(JSON.parse(readFileSync(file, "utf8")))) foreignFile = true;
+          current = JSON.parse(readFileSync(file, "utf8"));
+          if (!looksLikeState(current)) foreignFile = true;
         } catch {
           // 损坏 JSON 与 init 同一立场：可能是被中断的状态文件，不新增误拒、放行 write
         }
       }
-      if (!foreignFile) {
-        const transitions = diffTaskStatus(file, state);
-        writeAtomic(file, state);
-        logEvent(file, pipeline, "write", state, { transitions });
+      if (isObject(current)) {
+        if (state.scope_drift === undefined && current.scope_drift !== undefined) state.scope_drift = current.scope_drift;
+        if (state.scope === undefined && current.scope !== undefined) state.scope = current.scope;
       }
+      const { errors, warnings: stateWarnings } = validateState(state, pipeline);
+      if (errors.length) {
+        invalidErrors = errors;
+        return;
+      }
+      if (foreignFile) return;
+      // 防误覆盖（对齐 init 的 foreignFile 检测）：write 也可能被指到别人的文件——
+      // `write --file package.json` 实测会把 package.json 整份替换成状态对象、exit 0。
+      const transitions = diffTaskStatus(file, state);
+      writeAtomic(file, state);
+      logEvent(file, pipeline, "write", state, { transitions });
+      warnings = stateWarnings;
     });
+    // fail 统一放锁外（优先序与旧实现一致：invalid 在 foreignFile 之前判）
+    if (invalidErrors) fail(`invalid state:\n- ${invalidErrors.join("\n- ")}`);
     if (foreignFile) {
       fail(
         `refusing to overwrite ${file}: it exists but is not a pipeline state file (no version/prompt).\n` +
@@ -770,6 +946,26 @@ function main() {
     return;
   }
 
+  // promise：orchestrator 专属（文档明确执行者禁用）。把用户在会话中显式给出的早停承诺写入
+  // 边车标记 <状态基名>.promise.json（tmp+rename 原子写），不碰状态文件——gate 只认这个标记。
+  // 空串/纯空白不构成早停依据，命令层直接拒绝（fail-loud，不给「写了但没生效」留哑巴坑）。
+  if (command === "promise") {
+    const value = typeof args.value === "string" ? args.value : "";
+    if (!value.trim()) fail("promise requires a non-empty --value <text> (the user's explicit early-stop promise)");
+    const marker = {
+      version: 1,
+      pipeline,
+      value,
+      created_at: new Date().toISOString(),
+    };
+    const markerPath = promiseFile(file);
+    writeAtomic(markerPath, marker);
+    logEvent(file, pipeline, "promise_set", null);
+    if (args.json) console.log(JSON.stringify({ file: markerPath, ...marker }));
+    else console.log(`Wrote ${markerPath}`);
+    return;
+  }
+
   if (command === "events") {
     const requested = Number(args.tail);
     const tail = Number.isInteger(requested) && requested > 0 ? requested : 20;
@@ -779,7 +975,7 @@ function main() {
       for (const event of events) {
         const tasks = event.tasks ? ` tasks ${event.tasks.done}/${event.tasks.total}` : "";
         const transitions = Array.isArray(event.transitions) && event.transitions.length
-          ? ` [${event.transitions.map((t) => `${t.id}:${t.from}->${t.to}`).join(", ")}]`
+          ? ` [${event.transitions.map((t) => `${JSON.stringify(t.id)}:${t.from}->${t.to}`).join(", ")}]`
           : "";
         console.log(`${event.ts} ${event.event} round=${event.round ?? "-"} stop=${event.stop_reason ?? "null"}${tasks}${transitions}`);
       }
@@ -794,13 +990,14 @@ function main() {
     const grouped = groupTasksByRootCause(state.tasks);
     if (args.json) console.log(JSON.stringify({ file, ...grouped }));
     else {
+      // id 拼进 stdout 前一律 JSON.stringify 定界（引号+转义），防状态体字符串伪装分隔符/指令
       if (grouped.groups.length === 0) console.log("(no root_cause_group assigned)");
       for (const group of grouped.groups) {
-        const states = group.tasks.map((t) => `${t.id}:${t.status}`).join(", ");
-        console.log(`${group.id}  ${group.done}/${group.total} done${group.complete ? " ✓" : ""}  [${states}]`);
+        const states = group.tasks.map((t) => `${JSON.stringify(t.id)}:${t.status}`).join(", ");
+        console.log(`${JSON.stringify(group.id)}  ${group.done}/${group.total} done${group.complete ? " ✓" : ""}  [${states}]`);
       }
       if (grouped.ungrouped.total > 0) {
-        const states = grouped.ungrouped.tasks.map((t) => `${t.id}:${t.status}`).join(", ");
+        const states = grouped.ungrouped.tasks.map((t) => `${JSON.stringify(t.id)}:${t.status}`).join(", ");
         console.log(`(ungrouped) ${grouped.ungrouped.done}/${grouped.ungrouped.total} done  [${states}]`);
       }
     }
@@ -825,7 +1022,7 @@ function main() {
     const state = readState(file);
     const { errors } = validateState(state, pipeline);
     if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
-    const result = gateFor(state, pipeline, process.cwd());
+    const result = gateFor(state, pipeline, process.cwd(), readPromiseValue(file));
     if (args.json) console.log(JSON.stringify({ file, ...result, applied: false }));
     else console.log(`stop_reason=${result.stop_reason ?? "null"} (${result.reason})`);
     return;
@@ -844,7 +1041,7 @@ function main() {
     }
     applyErrors = validateState(read.state, pipeline).errors;
     if (applyErrors.length > 0) return;
-    result = gateFor(read.state, pipeline, process.cwd());
+    result = gateFor(read.state, pipeline, process.cwd(), readPromiseValue(file));
     applyGate(file, read.state, result);
     logEvent(file, pipeline, "gate", read.state, { applied: Boolean(result.stop_reason) });
   });

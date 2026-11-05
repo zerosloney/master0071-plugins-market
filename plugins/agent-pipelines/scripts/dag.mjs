@@ -14,22 +14,35 @@
  * @returns {{ids: string[], layer: Map<string, number>, order: string[], cycles: string[], errors: string[]}}
  *   layer  = 节点 → 层号（无依赖为 0，= 最长依赖链长度）
  *   order  = Kahn 拓扑序（同层按 id 字典序，保证输出稳定可比对）
- *   cycles = 排不进拓扑序的节点（即处在环里的）
- *   errors = 未知依赖 / 无字符串 id 的条目
+ *   cycles = 真正处在环里的节点（SCC 判定，与 state.mjs validateState 的 DFS 同口径；环的下游节点不算）
+ *   errors = 未知依赖 / 无字符串 id / 重复 id 的条目
  */
 export function analyzeDependencies(tasks) {
   const list = Array.isArray(tasks) ? tasks : [];
-  const ids = list.map((task) => task && task.id).filter((id) => typeof id === "string");
-  const idSet = new Set(ids);
   const errors = [];
+  // 重复 id（2026-11-05）：validateState 写入口会拒绝 `duplicate task id`（state.mjs），这里同口径报错。
+  // 旧实现静默合并——同 id 条目的 depends_on 被并进同一节点、入度双计，graph.mjs 对
+  // validateState 必拒的状态返回 ok=true。口径：只让首次出现的条目参与建图，重复出现按次报错。
+  const firstOf = new Map();
+  for (const task of list) {
+    const id = task && task.id;
+    if (typeof id !== "string") continue;
+    if (firstOf.has(id)) errors.push(`duplicate task id: ${id}`);
+    else firstOf.set(id, task);
+  }
+  const ids = [...firstOf.keys()];
+  const idSet = new Set(ids);
   const indegree = new Map(ids.map((id) => [id, 0]));
   const next = new Map(ids.map((id) => [id, []]));
+  const built = new Set();
 
   for (const task of list) {
     if (!task || typeof task.id !== "string") {
       errors.push("task without a string id");
       continue;
     }
+    if (built.has(task.id)) continue; // 重复条目已在上面报错，不再参与建图
+    built.add(task.id);
     for (const dep of Array.isArray(task.depends_on) ? task.depends_on : []) {
       if (!idSet.has(dep)) {
         errors.push(`task ${task.id}: unknown dependency ${dep}`);
@@ -69,9 +82,45 @@ export function analyzeDependencies(tasks) {
       if (pending.get(dependent) === 0) queue.push(dependent);
     }
   }
-  // 环 = 拓扑排序没吐出来的节点；用 Set 查找（此前 render 侧是 Array.includes，O(n²)）
-  const ordered = new Set(order);
-  const cycles = ids.filter((id) => !ordered.has(id));
+  // 环成员（2026-11-05 修正口径）：旧实现「Kahn 没吐出来的都算环」会把环的下游节点也点名
+  // （a↔b 加 c→b 时给出 [a,b,c]，render 据此打印「存在环：c」，误导排查方向），与 validateState
+  // 的 DFS（只报真环成员，state.mjs）口径不一。用 Tarjan 强连通分量判定：SCC 大小 ≥2 或自环
+  // 即环成员；输出仍按 ids 顺序，稳定可比对。order 维持 Kahn 原样：排不进的节点不进拓扑序。
+  const index = new Map();
+  const low = new Map();
+  const onStack = new Set();
+  const stack = [];
+  const inCycle = new Set();
+  let counter = 0;
+  const stronglyConnected = (v) => {
+    index.set(v, counter);
+    low.set(v, counter);
+    counter += 1;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of next.get(v)) {
+      if (!index.has(w)) {
+        stronglyConnected(w);
+        low.set(v, Math.min(low.get(v), low.get(w)));
+      } else if (onStack.has(w)) {
+        low.set(v, Math.min(low.get(v), index.get(w)));
+      }
+    }
+    if (low.get(v) === index.get(v)) {
+      const component = [];
+      let w;
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        component.push(w);
+      } while (w !== v);
+      if (component.length > 1 || next.get(v).includes(v)) {
+        for (const member of component) inCycle.add(member);
+      }
+    }
+  };
+  for (const id of ids) if (!index.has(id)) stronglyConnected(id);
+  const cycles = ids.filter((id) => inCycle.has(id));
 
   return { ids, layer, order, cycles, errors };
 }

@@ -42,8 +42,11 @@ const interval = positiveInt(args.interval, "interval", 1000);
 
 let clients = new Set();
 let lastHtml = "";
-let lastStateMtime = 0;
-let lastEventsMtime = 0;
+// 已渲染内容对应的 mtime 标记（2026-11-05 重构）：watch 与轮询对同一次写入都会触发，
+// 靠它把「一次变更」收敛成一次渲染，其余触发复用 lastHtml。渲染成功才更新——渲染中途
+// 文件被替换抛错时保留旧标记，下一次触发会重试。
+let renderedStateMtime = 0;
+let renderedEventsMtime = 0;
 
 function renderHtml() {
   const state = loadState(file);
@@ -53,10 +56,50 @@ function renderHtml() {
   return buildHtml({ pipeline, file, state, events, graph, live: true });
 }
 
-function broadcast() {
-  const html = renderHtml();
+function mtimeOf(p) {
+  try {
+    return statSync(p).mtimeMs;
+  } catch {
+    return 0; // 文件尚不存在（如还没产生事件日志）：以 0 为哨兵，一旦创建即视为变化
+  }
+}
+
+// 一次变更只渲染一次：refresh 是唯一渲染入口，mtime 未变直接复用 lastHtml。
+// 旧实现 setInterval/watch 里 lastHtml = renderHtml() 之后 broadcast() 内又 renderHtml()
+// 一次——一次状态写触发 state+events 两个 watch + 轮询，≥3 次全量渲染，每次重读最多
+// 2×5MiB 事件日志。state 与 events 由同一次写入共同更新，但两个文件的 mtime 元数据
+// 对外可见的时刻相差亚毫秒到数毫秒（实测 NTFS ~1ms），两个 watch 会先后观察到两次
+// 「变化」——仅靠 mtime 缓存合并不掉，还需要下面的去抖窗口。
+function refresh() {
+  const stateMtime = mtimeOf(file);
+  const eventsMtime = mtimeOf(eventsFile);
+  if (stateMtime === renderedStateMtime && eventsMtime === renderedEventsMtime) return;
+  let html;
+  try {
+    html = renderHtml();
+  } catch {
+    return; // 文件暂不可读（被替换的瞬间）：不动已渲染标记，等下一次触发重试
+  }
   const changed = html !== lastHtml;
   lastHtml = html;
+  renderedStateMtime = stateMtime;
+  renderedEventsMtime = eventsMtime;
+  broadcast(changed);
+}
+
+// watch 触发去抖：从首个触发起 50ms 窗口内的触发合并成一次 refresh（窗口不顺延，
+// 连续写入不会无限推迟渲染）。默认轮询兜底间隔是 100ms 量级，50ms 的推送延迟对看板
+// 实时性不可感知；换来的是一次变更（state+events 同批落盘）只全量渲染一次。
+let refreshTimer = null;
+function scheduleRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    refresh();
+  }, 50);
+}
+
+function broadcast(changed) {
   for (const res of clients) {
     try {
       res.write(`event: render\ndata: ${JSON.stringify({ changed, ts: new Date().toISOString() })}\n\n`);
@@ -137,42 +180,22 @@ function handleRequest(req, res) {
 }
 
 // 轮询兜底：watch 在部分平台（含文件被原子替换时）可能失效，轮询保证最终一致。
-setInterval(() => {
-  try {
-    const stateMtime = statSync(file).mtimeMs;
-    const eventsMtime = statSync(eventsFile).mtimeMs;
-    if (stateMtime !== lastStateMtime || eventsMtime !== lastEventsMtime) {
-      lastStateMtime = stateMtime;
-      lastEventsMtime = eventsMtime;
-      lastHtml = renderHtml();
-      broadcast();
-    }
-  } catch {
-    // 文件暂不可读（被替换的瞬间），等待下一轮
-  }
-}, interval);
+setInterval(refresh, interval);
 
-// watch 立即推送：文件一变化就触发，减少轮询延迟。
+// watch 立即推送：文件一变化就触发（经 50ms 去抖窗口合并同批写入），减少轮询延迟。
 try {
-  watch(file, () => {
-    try {
-      lastHtml = renderHtml();
-      broadcast();
-    } catch {}
-  });
+  watch(file, () => scheduleRefresh());
 } catch {}
 try {
-  watch(eventsFile, () => {
-    try {
-      lastHtml = renderHtml();
-      broadcast();
-    } catch {}
-  });
+  watch(eventsFile, () => scheduleRefresh());
 } catch {}
 
 // 状态文件缺失/损坏时给可读指引并以退出码 2 结束，而不是模块顶层裸栈崩溃
+// （启动渲染同时把 mtime 标记对齐到当前内容：首个轮询周期不会对未变化的内容重渲染）
 try {
   lastHtml = renderHtml();
+  renderedStateMtime = mtimeOf(file);
+  renderedEventsMtime = mtimeOf(eventsFile);
 } catch (err) {
   console.error(`agent-pipelines live board could not start: ${err.message}`);
   console.error(`先运行 state.mjs init 创建状态文件，例如：node scripts/state.mjs init --pipeline ${pipeline} --file ${file} --prompt "<目标>"`);

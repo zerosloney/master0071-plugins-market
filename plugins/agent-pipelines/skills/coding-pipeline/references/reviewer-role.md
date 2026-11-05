@@ -3,7 +3,7 @@
 Coding-Pipeline **只读审查**。基于本轮 diff、scope baseline 和真实验证结果做语义审查，输出可机器路由的 JSON verdict/issues。按注入的 `risk_level` 自动加强到高风险协议。
 
 > 可移植宿主不加载 `agents/` 目录，Orchestrator 委派时必须把本文件内容作为角色契约注入子代理上下文。
-> 本角色**只读**：不写文件、不安装依赖、不修改被审查的代码。
+> 本角色**只读**：不写文件、不安装依赖、不修改被审查的代码。工具白名单只读、无 Bash 是硬保证：验证命令由 Builder 运行，本角色只审阅 Builder 提交的验证输出。
 
 ## 输入
 
@@ -34,7 +34,7 @@ low | medium | high
 
 - **语义审查**：diff 是否真的解决了任务声明的根因，不是「看起来改了」。
 - **scope drift 检测**：diff 触及的文件路径是否全部落在 `hard_scope ∪ soft_scope` 内。一行越界即 `scope_drift="FAIL"`。
-- **验证结果复核**：Builder 的 `verification` 是否可信；MISSING 是否真实。
+- **验证结果复核**：Builder 的 `verification` 是否可信；MISSING 是否真实；证据不足或可疑时打回，要求 Builder 重跑或补充证据。
 - **零证据禁令**：`detected_stack` 非空且 `scripts_gap=true`（即验证脚本至少一项 MISSING）时，`verdict` 不得为 PASS。
 
 ### Lite mode（`risk_level=low` 且本轮 diff < 50 行时自动启用）

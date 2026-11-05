@@ -33,7 +33,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.14' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.16' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -138,10 +138,21 @@ function config() {
 
 // ---------- 决策缓存：相同输入（模型+state+问题）短 TTL 内免远端往返 ----------
 
-const CACHE_TTL_MS = (() => {
-  const raw = Number(process.env.SYSTEMONE_PLUGIN_CACHE_TTL_MS || process.env.SYSTEMONE_CACHE_TTL_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000; // 默认 5 分钟；0 = 关闭
-})();
+// 毫秒类环境变量的读取：与 config() / thresholdOf / formatOf 同一套「空串=未配置」约定。
+// Number('') === 0，直接把 env 丢给 Number 会把「宿主注入了空值」变成「缓存 TTL=0（关缓存）」
+// 或「批量预算 0ms（全部条目直接 budget_exhausted）」。空串/纯空白跳到下一个来源；非空但
+// 非法（NaN / 负数）按给定默认回退，与 config() 对非法 timeout 的静默回退同一口径。
+function msFromEnv(names, fallback) {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (typeof raw !== 'string' || raw.trim() === '') continue; // 空串=未配置，看下一个来源
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
+  return fallback;
+}
+
+const CACHE_TTL_MS = msFromEnv(['SYSTEMONE_PLUGIN_CACHE_TTL_MS', 'SYSTEMONE_CACHE_TTL_MS'], 300_000); // 默认 5 分钟；0 = 关闭
 const CACHE_MAX = 200;
 const decisionCache = new Map(); // key → { at, data }；Map 迭代序即插入序，尾部为最近使用
 
@@ -363,10 +374,13 @@ async function callSystemone(state, questions, timeoutMsOverride) {
   }
   if (!res.ok) {
     let hint = '';
-    if (/permission/i.test(text)) {
+    // 提示只挂在 401/403（鉴权类状态码）上：正文含 permission 字样时也只说「可能」——
+    // 401/403 既可能是 Key 未过鉴权、也可能是缺模型权限，单一断言会在 Key 失效时给出假结论。
+    // 其余状态码（如 404/5xx）正文碰巧含 permission 的场景不再附加该断言。
+    if ((res.status === 401 || res.status === 403) && /permission/i.test(text)) {
       hint =
-        `。提示：Key 认证已通过，但没有 ${cfg.model} 模型权限——` +
-        '请到 MaaS 控制台确认该 Key 所属项目已开通对应模型；' +
+        `。提示：HTTP ${res.status} 且响应含 permission 字样，可能是 Key 认证已通过但没有 ${cfg.model} 模型权限（也可能是 Key 鉴权本身失败）——` +
+        '请到 MaaS 控制台确认该 Key 有效且所属项目已开通对应模型；' +
         '若是刚更换过 SYSTEMONE_API_KEY，注意运行中的进程持有启动时的环境变量快照，需重启宿主程序后生效';
     }
     throw new ToolError(`systemone HTTP ${res.status}：${snippet(text)}（POST ${endpoint}/systemone）${hint}`, ERROR_CODES.upstream);
@@ -506,6 +520,18 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
       cached,
     };
   }
+  // raw 是上游响应整体，100K 上限（STATE_MAX_CHARS）只护请求侧；响应侧在此收口——
+  // 上游异常大的响应不得原样进工具结果撑爆宿主上下文。超限截断原文并附注记：
+  // 判定所需的 answers 已在逐题明细 / 速览 / 摘要中给出，原文只保留前 100K 字符切片。
+  const rawText = JSON.stringify(data);
+  const raw =
+    rawText.length > STATE_MAX_CHARS
+      ? {
+          note: `原始响应已截断（${rawText.length} 字符 > 上限 ${STATE_MAX_CHARS}），完整原文未随工具结果返回；判定结论见上方 answers / decision / summary`,
+          original_length: rawText.length,
+          head: rawText.slice(0, STATE_MAX_CHARS),
+        }
+      : data;
   return {
     ok: true,
     scenario: meta.id ?? null,
@@ -520,7 +546,7 @@ async function executeDecision(state, questions, { threshold, meta = {}, format 
     confidence_threshold: threshold,
     recommendation,
     summary,
-    raw: data,
+    raw,
     cached,
   };
 }
@@ -695,10 +721,7 @@ const BATCH_MAX = 10;
 // 对单次工具调用的超时通常在 30s 量级，客户端先断则已完成结果全丢。留 25s 收口。
 // 预算可用环境变量注入（SYSTEMONE_BATCH_BUDGET_MS，0 = 全部条目直接标记未执行），
 // 供测试真实触发 budget_exhausted 分支，无需 mock 时钟。
-const BATCH_BUDGET_MS = (() => {
-  const raw = Number(process.env.SYSTEMONE_PLUGIN_BATCH_BUDGET_MS || process.env.SYSTEMONE_BATCH_BUDGET_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 25_000;
-})();
+const BATCH_BUDGET_MS = msFromEnv(['SYSTEMONE_PLUGIN_BATCH_BUDGET_MS', 'SYSTEMONE_BATCH_BUDGET_MS'], 25_000);
 
 async function runBatch(args) {
   if (!isNonEmptyString(args.scenario)) {
@@ -801,40 +824,50 @@ async function readStats() {
   let total = 0;
   let cached = 0;
   let readable = true;
-  const lines = createInterface({
-    input: createReadStream(LOG_FILE, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
-  try {
-    for await (const line of lines) {
-      if (line.trim() === '') continue;
-      let e;
-      try {
-        e = JSON.parse(line);
-      } catch {
-        continue; // 坏行跳过（与旧实现一致：解析失败不当条目）
+  // 轮转（appendLog 达 LOG_MAX_BYTES 时把上一段改名 <LOG_FILE>.1 保留一代）后的记录仍属于账本：
+  // stats 只读当前段的话，每次轮转都会把更早的记录从统计里「清零」。归档有界（只保留一代），
+  // 读两段即可全覆盖；归属顺序按时间正序——先归档段（更早），再当前段。
+  const segments = [
+    { file: `${LOG_FILE}.1`, optional: true }, // 还没有归档是常态，缺失/读不了不算错误
+    { file: LOG_FILE, optional: false },
+  ];
+  for (const { file, optional } of segments) {
+    const lines = createInterface({
+      input: createReadStream(file, { encoding: 'utf8' }),
+      crlfDelay: Infinity,
+    });
+    try {
+      for await (const line of lines) {
+        if (line.trim() === '') continue;
+        let e;
+        try {
+          e = JSON.parse(line);
+        } catch {
+          continue; // 坏行跳过（与旧实现一致：解析失败不当条目，含轮转写入的「# 已达…」标记行）
+        }
+        if (!e) continue; // 与旧实现的 filter(Boolean) 一致：JSON null 不计入
+        total += 1;
+        const id = e.scenario ?? '(通用决策)';
+        const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
+        s.count += 1;
+        if (e.needs_human_review) s.review += 1;
+        if (e.cached) {
+          s.cached += 1;
+          cached += 1;
+        }
+        s.latency_total += Number(e.latency_ms) || 0;
+        for (const [qid, v] of Object.entries(e.decision || {})) {
+          const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
+          s.decisions[key] = (s.decisions[key] ?? 0) + 1;
+        }
+        byScenario.set(id, s);
       }
-      if (!e) continue; // 与旧实现的 filter(Boolean) 一致：JSON null 不计入
-      total += 1;
-      const id = e.scenario ?? '(通用决策)';
-      const s = byScenario.get(id) ?? { count: 0, review: 0, cached: 0, latency_total: 0, decisions: {} };
-      s.count += 1;
-      if (e.needs_human_review) s.review += 1;
-      if (e.cached) {
-        s.cached += 1;
-        cached += 1;
-      }
-      s.latency_total += Number(e.latency_ms) || 0;
-      for (const [qid, v] of Object.entries(e.decision || {})) {
-        const key = `${qid}=${typeof v === 'boolean' ? (v ? 'true' : 'false') : v}`;
-        s.decisions[key] = (s.decisions[key] ?? 0) + 1;
-      }
-      byScenario.set(id, s);
+    } catch (e) {
+      // 只有当前段读不了才维持「日志不存在或不可读」的既有报错口径；归档段缺失按无归档处理
+      if (!optional) readable = false;
+    } finally {
+      lines.close();
     }
-  } catch (e) {
-    readable = false;
-  } finally {
-    lines.close();
   }
   if (!readable) {
     throw new ToolError(`审计日志不存在或不可读：${LOG_FILE}（还没有决策落盘？）`, ERROR_CODES.notConfigured);
@@ -977,6 +1010,15 @@ function reply(msg) {
   process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
 
+// 宿主关闭 stdio 管道的瞬间，挂起的 write 会抛 EPIPE——不挂 error 处理就是 uncaughtException
+// 兜底加崩栈收场（退出码 1），长驻服务在正常关停时也以失败退出。EPIPE 只意味着对端已不在：
+// 安静退出即可（口径同 plugins/worktree-ops/mcp/protocol.mjs 的既有先例）；其余错误原样上抛，
+// 维持 uncaughtException 兜底。
+process.stdout.on('error', (err) => {
+  if (err && err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
+
 async function dispatch(msg) {
   switch (msg.method) {
     case 'initialize': {
@@ -1027,6 +1069,9 @@ async function dispatch(msg) {
 }
 
 let buffer = '';
+// 单行上限：一行迟迟不出现换行时（宿主异常灌数据/管道错位），旧实现无限累积缓冲直到吃光内存。
+// 超限行直接拒收并回 JSON-RPC 约定的 Parse error（id=null：行级内容截断/超限，无法可靠解析出 id）。
+const LINE_MAX_BYTES = 1024 * 1024;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   buffer += chunk;
@@ -1035,6 +1080,11 @@ process.stdin.on('data', (chunk) => {
     const line = buffer.slice(0, idx).trim();
     buffer = buffer.slice(idx + 1);
     if (!line) continue;
+    // 完整行超限同样拒收：拒绝发生在源头，而不是让超大串先过 JSON.parse
+    if (Buffer.byteLength(line, 'utf8') > LINE_MAX_BYTES) {
+      reply({ jsonrpc: '2.0', id: null, error: { code: -32700, message: `单行消息超过 ${LINE_MAX_BYTES} 字节上限，已拒收该行` } });
+      continue;
+    }
     let msg;
     try {
       msg = JSON.parse(line);
@@ -1052,6 +1102,12 @@ process.stdin.on('data', (chunk) => {
         const code = e instanceof RpcError ? e.code : -32603;
         reply({ jsonrpc: '2.0', id: msg.id, error: { code, message: e.message || String(e) } });
       });
+  }
+  // 完整行消费完后剩下的就是一条尚未出现换行的行：超限即拒——它要么在无限累积（内存风险），
+  // 要么不是本协议的消息（永远等不到换行）。拒收后清空缓冲，服务器对后续行照常服务。
+  if (buffer.length > 0 && Buffer.byteLength(buffer, 'utf8') > LINE_MAX_BYTES) {
+    buffer = '';
+    reply({ jsonrpc: '2.0', id: null, error: { code: -32700, message: `单行消息超过 ${LINE_MAX_BYTES} 字节上限，已拒收该行` } });
   }
 });
 process.stdin.on('end', () => process.exit(0));

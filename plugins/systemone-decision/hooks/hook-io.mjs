@@ -53,14 +53,40 @@ export function readStdin() {
  * @param {(input: object, timeoutMs: number, truncated: boolean) => Promise<object|null>} handle
  *   truncated = 输入不可信（stdin 超限**或**时间预算耗尽），由调用方决定走向
  *   （预检放行、风险闸 fail-closed）
- * @param {object} [opts] - { budgetMs, now }：预算上限与取时函数（测试注入用，生产取默认值）
+ * @param {object} [opts] - { budgetMs, now, killerMs, killPolicy, askPayload }
+ *   预算上限与取时函数（测试注入用，生产取默认值）；killerMs 同为测试注入（生产固定为预算值）。
+ *   killPolicy = killer 触发（stdin 挂起/滴流吃满预算）时的自毁策略，按入口分：
+ *     'silent'（默认）exit 0 无输出——UserPromptSubmit 通道故意 fail-open，输出
+ *       permissionDecision 反而是协议违规；
+ *     'emit-ask' 先向 stdout 输出 askPayload() 的 JSON（须与预算耗尽分支同形）、stderr 留一行
+ *       诊断再退：把「挂起=静默放行」变成「挂起=人工确认」，并赶在宿主 15s 超时前送达。
+ *   askPayload = kill-policy=emit-ask 必配的兜底载荷工厂（由入口注入，协议壳不认识具体事件格式）
  * @returns {Promise<object|null>} handle 的返回值；handle 判定放行时为 null（fail-open）
  */
 export async function runHook(handle, opts = {}) {
   const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : HOOK_BUDGET_MS;
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
+  const killerMs = Number.isFinite(opts.killerMs) && opts.killerMs > 0 ? opts.killerMs : HOOK_BUDGET_MS;
+  if (opts.killPolicy === 'emit-ask' && typeof opts.askPayload !== 'function') {
+    // 配置错误不许静默降级：emit-ask 少了载荷工厂会退化回 silent，恰是本次要消灭的「挂起=静默放行」
+    throw new Error('kill-policy=emit-ask 需要配 askPayload 工厂（killer 触发时的兜底载荷）');
+  }
+  const emitAsk = opts.killPolicy === 'emit-ask';
   const startedAt = now();
-  const killer = setTimeout(() => process.exit(0), 14000);
+  const killer = setTimeout(() => {
+    if (!emitAsk) {
+      process.exit(0);
+      return;
+    }
+    // 同步写完再退（复用 main 的 drain 手法）：宿主 15s 超时前必须送达 ask
+    const text = JSON.stringify(opts.askPayload());
+    const diagThenExit = () => {
+      process.stderr.write('[systemone-decision hook] stdin 未在共享预算内完成读取，kill-policy=emit-ask 兜底输出 ask 转人工\n');
+      process.exit(0);
+    };
+    if (process.stdout.write(text)) diagThenExit();
+    else process.stdout.once('drain', diagThenExit);
+  }, killerMs);
   let stdin;
   try {
     stdin = await readStdin();
@@ -84,8 +110,8 @@ export async function runHook(handle, opts = {}) {
 }
 
 /** 入口：跑协议壳，结果序列化到 stdout 后 exit 0；异常写 stderr（fail-open，exit 0）。 */
-export function main(handle, label) {
-  runHook(handle)
+export function main(handle, label, opts = {}) {
+  runHook(handle, opts)
     .then((out) => {
       const text = out ? JSON.stringify(out) : '';
       if (!text || process.stdout.write(text)) process.exit(0);

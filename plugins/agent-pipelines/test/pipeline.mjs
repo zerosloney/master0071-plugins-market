@@ -177,6 +177,102 @@ cycle.tasks[1].depends_on = ["t1"];
 writeFileSync(ralphFile, JSON.stringify(cycle));
 check("依赖环被拒绝", run("state.mjs", ["validate", "--pipeline", "ralph", "--file", ralphFile]).status === 1);
 
+console.log("\n== 字符串上限与输出定界（LLM 消费面缓解） ==");
+// id/title/criteria 是执行者可写的字符串，会被拼进 gate reason、root-causes/events stdout。
+// 上限在写入口（validateState）fail-loud 定死数据形状，错误消息点名字段/上限/实际长度；
+// stdout 上凡拼接这些字符串一律 JSON.stringify 包裹（引号+转义），防分隔符/指令伪装。
+const limitFile = path.join(sandbox, "limits.json");
+const limitStateOf = (task, pipeline = "ralph") =>
+  JSON.stringify({
+    version: 1,
+    prompt: "limits",
+    max_iterations: 0,
+    max_failures: 3,
+    retry_on_failure: false,
+    completion_promise: null,
+    outer_iteration: 0,
+    tasks: [task],
+    consecutive_failures: 0,
+    stall_counter: 0,
+    fail_history: [],
+    round: 0,
+    stop_reason: null,
+    ...(pipeline === "coding" ? { prior_cycles_summary: "", critical_checkpoints: [] } : {}),
+  });
+const limitTask = (over = {}) => ({ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0, ...over });
+const limitWrite = (task, pipeline = "ralph", file = limitFile) =>
+  run("state.mjs", ["write", "--pipeline", pipeline, "--file", file], limitStateOf(task, pipeline));
+
+run("state.mjs", ["init", "--pipeline", "ralph", "--file", limitFile, "--prompt", "limits"]);
+const limBefore = readFileSync(limitFile, "utf8");
+const overTitle = limitWrite(limitTask({ title: "长".repeat(201) }));
+check(
+  "超长 title 的 write 被拒绝（错误点名字段/上限/实际长度）",
+  overTitle.status === 2 && /title length 201 exceeds limit 200/.test(overTitle.stderr),
+  overTitle.stderr,
+);
+check("被拒的 write 未改动原状态", readFileSync(limitFile, "utf8") === limBefore);
+check("id 恰好 64 字符可写入", limitWrite(limitTask({ id: "i".repeat(64) })).status === 0);
+const overId = limitWrite(limitTask({ id: "i".repeat(65) }));
+check("id 65 字符被拒绝", overId.status === 2 && /task\.id length 65 exceeds limit 64/.test(overId.stderr), overId.stderr);
+check("title 恰好 200 字符可写入", limitWrite(limitTask({ title: "标".repeat(200) })).status === 0);
+check("criteria 单条恰好 300 字符可写入", limitWrite(limitTask({ accept_criteria: ["c".repeat(300)] })).status === 0);
+const overCriterion = limitWrite(limitTask({ accept_criteria: ["c".repeat(301)] }));
+check(
+  "criteria 单条 301 字符被拒绝",
+  overCriterion.status === 2 && /accept_criteria\[0\] length 301 exceeds limit 300/.test(overCriterion.stderr),
+  overCriterion.stderr,
+);
+const overGroup = limitWrite(limitTask({ root_cause_group: "g".repeat(65) }));
+check("root_cause_group 65 字符被拒绝", overGroup.status === 2 && /root_cause_group length 65 exceeds limit 64/.test(overGroup.stderr), overGroup.stderr);
+
+const cpLimitFile = path.join(sandbox, "cp-limits.json");
+run("state.mjs", ["init", "--pipeline", "coding", "--file", cpLimitFile, "--prompt", "cp limits"]);
+const cpOverState = JSON.parse(limitStateOf(limitTask(), "coding"));
+cpOverState.critical_checkpoints = [{ id: "c".repeat(65), description: "d", passed: false }];
+const overCp = run("state.mjs", ["write", "--pipeline", "coding", "--file", cpLimitFile], JSON.stringify(cpOverState));
+check(
+  "critical_checkpoints[].id 65 字符被拒绝",
+  overCp.status === 2 && /critical_checkpoints\[\]\.id length 65 exceeds limit 64/.test(overCp.stderr),
+  overCp.stderr,
+);
+
+// 输出定界：含引号/换行/中文的字符串在 stdout 上必须呈 JSON 转义形态，不得裸拼
+const delimFile = path.join(sandbox, "delimit.json");
+const trickyId = 't1"注入"任务';
+run("state.mjs", ["init", "--pipeline", "ralph", "--file", delimFile, "--prompt", "delimit"]);
+const delimWrite = limitWrite(limitTask({ id: trickyId, failures: 4, max_attempts: 4 }), "ralph", delimFile);
+check("含引号/中文但未超限的 task id 可写入", delimWrite.status === 0, delimWrite.stderr);
+const gateOut = run("state.mjs", ["gate", "--pipeline", "ralph", "--file", delimFile]).stdout;
+check(
+  "gate reason 对 task id 定界（JSON 转义形态，无裸引号形态）",
+  gateOut.includes(`task ${JSON.stringify(trickyId)} failures`) && !gateOut.includes(`task ${trickyId}`),
+  gateOut,
+);
+
+const trickyGroup = 'rc"根因组\n下一行"';
+
+// events：同一任务 pending → done，迁移里的 id 必须定界
+const v2 = JSON.parse(limitStateOf(limitTask({ id: trickyId, failures: 0 })));
+v2.tasks[0].status = "done";
+run("state.mjs", ["write", "--pipeline", "ralph", "--file", delimFile], JSON.stringify(v2));
+const evOut = run("state.mjs", ["events", "--pipeline", "ralph", "--file", delimFile]).stdout;
+check(
+  "events stdout 对迁移任务 id 定界（JSON 转义形态）",
+  evOut.includes(`[${JSON.stringify(trickyId)}:pending->done]`) && !evOut.includes(`${trickyId}:pending`),
+  evOut,
+);
+
+const groupWrite = limitWrite(limitTask({ id: "t1", root_cause_group: trickyGroup }), "ralph", delimFile);
+check("含引号/换行的 root_cause_group 可写入（未超限）", groupWrite.status === 0, groupWrite.stderr);
+const rcOut = run("state.mjs", ["root-causes", "--pipeline", "ralph", "--file", delimFile]).stdout;
+check(
+  "root-causes stdout 对组 id 定界（JSON 转义形态）",
+  rcOut.includes(JSON.stringify(trickyGroup)) && !rcOut.includes(trickyGroup),
+  rcOut,
+);
+check("root-causes stdout 对任务 id 定界", rcOut.includes(`${JSON.stringify("t1")}:pending`), rcOut);
+
 const writeFile = path.join(sandbox, "written.json");
 const valid = JSON.parse(JSON.stringify(ralph));
 valid.round = 1;
@@ -906,6 +1002,63 @@ check(
   check("dag：未知依赖进 errors", messyAnalysis.errors.some((e) => /unknown dependency missing/.test(e)),
     messyAnalysis.errors.join(" | "));
   check("dag：非数组输入退化为空", analyzeDependencies(undefined).order.length === 0);
+}
+
+console.log("\n== 陈旧 tmp 清扫（writeAtomic 机会性） ==");
+// writeAtomic 只清本 pid 的 tmp：被 kill -9 的其它 pid 残留的 `${file}.*.tmp` 会永久堆积。
+// 修复后成功路径上机会性清扫同目录匹配模式且 mtime 超过 5 分钟的 tmp——正在写的 tmp
+// mtime 是新鲜的，不会误删。
+{
+  const sweepFile = path.join(sandbox, "sweep.json");
+  const staleTmp = `${sweepFile}.999999.tmp`;
+  const freshTmp = `${sweepFile}.888888.tmp`;
+  writeFileSync(staleTmp, "{}\n");
+  const staleTime = new Date(Date.now() - 6 * 60 * 1000);
+  utimesSync(staleTmp, staleTime, staleTime);
+  writeFileSync(freshTmp, "{}\n");
+  const sweepWrite = run("state.mjs", ["write", "--pipeline", "ralph", "--file", sweepFile], JSON.stringify(valid));
+  check("write 成功", sweepWrite.status === 0, sweepWrite.stderr);
+  check("超过 5 分钟的他 pid tmp 被清扫", !existsSync(staleTmp), String(existsSync(staleTmp)));
+  check("新鲜的他 pid tmp 保留（不误删正在写的 tmp）", existsSync(freshTmp));
+  const leftovers = readdirSync(sandbox).filter((name) => name.startsWith("sweep.json.") && name.endsWith(".tmp"));
+  check("write 自身不留其它 tmp", JSON.stringify(leftovers) === JSON.stringify([path.basename(freshTmp)]), JSON.stringify(leftovers));
+}
+
+console.log("\n== 事件日志 file 字段跨盘符不泄漏绝对路径 ==");
+// path.relative 在 Windows 跨盘符时无法相对化、直接返回绝对路径，违背「绝对路径会泄露本机
+// 目录结构」的注释承诺。修法：relative 结果为绝对路径时回退 basename。单盘环境无法真实构造
+// 跨盘，先用 node -e 钉住平台行为（回退分支的存在依据），再把状态文件放到与 cwd 不同盘的
+// 位置实测；无法构造时如实跳过。
+if (process.platform === "win32") {
+  const demo = spawnSync(
+    process.execPath,
+    ["-e", "const p=require('node:path');console.log(p.isAbsolute(p.relative('C:\\\\a','E:\\\\b')))"],
+    { encoding: "utf8" },
+  );
+  check(
+    "win32 跨盘 path.relative 返回绝对路径（回退分支的存在依据）",
+    demo.status === 0 && demo.stdout.trim() === "true",
+    `${demo.stdout} ${demo.stderr}`,
+  );
+}
+{
+  const crossFile = path.join(root, ".tmp-crossdrive-events", "cd.json");
+  const crossDrive = path.parse(crossFile).root.toLowerCase() !== path.parse(sandbox).root.toLowerCase();
+  if (crossDrive) {
+    mkdirSync(path.dirname(crossFile), { recursive: true });
+    const cdWrite = run("state.mjs", ["write", "--pipeline", "ralph", "--file", crossFile], JSON.stringify(valid));
+    check("跨盘符 write 成功", cdWrite.status === 0, cdWrite.stderr);
+    const cdEvents = JSON.parse(run("state.mjs", ["events", "--pipeline", "ralph", "--file", crossFile, "--json"]).stdout).events;
+    const cdEvent = cdEvents.find((e) => e.event === "write");
+    check(
+      "跨盘符事件 file 字段退化为 basename（不泄漏绝对路径）",
+      Boolean(cdEvent) && typeof cdEvent.file === "string" && !path.isAbsolute(cdEvent.file) && cdEvent.file === "cd.json",
+      JSON.stringify(cdEvent && cdEvent.file),
+    );
+    rmSync(path.dirname(crossFile), { recursive: true, force: true });
+  } else {
+    console.log("SKIP  跨盘符用例（沙箱与仓库同盘，无法构造跨盘 relative）");
+  }
 }
 
 rmSync(sandbox, { recursive: true, force: true });

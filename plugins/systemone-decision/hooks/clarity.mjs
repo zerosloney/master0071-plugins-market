@@ -69,9 +69,12 @@ export async function precheck(text, env = process.env, opts = {}) {
   if (prompt.length < 10 || CASUAL.test(prompt)) return null; // 空输入 / 寒暄捷径
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默跳过
-  // 走到这里必然发出判定请求：计一次被判定输入（仅 first:N 模式写盘，on/off 为 no-op）
-  bumpQuota(opts.mode, opts.sessionId);
   const answers = await decide(prompt, cfg, QUESTIONS, opts.timeoutMs);
+  // 计数在判定成功之后（2026-11-05 修复）：旧实现先扣额再请求，网络失败/超时白扣一次额度。
+  // 执行到这里 = 判定请求已成功往返（缓存命中同样算被判定过）；decide 抛错时走不到这里，
+  // 配额文件保持不变（调用方按 fail-open 契约放行）。仅 first:N 模式写盘，on/off 为 no-op。
+  // 并发 TOCTOU 不属本次修复：配额是节流手段不是安全边界（见 precheck-quota.mjs 文件头）。
+  bumpQuota(opts.mode, opts.sessionId);
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;
   const proceed = answers ? noulOf(answers.proceed) : null;

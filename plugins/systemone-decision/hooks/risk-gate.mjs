@@ -216,7 +216,8 @@ function commandOf(toolInput) {
 }
 
 /**
- * @param {string} toolName - 宿主传入的工具名
+ * @param {string} toolName - 宿主传入的工具名。非 string（stdin 非 JSON / 空输入时 hook-io
+ *   置 {}，字段缺失）视为不可判内容：不发判定请求，直接 fail-closed 转 ask。
  * @param {unknown} toolInput - 工具入参（取 command / cmd / script / execution_input 字段）。
  *   取不到标准字段时只发字段名摘要（不外发整个入参），且因模型看不到命令内容，判定结果一律
  *   升级为 ask 转人工——不自动放行（2026-10-28 市场审查加固）。
@@ -232,8 +233,8 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
   const cfg = config(env);
   if (!cfg.apiKey) return null; // 未配置 Key，静默放行
   // 管辖权判断先行：名字可读且非 shell 类的工具不归风险闸管，即使 stdin 被截断也直接放行——
-  // 截断转人工只对将要分析的 shell 命令有意义。名字读不出来时（stdin 截断时 hook-io 不解析
-  // JSON，tool_name 为 undefined）无法判定管辖权，落入下面的截断 fail-closed 分支。
+  // 截断转人工只对将要分析的 shell 命令有意义。名字读不出来时（stdin 截断或非 JSON 时
+  // hook-io 置 {}，tool_name 为 undefined）无法判定管辖权，落入下面截断 / 非 JSON 的 fail-closed 分支。
   if (typeof toolName === 'string' && !applies(toolName)) {
     // 兜底信号（so-M3）：matcher 是子串正则、比内核宽。名字含 shell 词族但内核不认的形态
     //（如 shellfish——shell 在词中间，词尾形态不收）——宿主既然拉起了 hook，多半是按
@@ -258,6 +259,15 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
     return {
       decision: 'ask',
       reason: `[SystemOne 风险闸] ${why}，无法完整分析命令，默认需先确认：请向用户展示命令并确认后再执行。`,
+    };
+  }
+  // tool_name 读不出来且并非截断场景（stdin 不是合法 JSON / 空输入，hook-io 解析失败置 {}）：
+  // 连「是不是 shell 工具」的管辖权都无法判定，更没有可信的命令内容可分析——不发判定请求
+  //（构造「工具：undefined + 入参为空摘要」外发毫无意义），fail-closed 转人工确认（2026-11-05）。
+  if (typeof toolName !== 'string') {
+    return {
+      decision: 'ask',
+      reason: '[SystemOne 风险闸] hook 输入不是合法 JSON，无法识别工具名与命令，默认需先确认：请向用户展示命令并确认后再执行。',
     };
   }
   const { text: command, standard: standardCommand } = commandOf(toolInput);

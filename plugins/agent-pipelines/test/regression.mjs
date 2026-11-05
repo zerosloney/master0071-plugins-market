@@ -9,8 +9,8 @@
 //   6. 复算体内联 glob 的 `**` 判定恒假，退化成单段（`**` 跨段承诺形同虚设 + DONE 不可达）；
 //   7. completion_promise 只有文档没有实现，且 --apply 反向抹除编排器写的 DONE。
 // 零依赖纯 Node，与既有三个套件同风格（PASS/FAIL 逐条打印，末尾汇总，失败退出码 1）。
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -635,13 +635,13 @@ console.log("\n== root_cause_group：从「只有提示词」变成可校验、�
   const gatedRc = run("state.mjs", ["gate", "--pipeline", "coding", "--file", rcFile, "--json"]);
   const rcReason = String(parseJson(gatedRc.stdout)?.reason);
   check(
-    'gate continue 时点名仍未完成的根因组',
-    /root_cause_group=rc-a/.test(rcReason),
+    'gate continue 时点名仍未完成的根因组（id 经 JSON.stringify 定界）',
+    /root_cause_group="rc-a"/.test(rcReason),
     rcReason,
   );
   check(
     '已完成的根因组不再被点名',
-    !/root_cause_group=rc-b/.test(rcReason),
+    !/root_cause_group="rc-b"/.test(rcReason),
     rcReason,
   );
   check(
@@ -705,24 +705,197 @@ console.log("\n== 2026-11-01：gate 复算体与 scope.mjs 同口径（第二轮
     parseJson(deepScopeOut.stdout)?.verdict === "PASS" && deepGate?.stop_reason === "DONE",
     `${deepScopeOut.stdout} vs ${JSON.stringify(deepGate)}`);
 
-  // ③ completion_promise 命中必须真的早停，且 --apply 不再把它抹成 null
-  //    （改前：gateFor 全文不读该字段，文档承诺的覆盖在脚本模式下不生效，
-  //     applyGate 还按「重算为 null 也要写回」把编排器写的 DONE 清掉）。
-  const pState = { ...rState(), completion_promise: "全部验收项已由用户确认通过", tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }] };
-  const pFile = path.join(rp.repo, ".loop-cli", "promise.json");
+  // ③ completion_promise 早停改为「orchestrator 专属边车标记」机制（2026-11-05，方案 b）。
+  //    旧机制（状态体 completion_promise 非空即 DONE）已封死：状态文件是执行者可写的普通 JSON，
+  //    写一行字符串就能伪造「用户显式早停」。新机制：gate 只认 `state.mjs promise` 写的边车标记
+  //    （与状态文件同目录的 <状态基名>.promise.json），状态体字段彻底不参与判定。
+  const pValue = '全部验收项已由用户确认通过 say "done" now';
+  const pState = { ...rState(), completion_promise: pValue, tasks: [{ id: "t1", title: "a", status: "pending", depends_on: [], accept_criteria: ["ok"], failures: 0 }] };
+  const pFile = path.join(rp.repo, ".loop-cli", "early-stop.json");
+  const pMarker = path.join(rp.repo, ".loop-cli", "early-stop.promise.json");
   writeFileSync(pFile, JSON.stringify(pState));
+
+  // ③-a 旧路径封死：状态体带 completion_promise 但无边车标记 → 落到常规判定（任务 pending → 非 DONE）
+  //      （改前：状态体非空 promise 即 DONE——正是被伪造利用的入口）
+  const bodyOnly = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
+  check("状态体 completion_promise 不再生效（无边车标记时不早停）", bodyOnly?.stop_reason !== "DONE", JSON.stringify(bodyOnly));
+
+  // ③-b 新路径：promise 子命令（orchestrator 专属）写边车标记 → gate DONE
+  const pSet = run("state.mjs", ["promise", "--pipeline", "coding", "--file", pFile, "--value", pValue], undefined, rp.repo);
+  const markerOnDisk = parseJson(existsSync(pMarker) ? readFileSync(pMarker, "utf8") : "null");
+  check(
+    "promise 子命令写入边车标记（tmp+rename、不碰状态文件）",
+    pSet.status === 0 && markerOnDisk?.version === 1 && markerOnDisk?.value === pValue
+      && markerOnDisk?.pipeline === "coding" && typeof markerOnDisk?.created_at === "string",
+    `${pSet.stderr} ${readFileSync(pFile, "utf8").slice(0, 120)}`,
+  );
   const pGate = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
-  check("completion_promise 命中 → DONE（任务仍 pending 也按人授意早停）", pGate?.stop_reason === "DONE", JSON.stringify(pGate));
-  check("promise 的 DONE 点明是显式覆盖（调用方看得见绕过面）", /completion_promise/.test(String(pGate?.reason)), String(pGate?.reason));
+  check("promise 标记命中 → DONE（任务仍 pending 也按用户授意早停）", pGate?.stop_reason === "DONE", JSON.stringify(pGate));
+  check("promise 的 DONE 点明经标记早停（调用方看得见绕过面）", /completion_promise/.test(String(pGate?.reason)) && /promise/.test(String(pGate?.reason)), String(pGate?.reason));
+  check("gate reason 对标记 value 做定界（JSON.stringify 转义引号）", String(pGate?.reason).includes(JSON.stringify(pValue)), String(pGate?.reason));
   run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json", "--apply"], undefined, rp.repo);
-  check("--apply 后落盘仍是 DONE（不再被重算抹成 null）",
+  check("--apply 后落盘仍是 DONE（早停不被重算抹成 null）",
     JSON.parse(readFileSync(pFile, "utf8")).stop_reason === "DONE",
     readFileSync(pFile, "utf8").slice(0, 200));
 
-  // ④ 反面对照：没有 promise 时，同样的 pending 任务不会因上面的修复而误放
+  // ③-c value 为空串的标记不生效（缺清空语义词的标记不构成早停依据）
+  writeFileSync(pMarker, JSON.stringify({ version: 1, pipeline: "coding", value: "", created_at: "2026-11-05T00:00:00.000Z" }));
+  const emptyMarker = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
+  check("标记 value 为空串时不早停", emptyMarker?.stop_reason !== "DONE", JSON.stringify(emptyMarker));
+
+  // ③-d init 清理旧标记：新一轮管线不继承上一轮的早停，清理记入事件日志
+  writeFileSync(pMarker, JSON.stringify({ version: 1, pipeline: "coding", value: pValue, created_at: "2026-11-05T00:00:00.000Z" }));
+  const reinit = run("state.mjs", ["init", "--pipeline", "coding", "--file", pFile, "--prompt", "新一轮", "--force"], undefined, rp.repo);
+  const initEvents = parseJson(run("state.mjs", ["events", "--pipeline", "coding", "--file", pFile, "--json", "--tail", "5"], undefined, rp.repo).stdout)?.events ?? [];
+  check(
+    "init 删除同路径旧 promise 标记并记清理事件",
+    reinit.status === 0 && !existsSync(pMarker) && initEvents.some((e) => e.event === "promise_cleared"),
+    `${reinit.stderr} marker=${existsSync(pMarker)} events=${JSON.stringify(initEvents.map((e) => e.event))}`,
+  );
+
+  // ④ 反面对照：没有标记时，同样的 pending 任务不会因新机制而误放
   writeFileSync(pFile, JSON.stringify({ ...pState, completion_promise: null }));
   const noPromise = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", pFile, "--json"], undefined, rp.repo).stdout);
-  check("completion_promise 为空时 DONE 铁律如常（任务未全 done 不放行）", noPromise?.stop_reason !== "DONE", JSON.stringify(noPromise));
+  check("无 promise 标记时 DONE 铁律如常（任务未全 done 不放行）", noPromise?.stop_reason !== "DONE", JSON.stringify(noPromise));
+}
+
+console.log("\n== 2026-11-05：预设 STOPPED 注记执行者自报来源 ==");
+// STOPPED 是唯一被采信的预设终态（人主动叫停没有可计算依据替代），但状态文件是执行者可写的
+// 普通 JSON，写一个 "STOPPED" 就能伪装「人主动叫停」，且没有任何机制可鉴别来源。不做机制变更，
+// 只做与其它预设终态「未采信」注记同族的透明化：采信时在 reason 里明示这是执行者自报值。
+{
+  const annFile = path.join(sandbox, "stopped-ann.json");
+  writeFileSync(annFile, JSON.stringify({ ...codingState(), stop_reason: "STOPPED" }));
+  const ann = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", annFile, "--json"]).stdout);
+  check("预设 STOPPED 仍被采信（判停行为不变）", ann?.stop_reason === "STOPPED", JSON.stringify(ann));
+  check("reason 注记 executor-reported preset（未鉴别来源）", /executor-reported preset/.test(String(ann?.reason)), String(ann?.reason));
+  const annText = run("state.mjs", ["gate", "--pipeline", "coding", "--file", annFile]).stdout;
+  check("非 JSON 输出同样带注记", /executor-reported preset/.test(annText), annText);
+}
+
+console.log("\n== 2026-11-05：write 继承读移入锁内（锁内重读生效） ==");
+// 旧实现 write 的 scope 继承读在 withLock 之外：并发 gate --apply / scope --apply 在
+// 「继承读之后、落盘之前」写下的结论，会被基于陈旧快照的整份副本覆盖。真并发无法确定性
+// 复现，用外部锁做确定性代理：write 被锁挡住期间改写盘上结论，放行后 write 必须读到
+// **锁内现值**（改后值），而不是进程启动时的旧值。
+{
+  const inhFile = path.join(sandbox, "inherit-race.json");
+  const inhState = (drift) => ({ ...codingState(), scope_drift: drift, scope: { hard: ["src/**"], soft: [], forbidden: [] } });
+  writeFileSync(inhFile, JSON.stringify(inhState("FAIL")));
+  const advanced = { ...codingState(), round: 1 };
+  delete advanced.scope_drift;
+  delete advanced.scope;
+  const inhLock = `${inhFile}.lock`;
+  writeFileSync(inhLock, "test-harness\n"); // 新鲜的外部锁：write 会被挡在锁外重试
+  const child = spawn(
+    process.execPath,
+    [path.join(root, "scripts", "state.mjs"), "write", "--pipeline", "coding", "--file", inhFile],
+    { cwd: sandbox, stdio: ["pipe", "ignore", "ignore"] },
+  );
+  child.stdin.end(JSON.stringify(advanced));
+  setTimeout(() => writeFileSync(inhFile, JSON.stringify(inhState("PASS"))), 700); // 并发结论落盘（write 仍在等锁）
+  setTimeout(() => rmSync(inhLock, { force: true }), 1300); // 放行 write（仍在 2s 等待窗口内）
+  const inhExit = await new Promise((resolve) => child.on("close", resolve));
+  const after = parseJson(readFileSync(inhFile, "utf8"));
+  check(
+    "write 继承读在锁内：等锁期间写下的新结论不被陈旧快照覆盖",
+    inhExit === 0 && after?.scope_drift === "PASS" && after?.round === 1,
+    `exit=${inhExit} scope_drift=${JSON.stringify(after?.scope_drift)} round=${after?.round}`,
+  );
+
+  // 顺序守卫（无法 RED，新旧实现同样拒绝）：继承 + 校验 + 落盘在同一临界区内——盘上现值
+  // 非法时，合并对象必须被校验拦下（证明校验发生在继承之后），而不是把垃圾值静默写回。
+  const junkFile = path.join(sandbox, "inherit-junk.json");
+  writeFileSync(junkFile, JSON.stringify(inhState("bogus")));
+  const junkWrite = run("state.mjs", ["write", "--pipeline", "coding", "--file", junkFile], JSON.stringify(advanced));
+  check("盘上继承值非法时 write 被拒（继承后校验）", junkWrite.status === 2 && /invalid state/.test(junkWrite.stderr), junkWrite.stderr);
+  check("被拒的 write 未把垃圾 scope_drift 写回", parseJson(readFileSync(junkFile, "utf8"))?.scope_drift === "bogus");
+}
+
+console.log("\n== 2026-11-05：锁竞态（陈旧锁接管与归属守卫） ==");
+{
+  const mkStateFile = (name) => {
+    const f = path.join(sandbox, name);
+    writeFileSync(f, JSON.stringify(codingState()));
+    return f;
+  };
+  const validWrite = (f) =>
+    run("state.mjs", ["write", "--pipeline", "coding", "--file", f], JSON.stringify({ ...codingState(), round: 1 }));
+
+  // ① 崩溃残留锁：持有者 pid 已死、锁还新鲜。旧实现必须等满 LOCK_STALE_MS(30s) 才能接管，
+  //    而 LOCK_WAIT_MS=2s 早到 → 残留锁出现后 30s 内每个操作 exit 2。新实现等待超 deadline
+  //    后按锁内容里的 pid 判活，已死即原子接管（真实死 pid：spawnSync 返回时子进程已退出）。
+  const dead = spawnSync(process.execPath, ["-e", ""]);
+  const deadFile = mkStateFile("deadpid-lock.json");
+  const deadLock = `${deadFile}.lock`;
+  writeFileSync(deadLock, `${dead.pid} ${new Date().toISOString()}\n`);
+  const t0 = Date.now();
+  const wDead = validWrite(deadFile);
+  check("崩溃残留锁（持有者已死）不再 exit 2，等待超时后被接管", wDead.status === 0, wDead.stderr);
+  check("接管耗时远小于旧陈旧阈值（无 30s 阻塞）", Date.now() - t0 < 15000, `${Date.now() - t0}ms`);
+  check("接管后锁内容归属新持有者并被释放守卫清理", !existsSync(deadLock));
+
+  // ② 陈旧锁（mtime 回拨 40s）接管不阻塞；接管写入新持有者内容——否则内容归属守卫会在
+  //    释放时留下旧锁。旧实现同样能过，作为接管路径重构（unlink → 原子替换）的回归锚。
+  const staleFile = mkStateFile("stale-lock.json");
+  const staleLock = `${staleFile}.lock`;
+  writeFileSync(staleLock, "424242 2020-01-01T00:00:00.000Z\n");
+  const old40 = new Date(Date.now() - 40000);
+  utimesSync(staleLock, old40, old40);
+  const wStale = validWrite(staleFile);
+  check("陈旧锁（mtime 回拨 40s）接管不阻塞", wStale.status === 0, wStale.stderr);
+  check("接管替换了锁归属并在释放时清理", !existsSync(staleLock));
+
+  // ③ 持有者存活的锁绝不提前接管（互斥与 2s 超时报错语义保持）；不属于自己（内容异己）的
+  //    锁不被等待方删除或改写。真正的「fn 持锁 >30s 与接管并发、迟到 release 误删」需要让
+  //    fn 挂起 30s 以上，黑盒 CLI 无法低成本构造——release 的内容比对逻辑与
+  //    worktree-ops acquireConfigLock 同源（已验证模式），此处以「异己锁原样保留」锁住守卫语义。
+  const liveFile = mkStateFile("live-lock.json");
+  const liveLock = `${liveFile}.lock`;
+  const liveContent = `${process.pid} ${new Date().toISOString()}\n`; // 测试进程自己——必然存活
+  writeFileSync(liveLock, liveContent);
+  const wLive = validWrite(liveFile);
+  check("持有者存活的锁仍按超时报错（exit 2）", wLive.status === 2 && /locked/.test(wLive.stderr), wLive.stderr);
+  check("他人的活锁未被删除或改写", existsSync(liveLock) && readFileSync(liveLock, "utf8") === liveContent);
+  rmSync(liveLock, { force: true });
+}
+
+console.log("\n== 2026-11-05：文档承诺的默认值补齐（读取规则 2） ==");
+// commands/ralph-pipeline.md 与 coding-pipeline.md 的读取规则 2：「旧版本状态文件缺少
+// max_failures / retry_on_failure 时按默认值补齐，不算损坏。」此前只有文档没有实现，
+// validateState 直接判 invalid。现在对缺失（undefined）回填默认值——write / gate --apply
+// 路径会把补齐后的对象连带落盘；显式 null / 错误类型仍被拒绝，补齐不是放松校验。
+{
+  const oldFmtFile = path.join(sandbox, "old-format.json");
+  const oldFmt = () => {
+    const s = codingState();
+    delete s.max_failures;
+    delete s.retry_on_failure;
+    return s;
+  };
+  writeFileSync(oldFmtFile, JSON.stringify(oldFmt()));
+  const vOld = run("state.mjs", ["validate", "--pipeline", "coding", "--file", oldFmtFile, "--json"]);
+  check("缺两字段的旧格式状态 validate 通过", vOld.status === 0 && parseJson(vOld.stdout)?.valid === true, `${vOld.status} ${vOld.stdout} ${vOld.stderr}`);
+
+  // 默认值实际参与判定：consecutive_failures=3 与补齐的默认 max_failures=3 相等 → ESCALATE
+  writeFileSync(oldFmtFile, JSON.stringify({ ...oldFmt(), consecutive_failures: 3 }));
+  const gOld = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", oldFmtFile, "--json"]).stdout);
+  check("补齐的默认 max_failures 参与判停（3 次连续失败判 ESCALATE）", gOld?.stop_reason === "ESCALATE", JSON.stringify(gOld));
+
+  // write 把补齐后的对象落盘
+  const wOld = run("state.mjs", ["write", "--pipeline", "coding", "--file", oldFmtFile], JSON.stringify(oldFmt()));
+  const persisted = parseJson(readFileSync(oldFmtFile, "utf8"));
+  check(
+    "write 旧格式状态按默认补齐落盘",
+    wOld.status === 0 && persisted?.max_failures === 3 && persisted?.retry_on_failure === false,
+    `${wOld.stderr} ${readFileSync(oldFmtFile, "utf8").slice(0, 200)}`,
+  );
+
+  for (const [label, bad] of [["null", null], ["字符串", "3"]]) {
+    writeFileSync(oldFmtFile, JSON.stringify({ ...oldFmt(), max_failures: bad }));
+    const vBad = run("state.mjs", ["validate", "--pipeline", "coding", "--file", oldFmtFile]);
+    check(`显式 ${label} max_failures 仍被拒绝`, vBad.status === 1 && /max_failures/.test(vBad.stdout), `${vBad.status} ${vBad.stdout}`);
+  }
 }
 
 rmSync(sandbox, { recursive: true, force: true });

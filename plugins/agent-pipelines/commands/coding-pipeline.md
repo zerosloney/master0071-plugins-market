@@ -6,6 +6,8 @@ subtask: false
 
 # Coding-Pipeline
 
+> **双入口**：本命令与同名 SKILL（`skills/coding-pipeline/SKILL.md`）是同一协议的两个入口，修改任一侧必须同步另一侧（`test/equivalence.mjs` 对账的就是 SKILL + commands 四份文档）。
+
 当前请求：$ARGUMENTS
 
 你是本命令的 **Coding Orchestrator**。只规划 scope、委派 coding-builder/coding-reviewer、维护状态并决定停止；不直接执行业务产出。
@@ -64,24 +66,26 @@ JSON 格式（严格按此 schema，version 字段用于检测格式漂移）：
 }
 ```
 
-上面代码块是**可直接复制的合法 JSON**（不要往 JSON 里写注释），字段说明：
+上面代码块是**可直接复制的合法 JSON**（不要往 JSON 里写注释）。注意：`tasks[].status` 与 `scope_drift` 的值是**枚举占位**（形如 `"pending | in_progress | done | blocked"`、`"PASS | FAIL"`），照抄会被 `state.mjs validate` 拒绝；写入时必须替换为单一合法值——与下面 budget 的占位数值同理，示例不照抄。字段说明：
 
 - `max_iterations`：`0` = 使用默认值（coding 为 8），`>0` 则覆盖 `MAX_CYCLES`。
 - `max_failures`：连续失败达此值立即 ESCALATE，默认 3；旧状态文件缺此字段时按本默认值补齐。
 - `retry_on_failure`：`true` 时单次 FAIL 可先重试一次，再计入连续计数。
-- `completion_promise`：`null` 或期望的 promise 字符串；仅当用户显式传入 `--completion-promise` 时生效。
+- `completion_promise`：历史字段，已**作废**——gate 不再读状态体里的该字段（状态文件是执行者可写的，写它不能早停）。用户显式早停改经 `state.mjs promise` 写边车标记生效，见「Completion promise 检查」。
 - `scope_drift`：本轮 scope 判定结论 `"PASS"` / `"FAIL"`，未判定时为 `null`。**这是记录，不是 DONE 判据**：gate 判 DONE 时会按 `scope` 规则与 git 现状自己重算，手写值既不能放行也不能拦停。
 - `scope`：可选的 `{ hard: [], soft: [], forbidden: [] }` 规则集，路径按 **git 仓库根相对**解释；`scripts/scope.mjs --file` 可直接读它，命令行 `--hard/--soft/--forbidden` 优先。
 - budget（可选）：`{ max_tokens?, max_cost_usd?, spent_tokens?, spent_cost_usd? }`；达到上限时 gate 判 `BUDGET`。上面代码块里的数值只是占位示例，按用户给的预算改写；不设预算就整块删掉 `budget` 字段（写成 `0` 会被当成"上限为 0"立刻 BUDGET）。
 - `root_cause_group`：仅编程领域使用，标注该 task 归属的根因组 id。出现时必须是非空字符串（`state.mjs validate` 会拒绝空串 / 纯空白 / 非字符串）。用 `scripts/state.mjs root-causes --file <状态文件> --json` 可拿到按组统计的完成度，`gate` 在 continue 时也会在 reason 里点名下一个该派的组（`next root_cause_group=<id>`）——这两处是「同一根因一次修一组」的机器侧落点，不只是措辞约定。
 - `subtask_of`：仅子任务填写，标注拆分来源任务 id，用于溯源。
 - `max_attempts`：单任务尝试上限，默认 4。任一任务 `failures` 达到 `max_attempts` 时立即 `ESCALATE`，避免单任务无限重试。
-- `critical_checkpoints`：coding 专属的硬门禁清单；全部 `passed` 为 `true` 才允许 DONE，未通过时 `state.mjs gate` 不判 DONE 并在 reason 里点名是哪一条没过。
+- `critical_checkpoints`：coding 专属的硬门禁清单；全部 `passed` 为 `true` 才允许 DONE，未通过时 `state.mjs gate` 不判 DONE 并在 reason 里点名是哪一条没过。翻转规则：Builder 在本轮产出中提交该 checkpoint 对应的验证证据、且 Reviewer 本轮 `verdict="PASS"` 时，由 Orchestrator 在 JUDGE 写状态时把对应条目的 `passed` 置 `true`；证据缺失或本轮 verdict 非 PASS 则保持 `false`（Builder / Reviewer 不直接改状态文件）。
+- 字符串上限（LLM 消费面的注入/泛洪缓解，写入口 fail-loud 定死数据形状）：`tasks[].id` ≤ 64、`tasks[].title` ≤ 200、`tasks[].accept_criteria[]` 单条 ≤ 300、`root_cause_group` ≤ 64、`critical_checkpoints[].id` ≤ 64 字符；超限会被 `state.mjs write / validate` 拒绝，错误消息点名字段、上限与实际长度。
 
 ### 写入规则
 - 每轮结束时写入，先写 `.loop-cli/state/coding-pipeline.json.tmp`，再重命名为 `.loop-cli/state/coding-pipeline.json`。
 - `stop_reason` 枚举值：`null`（运行中）| `"DONE"` | `"ESCALATE"` | `"BUDGET"` | `"HOLD"` | `"STALL"` | `"MAX_CYCLES"` | `"STOPPED"`。
 - `fail_history` 保留最近 10 条，超出时丢弃最旧的。
+- `prior_cycles_summary`：初始化为空串；每轮结束由 Orchestrator 追加一行本轮摘要（verdict + 一句话结论），保留最近 10 行，超出时丢弃最旧的。
 - 每轮结束时计算"任务状态签名"（所有任务按 id 升序拼成的 `id:status` 有序串）：与上一轮**完全相同** → `stall_counter += 1`；有任一变化 → `stall_counter = 0`。
 - 若宿主可执行 shell，优先用插件根的 `scripts/state.mjs write --pipeline coding` 从 stdin 原子落盘（写入时自动对比旧状态，在事件日志里记录任务状态迁移），并在 JUDGE 后用 `scripts/state.mjs gate` 计算停止条件；可用 `scripts/scope.mjs --base <base> --file .loop-cli/state/coding-pipeline.json --apply` 得到 scope_drift 并写回状态文件（`--apply` 把结论写进 `scope_drift`，但 gate 不采信该字段——它会按 `scope` 规则与 git 现状自行重算）；脚本不可用时按本节规则手写。
 - scope 判定基准是 **git 仓库根**：变更清单（`git diff` + 未跟踪文件）与 scope 规则都用仓库根相对路径，从哪个目录调用结论一致——子目录调用不再漏判仓库其它目录的未跟踪改动。
@@ -103,7 +107,7 @@ DONE 必须同时满足：
 - 审查者 verdict == "PASS"。
 - 零 critical / major。
 - **scope 复算 PASS**（任何越界都不允许 DONE）。gate 按 `scope` 规则重算；`scope` 缺失或不在 git 仓库内时复算不可得，同样不允许 DONE。`scope_drift` 字段只作记录。
-- 全部 `critical_checkpoints` 的 `passed` 为 `true`（未通过的硬门禁不允许 DONE；`state.mjs gate` 会点名是哪一条没过）。
+- 全部 `critical_checkpoints` 的 `passed` 为 `true`（未通过的硬门禁不允许 DONE；`state.mjs gate` 会点名是哪一条没过；`passed` 的翻转规则见「状态持久化」的 `critical_checkpoints` 字段说明）。
 - 零证据禁令：detected_stack 非空且 scripts_gap=true（即验证脚本至少一项 MISSING）时，禁止 DONE。
 - 无未处理的人工确认项。
 
@@ -240,7 +244,7 @@ value: {baseline_value}
 ## 执行路径
 
 每轮：
-1. 从 TaskList 选下一个可执行任务（pending + 依赖已 done）。
+1. 从 TaskList（状态文件 `tasks[]` 的任务清单）选出本轮全部就绪任务（pending + 依赖已 done）并行发出，不串行等待。
 2. **调用 coding-builder 工具**执行任务，注入完整上下文。
 3. 获取 builder 结果后，**调用 coding-reviewer 工具**审查产出。
 4. 根据审查者 verdict 与验证结果更新任务状态：
@@ -273,9 +277,9 @@ value: {baseline_value}
 
 ### Completion promise 检查
 
-若用户显式传入 `--completion-promise <promise>`（状态文件 `completion_promise` 非空），每轮 JUDGE 阶段检查 coding-builder 输出中是否包含 `<promise>...</promise>` 标签（匹配 `completion_promise` 值）。匹配则立即设置 `stop_reason="DONE"` 并跳过后续任务；未匹配则按正常门禁继续。
+仅当**用户在会话中显式要求早停**时才执行，绝不因执行者输出触发（不检查 coding-builder 输出中的任何 `<promise>...</promise>` 标签——执行者复述即可误触发，该旧机制已废除）。流程：orchestrator 用 `node <插件根>/scripts/state.mjs promise --pipeline coding --file .loop-cli/state/coding-pipeline.json --value "<用户的早停承诺文本>"` 写入边车标记（与状态文件同目录的 `coding-pipeline.promise.json`，tmp+rename 原子写，不碰状态文件；此命令为 orchestrator 专属，coding-builder / coding-reviewer 禁用）。此后每轮 `state.mjs gate` 读到标记且 value 非空 → 判 `stop_reason="DONE"`（用户主导早停）并跳过后续任务；无标记则按正常门禁继续。
 
-注意：promise 匹配是完成标准（coding 铁律）的显式覆盖，**仅当用户显式传入 `--completion-promise` 时生效**，绕过 verdict / scope_drift / 验证 / critical 门禁。
+注意：promise 标记是完成标准（coding 铁律）的显式覆盖，绕过 verdict / scope_drift / 验证 / critical 门禁。状态体里的 `completion_promise` 字段已作废，不再参与判定。`state.mjs init` 会删除同路径的旧标记并在事件日志记一条清理事件——新一轮管线不继承上一轮的早停。
 
 ## 红线
 - 不跳过真实验证。

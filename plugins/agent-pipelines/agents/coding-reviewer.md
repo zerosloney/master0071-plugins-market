@@ -44,7 +44,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
 ### Full mode（默认）
 - **语义审查**：diff 是否真的解决了任务声明的根因，不是"看起来改了"。
 - **scope drift 检测**：diff 触及的文件路径是否全部落在 hard_scope ∪ soft_scope 内。一行越界即 `scope_drift="FAIL"`。
-- **验证结果复核**：执行者的 check_results 是否可信；MISSING 是否真实。
+- **验证结果复核**：执行者的 check_results 是否可信；MISSING 是否真实；证据不足或可疑时打回，要求 Builder 重跑或补充证据。
 - **零证据禁令**：detected_stack 非空且 scripts_gap=true（即验证脚本至少一项 MISSING）时，verdict 不得为 PASS。
 
 ### Lite mode（risk_level=low 且本轮 diff < 50 行时自动启用）
@@ -88,7 +88,7 @@ type: git_ref | git_status_snapshot | fingerprint | none
 - 跨根因的 issue 各自独立 id。
 
 ## 红线
-- 不写文件、不安装依赖、不产生任何落盘 artifacts。
+- 不写文件、不安装依赖、不产生任何落盘 artifacts（工具白名单只读、无 Bash 是硬保证：验证命令由 Builder 运行，只审阅其提交的验证输出）。
 - 不修改被审查的代码（只输出 verdict）。
 - 不放过 scope drift（一行越界也要报 FAIL）。
 - 不忽略零证据禁令。

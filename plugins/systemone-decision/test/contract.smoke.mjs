@@ -138,6 +138,41 @@ const main = async () => {
       // noul 题不携带 criteria（本地展示与判据不该外发给 noul 题）
       assert.ok(!('criteria' in mcpReq.body.questions.q1), 'noul 题不应携带 criteria');
     });
+
+    // ---------- 决策缓存 key 组成对账（有意差异，钉住防漂移） ----------
+    // MCP 侧（mcp/server.mjs cacheKey）= model + state + questions，**不含 baseUrl**：
+    // 它是进程内内存缓存，端点来自启动时的环境变量快照、进程存活期内不变，无需参与 key。
+    // hook 侧（hooks/decision-cache.mjs cacheKey）= sha256(baseUrl + model + state + questions)：
+    // 它是跨进程共享文件缓存，文件可能跨端点配置存续，端点必须参与防「换供应商后串旧答案」。
+    // README「本地缓存」（MCP）与「hook 判定缓存」两节分别记载了这组组成——一侧改 key 组成
+    // 而另一侧不知情，属于静默漂移，这里从两个方向钉住。
+    // MCP 侧 cacheKey 未导出、server.mjs import 即挂 stdio 主循环，无法作为模块调用——
+    // 按 agent-pipelines test/contract.mjs 的源码锚定思路做静态提取对账；hook 侧可直接调用真实实现。
+    {
+      const serverSource = readFileSync(path.join(here, '..', 'mcp', 'server.mjs'), 'utf8');
+      const cacheKeyFn = serverSource.match(/function cacheKey\(model, state, request\) \{\s*return `([^`]*)`;/);
+      check('MCP 缓存 key 组成 = model + state + questions、不含 baseUrl（源码锚定）', () => {
+        assert.ok(cacheKeyFn, 'server.mjs 的 cacheKey 函数形状变了（签名或模板字符串），请同步更新本对账锚点');
+        const tpl = cacheKeyFn[1];
+        assert.ok(tpl.includes('${model}'), 'MCP key 必须含 model');
+        assert.ok(tpl.includes('${stableStringify(state)}'), 'MCP key 必须含 state（stableStringify）');
+        assert.ok(tpl.includes('${stableStringify(request)}'), 'MCP key 必须含 questions（stableStringify）');
+        assert.ok(!tpl.includes('baseUrl'), 'MCP key 有意不含 baseUrl（进程内缓存、端点启动后不变）；若要加入，先同步 README 两处缓存说明与本对账');
+        // 调用点锚定：首参是 cfg.model 而非别的字段
+        assert.ok(/cacheKey\(cfg\.model, state, questions\)/.test(serverSource), 'callSystemone 应用 cfg.model 参与 key');
+      });
+      const hookCacheSource = readFileSync(path.join(runRoot, 'hooks', 'decision-cache.mjs'), 'utf8');
+      const { cacheKey: hookCacheKey } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'decision-cache.mjs')).href);
+      check('hook 缓存 key 组成含 baseUrl + model（真实实现调用），与 MCP 侧差异是有意的', () => {
+        const a = hookCacheKey({ baseUrl: 'https://a.example/v1', model: 'm' }, STATE, QUESTIONS);
+        const b = hookCacheKey({ baseUrl: 'https://b.example/v1', model: 'm' }, STATE, QUESTIONS);
+        assert.notEqual(a, b, 'hook key 必须随端点变化（跨进程共享文件，防换供应商串答案）');
+        const c = hookCacheKey({ baseUrl: 'https://a.example/v1', model: 'other' }, STATE, QUESTIONS);
+        assert.notEqual(a, c, 'hook key 必须随模型变化');
+        assert.ok(hookCacheSource.includes('baseUrl: cfg.baseUrl'), 'decision-cache 源码应锚定含 baseUrl 字段');
+        assert.ok(/JSON\.stringify\(\{ baseUrl/.test(hookCacheSource), 'hook key 序列化对象应以 baseUrl 开头（静态锚定）');
+      });
+    }
   } finally {
     client.close();
     mock.close();

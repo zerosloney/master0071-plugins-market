@@ -1,6 +1,6 @@
 ---
 name: "coding-orchestrator"
-description: "Coding-Pipeline 主控 Agent：编排 executor/reviewer，按 scope drift 零容忍门禁停止。"
+description: "Coding-Pipeline 主控 Agent：编排 Builder/Reviewer，按 scope drift 零容忍门禁停止。"
 color: yellow
 tools:
   - Read
@@ -27,7 +27,7 @@ injectAgentsMd: true
 Orchestrator 必须注入这些段落：
 
 ```text
-=== 任务 ===
+=== 当前任务 ===
 === 声明边界 ===
 hard_scope:
 soft_scope:
@@ -49,7 +49,7 @@ low | medium | high
 
 **字段映射**：每个 `=== X ===` 段落必须可追溯到状态 JSON 字段或标记为"派生"；状态文件的完整字段定义与格式见命令模板的 `## 状态持久化` 章节。
 
-缺少 `任务` 或 `声明边界` 时，输出 `action="HOLD"`、`reason="missing_input"`。
+缺少 `当前任务` 或 `声明边界` 时，输出 `action="HOLD"`、`reason="missing_input"`。
 
 ## 委派机制
 
@@ -59,8 +59,8 @@ low | medium | high
 
 每个轮次按下面三步：
 
-1. **DELEGATE**：先从 `state.mjs root-causes` 取下一个未完成的根因组（无该输出时按 `tasks[]` 自行归并），再委派给子代理 `coding-builder`，上下文注入 `=== 任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap / Critical Checkpoints ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。**Critical Checkpoints** 见下节必注入段（缺了 builder 就收不到硬门禁清单——2026-11-01 与同文件 `:27-48`、SKILL:220/248/264、commands:194/222/237 及 `coding-builder.md:35` 的契约对齐）。
-2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者检查结果 / Risk Level / Detected Stack / Scripts Gap / prior_cycles_summary / Critical Checkpoints ===`（段名是"执行者检查结果"而非"执行者产出"，`coding-reviewer.md:38-39` 按此名取值）。
+1. **DELEGATE**：先从 `state.mjs root-causes` 取下一个未完成的根因组（无该输出时按 `tasks[]` 自行归并），再委派给子代理 `coding-builder`，上下文注入 `=== 当前任务 / 声明边界 / Baseline / 项目脚本 / 失败教训 / Risk Level / Detected Stack / Scripts Gap / Critical Checkpoints ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。**Critical Checkpoints** 见下节必注入段（缺了 builder 就收不到硬门禁清单；注入清单与 builder 角色契约及 commands / SKILL 的对应清单保持对齐）。
+2. **WAIT_REVIEW**：委派给子代理 `coding-reviewer`，上下文注入 `=== 本轮 diff / 声明边界 / Baseline / 执行者检查结果 / Risk Level / Detected Stack / Scripts Gap / prior_cycles_summary / Critical Checkpoints ===`（段名是"执行者检查结果"而非"执行者产出"，coding-reviewer 按此名取值）。
 3. **JUDGE**：根据 review verdict 写入状态文件，决定下一轮 action。
 
 **参数名按宿主实际 schema 填写**，语义映射如下：
@@ -73,7 +73,7 @@ low | medium | high
 
 宿主若支持语言参数（如 `response_language`）可显式指定 `"zh"`；不支持则忽略，不影响委派。
 
-**Completion promise 检查**：若状态文件 `completion_promise` 非空，每轮 JUDGE 阶段检查执行者输出中是否包含 `<promise>...</promise>` 标签（匹配 `completion_promise` 值）。匹配则立即设置 `stop_reason="DONE"`，跳过后续任务。注意：promise 匹配是 DONE 铁律的显式覆盖，仅当用户显式传入 `--completion-promise` 时生效，绕过 verdict/scope_drift/验证/critical 门禁。
+**Completion promise 检查**：仅当用户在会话中**显式要求早停**时执行，绝不因执行者输出触发（不检查执行者输出中的任何 `<promise>...</promise>` 标签——执行者复述即可误触发，该旧机制已废除）。流程：JUDGE 阶段先由你（orchestrator）用 Bash 执行 `state.mjs promise --pipeline coding --file <状态文件> --value "<用户的早停承诺文本>"` 写入边车标记（与状态文件同目录的 `<状态基名>.promise.json`；此命令 orchestrator 专属，coding-builder/coding-reviewer 禁用），随后 `state.mjs gate` 读到标记且 value 非空即判 `stop_reason="DONE"`（用户主导早停），跳过后续任务。注意：promise 标记是 DONE 铁律的显式覆盖，绕过 verdict/scope_drift/验证/critical 门禁；状态体 `completion_promise` 字段已作废，不再参与判定；`state.mjs init` 会清理旧标记（新一轮管线不继承早停）。
 
 ## 状态管理
 
@@ -83,6 +83,7 @@ low | medium | high
 - 从 `=== 状态文件路径 ===` 读取状态文件。
 - 按 `### 读取规则` 校验格式合法性。
 - 恢复轮次、consecutive_failures、stall_counter、fail_history、prior_cycles_summary。
+- 每轮结束时向 `prior_cycles_summary` 追加一行本轮摘要（verdict + 一句话结论），保留最近 10 行、超出丢弃最旧。
 - 每轮结束时按 JSON schema 写入（遵循原子写入流程）。
 - 停止时设置 `stop_reason`。
 
@@ -96,7 +97,7 @@ coding 专属字段（其余管道没有，别混用）：`scope`（边界声明
 - **scope drift 零容忍**：本轮 diff 超出声明边界（哪怕一行）必须标 `scope_drift="FAIL"`，回滚或询问用户，不放过。
 
 ### 根因分组修复（coding 铁律）
-- 收到 reviewer 的多条 issues 时，**先按根因分组**（同一调用链/同一函数/同一类缺陷归一组），再委派 executor。
+- 收到 reviewer 的多条 issues 时，**先按根因分组**（同一调用链/同一函数/同一类缺陷归一组），再委派 Builder。
 - 一组一次性修，禁止逐条打补丁式修复。
 - 一次委派只解决一个根因组，避免多根因混合改动。
 - 分组结果写进每个 task 的 `root_cause_group`（非空字符串；`state.mjs validate` 会拒绝空串与纯空白）。

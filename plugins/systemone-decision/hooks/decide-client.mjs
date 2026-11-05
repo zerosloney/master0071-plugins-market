@@ -56,12 +56,29 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   return answers;
 }
 
+// score 分值是分级数组的 0 起下标，协议量表 2~255 级（mcp/question-types.mjs 的
+// SCORE_MIN_LEVELS / SCORE_MAX_LEVELS，未导出且 mcp/* 不在本文件依赖内，本地镜像同口径，
+// 改协议量表时与该文件两处同步），可解释的取整分值域即 [0, 254]。
+const SCORE_SCALE_MAX_INDEX = 254;
+// legend 文本进 permissionDecisionReason / 结论文案前的截断长度
+const LEGEND_MAX_CHARS = 80;
+
 // 归一化：字段缺失或题型不符一律返回 null，由调用方 fail-open
 export function scoreOf(a) {
   if (!a || a.type !== 'score' || typeof a.score !== 'number' || !Number.isFinite(a.score)) return null;
+  // 界外值不可解释，按「无法判断」处理（2026-11-05，与 noulOf 及 question-types.mjs 的越界归 null
+  // 同口径）：旧实现只验有限性，`score: -5` 配 verdict=allow 会在 risk-gate 的门限比较里
+  // 被当成最低风险放行——越界分值不是「更低的风险」，是端点给了不可解释的东西。
+  const idx = Math.round(a.score);
+  if (idx < 0 || idx > SCORE_SCALE_MAX_INDEX) return null;
+  // legend 文本来自端点响应（共享文件在用户可写目录，值不可信），截断后再进理由文案，
+  // 防一条超长等级名撑爆宿主的确认弹窗或日志
+  const rawLevel = (a.legend || {})[String(idx)] || null;
+  const level =
+    typeof rawLevel === 'string' && rawLevel.length > LEGEND_MAX_CHARS ? rawLevel.slice(0, LEGEND_MAX_CHARS) : rawLevel;
   return {
     score: a.score,
-    level: (a.legend || {})[String(Math.round(a.score))] || null,
+    level,
     confidence: typeof a.confidence === 'number' ? a.confidence : null,
   };
 }

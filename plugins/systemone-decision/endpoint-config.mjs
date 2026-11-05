@@ -20,7 +20,18 @@ const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 // 旧位置：插件根 .endpoint.json。保留读取能力，兼容没有 PLUGIN_DATA 的宿主。
 const LEGACY_FILE = path.join(PLUGIN_ROOT, '.endpoint.json');
 
-const dataDir = process.env.PLUGIN_DATA && process.env.PLUGIN_DATA.trim() !== '' ? process.env.PLUGIN_DATA : null;
+// PLUGIN_DATA 必须是绝对路径：相对值无法跨进程一致解析——MCP 服务的 cwd 是插件根，
+// hook 进程的 cwd 是会话工作区，同一个相对值在两边会落到不同文件，共享通道静默断裂
+// （端点配置写进一边、另一边永远读不到）。相对值按「未提供」处理并告警，回退插件根
+// 旧行为：两个进程至少还指向同一处。端点通道（本模块的写与读）因此保持一致。
+const PLUGIN_DATA_RAW = process.env.PLUGIN_DATA && process.env.PLUGIN_DATA.trim() !== '' ? process.env.PLUGIN_DATA.trim() : null;
+const dataDir = PLUGIN_DATA_RAW !== null && path.isAbsolute(PLUGIN_DATA_RAW) ? PLUGIN_DATA_RAW : null;
+if (PLUGIN_DATA_RAW !== null && dataDir === null) {
+  process.stderr.write(
+    `[systemone-decision] PLUGIN_DATA 必须是绝对路径（收到相对路径 "${PLUGIN_DATA_RAW}"）：MCP 服务与 hook 的 cwd 不同，` +
+      '相对路径会各自解析到不同文件、共享通道静默断裂；本次按未提供处理，回退插件根。\n',
+  );
+}
 const DATA_FILE = dataDir ? path.join(dataDir, 'endpoint.json') : null;
 
 // 读：PLUGIN_DATA 优先，回退插件根旧文件。

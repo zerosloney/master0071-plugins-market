@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
@@ -128,6 +128,20 @@ const GATE_ANSWERS = {
   denyLowConf: {
     verdict: { type: 'choice', choice: 'deny', probabilities: { deny: 0.55, confirm: 0.45 }, confidence: 0.5 },
     risk: { type: 'score', legend: Object.fromEntries(RISK_LEVELS.map((c, i) => [String(i), c])), probabilities: { '3': 0.95 }, score: 3, confidence: 0.95 },
+    irreversible: { type: 'noul', noul: 0.9 },
+  },
+  // 界外 score：risk:-5 配 verdict=allow——分值越出量表不可解释，不得按低风险放行
+  //（scoreOf 越界归 null → 三答残缺 fail-closed ask，与 noulOf / MCP 侧越界归 null 同口径）
+  negRisk: {
+    verdict: { type: 'choice', choice: 'allow', probabilities: { allow: 0.92 }, confidence: 0.92 },
+    risk: { type: 'score', legend: Object.fromEntries(RISK_LEVELS.map((c, i) => [String(i), c])), probabilities: { '-5': 0.9 }, score: -5, confidence: 0.9 },
+    irreversible: { type: 'noul', noul: 0.05 },
+  },
+  // 超长 legend 文本：risk.level 来自端点响应（共享文件在用户可写目录，值不可信），
+  // 进 permissionDecisionReason 前必须截断，防一条 200 字的等级名撑爆宿主确认弹窗
+  longLegend: {
+    verdict: { type: 'choice', choice: 'deny', probabilities: { deny: 0.9 }, confidence: 0.9 },
+    risk: { type: 'score', legend: { '3': '长'.repeat(200) }, probabilities: { '3': 0.95 }, score: 3, confidence: 0.95 },
     irreversible: { type: 'noul', noul: 0.9 },
   },
 };
@@ -415,7 +429,8 @@ const main = async () => {
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (c) => (stdout += c));
       child.stderr.on('data', (c) => (stderr += c));
-      child.stdin.end(JSON.stringify(payload));
+      // payload 为字符串时原样投喂（非 JSON stdin 用例），对象才序列化
+      child.stdin.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
       child.on('close', (status) => resolve({ status, stdout, stderr }));
     });
 
@@ -664,6 +679,38 @@ const main = async () => {
     assert.match(v.reason, /偏低/);
   });
 
+  // score 界外值（2026-11-05）：risk:-5 配 verdict=allow——旧 scoreOf 只验有限性，
+  // -5 顺利过门限比较被当成最低风险放行。修后 scoreOf 越界归 null → 三答残缺 fail-closed ask。
+  gateScenario = 'negRisk';
+  received = [];
+  await checkA('风险闸内核：score 越出量表归 null，三答残缺 fail-closed ask（不按低风险放行）', async () => {
+    const v = await assess('Bash', { command: 'npm run whatever' }, hookEnv);
+    assert.equal(v?.decision, 'ask', '界外分值不可解释，不得静默放行');
+    assert.match(v.reason, /判定响应不完整/);
+    assert.equal(received.length, 1, '判定请求照发，越界在归一化后才被识破');
+  });
+
+  // legend 文本来自端点响应：插入 permissionDecisionReason 前截断到 80 字符
+  gateScenario = 'longLegend';
+  await checkA('风险闸内核：legend 文本超长时截断到 80 字符再进理由', async () => {
+    const v = await assess('Bash', { command: 'rm -rf ./build' }, hookEnv);
+    assert.equal(v?.decision, 'deny');
+    assert.ok(v.reason.includes('长'.repeat(80)), '理由应含截断后的 legend 前缀');
+    assert.ok(!v.reason.includes('长'.repeat(81)), 'legend 超过 80 字符的部分不得进理由');
+  });
+
+  // tool_name 不可读且非截断场景（stdin 非 JSON，hook-io 解析失败置 {}）：旧实现照常外发一次
+  // 「工具：undefined + 入参为空摘要」的判定请求。修后不发请求、fail-closed ask 转人工。
+  gateScenario = 'deny';
+  received = [];
+  await checkA('风险闸内核：tool_name 不可读时不外发判定请求（fail-closed ask）', async () => {
+    const v = await assess(undefined, {}, hookEnv);
+    assert.equal(v?.decision, 'ask', '无法判定管辖权时不得静默放行');
+    assert.match(v.reason, /不是合法 JSON/);
+    assert.ok(!v.reason.includes('undefined'), '理由不得出现 undefined 摘要');
+    assert.equal(received.length, 0, 'stdin 非法时不应发判定请求');
+  });
+
   // 管辖权判断先于截断检查：非 shell 工具不归风险闸管，stdin 截断也直接放行（旧行为是 ask）
   await checkA('风险闸内核：非 shell 工具不受 stdin 截断管辖（放行）', async () => {
     assert.equal(await assess('Read', { file_path: 'x' }, hookEnv, { truncated: true }), null);
@@ -718,6 +765,20 @@ const main = async () => {
     assert.match(out.hookSpecificOutput.permissionDecisionReason, /截断/);
   });
 
+  // 非 JSON stdin（2026-11-05）：hook-io 解析失败置 {}，tool_name 不可读——旧实现仍外发一次
+  // 「工具：undefined」的判定请求。修后不发请求，fail-closed ask 转人工。
+  gateScenario = 'allow';
+  received = [];
+  r = await gateRun('not-json');
+  check('风险闸 hook：非 JSON stdin 不外发、fail-closed ask', () => {
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /不是合法 JSON/);
+    assert.equal(received.length, 0, 'stdin 非法时不得外发判定请求');
+  });
+
   // 慢 stdin 的回归：stdin 到达过慢吃光时间预算时，旧实现直接 return null（fail-open），
   // 宿主收到空输出 = 命令被静默放行——而「stdin 到达过慢」恰恰是宿主管道背压/超大上下文的那一次。
   // 用注入的时钟模拟「stdin 花了 13.6s」：真等十几秒会让整个套件不可用。
@@ -757,6 +818,64 @@ const main = async () => {
     } finally {
       Object.defineProperty(process, 'stdin', originalStdin);
     }
+  });
+
+  // killer 自毁兜底：stdin 永不关闭（或滴流超过共享预算）时，约 63 行的 setTimeout(process.exit)
+  // 先于预算耗尽分支收场——「挂起=静默放行」。killer 是真实 setTimeout + process.exit，只有子进程
+  // 能如实触发（在测试进程里跑 runHook，exit(0) 会把测试进程一起带走）：子进程用 node -e 驱动
+  //（同上 switchProbe 写法），注入 killerMs 把 14s 压到几百毫秒，时钟一并推过预算点（沿用上方
+  // 注入时钟的构造思路），复刻「>14s 时 stdin 仍未完成」的挂起场景。
+  const killerProbe = (emitAsk) =>
+    new Promise((resolve) => {
+      const hookIoUrl = JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'hook-io.mjs')).href);
+      const pretoolUrl = JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'pretool-risk.mjs')).href);
+      const script =
+        `Promise.all([import(${hookIoUrl}), import(${pretoolUrl})])`
+        + `.then(([io, pr]) => {`
+        + `let clock = 0;`
+        + `const opts = { now: () => (clock += 15_000), killerMs: 400 };`
+        + (emitAsk ? `opts.killPolicy = 'emit-ask'; opts.askPayload = pr.killerAsk;` : '')
+        + `return io.runHook(async () => { throw new Error('stdin 挂起时 handle 不应被调用'); }, opts);`
+        + `})`
+        + `.catch((e) => { process.stderr.write(String((e && e.stack) || e)); process.exit(1); });`;
+      const child = spawn(process.execPath, ['-e', script], {
+        env: cleanEnv({ PLUGIN_DATA: '', SYSTEMONE_API_KEY: '', UNISOUND_API_KEY: '' }),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (c) => (stdout += c));
+      child.stderr.on('data', (c) => (stderr += c));
+      // 关键构造：stdin 只挂管道——不 write、不 end，复刻「stdin 永不关闭」的挂起
+      // 20s 兜底（>14s：修复前的真实 killer 也要放它跑完），killer 回归为不触发时别让套件挂死
+      const guard = setTimeout(() => {
+        child.kill();
+        setTimeout(() => resolve({ status: null, stdout, stderr }), 1000);
+      }, 20_000);
+      child.on('close', (status) => {
+        clearTimeout(guard);
+        resolve({ status, stdout, stderr });
+      });
+    });
+
+  let kr = await killerProbe(false);
+  check('killer 兜底 silent 策略：挂起时 exit 0 无输出（UserPromptSubmit 通道 fail-open，现状钉住）', () => {
+    assert.equal(kr.status, 0, `应静默自毁（status=${kr.status}，stderr=${kr.stderr.trim()}）`);
+    assert.equal(kr.stdout, '', 'silent 策略不得有任何输出（该通道输出 permissionDecision 是协议违规）');
+  });
+
+  kr = await killerProbe(true);
+  check('killer 兜底 emit-ask 策略：挂起时 stdout 输出 ask JSON 转人工（挂起≠静默放行）', () => {
+    assert.equal(kr.status, 0, `exit 0（status=${kr.status}，stderr=${kr.stderr.trim()}）`);
+    const out = JSON.parse(kr.stdout);
+    assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /14s 共享预算/);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /stdin/);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /不可判/);
+    assert.match(kr.stderr, /stdin/, 'stderr 应留一行诊断');
   });
 
   r = await gateRun(
@@ -840,6 +959,49 @@ const main = async () => {
     }
   });
 
+  // ---------- 缓存 TTL 开关：坏值 stderr 告警后取默认（不静默），未设置不告警 ----------
+
+  // 子进程探针：hookCacheTtlMs 每次读 process.env，独立进程里注入变量最干净
+  //（与上方 switchProbe 同一写法），顺带断言 stderr 有无告警。
+  const ttlProbe = (envExtra) =>
+    new Promise((resolve) => {
+      const dcUrl = JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'decision-cache.mjs')).href);
+      const script =
+        `import(${dcUrl}).then((dc) => { process.stdout.write(String(dc.hookCacheTtlMs())); })`
+        + `.catch((e) => { process.stderr.write(String((e && e.stack) || e)); process.exit(1); });`;
+      const child = spawn(process.execPath, ['-e', script], {
+        env: cleanEnv({ PLUGIN_DATA: '', ...envExtra }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (c) => (out += c));
+      child.stderr.on('data', (c) => (err += c));
+      child.on('close', (code) => resolve({ code, out, err }));
+    });
+
+  await checkA('缓存 TTL 坏值：stderr 告警且取默认 300000（不静默走更激进缓存）', async () => {
+    const neg = await ttlProbe({ SYSTEMONE_CACHE_TTL_MS: '-5' });
+    assert.equal(neg.code, 0, neg.err);
+    assert.equal(neg.out, '300000', '负值应取默认 TTL');
+    assert.match(neg.err, /无法识别/, '负值应留 stderr 告警');
+    const junk = await ttlProbe({ SYSTEMONE_PLUGIN_CACHE_TTL_MS: 'banana' });
+    assert.equal(junk.out, '300000', '非数字应取默认 TTL');
+    assert.match(junk.err, /无法识别/, '非数字应留 stderr 告警');
+  });
+
+  await checkA('缓存 TTL 合法值：未设置安静取默认、0=关闭、正数生效，均不告警', async () => {
+    const unset = await ttlProbe({});
+    assert.equal(unset.out, '300000');
+    assert.equal(unset.err, '', '未设置不算坏值，不得刷告警');
+    const zero = await ttlProbe({ SYSTEMONE_CACHE_TTL_MS: '0' });
+    assert.equal(zero.out, '0', '0 = 关闭照旧');
+    assert.equal(zero.err, '');
+    const five = await ttlProbe({ SYSTEMONE_CACHE_TTL_MS: '5000' });
+    assert.equal(five.out, '5000');
+    assert.equal(five.err, '');
+  });
+
   // 子进程端到端：同一提示第二次提交命中缓存——行为不变（仍注入预检结论）且不再发请求
   scenario = 'unclear';
   received = [];
@@ -894,6 +1056,21 @@ const main = async () => {
     assert.equal(r.status, 0);
     assert.equal(received.length, 2, '会话 s2 有自己的配额');
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  // 配额扣减时机（2026-11-05）：decide 抛错（网络失败）不得白扣配额——旧实现 bumpQuota
+  // 在 decide 之前，请求失败时额度已扣、配额文件已写。
+  rmSync(quotaFile, { force: true });
+  received = [];
+  r = await run(quotaPrompt + ' 失败不扣额', {
+    SYSTEMONE_HOOK_PRECHECK: 'first:1',
+    SYSTEMONE_BASE_URL: 'http://127.0.0.1:9/v1',
+    SYSTEMONE_TIMEOUT_MS: '1500',
+  }, { session_id: 'sfail' });
+  check('配额扣减时机：判定请求失败不扣配额（文件不落盘）', () => {
+    assert.equal(r.status, 0);
+    assert.match(r.stderr, /预检跳过/);
+    assert.equal(existsSync(quotaFile), false, '判定失败不应写配额文件');
   });
 
   rmSync(quotaFile, { force: true });
