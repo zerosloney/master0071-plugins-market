@@ -33,7 +33,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.16' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.5.17' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -141,13 +141,17 @@ function config() {
 // 毫秒类环境变量的读取：与 config() / thresholdOf / formatOf 同一套「空串=未配置」约定。
 // Number('') === 0，直接把 env 丢给 Number 会把「宿主注入了空值」变成「缓存 TTL=0（关缓存）」
 // 或「批量预算 0ms（全部条目直接 budget_exhausted）」。空串/纯空白跳到下一个来源；非空但
-// 非法（NaN / 负数）按给定默认回退，与 config() 对非法 timeout 的静默回退同一口径。
+// 非法（NaN / 负数）不静默（2026-11-05，与 hook 侧 decision-cache.mjs 的 hookCacheTtlMs 同
+// 口径）：stderr 一行告警后按给定默认回退——静默的方向恰好是更激进的值（如设 -1 想关缓存，
+// 结果按默认照常缓存），告警才定位得到。
 function msFromEnv(names, fallback) {
   for (const name of names) {
     const raw = process.env[name];
     if (typeof raw !== 'string' || raw.trim() === '') continue; // 空串=未配置，看下一个来源
     const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : fallback;
+    if (Number.isFinite(n) && n >= 0) return n;
+    process.stderr.write(`[systemone-decision] ${name} 值 "${raw.trim()}" 无法识别（需 ≥0 的毫秒数），按默认 ${fallback} 处理\n`);
+    return fallback;
   }
   return fallback;
 }

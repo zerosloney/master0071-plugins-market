@@ -35,9 +35,20 @@ export function hookCacheTtlMs() {
   return 300_000;
 }
 
+// PLUGIN_DATA 必须是绝对路径：相对值无法跨进程一致解析——MCP 服务的 cwd 是插件根，
+// hook 进程的 cwd 是会话工作区，同一个相对值在两边会落到不同文件，缓存写进一边、
+// 另一边永远读不到，共享通道静默断裂。相对值按「未提供」处理并告警，回退插件根：
+// 两个进程至少还指向同一处。与 endpoint-config.mjs 对 PLUGIN_DATA 的处理同一口径。
 function cacheFile() {
-  const dataDir = process.env.PLUGIN_DATA && process.env.PLUGIN_DATA.trim() !== '' ? process.env.PLUGIN_DATA : null;
-  return dataDir ? path.join(dataDir, FILE_NAME) : path.join(PLUGIN_ROOT, FILE_NAME);
+  const raw = process.env.PLUGIN_DATA && process.env.PLUGIN_DATA.trim() !== '' ? process.env.PLUGIN_DATA.trim() : null;
+  if (raw !== null && !path.isAbsolute(raw)) {
+    process.stderr.write(
+      `[systemone-decision hook] PLUGIN_DATA 必须是绝对路径（收到相对路径 "${raw}"）：MCP 服务与 hook 的 cwd 不同，` +
+        '相对路径会各自解析到不同文件、缓存共享通道静默断裂；本次按未提供处理，回退插件根。\n',
+    );
+    return path.join(PLUGIN_ROOT, FILE_NAME);
+  }
+  return raw ? path.join(raw, FILE_NAME) : path.join(PLUGIN_ROOT, FILE_NAME);
 }
 
 /** 读取整份缓存条目表；文件不存在/损坏/形状不对一律返回空表（= 全部未命中）。 */

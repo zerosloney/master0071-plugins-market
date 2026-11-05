@@ -1002,6 +1002,43 @@ const main = async () => {
     assert.equal(five.err, '');
   });
 
+  // 缓存文件位置（2026-11-05）：cacheFile 的 PLUGIN_DATA 相对路径与 endpoint-config.mjs 已修项
+  // 同型——MCP 服务（cwd=插件根）与 hook（cwd=会话工作区）会把同一个相对值各自 resolve 到
+  // 不同文件，缓存写进一边、另一边永远读不到，共享通道静默断裂。修法同口径：相对值 stderr
+  // 告警后按「未提供」处理，回退插件根，两个进程至少还指向同一处。子进程探针注入 env 最干净。
+  const cachePutProbe = (envExtra) =>
+    new Promise((resolve) => {
+      const dcUrl = JSON.stringify(pathToFileURL(path.join(runRoot, 'hooks', 'decision-cache.mjs')).href);
+      const script =
+        `import(${dcUrl}).then((dc) => { dc.cachePut('systemone-rel-data-probe', { q1: { keep: true } }); process.stdout.write('put-ok'); })`
+        + `.catch((e) => { process.stderr.write(String((e && e.stack) || e)); process.exit(1); });`;
+      const child = spawn(process.execPath, ['-e', script], {
+        env: cleanEnv({ PLUGIN_DATA: '', ...envExtra }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (c) => (out += c));
+      child.stderr.on('data', (c) => (err += c));
+      child.on('close', (code) => resolve({ code, out, err }));
+    });
+
+  await checkA('缓存文件位置：PLUGIN_DATA 相对路径告警后回退插件根（共享通道不随 cwd 断裂）', async () => {
+    const relDir = 'systemone-rel-cache-data';
+    try {
+      const w = await cachePutProbe({ PLUGIN_DATA: relDir, SYSTEMONE_CACHE_TTL_MS: '300000' });
+      assert.equal(w.code, 0, w.err);
+      assert.equal(w.out, 'put-ok', 'cachePut 本身必须成功（fail-open 契约不受影响）');
+      assert.match(w.err, /绝对路径/, '相对 PLUGIN_DATA 应留 stderr 告警');
+      assert.ok(existsSync(path.join(runRoot, 'decision-cache.json')), '应回退插件根落盘（与端点共享文件同一回退位）');
+      assert.ok(!existsSync(path.resolve(relDir)), '不得在相对 cwd 下创建相对 PLUGIN_DATA 目录');
+    } finally {
+      rmSync(path.join(runRoot, 'decision-cache.json'), { force: true });
+      // 修复前的旧行为会在测试进程 cwd 下落相对目录：测试自造自清
+      rmSync(path.resolve(relDir), { recursive: true, force: true });
+    }
+  });
+
   // 子进程端到端：同一提示第二次提交命中缓存——行为不变（仍注入预检结论）且不再发请求
   scenario = 'unclear';
   received = [];

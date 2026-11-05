@@ -971,6 +971,79 @@ const main = async () => {
       emptyEnvClient.close();
     }
 
+    // 坏值毫秒变量不静默（2026-11-05）：msFromEnv 对非空非法值 stderr 告警一行后按默认回退，
+    // 与 hook 侧 decision-cache.mjs 的 hookCacheTtlMs 同口径；空串/未设置保持安静（空串=未配置
+    // 约定不变）。McpClient 的 stderr 是 inherit（告警直接混进测试输出、收集不到），这里单独
+    // spawn 三通 stdio 的服务器子进程：既收 stderr，又用同一进程先后发两次判定验证「行为同默认」。
+    const decidePairStderr = (envExtra) =>
+      new Promise((resolve) => {
+        const child = spawn(process.execPath, [serverPath], {
+          env: cleanEnv({
+            PLUGIN_DATA: '',
+            SYSTEMONE_API_KEY: 'test-key',
+            SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+            ...envExtra,
+          }),
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        let errText = '';
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (c) => (errText += c));
+        let buf = '';
+        const responses = [];
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (c) => {
+          buf += c;
+          let idx;
+          while ((idx = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (line) responses.push(JSON.parse(line));
+          }
+        });
+        const args = { state: 'msFromEnv 坏值告警探测', questions: { q: { type: 'noul', instructions: '是吗？' } } };
+        const call = (id) =>
+          child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'systemone_decide', arguments: args } })}\n`);
+        // 顺序发：等第一次判定返回（缓存已落）再发第二次——与 McpClient 调用方的 await 语义一致；
+        // 背靠背流水线发会让第二次的缓存查找跑在第一次的 cachePut 之前，测不了「行为同默认」。
+        call(1);
+        let sentSecond = false;
+        const wait = setInterval(() => {
+          if (responses.length >= 1 && !sentSecond) {
+            sentSecond = true;
+            call(2);
+          }
+          if (responses.length >= 2) {
+            clearInterval(wait);
+            child.kill();
+            resolve({ responses, errText });
+          }
+        }, 25);
+        // 兜底：响应迟迟不来也要收尾，不让套件挂死
+        setTimeout(() => {
+          clearInterval(wait);
+          child.kill();
+          resolve({ responses, errText });
+        }, 15000).unref();
+      });
+
+    {
+      const bad = await decidePairStderr({ SYSTEMONE_CACHE_TTL_MS: 'banana' });
+      check('坏值 TTL：stderr 告警且行为同默认（缓存照常生效，不静默）', () => {
+        assert.equal(bad.responses.length, 2, '两次判定都应返回（坏值不毒死流程）');
+        const second = JSON.parse(bad.responses[1].result.content[0].text);
+        assert.equal(second.cached, true, '非法 TTL 应回退默认 300000（缓存生效），而不是被当成 0 关缓存');
+        assert.match(bad.errText, /SYSTEMONE_CACHE_TTL_MS/, 'stderr 应点名坏值变量');
+        assert.match(bad.errText, /无法识别/, 'stderr 应有可读的告警文案');
+      });
+      const empty = await decidePairStderr({ SYSTEMONE_PLUGIN_CACHE_TTL_MS: '', SYSTEMONE_CACHE_TTL_MS: '' });
+      check('空串 TTL：保持安静不告警（空串=未配置约定不变，行为仍同默认）', () => {
+        assert.equal(empty.responses.length, 2);
+        assert.equal(JSON.parse(empty.responses[1].result.content[0].text).cached, true, '空串回退默认 TTL，缓存生效');
+        assert.equal(empty.errText, '', '空串不算坏值，不得刷告警');
+      });
+    }
+
     const batch = toolResult(
       await runScenario(client, {
         action: 'batch',

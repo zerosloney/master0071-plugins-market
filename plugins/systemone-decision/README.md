@@ -163,8 +163,8 @@ systemone_scenario(action: "run",
 | Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 15 个场景 |
 | Scenarios File | 自定义场景 JSON 文件路径（便于纳入版本管理），优先级低于上面的 JSON | 不用场景文件 |
 | Decision Log (JSONL) | 审计日志文件路径，每次决策逐条追加，`action=stats` 消费 | 不记录 |
-| Hook: Requirement Precheck | 需求明确度预检开关：`on` / `off` / `first:N`（每会话仅前 N 条输入做预检），等价环境变量 `SYSTEMONE_HOOK_PRECHECK` | 留空按 `on` |
-| Hook: Shell Risk Gate | shell 命令风险闸开关：`on` / `off`（`off` = 一律放行且不发判定请求），等价环境变量 `SYSTEMONE_HOOK_RISK_GATE` | 留空按 `on` |
+| Hook: Requirement Precheck | 需求明确度预检开关：`on` / `off` / `first:N`（每会话仅前 N 条输入做预检），环境变量入口 `SYSTEMONE_HOOK_PRECHECK`（hook 侧经共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸 env 三级取值，见下文「hook 端点与开关共享」） | 留空按 `on` |
+| Hook: Shell Risk Gate | shell 命令风险闸开关：`on` / `off`（`off` = 一律放行且不发判定请求），环境变量入口 `SYSTEMONE_HOOK_RISK_GATE`（hook 侧经共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸 env 三级取值，见下文「hook 端点与开关共享」） | 留空按 `on` |
 
 优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
 
@@ -186,7 +186,7 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_SCENARIOS` | 否 | — | 自定义场景 JSON 数组（与设置页同源，优先级低于设置页） |
 | `SYSTEMONE_SCENARIOS_FILE` | 否 | — | 自定义场景 JSON 文件路径（优先级：设置页 > 环境变量 > 文件）。**须为绝对路径、`.json` 扩展名，且不在插件安装目录或任何 `.git` 内**；不合格则忽略该文件并告警，内置场景照常可用 |
 | `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费。**须为绝对路径、`.jsonl` 扩展名，且不在插件安装目录或任何 `.git` 内**（插件安装目录跨项目共享、且随插件更新被覆盖）。超过 5 MB 时**轮转**为 `<文件>.1` 保留上一段，不再原地清空 |
-| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭；**同时作用于 MCP 工具缓存与 hook 判定缓存** |
+| `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭；非法/负值 stderr 告警后按默认 `300000` 处理，不静默取更激进缓存（MCP 与 hook 两侧同口径）；**同时作用于 MCP 工具缓存与 hook 判定缓存** |
 | `SYSTEMONE_HOOK_PRECHECK` | 否 | `on` | 需求预检开关：`on` / `off` / `first:N`（每会话仅前 N 条被判定输入做预检，用尽后静默跳过；裸数字等同 `first:N`） |
 | `SYSTEMONE_HOOK_RISK_GATE` | 否 | `on` | shell 风险闸总开关：`on` / `off`（`off` 时一律放行且不发判定请求，比删 `hooks.json` 注册温和）。非法值告警后按 `on`，不静默关灯 |
 
@@ -208,11 +208,11 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key、stdin 读取错误（协议壳读输入异常，stderr 留一行诊断后 exit 0），以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这四类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 5 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、stdin 不是合法 JSON（识别不了工具名，不外发判定请求）、命令超 100K 上限、三答残缺（幻觉选项、题型错乱或 score 越出量表——界外分值不可解释，按响应不完整处理）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
+插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、stdin 读取错误、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key、端点非加密（http 且非本机回环——拒绝携带 API Key 外发，stderr 留一行说明）、stdin 读取错误（协议壳读输入异常，stderr 留一行诊断后 exit 0），以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这五类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 6 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、stdin 挂起/滴流吃满 14s 共享预算（killer 兜底 emit-ask——赶在宿主 15s 超时前输出 ask 转人工，不停留在静默放行）、stdin 不是合法 JSON（识别不了工具名，不外发判定请求）、命令超 100K 上限、三答残缺（幻觉选项、题型错乱或 score 越出量表——界外分值不可解释，按响应不完整处理）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
 
 **① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
-**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（高风险且不可逆）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；**deny 是自动拦截的硬动作，三问最低置信度 < 0.7 时降级为 `"ask"` 交还用户**（偏低注记保留在理由里）；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
+**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（模型判 `deny` 单独成立，或高风险且不可逆双条件同时满足）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；**deny 是自动拦截的硬动作，三问最低置信度 < 0.7 时降级为 `"ask"` 交还用户**（偏低注记保留在理由里）；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
 
 **非标准命令字段的处置（2026-10-28 加固）**：命令字段只认 `command` / `cmd` / `script` / `execution_input`。宿主若用别的字段承载命令（如把命令塞进 `args` 数组），判定模型只会收到「字段名 + 截断值摘要」，**看不到命令内容**——此时模型判「放行」不构成安全信号，故一律升级为 `"ask"` 转人工确认，不自动放行（判定为拒绝/需确认的照常生效，拦截不会因看不到命令而漏）。摘要路径只发字段名、不外发整个 `tool_input`（防把大段文件内容或凭据片段送到端点）。
 
@@ -228,9 +228,9 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 **隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）；风险闸会把 shell 命令文本发送到决策服务接口（跳过只读命令）。判定为"明确"/"放行"时静默返回，但请求本身已经发出。不需要某个 hook 时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
 
-**hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
+**hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。条目上限 100，超出按写入时间淘汰最旧。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
 
-**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；非法值告警后按默认 `on` 处理。配额计数在判定请求成功往返之后才落盘，判定失败（网络故障/超时）不扣额度。
+**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；会话桶上限 100，超出按最近使用淘汰最旧会话；非法值告警后按默认 `on` 处理。配额计数在判定请求成功往返之后才落盘，判定失败（网络故障/超时）不扣额度。
 
 **无 `PLUGIN_DATA` 的宿主（多实例共装注意）**：判定缓存、会话配额与端点共享文件（`decision-cache.json` / `precheck-quota.json` / `.endpoint.json`）此时回退落在插件安装目录（见「共享文件位置」）——同一份安装目录被本机多个宿主实例共用时，这三类文件**互相覆盖**：缓存与配额 last-writer-wins，端点共享文件以后启动的 MCP 服务为准。计数与缓存在实例间串用不构成正确性问题（配额只是节流手段，缓存丢的只是一次命中机会），但配额额度不按实例隔离、缓存可能命中别的实例刚写的答案，排查行为差异时不要假设各宿主独立。
 
@@ -293,6 +293,14 @@ icon.png           界面 logo
 ```
 
 ## 版本变更
+
+**0.5.17**
+
+收尾批：hook 章节八条「实现如此、文档没写」口径对齐 + 两项跟随修。
+
+- **`cacheFile()` 相对 `PLUGIN_DATA` 跟随修**：与 endpoint-config 同型——相对路径 stderr 告警后按未提供处理、回退插件根（MCP 与 hook 的 cwd 不同，相对路径各落各文件、缓存共享通道静默断裂）。
+- **TTL/预算坏值反馈两侧对齐**：`msFromEnv` 非空非法值同样 stderr 告警后按默认（此前 MCP 侧静默、hook 侧告警，同一环境变量两种反馈是排障陷阱）；空串=未配置的安静约定不变。
+- 文档八条：TTL 行补坏值口径；预检 fail-open 枚举补「stdin 读取错误」；deny 触发补「模型判 deny 单独成立」路径；hook 缓存补「条目上限 100 按写入时间淘汰」；配额补「会话桶上限 100 按最近使用淘汰」；风险闸 fail-open 枚举补「端点非加密拒绝携带 Key 外发」（四类→五类）；设置页表格「等价环境变量」措辞对齐三级取值顺序；stdin 挂起的 emit-ask 路径进 fail-closed 枚举（5 条→6 条）。
 
 **0.5.16**
 
