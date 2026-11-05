@@ -34,12 +34,29 @@ import { findProjectRoot, PLUGIN_CONFIG_TEMPLATES_DIR } from '../scripts/paths.m
 
 const STDIN_MAX_CHARS = 100_000; // 与 systemone hook-io 同上限：截断即转 ask（fail-closed）
 
-// 只对 shell 类工具生效（与 systemone risk-gate 同一正则——宿主对终端类工具的常见命名全覆盖）。
-// 注意两道门必须同口径：hooks.json / .codex-plugin 的 matcher 决定**本 hook 会不会被调到**，
-// 本正则决定**调到了之后管不管**。2026-10-28 市场审查实测到这里脱节（matcher 只写
+// 只对 shell 类工具生效（与 systemone risk-gate 同一份单源名单——宿主对终端类工具的常见命名
+// 全覆盖）。SHELL_TOOL_NAMES 是**单源名单**：hooks.json / .codex-plugin 的 matcher 与本内核都从
+// 它机器对账（test/hook.test.mjs ⑧）。注意两道门必须同口径：matcher 决定**本 hook 会不会被调
+// 到**，本内核决定**调到了之后管不管**。2026-10-28 市场审查实测到这里脱节（matcher 只写
 // `Bash|Shell|Terminal` 三个名，宿主把命令交给 Command/Run/exec/pwsh 类工具时本 hook 根本不被
-// 调用，风险闸对那类调用零告警失灵）。由 test/hook.test.mjs ⑧ 机器对账，别再靠注释同步。
-const SHELL_TOOL = /(^|[_\-.\s])(bash|shell|terminal|command|cmd|exec|process|run|powershell|pwsh|zsh|fish)([_\-.\s]|$)/i;
+// 调用，风险闸对那类调用零告警失灵）。
+const SHELL_TOOL_NAMES = [
+  'bash', 'shell', 'terminal', 'command', 'cmd', 'exec', 'process', 'run',
+  'powershell', 'pwsh', 'zsh', 'fish',
+];
+const SHELL_TOOL = new RegExp(`(^|[_\\-.\\s])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-.\\s]|$)`, 'i');
+// 粘连词尾形态（2026-11-05 市场审查修复，移植 systemone risk-gate.mjs 的 SHELL_TOOL_TAIL）：
+// matcher 是子串正则，`nushell` / `myshell` / `fishshell` 里的 shell 会被它命中并拉起 hook，
+// 而上面的边界字符类要求关键词两侧是分隔符——内核判「非 shell 工具」静默放行，整类免检且
+// 零信号。补一条「关键词作为整个工具名的词尾（前面是字母前缀）」的形态：方向安全，只会扩大
+// 管辖（多拦/多问一次），不会让 shell 工具漏出，与拆驼峰（normalizeToolName）同一性质。
+// fish 不进词尾形态：shellfish / catfish 这类英语词以 fish 结尾，会把非 shell 工具误收；
+// 由此留下「matcher 命中但内核不认」的残余缝（如 shellfish），由 applies 不认时的 stderr
+// 告警兜底（见 main 的管辖外分支）。
+const SHELL_TOOL_TAIL = new RegExp(`[a-z](?:${SHELL_TOOL_NAMES.filter((n) => n !== 'fish').join('|')})$`, 'i');
+// matcher 命中的近似判定：matcher 按同一份名单做子串匹配，内核不知道宿主的 matcher 长什么样，
+// 用「名字含关键词子串」作代理——命中而内核不认时 stderr 一行告警，让缺口可见。
+const SHELL_TOOL_SUBSTRING = new RegExp(`(?:${SHELL_TOOL_NAMES.join('|')})`, 'i');
 
 // 驼峰宿主名先拆词再匹配（2026-10-28）：matcher 是子串正则，`RunCommand` / `ExecuteCommand` /
 // `BashTool` 都会被它命中并调用 hook；但 `Command` 前是大写 R、后是小写 T，两侧都不是边界，
@@ -49,8 +66,18 @@ const SHELL_TOOL = /(^|[_\-.\s])(bash|shell|terminal|command|cmd|exec|process|ru
 // 拆词只作为**补充**判据：先按原样匹配（`basH` 这类大小写变体原样就命中），失败再拆驼峰重试。
 // 只拆词不原样匹配会把 `basH` 拆成 `bas H` 反而漏掉——这正是加上第二条判据的原因。
 const normalizeToolName = (toolName) => String(toolName).replace(/([a-z0-9])([A-Z])/g, '$1 $2');
-const applies = (toolName) =>
-  typeof toolName === 'string' && (SHELL_TOOL.test(toolName) || SHELL_TOOL.test(normalizeToolName(toolName)));
+// 先按原样匹配（`basH` 这类大小写变体原样就命中），失败再拆驼峰重试，最后认粘连词尾形态——
+// 四条形态全不命中才算不管辖（与 systemone risk-gate.applies 同构）。
+const applies = (toolName) => {
+  if (typeof toolName !== 'string') return false;
+  const normalized = normalizeToolName(toolName);
+  return (
+    SHELL_TOOL.test(toolName) ||
+    SHELL_TOOL.test(normalized) ||
+    SHELL_TOOL_TAIL.test(toolName) ||
+    SHELL_TOOL_TAIL.test(normalized)
+  );
+};
 
 // 代码内最小兜底（插件种子 settings.json 也缺失时的最后防线——deny 面永不因缺文件变空）
 // `--no-verify` 单列（2026-10-29 市场审查补）：它是从 shell 层**单方面解除**已安装 git hook 的
@@ -73,7 +100,15 @@ const BUILTIN = {
   ask: ['git checkout', 'git clean', 'git branch -D', 'rm -rf'],
 };
 
-const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+// Windows 可执行后缀剥离（2026-11-05 市场审查修复）：deny 地板曾被 `git.exe` 形态整体绕过——
+// 子串判据 `c.includes(r)` 被 `.exe` 断开（`git.exe push -f` 不含 `git push -f`），词元判据切出的
+// token 是 `git.exe`、与规则词 `git` 对不上。修在归一化层（子串与词元两条判据共用的唯一入口）：
+// 剥掉词元尾巴上的可执行后缀（.exe/.bat/.cmd，大小写不敏感；只剥「整个词元的尾巴」，如
+// `backup.exe.bak` 这种 .exe 在词中的不动），两条判据同时恢复，不加任何特例分支。方向
+// fail-safe：归一化只会让判据更容易命中（被治理项目写 `deny: ["psexec.exe"]` 这类后缀规则
+// 也随之与裸名等价），不会让已拦的漏网。
+const EXE_SUFFIX = /\.(exe|bat|cmd)(?=[\s;&|()]|$)/g;
+const norm = (s) => String(s).toLowerCase().replace(EXE_SUFFIX, '').replace(/\s+/g, ' ').trim();
 
 // 引号归一（2026-10-29 市场审查修复）：`git push "--force"` / `git push '--force'` 切出来的
 // 词元带引号，与规则里的 `--force` 对不上，于是 deny 地板被一条引号变体整个绕过（实测三种写法
@@ -168,6 +203,17 @@ function commandOf(toolInput) {
   return null;
 }
 
+// ask 决策体构造器（2026-11-05 收敛）：判定分支的 ask（输入不完整 / 缺 command）、顶层 catch 的
+// 故障转 ask、stdin 挂起 killer 的兜底 ask 输出同一载荷形态——一处定义、多处复用，避免各分支
+// 手写对象后形态漂移。
+const askDecision = (reason) => ({
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'ask',
+    permissionDecisionReason: reason,
+  },
+});
+
 function readStdin() {
   return new Promise((resolve) => {
     let raw = '';
@@ -188,8 +234,41 @@ function readStdin() {
   });
 }
 
+// stdin 本地 deadline（2026-11-05 市场审查修复）：readStdin 只等 end/close/error，宿主喂半截
+// 不关管时本 hook 会挂到宿主 15s 超时被杀——无决策体 = 静默放行，而「stdin 到得慢」恰是输入
+// 最不可信的那一次。置 14s 共享预算 killer（hooks.json timeout 15s，留 1s 收尾余量，与 systemone
+// hook-io.mjs 同口径）：stdin 之后的清单加载/匹配全是本地即时计算，这一道 deadline 即整个
+// hook 进程的预算。触发时先向 stdout 输出 ask 决策体（与判定分支同一构造器，赶在宿主超时前
+// 送达）、stderr 留一行诊断再退——把「挂起=静默放行」变成「挂起=人工确认」。
+// AI_NATIVE_HOOK_KILLER_MS 为测试注入口（同 AI_NATIVE_HOOK_FAULT_INJECT 惯例，生产不设）：
+// 把预算压缩到毫秒级，挂起场景无需真等 14s。
+const HOOK_BUDGET_MS = 14_000;
+const stdinKillerMs = () => {
+  const raw = Number(process.env.AI_NATIVE_HOOK_KILLER_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : HOOK_BUDGET_MS;
+};
+const stdinKiller = () => {
+  const text = JSON.stringify(
+    askDecision('[ai-native-delivery 风险闸] hook 输入读取超时（stdin 未在共享预算内完成），无法做清单匹配——请向用户展示命令并确认后再执行。'),
+  );
+  // 同步写完再退（复用顶层的 drain 手法）：宿主 15s 超时前必须送达 ask
+  const diagThenExit = () => {
+    process.stderr.write('[ai-native-delivery hook] stdin 未在共享预算内完成读取，兜底输出 ask 转人工\n');
+    process.exit(0);
+  };
+  if (process.stdout.write(text)) diagThenExit();
+  else process.stdout.once('drain', diagThenExit);
+};
+
 async function main() {
-  const { raw, truncated } = await readStdin();
+  const killer = setTimeout(stdinKiller, stdinKillerMs());
+  let raw;
+  let truncated;
+  try {
+    ({ raw, truncated } = await readStdin());
+  } finally {
+    clearTimeout(killer);
+  }
   let input = {};
   let jsonBroken = false;
   if (!truncated) {
@@ -207,23 +286,22 @@ async function main() {
   //   非 shell 工具 → 静默放行；shell 工具但缺 command 字段 → fail-closed 转 ask。
   if (truncated || jsonBroken) {
     const why = truncated ? '输入截断' : 'hook 输入不是合法 JSON';
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'ask',
-        permissionDecisionReason: `[ai-native-delivery 风险闸] hook 输入不完整（${why}），无法做清单匹配——请向用户展示命令并确认后再执行。`,
-      },
-    };
+    return askDecision(`[ai-native-delivery 风险闸] hook 输入不完整（${why}），无法做清单匹配——请向用户展示命令并确认后再执行。`);
   }
-  if (!applies(toolName)) return null;
+  if (!applies(toolName)) {
+    // 兜底信号（2026-11-05 市场审查修复，移植 systemone risk-gate assess 同款）：matcher 是子串
+    // 正则、比内核宽。名字含 shell 词族但内核不认的形态（如 shellfish——shell 在词中间，词尾
+    // 形态不收）——宿主既然拉起了 hook，多半是按「这是 shell 工具」的意图匹配的，内核放行不能
+    // 一声不吭：至少 stderr 留一行，让「matcher 命中但内核不认」的缺口可见，而不是整类免检零信号。
+    if (SHELL_TOOL_SUBSTRING.test(toolName)) {
+      process.stderr.write(
+        `[ai-native-delivery hook] 工具 "${toolName}" 命中 matcher 但风险闸内核不认（非 shell 管辖形态），已静默放行；若是 shell 类工具请反馈\n`,
+      );
+    }
+    return null;
+  }
   if (command === null) {
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'ask',
-        permissionDecisionReason: '[ai-native-delivery 风险闸] hook 输入不完整（缺 command 字段），无法做清单匹配——请向用户展示命令并确认后再执行。',
-      },
-    };
+    return askDecision('[ai-native-delivery 风险闸] hook 输入不完整（缺 command 字段），无法做清单匹配——请向用户展示命令并确认后再执行。');
   }
 
   // 测试注入口（2026-10-31，同 verify.mjs --test-cmd 的夹具通道惯例）：内部故障路径无法从
@@ -272,13 +350,9 @@ main()
     // 转 ask」的 fail-closed 方向相反。ask 不阻断（宿主只加一次确认），「绝不硬阻塞」的契约仍守。
     const msg = e && e.message ? e.message : String(e);
     process.stderr.write(`[ai-native-delivery hook] 风险闸内部故障，转 ask 由用户确认：${msg}\n`);
-    const text = JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'ask',
-        permissionDecisionReason: `[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`,
-      },
-    });
+    const text = JSON.stringify(
+      askDecision(`[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`),
+    );
     if (!text || process.stdout.write(text)) process.exit(0);
     process.stdout.once('drain', () => process.exit(0));
   });

@@ -26,6 +26,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：门脚本目录缺省按「项目侧优先、插件内回退」解析。
 import { PLUGIN_SCRIPTS_DIR } from './paths.mjs';
+// run 状态文件互斥（2026-11-05 并发修复）：与台账写侧共用同一把锁实现（withLedgerLock 单源）。
+import { withLedgerLock } from './ledger-shards.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const KINDS = ['require', 'fix', 'verify', 'review', 'deploy']; // 导出单源：check-loop §25 预判执法面 import，禁再造字面拷贝
@@ -79,6 +81,38 @@ function saveRun(ctx, run) {
 }
 
 function emit(run, ev) { run.events.push({ t: nowIso(), ...ev }); }
+
+// run 状态文件互斥（2026-11-05 并发修复）：saveRun 是 tmp+rename 原子写，但「load→advance→save」
+// 整体是 last-writer-wins——两个 `next` 并发同一 run 时，后者拿陈旧快照推进并覆盖前者刚落的
+// 事件流（工单号、确认、门结果静默丢失）。对 run 文件持 `<run 文件>.lock`（withLedgerLock，
+// 锁放在 run 文件旁、等待/陈旧接管语义与台账写锁一致）：整个临界区串行化，第二个 next 等待
+// 超时后响亮失败（「run 正在被另一进程推进」），不再静默覆盖。
+// 停机点内部 process.exit 会跳过 withLedgerLock 的 finally（锁泄漏会给下一次 next 白添 15s
+// 陈旧接管等待），故挂 exit 钩子补释放：按 owner 串比对，锁已被正常路径释放或被接管时为幂等 no-op。
+function withRunLock(ctx, runId, fn) {
+  const target = runFileOf(ctx, runId);
+  const lockPath = `${target}.lock`;
+  let mine = null; // 本进程的 owner 串（拿到锁后回读留档，供退出钩子比对）
+  const onExit = () => {
+    if (!mine) return;
+    try { if (fs.readFileSync(lockPath, 'utf8') === mine) fs.unlinkSync(lockPath); } catch { /* 已被接管或清理 */ }
+  };
+  process.on('exit', onExit);
+  try {
+    return withLedgerLock(target, () => {
+      try { mine = fs.readFileSync(lockPath, 'utf8'); } catch { mine = null; }
+      return fn();
+    });
+  } catch (err) {
+    if (err && String(err.message).includes('台账写锁等待超时')) {
+      fail(`run 正在被另一进程推进（${path.basename(lockPath)} 等待超时）——并发 next 相互覆盖 run 状态（last-writer-wins 丢事件），拒绝本次推进；等另一进程结束后重跑`);
+    }
+    throw err;
+  } finally {
+    process.removeListener('exit', onExit);
+    mine = null;
+  }
+}
 
 function latestRunId(ctx) {
   if (!fs.existsSync(ctx.runsDir)) return null;
@@ -875,9 +909,15 @@ if (isMain) {
     saveRun(ctx, run);
     advance(ctx, run, {}); // 首停机点 = triage 工单
   } else if (cmd === 'next') {
-    const run = resolveRun(ctx, a);
-    if (run.stopType === 'done' || run.stopType === 'aborted') { printRun(ctx, run); process.exit(0); }
-    advance(ctx, run, { triage: typeof a.triage === 'string' ? a.triage : undefined, delegated: typeof a.delegated === 'string' ? a.delegated : undefined, files: typeof a.files === 'string' ? a.files : undefined, done: a.done === true });
+    const id0 = a.run || latestRunId(ctx);
+    if (!id0) fail('无活跃 run——先 start "<需求原文>"'); // 空仓无 run：不为其造锁文件
+    // 读→推进→落盘全程持 `<run 文件>.lock`（2026-11-05 并发修复，见 withRunLock 头注）——
+    // load 也须在锁内，否则锁外读到的陈旧快照仍会覆盖并发进程刚落的推进。
+    withRunLock(ctx, id0, () => {
+      const run = resolveRun(ctx, a);
+      if (run.stopType === 'done' || run.stopType === 'aborted') { printRun(ctx, run); process.exit(0); }
+      advance(ctx, run, { triage: typeof a.triage === 'string' ? a.triage : undefined, delegated: typeof a.delegated === 'string' ? a.delegated : undefined, files: typeof a.files === 'string' ? a.files : undefined, done: a.done === true });
+    });
   } else if (cmd === 'status') {
     if (a.adopt) { adoptRun(ctx, a); process.exit(0); }
     const run = resolveRun(ctx, a);

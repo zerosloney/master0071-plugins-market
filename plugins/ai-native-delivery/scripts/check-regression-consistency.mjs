@@ -119,6 +119,9 @@ function collectRouterRoutes(root) {
   return routes;
 }
 
+// git grep 调用统一 maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：
+// 默认 1MB 在大仓符号扫描下即 ENOBUFS——截断输出会把在库符号误判成「悬空」（advisory 假阳噪声）
+const GIT_MAXBUF = 64 * 1024 * 1024;
 // 符号存在性：单点符号一次 git grep 扫 backend/ + frontend/；点号符号（Type.Member）先找同名
 // 类型文件（Type.cs/ts/js/vue）再查成员名——避免把 `Service.Method` 当字面量搜导致假悬空。
 function missingSymbols(root, symbols) {
@@ -130,13 +133,13 @@ function missingSymbols(root, symbols) {
     const args = ['grep', '-h', '-F'];
     for (const s of simple) args.push('-e', s);
     args.push('--', 'backend', 'frontend');
-    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
     const hay = String(r.stdout || '');
     for (const s of simple) if (!hay.includes(s)) missing.push(s);
   }
   for (const s of qualified) {
     const member = s.split('.').pop();
-    const r = spawnSync('git', ['grep', '-l', '-F', '--', member, '--', 'backend', 'frontend'], { cwd: root, encoding: 'utf8' });
+    const r = spawnSync('git', ['grep', '-l', '-F', '--', member, '--', 'backend', 'frontend'], { cwd: root, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
     const files = String(r.stdout || '').split(/\r?\n/).filter(Boolean);
     // 成员名在仓库任何位置存在即不判悬空（类型文件可能拆分/部分类/外部库）；成员完全不存在才是漂移信号。
     if (!files.length) missing.push(s);
@@ -202,8 +205,8 @@ export function scanVerifyScriptAnchors(root) {
   walk(dir);
   const danglingRoutes = router ? [...routes].filter((r) => !router.has(r)).sort() : [];
   const danglingTestIds = [...testIds].filter((id) => {
-    const a = spawnSync('git', ['grep', '-l', '-F', '--', `data-testid="${id}"`, '--', 'frontend/src'], { cwd: root, encoding: 'utf8' });
-    const b = spawnSync('git', ['grep', '-l', '-F', '--', `data-testid='${id}'`, '--', 'frontend/src'], { cwd: root, encoding: 'utf8' });
+    const a = spawnSync('git', ['grep', '-l', '-F', '--', `data-testid="${id}"`, '--', 'frontend/src'], { cwd: root, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
+    const b = spawnSync('git', ['grep', '-l', '-F', '--', `data-testid='${id}'`, '--', 'frontend/src'], { cwd: root, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
     return a.status !== 0 && b.status !== 0;
   }).sort();
   return { danglingRoutes, danglingTestIds, files };

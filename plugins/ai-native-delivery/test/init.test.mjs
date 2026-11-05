@@ -137,24 +137,44 @@ const snapDiff = (a, b) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-// ---- ④b 本插件旧装钩子指向已失效的引擎脚本 → 覆盖刷新（2026-11-01）----
-// 插件安装目录随宿主缓存迁移，钩子里 baked 的绝对路径会失效；此时 commit 崩在 MODULE_NOT_FOUND，
-// 而钩子给出的修复指引正是"重跑 init-engine"——旧实现"已存在即跳过"让该指引变成 no-op。
+// ---- ④b 本插件旧装钩子指向已失效的引擎脚本 → 覆盖刷新（2026-11-01；2026-11-05 改真实迁移形态）----
+// 插件安装目录随宿主缓存**整体迁移**：钩子里 baked 的是旧安装根的绝对路径——不在当前 PLUGIN_ROOT
+// 下，但路径含本插件目录名的独立路径段。此时 commit 崩在 MODULE_NOT_FOUND，而钩子给出的修复指引
+// 正是"重跑 init-engine"——"已存在即跳过"让该指引变成 no-op。自装判据若用当前根前缀
+//（startsWith(PLUGIN_ROOT)），迁移后前缀恒 false → 判为第三方钩子 skip，正是本用例锁定的死态。
 {
   const root = mkRepo();
   const pre = path.join(root, '.git', 'hooks', 'pre-commit');
   initEngine(root);
   const before = fs.readFileSync(pre, 'utf8');
   check('④b 前置：首装钩子里 baked 的是现存引擎脚本', before.includes('check-loop.mjs') && fs.existsSync(PLUGIN_ROOT), before.slice(0, 160));
-  // 模拟插件目录迁移：把 baked 路径改成插件根下一个不存在的子目录
-  const stale = path.join(PLUGIN_ROOT, 'gone-after-move', 'check-loop.mjs');
+  // 真实迁移形态：旧安装根含本插件目录名的独立路径段，但不在当前 PLUGIN_ROOT 下且已不存在
+  const stale = path.join(root, 'old-plugin-cache', path.basename(PLUGIN_ROOT), '0.1.10', 'scripts', 'check-loop.mjs');
   const patched = before.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(stale)}`);
   fs.writeFileSync(pre, patched, 'utf8');
   const r = initEngine(root);
   const after = fs.readFileSync(pre, 'utf8');
-  check('④b 陈旧自装钩子被刷新（不再跳过）', r.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks));
-  check('④b 刷新后 baked 路径回到现存脚本', !after.includes('gone-after-move') && after.includes('check-loop.mjs'), after.slice(0, 200));
+  check('④b 迁移形态：陈旧自装钩子被刷新（不再跳过）', r.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks));
+  check('④b 刷新后 baked 路径回到现存脚本', !after.includes('old-plugin-cache') && after.includes('check-loop.mjs'), after.slice(0, 200));
   check('④b 刷新原因写进 skipped（可审计）', r.hooks.skipped.some((s) => s.includes('覆盖刷新')), JSON.stringify(r.hooks.skipped));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ④c 反例：`-old` 后缀目录不是本插件路径形态 → 不误刷（2026-11-05）----
+// 自装判据带分隔符边界（按分隔符切分后整段相等）：`ai-native-delivery-old` 这类后缀目录不算
+// 本插件路径形态，其钩子（哪怕是失效的）仍按"别人装的钩子不覆盖"处理。
+{
+  const root = mkRepo();
+  const pre = path.join(root, '.git', 'hooks', 'pre-commit');
+  initEngine(root);
+  const before = fs.readFileSync(pre, 'utf8');
+  const staleOld = path.join(root, 'old-plugin-cache', `${path.basename(PLUGIN_ROOT)}-old`, '0.1.10', 'scripts', 'check-loop.mjs');
+  const patched = before.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(staleOld)}`);
+  fs.writeFileSync(pre, patched, 'utf8');
+  const r = initEngine(root);
+  const after = fs.readFileSync(pre, 'utf8');
+  check('④c `-old` 后缀目录钩子不误刷（保持不覆盖用户钩子语义）',
+    after === patched && r.hooks.skipped.some((s) => s.includes('pre-commit') && s.includes('不覆盖')), JSON.stringify(r.hooks));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

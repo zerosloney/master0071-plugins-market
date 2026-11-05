@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -215,10 +215,12 @@ const mkRepo = () => {
   const hookSrc = fs.readFileSync(HOOK, 'utf8').replace(/\r/g, ''); // CRLF 会让 $ 锚失配
   // 直接取「纯小写交替组」：SHELL_TOOL 里还有 (^|[_\-.\s]) 这种边界组，它不满足本模式故被跳过。
   // 正则改形导致取不到名单时下面立即报红——这正是「对账退化成空转」的入口。
-  const listMatch = /const SHELL_TOOL = [^\n]*\(([a-z|]+)\)/.exec(hookSrc);
-  check('能从 hook 源提取 SHELL_TOOL 名单（提取失败=正则改形，需同步本测试）', Boolean(listMatch),
-    hookSrc.split('\n').find((l) => l.includes('const SHELL_TOOL')) || '(找不到 SHELL_TOOL 定义行)');
-  const names = listMatch ? listMatch[1].split('|') : [];
+  // （2026-11-05 同步注明：内核改为 SHELL_TOOL_NAMES 单源名单数组，从它构建三种形态——边界 /
+  //   粘连词尾 / 子串告警（移植 systemone risk-gate），对账提取随之从正则交替组改为数组字面量。）
+  const listMatch = /const SHELL_TOOL_NAMES = \[([^\]]*)\]/.exec(hookSrc);
+  check('能从 hook 源提取 SHELL_TOOL 名单（提取失败=名单改形，需同步本测试）', Boolean(listMatch),
+    hookSrc.split('\n').find((l) => l.includes('SHELL_TOOL_NAMES')) || '(找不到 SHELL_TOOL_NAMES 定义行)');
+  const names = listMatch ? (listMatch[1].match(/'([a-z]+)'/g) || []).map((s) => s.slice(1, -1)) : [];
   check('工具名覆盖数 ≥ 12（防交替组被改写后对账空转）', names.length >= 12, `实际 ${names.length}：${names.join(',')}`);
 
   const decls = [
@@ -252,7 +254,9 @@ const mkRepo = () => {
       // 「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面只验了方向①，锁不住这个洞。
       // 这里用真实进程跑，判的是实际行为而不是正则字面量。
       const reg = new RegExp(matcher);
-      for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell']) {
+      // 2026-11-05 补粘连词尾：matcher（子串）会命中 nushell / fishshell 这类「字母前缀 + shell
+      // 词尾」并把 hook 拉起，内核必须经词尾形态认领，否则整类免检零信号（双向对账的两条新词）。
+      for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell', 'nushell', 'fishshell']) {
         check(`${label} 前提：matcher 会命中 "${hostName}"`, reg.test(hostName));
         if (!reg.test(hostName)) continue;
         const r = run({ tool_name: hostName, tool_input: { command: 'git reset --hard' } }, process.cwd());
@@ -285,6 +289,80 @@ const mkRepo = () => {
   check('内部故障 → 理由点明内部故障', d && /内部故障/.test(d.permissionDecisionReason || ''),
     d && d.permissionDecisionReason);
   check('内部故障 → stderr 同步留痕', /内部故障/.test(r.stderr || ''), r.stderr);
+}
+
+// ---- ⑩ Windows 可执行后缀形态不得绕过 deny 地板（2026-11-05 市场审查）----
+// 子串判据 c.includes(r) 被 `.exe` 断开（`git.exe push -f` 不含 `git push -f`），词元判据切出的
+// token 是 `git.exe`、与规则词 `git` 对不上——deny 地板被一个二进制形态整体绕过。修在归一化层：
+// 词尾剥 .exe/.bat/.cmd（大小写不敏感）后两条判据同时恢复。反向锚：git.exe status 不得误伤。
+{
+  for (const command of [
+    'git.exe push -f origin main',
+    'git.exe commit --no-verify -m x',
+    'git.cmd reset --hard',
+    'GIT.EXE PUSH -F ORIGIN MAIN',
+  ]) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, process.cwd());
+    check(`可执行后缀形态仍被 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+  const ok = run({ tool_name: 'Bash', tool_input: { command: 'git.exe status' } }, process.cwd());
+  check('git.exe status 不误伤（静默放行）', ok.status === 0 && ok.stdout.trim() === '', ok.stdout);
+}
+
+// ---- ⑪ stdin 挂起 → 本地 deadline 兜底输出 ask（2026-11-05 市场审查）----
+// readStdin 只等 end/close/error：宿主喂半截不关管时 hook 挂满宿主 15s 超时被杀——
+// 无决策体 = 静默放行。修复后 14s 共享预算 killer（测试经 AI_NATIVE_HOOK_KILLER_MS 注入快值）
+// 触发时先输出 ask 决策体再退（与判定分支同一构造器），stderr 留一行诊断。修复前 RED：空输出。
+{
+  const t0 = Date.now();
+  const r = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [HOOK], {
+      cwd: process.cwd(),
+      env: { ...process.env, AI_NATIVE_HOOK_KILLER_MS: '300' }, // 测试注入口：把 14s 预算压缩到 300ms
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdoutTxt = '';
+    let stderrTxt = '';
+    child.stdout.on('data', (c) => { stdoutTxt += c; });
+    child.stderr.on('data', (c) => { stderrTxt += c; });
+    child.stdin.write('{"tool_name":"Bash","tool_input":{"comm'); // 半截 JSON，故意不 end()
+    const guard = setTimeout(() => child.kill(), 8000);
+    child.on('exit', (code) => { clearTimeout(guard); resolve({ code, stdoutTxt, stderrTxt, ms: Date.now() - t0 }); });
+    child.on('error', () => { clearTimeout(guard); resolve({ code: -1, stdoutTxt, stderrTxt, ms: Date.now() - t0 }); });
+  });
+  let d = null;
+  try { d = JSON.parse(r.stdoutTxt).hookSpecificOutput; } catch { /* 挂起场景修复前 stdout 为空 */ }
+  check('stdin 挂起 → 本地 deadline 触发自行退出（exit 0）', r.code === 0, `exit=${r.code} stderr=${r.stderrTxt}`);
+  check('stdin 挂起 → stdout 有 ask 决策体（不再是静默放行）', d && d.permissionDecision === 'ask', r.stdoutTxt);
+  check('stdin 挂起 → stderr 留一行诊断', /stdin 未在共享预算内完成读取/.test(r.stderrTxt || ''), r.stderrTxt);
+  check('stdin 挂起 → 赶在宿主 15s 超时前退出（<5s）', r.ms < 5000, `耗时 ${r.ms}ms`);
+  // 反向锚：注入 killer 快值时，正常快速输入不受影响（deadline 只兜挂起，不误伤正常流）
+  const ok = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git push -f' } }),
+    encoding: 'utf8',
+    cwd: process.cwd(),
+    env: { ...process.env, AI_NATIVE_HOOK_KILLER_MS: '300' },
+  });
+  check('killer 注入不影响正常输入（deny 照常命中）', decisionOf(ok)?.permissionDecision === 'deny', ok.stdout);
+}
+
+// ---- ⑫ 粘连词尾形态纳入管辖 + shellfish 反例兜底告警（2026-11-05 市场审查）----
+// matcher 是子串正则，nushell / myshell / fishshell 会被它命中拉起 hook，而内核边界字符类要求
+// 关键词两侧是分隔符——整类免检零信号。修复后词尾形态纳入管辖（fish 排除防误收 shellfish 族）；
+// matcher 命中而内核不认（shellfish / catfish）时 stderr 一行兜底告警，缺口可见。
+{
+  for (const toolName of ['nushell', 'myshell', 'fishshell', 'Nushell']) {
+    const r = run({ tool_name: toolName, tool_input: { command: 'git reset --hard' } }, process.cwd());
+    check(`粘连词尾 ${toolName} → deny（内核认词尾形态）`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+  const sf = run({ tool_name: 'shellfish', tool_input: { command: 'git reset --hard' } }, process.cwd());
+  check('shellfish → 内核不认（静默放行，不误拦非 shell 工具）', sf.status === 0 && sf.stdout.trim() === '', sf.stdout);
+  check('shellfish → stderr 兜底告警（matcher 命中但内核不认可见）',
+    /命中 matcher 但风险闸内核不认/.test(sf.stderr || ''), sf.stderr);
+  const cat = run({ tool_name: 'catfish', tool_input: { command: 'git reset --hard' } }, process.cwd());
+  check('catfish 不被词尾形态误收（fish 排除）且告警可见',
+    cat.status === 0 && cat.stdout.trim() === '' && /内核不认/.test(cat.stderr || ''),
+    `stdout=${cat.stdout} stderr=${cat.stderr}`);
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

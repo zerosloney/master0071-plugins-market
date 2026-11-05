@@ -78,5 +78,35 @@ const GREEN = (headShort, ts, extra = {}) => ({ ts, exitCode: 0, suite: 'all-gat
   check('场景 4b：保全后 --check 一致（幂等）', run(d, '--check').code === 0);
 }
 
+// 场景 5：入库视图携带对质事实（closeout-anchor 2026-11-05）——head 锚与逐门 src 渲染
+// 新 schema 绿行（gates=逐门 provenance 数组、head=全 SHA）渲染 head=/src= 尾注（5 列形态不变，
+// 拼进末列——verify-scope.parseEvidenceGreens 的行正则不可破）；旧 schema（gates 数字、无 head）兼容。
+{
+  const d = mkfix(null);
+  const stubSrc = path.join(d, '.agents', 'scripts', 'check-loop.mjs'); // 项目侧桩（相对根渲染）
+  const sha40 = 'b'.repeat(40);
+  const rows = [
+    { // 新 schema：head 锚 + 逐门 provenance
+      ts: '2026-11-05T08:00:00Z', exitCode: 0, suite: 'all-gates',
+      gates: [
+        { id: 'check-loop', exit: 0, src: stubSrc },
+        { id: 'secrets-scan', exit: 0, src: null },
+      ],
+      head: sha40, headShort: 'bbb2222', passed: 10, failed: 0,
+    },
+    GREEN('ccc3333', '2026-11-05T09:00:00Z'), // 旧 schema 兼容：门数取数字、无 head/src 尾注
+  ];
+  fs.writeFileSync(path.join(d, '.agents', 'verifications.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const r = run(d);
+  const doc = fs.readFileSync(path.join(d, 'workflow', 'verify-evidence.md'), 'utf8');
+  check('场景 5：新 schema 行渲染 head=全 SHA（入库视图携带锚）',
+    r.code === 0 && doc.includes(`head=${sha40}`), doc);
+  check('场景 5：项目侧桩 src 相对根渲染、null src 省略（桩替换在视图可对质）',
+    doc.includes('src=check-loop:.agents/scripts/check-loop.mjs') && !doc.includes('src=secrets-scan'), doc);
+  check('场景 5：门数列对数组 schema 取长度', doc.includes('| 2 | PASS 10 / FAIL 0 |'), doc);
+  check('场景 5：旧 schema 行（gates 数字）兼容渲染', doc.includes('| 14 | PASS 664 / FAIL 0 |'), doc);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

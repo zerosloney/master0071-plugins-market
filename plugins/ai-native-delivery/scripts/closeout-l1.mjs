@@ -119,7 +119,9 @@ function freshVerifyOf(root) {
   try {
     const p = path.join(root, '.agents', 'verifications.jsonl');
     if (!fs.existsSync(p)) return false;
-    return hasFreshVerifyLine(fs.readFileSync(p, 'utf8').split(/\r?\n/));
+    // ctx 传 root（2026-11 续单）：绿行 head 字段的 git 锚核验环境——verify.mjs 自本版起落 head，
+    // 裸调会把全部合法新绿凭证判不可信（预检恒拦——功能回归）。
+    return hasFreshVerifyLine(fs.readFileSync(p, 'utf8').split(/\r?\n/), Date.now(), { cwd: root });
   } catch {
     return false;
   }

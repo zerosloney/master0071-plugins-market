@@ -31,6 +31,9 @@
 //   合并结果的行集合须 ⊇ 两父各自行集之并（一行不丢）且 ⊆ 该并集（一行不造）。jsonl-union 策略
 //   （多 worktree 并行确认的根基）与线性前缀模型天生矛盾，本判据对齐审计实质：确认行不被丢、
 //   不被造。合并通过后以合并 blob 续扫。
+//   合并缝（2026-11-05 merge-gap）：文件生于第二父、首父无此路径时，旧判据在「取第一父基线得 null」
+//   处整文件跳过——合并只留第二父行集子集既不判删除也漏并集对账，跨父丢行 exit 0。现多父且任一父
+//   有此路径时照常做父母并集对账（同一 mergeUnionProblem 判据），不再因首父无 blob 而静默放行。
 //
 // 历史基线（2026-10-13 ledger-history-baseline，仓库所有者声明）：HISTORY_BASELINE 之前的提交不进
 //   前缀扫描——该时代（manifest 特许修剪机制 2026-10-09 之前 + 合并感知 2026-10-13 之前）的删改
@@ -493,7 +496,30 @@ function scanHistory(rel, { allowShardDelete }) {
     // 会拿另一侧提交当基准产生伪前缀破坏（M2 夹具实证）；根提交（无父）视为新文件起步。
     const parents = parentShas(sha);
     const base = parents.length ? tryBlob(`${parents[0]}:${rel}`) : null;
-    if (base === null) continue; // 首现（父无此路径）：无基线可比，行级校验兜底
+    if (base === null) {
+      // 首现（父无此路径）：单父（根/新建文件）无基线可比，行级校验兜底——原语义不变。
+      // 合并缝（2026-11-05 merge-gap 修复）：分片/台账生于**第二父**、合并只留其行集子集时，旧代码
+      // 在此整文件 continue——既不判删除也漏并集对账，跨父丢行 exit 0（实证形态：第二父创建分片
+      // s1+s2，合并解析只留 s1）。多父时改为对**每个父**分别取基线做并集对账（mergeUnionProblem
+      // 原语义最小扩展：任一父有该路径即以其行为基线之一，本提交行集须恰为各父行集之并——无丢失、
+      // 无凭空行），不再因首父无此路径而整文件跳过。
+      if (parents.length < 2) continue;
+      const anyParentHas = parents.some((p) => tryBlob(`${p}:${rel}`) !== null);
+      if (!anyParentHas) continue; // 两父皆无此路径：本提交首次入库（无基线），行级校验兜底（原语义）
+      const unionFail = mergeUnionProblem(parents, rel, cur);
+      if (!unionFail) {
+        console.error(`[info] ${sha.slice(0, 10)}：合并（首父无此路径）并集无丢失——union 合并语义认可，续扫`);
+        continue;
+      }
+      // union 不过 → manifest 集合对账（与既有合并判定同序：分支修剪借合并落地，须携带凭据）
+      const setFail = mergePruneProblem(parents, rel, cur, loadManifest(`${sha}:${MANIFEST_REL}`));
+      if (!setFail) {
+        console.error(`[info] ${sha.slice(0, 10)}：合并（首父无此路径）携带特许修剪——父母并集集合对账通过`);
+        continue;
+      }
+      problems.push(`- [前缀破坏] ${sha.slice(0, 10)}（合并）：${rel} 首父无此路径、第二父行集被合并丢弃：并集对账失败：${unionFail}；修剪集合对账：${setFail}`);
+      continue;
+    }
     if (parents.length >= 2) {
       // 多父提交无条件走并集对账（2026-10-13 复核②实修：前缀通过不得短路——ours-resolution 合并
       // 树与第一父逐字节同 blob，嵌套判法对静默丢行全盲）

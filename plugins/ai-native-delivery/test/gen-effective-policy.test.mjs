@@ -75,12 +75,15 @@ const run = (root, ...args) => {
     `gen=${gen.status} docViewDate=${(doc.match(/视图日期 (\S+)/) || [])[1]} check=${chk.code}\n${chk.out}`);
 }
 
-// 场景 3：非法版本号 → 回落 v1（渲染回落声明）；缺 engine.json → 同 v1
+// 场景 3：非法版本号 → fail-closed 拒产出（policy.mjs 自 2026-11 起不再静默回落 v1——
+//   回落会整段关停 §3x/§23 门禁，属审查 Major 的裁决语义变更）；缺 engine.json → 仍同 v1
 {
   const d = mkfix(99);
   const r = run(d);
-  const doc = fs.readFileSync(path.join(d, 'workflow', 'effective-policy.md'), 'utf8');
-  check('场景 3a：非法 policyVersion=99 → 回落 v1 且声明回落', r.code === 0 && doc.includes('**policyVersion 1**') && doc.includes('已回落'), doc);
+  const produced = fs.existsSync(path.join(d, 'workflow', 'effective-policy.md'));
+  check('场景 3a：非法 policyVersion=99 → 非零退出 + 指引 + 不产出视图',
+    r.code !== 0 && /policyVersion/.test(r.out) && !produced,
+    `code=${r.code} produced=${produced}\n${r.out}`);
   const d2 = mkfix(undefined);
   const doc2run = run(d2);
   const doc2 = fs.readFileSync(path.join(d2, 'workflow', 'effective-policy.md'), 'utf8');

@@ -96,7 +96,10 @@ const root = mkRepo();
 
   check('update_ledger .. 逃逸 → isError', isError(replies.get(4)), JSON.stringify((replies.get(4) || {}).result));
   check('update_ledger 绝对路径 → isError', isError(replies.get(5)), JSON.stringify((replies.get(5) || {}).result));
-  check('未知工具 → isError', isError(replies.get(6)), JSON.stringify((replies.get(6) || {}).result));
+  // 2026-11-05 同步注明：unknown tool 由「isError 结果」改为 JSON-RPC 规范的 -32602 error 回包
+  //（审查 m1 顺带修——isError 结果是「工具执行了但失败」的形态，工具不存在根本没执行，
+  //  两者不该共用一个形态；协议层回包对齐姊妹实现 systemone server.mjs 的 RpcError(-32602)）。
+  check('未知工具 → -32602 error 回包', replies.get(6)?.error?.code === -32602, JSON.stringify(replies.get(6)));
 }
 
 // ---- 显式 root 落在插件根内 → 拒绝（2026-10-29 修复）----
@@ -339,6 +342,78 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   } finally {
     fs.rmSync(sroot, { recursive: true, force: true });
   }
+}
+
+// ---- 协议层闸门：无 id / 非法 id / 版本外（2026-11-05 市场审查）----
+// 此前：无 id 通知被回包（且回包缺 id 字段，宿主无法配对）、无 id tools/call 照样执行副作用
+// 工具、非法对象 id 原样回显。修复后（照 systemone server.mjs 四道闸）：无 id 一律不回包且
+// 不执行工具（通知语义不触发工具）；id 非字符串/数字拒收；jsonrpc 版本白名单外拒收。
+{
+  const { replies: gate, proc } = call(root, [
+    { jsonrpc: '2.0', method: 'ping' }, // 通知（无 id）→ 不回包
+    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'update_ledger', arguments: { file: 'workflow/gate-echo.md', content: 'must not exist\n', mode: 'create' } } }, // 通知 → 不执行副作用工具
+    { jsonrpc: '1.0', id: 'old', method: 'ping' }, // 版本白名单外 → 拒收
+    { jsonrpc: '2.0', id: { bad: 1 }, method: 'ping' }, // 非法 id（对象）→ 拒收，不回显
+    { jsonrpc: '2.0', id: true, method: 'ping' }, // 非法 id（布尔）→ 拒收
+    { jsonrpc: '2.0', id: 'alive', method: 'ping' }, // 闸门之后服务照常应答
+  ]);
+  const lines = (proc.stdout || '').split('\n').filter((l) => l.trim());
+  check('协议闸门后恰好 1 条回包（无 id / 非法 id / 版本外全部静默）',
+    lines.length === 1 && Boolean(gate.get('alive')), proc.stdout);
+  check('无 id tools/call → 副作用未发生', !fs.existsSync(path.join(root, 'workflow', 'gate-echo.md')),
+    fs.readdirSync(path.join(root, 'workflow')).join(','));
+}
+
+// ---- schema 类型/枚举执行（2026-11-05 市场审查）----
+// 此前协议层只查未知键与 required，schema 声明的 type/enum 完全不执行：doc:123 静默丢弃、
+// strict_quote:"yes" 静默按 false、update_ledger content:123 落盘 "123\n"。修复后类型/枚举在
+// 协议层拒收（错误消息点名参数/期望/实际），handler 侧宽松兜底保留作防御纵深。
+{
+  const { replies: types } = call(root, [
+    { jsonrpc: '2.0', id: 'ty1', method: 'tools/call', params: { name: 'confirm', arguments: { task: 't', decision: 'd', evidence: 'e', doc: 123 } } },
+    { jsonrpc: '2.0', id: 'ty2', method: 'tools/call', params: { name: 'confirm', arguments: { task: 't', decision: 'd', evidence: 'e', strict_quote: 'yes' } } },
+    { jsonrpc: '2.0', id: 'ty3', method: 'tools/call', params: { name: 'update_ledger', arguments: { file: 'workflow/type-echo.md', content: 123, mode: 'append' } } },
+    { jsonrpc: '2.0', id: 'ty4', method: 'tools/call', params: { name: 'verify_gate', arguments: { lane: 'turbo' } } },
+  ]);
+  const textOf = (id) => {
+    const r = types.get(id);
+    return r && r.result && Array.isArray(r.result.content) ? r.result.content[0].text : '';
+  };
+  check('doc:123 → 参数错（点名参数与 string/number）',
+    isError(types.get('ty1')) && /"doc"/.test(textOf('ty1')) && /string/.test(textOf('ty1')) && /number/.test(textOf('ty1')),
+    JSON.stringify(types.get('ty1')));
+  check('strict_quote:"yes" → 参数错（点名 boolean）',
+    isError(types.get('ty2')) && /"strict_quote"/.test(textOf('ty2')) && /boolean/.test(textOf('ty2')),
+    JSON.stringify(types.get('ty2')));
+  check('content:123 → 参数错（且未落盘）',
+    isError(types.get('ty3')) && /"content"/.test(textOf('ty3')) && !fs.existsSync(path.join(root, 'workflow', 'type-echo.md')),
+    JSON.stringify(types.get('ty3')));
+  check('lane:"turbo" → 枚举错（点名参数与候选）',
+    isError(types.get('ty4')) && /"lane"/.test(textOf('ty4')) && /hard/.test(textOf('ty4')),
+    JSON.stringify(types.get('ty4')));
+}
+
+// ---- stdout EPIPE：宿主销毁读端 → 静默 exit 0（2026-11-05 市场审查）----
+// server.mjs 此前无 stdout error 处理：宿主正常关停时挂起的 write 抛 EPIPE → uncaught 崩栈
+// exit 1。修复后 EPIPE 静默 exit 0（口径同 systemone server.mjs），其余异常记 stderr 后退出。
+{
+  const { spawn } = await import('node:child_process');
+  const out = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [SERVER], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderrTxt = '';
+    child.stderr.on('data', (c) => { stderrTxt += c; });
+    // 回包洪流压进管道后立刻销毁读端：挂起/排队中的 write 必撞断管（单条 ping 有冲掉前先完成竞态）
+    const flood = [];
+    for (let i = 0; i < 300; i++) flood.push(JSON.stringify({ jsonrpc: '2.0', id: i, method: 'ping' }));
+    child.stdin.write(flood.join('\n') + '\n');
+    child.stdout.destroy();
+    const guard = setTimeout(() => child.kill(), 8000);
+    child.on('exit', (code) => { clearTimeout(guard); resolve({ code, stderrTxt }); });
+    child.on('error', () => { clearTimeout(guard); resolve({ code: -1, stderrTxt }); });
+  });
+  check('宿主销毁 stdout 读端 → exit 0（EPIPE 静默，不崩栈）', out.code === 0,
+    `exit=${out.code} stderr=${out.stderrTxt.slice(0, 200)}`);
+  check('stderr 无 EPIPE 崩栈痕迹', !/EPIPE/.test(out.stderrTxt), out.stderrTxt.slice(0, 200));
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

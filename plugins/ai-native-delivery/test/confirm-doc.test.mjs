@@ -879,6 +879,56 @@ const writeTrust = (root, cfg) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- S40b（2026-11 续单）凭证 git 锚：hard 档 + 绿行带 head=当前 HEAD → 认可落账 ----
+// verify.mjs 自本版起给绿凭证落 head（提交 sha）→ hasFreshVerify 须把 ctx 传给 hasFreshVerifyLine
+// 供 git 锚核验；裸调会把所有带 head 的合法新凭证判不可信（hard 档恒拒——功能回归）。
+// 夹具真仓：approved 态先提交留痕（过 done 前置门），head 取当前 HEAD。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-verify5-'));
+  const docP = path.join(root, 'workflow', 'intents');
+  fs.mkdirSync(docP, { recursive: true });
+  fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'config', 'engine.json'), JSON.stringify({ policyVersion: 8 }), 'utf8');
+  fs.writeFileSync(path.join(docP, '2026-10-07-v.md'),
+    '---\n状态: approved\n级别: L1\n确认指纹: aaaa1111aaaa1111\n---\n# I\n\n## 验收标准（可测试）\n- [x] 用例通过（证据:测试全绿）\n', 'utf8');
+  gitHead(root);
+  gitAt(root, 'add', '-A');
+  gitAt(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'approved');
+  const head = gitAt(root, 'rev-parse', 'HEAD').stdout.trim();
+  fs.writeFileSync(path.join(root, '.agents', 'verifications.jsonl'),
+    `${JSON.stringify({ ts: new Date().toISOString(), exitCode: 0, suite: 'npm test', head })}\n`, 'utf8');
+  const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-10-07-v.md', '--delegated', '可以'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, CONFIRM_DOC_TEST_NOW: '2026-10-11' } });
+  const after = fs.readFileSync(path.join(docP, '2026-10-07-v.md'), 'utf8');
+  check('S40b 凭证 git 锚（hard 档）：绿行 head=当前 HEAD → 认可（done 落态、无凭证 ⚠️ 不出账；修复前裸调判不可信=RED）',
+    r.status === 0 && after.includes('状态: done') && !/无测试绿凭证/.test(r.stderr),
+    JSON.stringify({ status: r.status, stderr: String(r.stderr).slice(0, 200) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S39c（2026-11 续单）凭证 git 锚反例：head 不在当前历史 → 仍不认（advisory ⚠️ 出账）----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-verify6-'));
+  const docP = path.join(root, 'workflow', 'intents');
+  fs.mkdirSync(docP, { recursive: true });
+  fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'config', 'engine.json'), JSON.stringify({ policyVersion: 5 }), 'utf8');
+  fs.writeFileSync(path.join(docP, '2026-10-07-w.md'),
+    '---\n状态: approved\n级别: L1\n确认指纹: bbbb2222bbbb2222\n---\n# I\n\n## 验收标准（可测试）\n- [x] 用例通过（证据:测试全绿）\n', 'utf8');
+  gitHead(root);
+  gitAt(root, 'add', '-A');
+  gitAt(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'approved');
+  fs.writeFileSync(path.join(root, '.agents', 'verifications.jsonl'),
+    `${JSON.stringify({ ts: new Date().toISOString(), exitCode: 0, suite: 'npm test', head: 'f'.repeat(40) })}\n`, 'utf8');
+  const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-10-07-w.md', '--delegated', '可以'],
+    { cwd: root, encoding: 'utf8' });
+  const after = fs.readFileSync(path.join(docP, '2026-10-07-w.md'), 'utf8');
+  check('S39c 凭证 git 锚反例：head 不在历史的绿行 → 仍不认（⚠️ 无测试绿凭证 出账；修复前裸调会认=RED）',
+    r.status === 0 && /无测试绿凭证/.test(r.stderr) && after.includes('状态: done'),
+    JSON.stringify({ status: r.status, stderr: String(r.stderr).slice(0, 200) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // ---- S41 凭证 hard 档分档不追溯：v8 + 锚前日期（2026-10-09 < 2026-10-10）→ 仍 advisory 落账 ----
 {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-verify4-'));

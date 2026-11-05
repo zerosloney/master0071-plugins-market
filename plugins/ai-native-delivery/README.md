@@ -62,6 +62,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - **new-task 首步自动引导**：`commands/new-task.md` §1 定级前检测项目根无 `.agents/config/engine.json` 时，先执行本初始化再定级（命令文本驱动，MCP 工具不做静默自动写盘）；未初始化时 MCP 工具仍返回降级响应（如 `read_context` 的 `{initialized:false, hint}`）而非报错，亦可随时手动执行上面的命令；
 - **落位**：`.agents/`（config 种子、settings.json、confirmations.jsonl + confirmations.d/、cache 等运行时目录）与 `workflow/`（INDEX + 台账骨架）；另写 `.gitignore` 标记块、安装 `.git/hooks/pre-commit` / `pre-push`（已存在同名钩子跳过不覆盖）；
 - 项目侧 `.agents/config/engine.json` 的 policyVersion 与插件种子不同时 WARN 可升级、不自动覆盖。
+- 种子的领域词表 `workflow-modules.txt` 是**模板种子示例**（领域无关最小集，2026-11-05 脱敏：不再携带源项目制造域词）：项目应改写为自有域词表——`kb-search --module` 与 check-loop 模块校验按项目侧这份文件判，已改写内容初始化不覆盖。
 
 ## MCP 工具（7 个）
 
@@ -171,6 +172,18 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.1.12**
+
+全量审查（测试 61 套 + 五单元代码审查：1 Critical / 19 Major / ~45 Minor）A→D 组修复：Critical 1 + Major 19 + 装配种子 4 项落地。
+
+- **C1|陈旧钩子迁移刷新失效**：`init-engine` 判「自装钩子」此前用**当前**插件根前缀——宿主缓存升版换目录后 baked 的是旧根路径，前缀恒不中 → 判为第三方 skip，重跑 no-op、commit 持续 MODULE_NOT_FOUND（头注描述的正是该场景，修复条件排除了它）。现改为「路径含本插件名的独立路径段（带分隔符边界，`-old` 后缀不误命中）且引擎脚本已不存在」即刷新；测试改真实迁移形态（旧版目录 baked）+ 反例。
+- **服务层六项**（多数移植 systemone-decision 姊妹先例）：deny 地板 `git.exe` 形态绕过（词元归一化剥可执行后缀，一处修双判据）；stdin 挂起 14s 预算 killer 先发 ask 再退出（挂起≠静默放行）；matcher↔内核粘连词尾缝收口（`nushell` 类纳入管辖 + 告警兜底）；协议四道闸（无 id 通知不回包不执行、非法 id/jsonrpc 拒收）；stdout EPIPE 静默退出；schema 类型/enum 协议层执行（`strict_quote:"yes"` 不再静默按 false，unknown tool 改回 -32602）。
+- **硬门禁五项**：§1 判低拦截吃行首缩进与「升级至/升至」措辞变体；§15 确认指纹日期兜底回退 git 首加日（无日期+非日期文件名不再整段豁免）；rule-budget 等四门 git 调用 maxBuffer 64MB + ENOBUF fail-closed（>1MB 暂存清单不再静默全过）；泳道面定义与 lane 判定改读 git index/HEAD（工作区仅未跟踪回退，自我豁免面封死）；`policyVersion` 越界不再静默回落 v1 关停门禁——fail-closed 带支持版本列表指引。
+- **凭证链 git 锚 + 来源可对质**：verify 落凭证行带 `head`（当时 HEAD sha）与逐门 `gates[{id,exit,src}]`（脚本实际解析路径，项目侧桩替换从此在凭证与入库视图可对质）；消费侧（confirm-doc hard 档 / closeout-l1 预检 / §8 对账）对带 head 的行校验 `merge-base --is-ancestor`，引用不在当前历史的行不认；无 head 存量行兼容放行。诚实定性：抬门槛 + 可对质的半步加固，非密码学终极。
+- **台账并发补锁**：compact-ledgers 逐分片持锁收缩（并发确认行不再随 unlink 丢失）；splitMain 全程持分片锁（并发追加不再被整写抹掉）；不变量检查器「第二父创建路径」合并形态不再整文件跳过并集对账（跨父丢行可检出）；pipeline-run run 文件互斥（并发 next 响亮失败）+ writeConfirmation 走分片锁——锁统一 `withLedgerLock` 单源。
+- **装配种子四项**：断链的 `commit-check.config.json`「单源」指针改真实口径；制造域词表（material/mto/inventory…）泛化为领域无关示例 + 种子标注（与 NOTICE 脱敏红线对齐）；源项目预算行改注释示例；两个源项目运行 manifest 不再随 init 种子（保留为格式样例）。
+- 验证：五单元均失效测试先行（RED→GREEN）；全量 61 套测试门禁全绿。
 
 **0.1.11**
 

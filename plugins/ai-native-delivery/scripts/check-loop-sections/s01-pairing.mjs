@@ -13,10 +13,14 @@ import {
 } from '../check-loop-kit.mjs';
 
 // 红线判低：非 high 勾了「→ 级别 / 级别至少 L2|L3」即 hard。L1 plan 即入口后，plan 正文同样扫描。
+// （2026-11 市场审查修复两处逃逸：① 行首允许可选缩进——嵌套列表形态「  - [x] …」此前被 /^- \[x\]/
+//   漏判；② 措辞正则补「升级至/升至/升到/升 L2|L3」类变体——「级别升级至 L2」「→ 升 L2」此前
+//   不中判定即放行。既有标准形态（「→ 级别」「级别至少 L2/L3」）逐字节保留，零回归。）
 function pushRedline(file, base, lvl) {
   if (laneOfDoc(lvl) === 'high') return;
   const redlineTouched = (linesOf(file) || [])
-    .some((l) => /^- \[x\]/.test(l) && /(\$\\rightarrow\$|→)\s*级别|级别至少\s*L[23]/.test(l));
+    .some((l) => /^\s*- \[x\]/.test(l)
+      && /(\$\\rightarrow\$|→)\s*级别|级别至少\s*L[23]|(?:升级至|升至|升到|升)\s*L[23]/.test(l));
   if (redlineTouched) {
     blockers.push(`- [红线判低] ${base} 级别为 ${lvl || '缺失'} 但触达红线已勾选（规则/契约或 schema/结构面）——协作道不受理 STOP 级改动：就高不就低，把「级别」升至 L2/L3 并补同名 spec`);
   }

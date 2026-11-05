@@ -5,7 +5,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   LEDGERS, isDataRow, inScope, monthOf, readLedger, readLedgerText,
   splitMain, appendRows, shardPathFor, renderShard,
@@ -429,6 +430,50 @@ const wf = (root, ...p) => path.join(root, 'workflow', ...p);
   check('S23f 分节路径落盘行数 = 种子 + 成功路数（不多不少，无整写覆盖）',
     secRowCount === secRows.length + okCount, `实得 ${secRowCount}，种子 ${secRows.length}，成功 ${okCount}/${N}`);
 
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S24 splitMain 持锁读-改-写（2026-11-05 并发修复回归）----
+// 旧实现「读主→写分片→重写主」全程无锁：--split 与 --append/MCP append 并发同月分片时，
+// split 拿陈旧分片快照整写，把并发追加的行整个抹掉。修复后写分片全程持 `<分片>.lock`
+//（与 appendRows/MCP 同一把锁）。确定性复现：先让子进程持住分片锁（空转 > withLedgerLock
+// 等待上限 3s、< 陈旧接管线 15s），再跑 --split——修复前照样整写成功（exit 0、分片被改写），
+// 修复后响亮失败（exit 非 0、分片逐字节原样），锁释放后重跑迁移成功。
+{
+  const root = mkroot();
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href; // 子进程 import() 用 URL
+  const cli = fileURLToPath(new URL('../scripts/ledger-shards.mjs', import.meta.url)); // spawnSync argv 用路径
+  fs.writeFileSync(wf(root, 'papercuts.md'), [
+    '| 日期 | 位置 | 症状 | 拟修 |', '|------|------|------|------|',
+    '| 2026-11-01 | 待迁行 | s | f |', '',
+  ].join('\n'), 'utf8');
+  fs.mkdirSync(wf(root, 'papercuts.d'), { recursive: true });
+  const shard = wf(root, 'papercuts.d', '2026-11.md');
+  const seedShard = '| 2026-11-01 | 种子行 | s | f |\n';
+  fs.writeFileSync(shard, seedShard, 'utf8');
+
+  const child = spawn(process.execPath, [
+    '-e',
+    `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+    shard,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+  for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(shard + '.lock'); if (!locked) sleepSync(25); }
+  check('S24 前置：子进程已持住分片锁', locked);
+  if (locked) {
+    const p = spawnSync(process.execPath, [cli, '--split', 'papercuts'], { cwd: root, encoding: 'utf8' });
+    check('S24a 持锁期间 --split → 响亮失败（exit 非 0）', p.status !== 0, `status=${p.status} out=${p.stdout} err=${p.stderr}`);
+    check('S24b 失败报「写锁等待超时」', /写锁等待超时/.test(p.stderr || ''), p.stderr);
+    check('S24c 分片逐字节原样（未被陈旧快照整写）', fs.readFileSync(shard, 'utf8') === seedShard, fs.readFileSync(shard, 'utf8'));
+    check('S24d 主台账未被动（迁移未发生）', fs.readFileSync(wf(root, 'papercuts.md'), 'utf8').includes('待迁行'));
+  }
+  // 等锁释放（最长 20s）后重跑 → 迁移成功
+  for (let i = 0; i < 800 && fs.existsSync(shard + '.lock'); i++) sleepSync(25);
+  child.kill();
+  const p2 = spawnSync(process.execPath, [cli, '--split', 'papercuts'], { cwd: root, encoding: 'utf8' });
+  check('S24e 锁释放后重跑 --split → 迁移成功', p2.status === 0, p2.stderr);
+  check('S24f 待迁行已迁入分片', fs.readFileSync(shard, 'utf8').includes('待迁行'), fs.readFileSync(shard, 'utf8'));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

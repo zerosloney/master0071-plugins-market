@@ -485,5 +485,39 @@ const SURFACES_SEG = '## engine\n^\\.agents/(scripts|hooks)/\n## product\n^backe
   check('第一父不是 40 位 sha → before 为空', badParent.before === null, JSON.stringify(badParent));
 }
 
+// --- 2026-11 市场审查修复（index 取数）：pre-commit 判定面改读 git index/HEAD，工作区版本不再生效 ---
+// IX1：已提交 L1 intent、工作区改 L2 不重暂存 → 门按 index 判 L1 仍拦（修复前读工作区放行——自我豁免面）
+{
+  const d = mkfix();
+  const g = (a) => spawnSync('git', ['-c', 'core.quotepath=off', ...a], { cwd: d, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  w(d, '.agents/config/lane-surfaces.txt', '^templates/\n');
+  w(d, 'workflow/intents/2026-09-28-ix.md', intent('x', '状态: approved\n级别: L1\n日期: 2026-09-28\n模块: ui'));
+  g(['add', '-A']); g(['commit', '-qm', 'base']);
+  // 工作区把级别改成 L2，不重暂存
+  w(d, 'workflow/intents/2026-09-28-ix.md', intent('x', '状态: approved\n级别: L2\n日期: 2026-09-28\n模块: ui'));
+  const r = run(d, { staged: ['templates/t.md'] });
+  check('IX1 index 判定：工作区 L2 未重暂存 → 门仍按 index L1 拦（修复前读工作区放行）',
+    r.code === 1 && r.out.includes('[触达面判低]'), r.out);
+}
+// IX2/IX2b：工作区削弱 lane-surfaces 不暂存 → 门仍按 index 版清单执法（修复前读工作区静默跳过）；
+// 削弱版随本批暂存（进 index）→ 按暂存态放行（一进一出流程保留，同 rule-budget T10 口径）
+{
+  const d = mkfix();
+  const g = (a) => spawnSync('git', ['-c', 'core.quotepath=off', ...a], { cwd: d, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  w(d, '.agents/config/lane-surfaces.txt', '^templates/\n');
+  w(d, 'workflow/intents/2026-09-28-ix2.md', intent('x', '状态: approved\n级别: L1\n日期: 2026-09-28\n模块: ui'));
+  g(['add', '-A']); g(['commit', '-qm', 'base']);
+  w(d, '.agents/config/lane-surfaces.txt', '# weakened\n');
+  const r = run(d, { staged: ['templates/t.md'] });
+  check('IX2 index 清单：工作区削弱未暂存 → 门仍按 index 清单拦（修复前读工作区跳过）',
+    r.code === 1 && r.out.includes('[触达面判低]'), r.out);
+  g(['add', '.agents/config/lane-surfaces.txt']);
+  const r2 = run(d, { staged: ['templates/t.md'] });
+  check('IX2b 削弱版随本批暂存 → 按 index 态放行（一进一出保留）',
+    r2.code === 0 && !r2.out.includes('[触达面判低]'), r2.out);
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

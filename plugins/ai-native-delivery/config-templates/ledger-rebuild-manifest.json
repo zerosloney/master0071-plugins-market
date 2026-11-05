@@ -1,4 +1,5 @@
 {
+  "_note": "样例文件，不随 init-engine 种子（2026-11-05）：本文件是特许重建（finalRows 指纹清单对账）的格式样例——正文为源项目一次 owner 授权重建的凭据与授权原文，属运行数据，按「运行数据不迁」红线不落入使用项目。真实重建时按本格式在项目侧新建 .agents/config/ledger-rebuild-manifest.json 随提交携带，由 check-ledger-invariant 对账消费。",
   "ts": "2026-10-18T15:21:02.469Z",
   "authority": "仓库所有者对话内指令（2026-10-18）：「a」——对接手会话报告的确认分片事故（两次失误链：分片手动合并序反 + 入史后整文件重写）授权一次性特许重建",
   "reason": "分片 2026-10-18-po-line-close-caliber-asymmetry.jsonl 立档提交时带病入库（cat 合并时序颠倒：晚 ts 行在前；且 3 行 doc 为基名对齐前旧路径）。本重建仅对 HEAD 既有 5 行按 ts 稳定排序（纯重排：零删除、零新增、行内容零改动）；旧路径行合法性由 workflow/archive/2026-10/ 下三个 superseded 转向占位承载（行级校验④归档感知）。基名对齐后的新追加行走正常前缀扩展通道，不经本 manifest。",

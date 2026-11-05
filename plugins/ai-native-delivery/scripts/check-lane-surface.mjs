@@ -39,10 +39,14 @@
 //   本 CI 模式不做树级反推，判据是「diff 文件清单 + diff 内文档 frontmatter」两份一手事实。
 //   标记是加固门覆盖率的前提且补写零成本——advisory 免的是纪律负担，不免标记本身。
 // 判据原则（incidents/2026-09-28-batch-ledger-audit 教训）：只用一手事实——暂存/diff 文件清单、
-//   当前分支名、工作区 frontmatter 字段；不用时间戳 / 字符串相等反推过程事实。
+//   当前分支名、判定用 frontmatter 字段；不用时间戳 / 字符串相等反推过程事实。
+//   pre-commit 判定源单点（2026-11 市场审查修复「自我豁免面」，同源先例 rule-budget readBudgets）：
+//   面清单与判定用 frontmatter/家族正文一律取**提交后**内容（git index → HEAD → 工作区 → 插件种子，
+//   详见下方 committedText 注）——工作区削弱清单不暂存 / 工作区留 L2 版不重暂存不再生效。
 // 边界：git 调用一律 -c core.quotepath=off（非 ASCII 路径教训，先例见 papercuts 2026-09）；
 //   frontmatter 读取容忍 CRLF（显式按 \r?\n 切分）；detached HEAD 分支不可判 → A 按 strict、
-//   B 跳过（沿 pairing 门先例）；配置行正则语法错误 → fail-closed（防静默空洞）。
+//   B 跳过（沿 pairing 门先例）；配置行正则语法错误 → fail-closed（防静默空洞）；
+//   git spawn 层故障（起不来 / 输出超限 ENOBUFS，maxBuffer 64MB）→ fail-closed（门不放行）。
 // 用法：node check-lane-surface.mjs [--merge] [--root <dir>] [--branch <名>] [--staged-file <清单文件>]
 //       node check-lane-surface.mjs --ci [--base <基准rev>] [--root <dir>] [--ci-file <清单文件>]
 //   （--root/--branch/--staged-file/--ci-file 为测试注入位；缺省自 git 发现。staged/ci-file 每行一个仓库相对路径）
@@ -53,6 +57,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { laneOfDoc } from './stage-gates.mjs';
 import { loadKitPolicy } from './policy.mjs';
+import { PLUGIN_CONFIG_TEMPLATES_DIR } from './paths.mjs';
 
 // 本次构建关联提交里时间最早的一笔。changes 为 CI 平台 changes API 的 JSON（{value:[]}）或数组。
 // 缺 id、或任一笔没有 timestamp（无法判定谁更老）→ null，调用方退回 HEAD~1。
@@ -82,8 +87,16 @@ const argOf = (k) => {
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : '';
 };
 
+// maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：默认 1MB 在大暂存清单
+// 下即 ENOBUFS——现役 pre-commit 门拿到空/截断清单静默放行。spawn 层故障（git 起不来 / 输出超限）
+// 一律 fail-closed；git 正常报告的业务失败（非 git 目录、对象不存在）维持既有 ok=false 语义。
+const GIT_MAXBUF = 64 * 1024 * 1024;
 const gitRun = (cwd, gitArgs) => {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd, encoding: 'utf8' });
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
+  if (r.error) {
+    console.error(`泳道完整性— BLOCK:\n  [git 输出超限/失败] ${r.error.code || r.error.message}——git 输出超限/失败，门不放行（fail-closed）\n`);
+    process.exit(1);
+  }
   return { ok: r.status === 0, out: String(r.stdout || '') };
 };
 const gitOut = (cwd, gitArgs) => {
@@ -103,15 +116,39 @@ const baseArg = argOf('--base');
 const isExperiment = /^experiment\//.test(BRANCH);
 // 泳道协议锚（单源 policy.mjs）：无 engine.json 的测试夹具回落 v1（无键=双字段协议从未生效，单字段判）
 
-// frontmatter 读取（CRLF 容忍；口径同 check-loop fmGet：--- 包夹、键行前缀匹配）
-const fmOf = (file) => {
-  const fm = {};
-  let lines;
-  try {
-    lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-  } catch {
-    return fm;
+// ---- pre-commit 判定源单点（2026-11 市场审查修复「自我豁免面」）----
+// 此前 lane-surfaces.txt 与判定用 frontmatter 均读**工作区**：工作区削弱清单不暂存 / 工作区留
+// L2 版不重暂存即可绕过本门（rule-budget readBudgets 头注同源先例）。修复后 pre-commit 模式
+// 一律取「提交后」内容：git index（git show :<rel>）→ HEAD（未跟踪）→ 工作区（装户 bootstrap：
+// 面清单/入口文档常随本批首次进库，此形态 index 已命中，工作区仅为非 git 夹具与未跟踪新件兜底）
+// → 插件种子只读默认（仅面清单；仅 git 仓内——非 git 目录是纯夹具形态，保持「缺失即跳过」契约）。
+// CI 模式（--ci）维持原工作区/HEAD 口径不动。
+const SURFACES_REL = '.agents/config/lane-surfaces.txt';
+const IN_GIT = CI ? false : gitRun(ROOT, ['rev-parse', '--git-dir']).ok;
+const wsText = (rel) => {
+  try { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch { return null; }
+};
+const showRef = (ref) => {
+  const r = gitRun(ROOT, ['show', ref]);
+  return r.ok ? String(r.out) : null;
+};
+const committedCache = new Map();
+const committedText = (rel, { seed = '' } = {}) => {
+  if (committedCache.has(rel)) return committedCache.get(rel);
+  let text = null;
+  if (IN_GIT) text = showRef(`:${rel}`) ?? showRef(`HEAD:${rel}`);
+  if (text === null) text = wsText(rel);
+  if (text === null && IN_GIT && seed) {
+    try { text = fs.readFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, seed), 'utf8'); } catch { /* 种子缺失 → null */ }
   }
+  committedCache.set(rel, text);
+  return text;
+};
+
+// frontmatter 读取（CRLF 容忍；口径同 check-loop fmGet：--- 包夹、键行前缀匹配）
+const fmOfText = (text) => {
+  const fm = {};
+  const lines = String(text || '').split(/\r?\n/);
   if (!/^---\s*$/.test(lines[0] || '')) return fm;
   for (let i = 1; i < lines.length; i++) {
     if (/^---\s*$/.test(lines[i])) break;
@@ -119,6 +156,15 @@ const fmOf = (file) => {
     if (m) fm[m[1].trim()] = m[2].trim();
   }
   return fm;
+};
+const fmOf = (file) => {
+  let text = null;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return {};
+  }
+  return fmOfText(text);
 };
 
 // workflow 入口文档的泳道。非 intents/incidents、或 _TEMPLATE → null。
@@ -130,7 +176,7 @@ const fmOf = (file) => {
 //   带入 diff，原正则只认活跃路径 → 漏认协伴、把合法合并误拦。
 const workflowDocLane = (rel) => {
   if (!/^workflow\/(?:archive\/[^/]+\/)?(intents|incidents)\/[^/]+\.md$/.test(rel) || path.basename(rel) === '_TEMPLATE.md') return null;
-  const fm = fmOf(path.join(ROOT, rel));
+  const fm = CI ? fmOf(path.join(ROOT, rel)) : fmOfText(committedText(rel));
   return laneOfDoc(fm['级别'] || '');
 };
 
@@ -142,11 +188,14 @@ const workflowDocLane = (rel) => {
 //   标记行出现前的 ERE 默认 engine（向后兼容装户既有清单）。
 const SECTION_RE = /^##\s*(engine|product)\s*$/i;
 const loadPatterns = () => {
-  const file = path.join(ROOT, '.agents', 'config', 'lane-surfaces.txt');
-  if (!fs.existsSync(file)) return [];
+  // pre-commit 取「提交后」面清单（见上方判定源单点注）；CI 维持工作区口径（文件缺失 = 跳过）
+  const text = CI
+    ? wsText(SURFACES_REL)
+    : committedText(SURFACES_REL, { seed: 'lane-surfaces.txt' });
+  if (text === null) return [];
   const bad = [];
   let cls = 'engine';
-  const pats = fs.readFileSync(file, 'utf8')
+  const pats = String(text)
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l && (!l.startsWith('#') || SECTION_RE.test(l))) // 段标记以 # 起头但须保留（先于注释过滤识别）
@@ -177,12 +226,13 @@ const ACTIVE = {
 };
 const collectActive = () => {
   const out = [];
+  // 判定用 frontmatter 取「提交后」内容（pre-commit 模式独占本函数；见判定源单点注）
   for (const [dir, kind, dateKey] of [['intents', 'intent', '日期'], ['incidents', 'incident', '发现']]) {
     const dirPath = path.join(ROOT, 'workflow', dir);
     if (!fs.existsSync(dirPath)) continue;
     for (const f of fs.readdirSync(dirPath).sort()) {
       if (!f.endsWith('.md') || f === '_TEMPLATE.md') continue;
-      const fm = fmOf(path.join(dirPath, f));
+      const fm = fmOfText(committedText(`workflow/${dir}/${f}`));
       if (!ACTIVE[kind].has(fm['状态'] || '')) continue;
       const lane = laneOfDoc(fm['级别'] || '');
       out.push({ rel: `workflow/${dir}/${f}`, base: f.replace(/\.md$/, ''), level: fm['级别'] || '', lane, date: fm[dateKey] || '', status: fm['状态'] || '', kind });
@@ -193,7 +243,7 @@ const collectActive = () => {
     for (const f of fs.readdirSync(planDir).sort()) {
       if (!f.endsWith('.md') || f === '_TEMPLATE.md') continue;
       if (fs.existsSync(path.join(ROOT, 'workflow', 'intents', f)) || fs.existsSync(path.join(ROOT, 'workflow', 'incidents', f))) continue;
-      const fm = fmOf(path.join(planDir, f));
+      const fm = fmOfText(committedText(`workflow/plans/${f}`));
       if (fm['级别'] !== 'L1' || !ACTIVE.intent.has(fm['状态'] || '')) continue;
       const lane = laneOfDoc(fm['级别'] || '');
       out.push({ rel: `workflow/plans/${f}`, base: f.replace(/\.md$/, ''), level: 'L1', lane, date: fm['日期'] || '', status: fm['状态'] || '', kind: 'plan' });
@@ -203,14 +253,15 @@ const collectActive = () => {
 };
 
 // 产品路径 p 被家族正文罩住：正文含仓库相对路径原文；schema / 数据修复 SQL 另认批次目录。
+// 家族正文同取「提交后」内容（工作区正文改写未暂存不生效——同一自我豁免面）。
 const BATCH_DIR = /^(wiki\/数据维护\/(?:schema变更|数据修复)\/[^/]+)\//;
 const familyText = (entry) => {
   const rels = [entry.rel, `workflow/specs/${entry.base}.md`, `workflow/plans/${entry.base}.md`];
   let text = '';
   for (const rel of rels) {
-    const abs = path.join(ROOT, rel);
-    if (!fs.existsSync(abs)) continue;
-    text += `\n${fs.readFileSync(abs, 'utf8')}`;
+    const t = committedText(rel);
+    if (t === null) continue;
+    text += `\n${t}`;
   }
   return text;
 };

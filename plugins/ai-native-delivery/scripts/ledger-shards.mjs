@@ -192,6 +192,8 @@ export function readDelegationsText(root, file = null) {
 
 // splitMain(root, name, { dryRun })：把主台账里的数据行按月迁入分片（幂等：已迁走的行不再出现）。
 // 返回 { moved: {month: count}, kept: 主台账保留行数 }。主台账保留非数据行（说明/规则/表头/生成区）。
+// 写分片全程持 `<分片>.lock`（2026-11-05，与 appendRows/MCP 同一把锁）——锁等待超时抛错（fail-loud），
+// 不用陈旧快照整写（那会抹掉并发追加的行）。
 export function splitMain(root, name, { dryRun = false } = {}) {
   const mainP = ledgerPath(root, name);
   if (!fs.existsSync(mainP)) throw new Error(`台账不存在: ${mainP}`);
@@ -218,17 +220,23 @@ export function splitMain(root, name, { dryRun = false } = {}) {
   if (dryRun) return { moved, kept: kept.length, byMonth };
   // 写分片：已存在的分片保留原内容，新行追加——**按行去重**（幂等：重跑不重复追加）。
   // 2026-10-13 实测踩中：无去重时二次 split 把 58 行重复写入（120 行 vs 62 行）。
+  // 2026-11-05 并发修复：每个分片的「重读现状→追加→整写」全程持 `<分片>.lock`（withLedgerLock，
+  // 与 appendRows/MCP 同一把锁）。此前无锁整写：--split 与 --append/MCP 并发同月分片时，split 拿
+  // 陈旧分片快照整写，把并发追加的行整个抹掉。逐分片持锁（而非全持）：追加者只写自己那一个月的
+  // 分片，跨月互不相干；主台账重写不触分片（追加者从不写主台账），无锁也无不变量风险。
   for (const [month, rows] of byMonth) {
     const p = shardPathFor(root, name, month);
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
-    const existingRows = new Set(existing.split(/\r?\n/).filter((l) => l.trim()));
-    const fresh = rows.filter((r) => !existingRows.has(r.line));
-    if (!fresh.length) continue; // 全部已在分片 → 不写（幂等）
-    const next = existing
-      ? `${existing.replace(/\s*$/, '')}${eol}${fresh.map((r) => r.line).join(eol)}${eol}`
-      : renderShard(name, fresh, eol);
-    fs.writeFileSync(p, next, 'utf8');
+    withLedgerLock(p, () => {
+      const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+      const existingRows = new Set(existing.split(/\r?\n/).filter((l) => l.trim()));
+      const fresh = rows.filter((r) => !existingRows.has(r.line));
+      if (!fresh.length) return; // 全部已在分片 → 不写（幂等）
+      const next = existing
+        ? `${existing.replace(/\s*$/, '')}${eol}${fresh.map((r) => r.line).join(eol)}${eol}`
+        : renderShard(name, fresh, eol);
+      fs.writeFileSync(p, next, 'utf8');
+    });
   }
   // 主台账：保留行 + 尾部空行规整
   const out = kept.join(eol).replace(/(\r?\n)+$/, '') + eol;
@@ -505,7 +513,14 @@ function main() {
     const name = argv[splitIdx + 1];
     if (!LEDGERS[name]) { console.error(`--split 须指定台账名（${Object.keys(LEDGERS).join('|')}）`); process.exit(2); }
     const dry = argv.includes('--dry-run');
-    const r = splitMain(root, name, { dryRun: dry });
+    let r;
+    try {
+      r = splitMain(root, name, { dryRun: dry });
+    } catch (err) {
+      // 迁移失败的统一出口（含分片写锁等待超时）：响亮退出，主台账未重写、未处理分片原样，重跑安全
+      console.error(`迁移失败：${err.message}`);
+      process.exit(1);
+    }
     console.log(`${dry ? '[dry] ' : ''}${name}: 迁出 ${Object.values(r.moved).reduce((a, b) => a + b, 0)} 行 → ${JSON.stringify(r.moved)}｜主台账保留 ${r.kept} 行`);
     return;
   }

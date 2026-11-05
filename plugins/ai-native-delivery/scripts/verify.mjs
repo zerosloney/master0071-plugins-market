@@ -32,6 +32,11 @@
 //   **分层跑（2026-10-23，P0-1 改口径）**：engine-code 触面 → 引擎套件全量；业务/文档面 →
 //     `npm test -- --fast`（跳过最慢 9 套件，不再整门跳过）。全量 / --engine / CI / 零裁剪仍全量。
 //     绿行 `fastTests` 标记可审计。
+//   **凭证链写入侧加固（closeout-anchor 2026-11-05）**：① 凭证行（绿/红）带 head = 落账时刻
+//     HEAD 全 SHA（无 HEAD 显式写 null；消费侧 policy 对含 head 行做 merge-base --is-ancestor
+//     祖先校验——伪造绿行须锚进真 git 史）；② 全绿凭证行 gates 改为逐门 provenance 数组
+//     [{id, exit, src}]，src = 门执行脚本的 scriptPath 解析结果（项目侧 .agents/scripts 优先：
+//     桩替换在凭证与入库视图里可对质；无脚本门 src=null）。旧「gates: 通过门数」计数由数组长度取代。
 //   --list：按执行序打印门 id 后退出（含 RUN_E2E=1 时的条件门），不执行；不参与默认裁剪（门表恒 20）。
 //   --jobs / --serial：并发档位与串行回退（见上「编排」）。
 // 沿革：verify-evidence（凭证落账）；2026-10-09 统一质量检查门禁 d009965（九门）；
@@ -62,6 +67,26 @@ const ROOT = LEDGER.root || PLUGIN_ROOT;
 // 引擎门命令（2026-10-27 插件化迁移）：门表逐字保真，仅脚本定位改走 scriptPath——
 // 项目侧 .agents/scripts/<name> 优先（源仓形态 / 测试夹具副本），回退插件内本体（paths.mjs 单源）。
 const eng = (name) => `node "${scriptPath(ROOT, name)}"`;
+
+// head 锚（closeout-anchor 2026-11-05）：凭证行的 HEAD 全 SHA（git rev-parse HEAD）。
+// 无 HEAD（非 git 环境 / 空仓）返回 null——凭证行显式写 null，不伪造、不省键；
+// 消费侧（policy.mjs）对含 head 行做 merge-base --is-ancestor 祖先校验。
+const headSha = () => {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: ROOT });
+  const sha = r.status === 0 ? String(r.stdout || '').trim() : '';
+  return sha || null;
+};
+
+// 门脚本 provenance（closeout-anchor 2026-11-05）：src = 门执行脚本的 scriptPath 解析结果
+//（项目侧 .agents/scripts/<name> 优先、回退插件内本体，paths.mjs 单源）——项目侧桩替换
+// 从此在凭证与入库视图里可对质。判名复用已有变量：引擎段各门 optional 即脚本名（eng() 同源），
+// secrets-scan 类 eng 门无 optional 显式带 script；无脚本门（npm/dotnet 原生命）与注入命令
+//（stub / --test-cmd 夹具）src=null——诚实缺省，不伪造路径。导出供 verify.test 锁解析语义。
+const gateSrc = (gate, root = ROOT) => {
+  const name = gate.optional || gate.script || null;
+  return name ? scriptPath(root, name) : null;
+};
+export { gateSrc };
 
 // --- 门禁定义 ---
 // 引擎段在前（2026-10-10）：语法与引擎测试仍最先；编排/预算/生效规则/闭环硬门/泳道接在其后。
@@ -135,7 +160,8 @@ const GATES = [
   //   `VulnerabilityInfo`），内网镜像均不代理该面（实测见 runtime-env §6.4「漏洞数据源实测」），
   //   冷缓存/网络抖动即假红、换内网源即假绿——判据不可靠，故整族退出关单门表。
   //   退役留档：机制台账两行（NuGet 漏洞门 / 前端依赖审计）+ papercuts 2026-10-16 行。
-  { id: 'secrets-scan', cohort: 'security', name: '密钥扫描（gitleaks 全量+基线）', cmd: eng('check-secrets.mjs'), folder: '.', type: 'shell' },
+  // script（closeout-anchor 2026-11-05）：本门走 eng() 但无 optional——src 解析名显式声明（凭证 provenance 用）。
+  { id: 'secrets-scan', cohort: 'security', name: '密钥扫描（gitleaks 全量+基线）', cmd: eng('check-secrets.mjs'), script: 'check-secrets.mjs', folder: '.', type: 'shell' },
   // 项目适配点（2026-10-28 市场审查）：产品段各门都指向源项目那套 .NET + Vue 栈。消费项目里
   // 这些路径不存在，装上即得五条红门，与「装上即得」的承诺冲突。加 requires 判据：所需路径不在
   // 即判「不适用」SKIP（显式输出、不挡关单、不进 passedCount——没跑 ≠ 过了）。
@@ -229,7 +255,7 @@ const readGateBudget = (root, key) => {
 
 const recordFailure = (step, exitInfo, note, attribution) => {
   try {
-    const entry = { ts: new Date().toISOString(), exitCode: typeof exitInfo === 'number' ? exitInfo : -1, suite: step, note };
+    const entry = { ts: new Date().toISOString(), exitCode: typeof exitInfo === 'number' ? exitInfo : -1, suite: step, head: headSha(), note };
     // 归因（gate-health 2026-10-22）：env / flaky / real——红单可读，AI 不在假红上反复重跑。
     if (attribution) entry.attribution = attribution;
     if (process.env.PIPELINE_RUN_ID) entry.runId = process.env.PIPELINE_RUN_ID;
@@ -503,6 +529,9 @@ async function run() {
   // 逐门耗时埋点（2026-10-14 G8 门禁计时）：durations 随 all-gates 绿行入 verifications.jsonl，
   // metrics.md「门禁成本/迭代」表消费——G10（影响面裁剪）的判据数据源。
   const durations = {};
+  // 逐门退出码（closeout-anchor 2026-11-05）：绿凭证 gates=[{id,exit,src}] 的 exit 数据源——
+  // 只记实跑门（合成跳过不进），全绿行里恒 0。
+  const gateExits = {};
   const flakyGates = []; // 重跑绿的 flaky 门（写进绿行 flaky 字段，可审计）
   let cohortSeen = '';
   const cohortLabel = { engine: '引擎段', security: '安全段', product: '产品段' };
@@ -585,6 +614,7 @@ async function run() {
       return false;
     }
     durations[gate.id] = r.durMs;
+    gateExits[gate.id] = typeof r.status === 'number' ? r.status : -1;
     if (r.stdout) process.stdout.write(r.stdout);
     if (r.stderr) process.stderr.write(r.stderr);
     if (aborted.has(i)) {
@@ -701,7 +731,12 @@ async function run() {
   if (!engineOnly) {
     let entry = null;
     try {
-      entry = { ts: new Date().toISOString(), exitCode: 0, suite: 'all-gates', gates: passedCount };
+      // 门脚本 provenance（closeout-anchor 2026-11-05）：gates = 逐门 {id, exit, src}（门表序，确定性）
+      // ——取代旧「gates: 通过门数」计数（门数 = 数组长度）。src 为门执行脚本的 scriptPath 解析结果，
+      // 项目侧桩替换在凭证行内可对质；无脚本门（npm/dotnet 原生命、注入命令）src=null。
+      entry = { ts: new Date().toISOString(), exitCode: 0, suite: 'all-gates', gates: gates.filter((g) => g.id in gateExits).map((g) => ({ id: g.id, exit: gateExits[g.id], src: gateSrc(g) })) };
+      // head 锚（closeout-anchor 2026-11-05）：落账时刻 HEAD 全 SHA；无 HEAD（非 git/空仓）写 null。
+      entry.head = headSha();
       // HEAD 短 SHA 钉进绿行本体（2026-10-09 AI-Native 架构审查修复收尾）：确定性证据此前只存在于测试
       // 夹具、绿行无 SHA 可锚定验证对象；非 git 环境（fixture 根在 os.tmpdir）解析失败则省略该键，不伪造。
       const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', cwd: ROOT });

@@ -22,14 +22,16 @@ const asJson = argv.includes('--json');
 const base = argOf('--base') || 'origin/main';
 const head = argOf('--head') || 'HEAD';
 
-const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 if (root.status !== 0 || !root.stdout.trim()) {
   console.error('check-pr-size: 不在 git 仓库');
   process.exit(2);
 }
 process.chdir(root.stdout.trim());
 
-const git = (args) => spawnSync('git', args, { encoding: 'utf8' });
+// maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：默认 1MB 在大 diff 下
+// ENOBUFS——spawn 层故障与业务失败分流出账，均不放行（exit 2 方向不变，不误诊为「基准不可解」）
+const git = (args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 const verify = (ref) => git(['rev-parse', '--verify', `${ref}^{commit}`]);
 if (verify(base).status !== 0) {
   console.error(`check-pr-size: 基线 ${base} 不存在（先 git fetch origin，或用 --base 指定）`);
@@ -78,6 +80,10 @@ const globMatch = (p, pat) => {
 const isFree = (p) => freePatterns.some((pat) => globMatch(p, pat)) || linguist.some((pat) => globMatch(p, pat));
 
 const diff = git(['-c', 'core.quotepath=off', 'diff', '--numstat', '-M', `${base}...${head}`]);
+if (diff.error) {
+  console.error(`check-pr-size: git 输出超限/执行失败（${diff.error.code || diff.error.message}）——diff 不可判定，门不放行（fail-closed）`);
+  process.exit(2);
+}
 if (diff.status !== 0) {
   console.error(`check-pr-size: git diff ${base}...${head} 失败`);
   process.exit(2);

@@ -77,28 +77,35 @@ function render(viewDateStr) {
   return lines.join('\n') + '\n';
 }
 
-const text = render();
-// 行尾归一（与 gen-workflow-index.mjs normEol 同句）：只影响 --check 判定，写盘仍是 LF。
-const normEol = (s) => String(s).replace(/\r\n/g, '\n');
-if (argv.includes('--check')) {
-  let disk = '';
-  try {
-    disk = fs.readFileSync(OUT, 'utf8');
-  } catch { /* 缺文件视作空——走漂移分支 */ }
-  // 锚日时间炸弹拆除（2026-10-12 CI 实证：v12 两锚定 10-12，10-11 生成的视图含「待升级（10-12 起）」，
-  // 锚日当天重渲染按当日判「已生效」→ 与仓内视图必差 → --check 必红——任何未来日期锚都会在锚日引爆）。
-  // 修法：--check 对**磁盘文件自带的视图日期**重渲染（生成物与自身生成日自洽，跨锚日字节稳定）；
-  // 显式重生成（默认模式）才前进视图日期并翻转状态列。视图日期行缺失的存量件回落当日口径。
-  const mDate = disk.match(/视图日期 (\d{4}-\d{2}-\d{2})/);
-  const checkText = mDate ? render(mDate[1]) : text;
-  if (normEol(disk) === normEol(checkText)) {
-    console.log('[effective-policy] ✅ 与磁盘一致（无漂移；按磁盘视图日期重渲染比对）');
-    process.exit(0);
+try {
+  const text = render();
+  // 行尾归一（与 gen-workflow-index.mjs normEol 同句）：只影响 --check 判定，写盘仍是 LF。
+  const normEol = (s) => String(s).replace(/\r\n/g, '\n');
+  if (argv.includes('--check')) {
+    let disk = '';
+    try {
+      disk = fs.readFileSync(OUT, 'utf8');
+    } catch { /* 缺文件视作空——走漂移分支 */ }
+    // 锚日时间炸弹拆除（2026-10-12 CI 实证：v12 两锚定 10-12，10-11 生成的视图含「待升级（10-12 起）」，
+    // 锚日当天重渲染按当日判「已生效」→ 与仓内视图必差 → --check 必红——任何未来日期锚都会在锚日引爆）。
+    // 修法：--check 对**磁盘文件自带的视图日期**重渲染（生成物与自身生成日自洽，跨锚日字节稳定）；
+    // 显式重生成（默认模式）才前进视图日期并翻转状态列。视图日期行缺失的存量件回落当日口径。
+    const mDate = disk.match(/视图日期 (\d{4}-\d{2}-\d{2})/);
+    const checkText = mDate ? render(mDate[1]) : text;
+    if (normEol(disk) === normEol(checkText)) {
+      console.log('[effective-policy] ✅ 与磁盘一致（无漂移；按磁盘视图日期重渲染比对）');
+      process.exit(0);
+    }
+    console.error('[effective-policy] ❌ 漂移：policy/engine 变更后未重生成 workflow/effective-policy.md');
+    console.error('  修法：node <插件根>/scripts/gen-effective-policy.mjs && git add workflow/effective-policy.md（随 policy 变更同笔提交）');
+    process.exit(1);
   }
-  console.error('[effective-policy] ❌ 漂移：policy/engine 变更后未重生成 workflow/effective-policy.md');
-  console.error('  修法：node <插件根>/scripts/gen-effective-policy.mjs && git add workflow/effective-policy.md（随 policy 变更同笔提交）');
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, text);
+  console.log(`✅ 已生成 ${path.relative(process.cwd(), OUT)}`);
+} catch (err) {
+  // policyVersion 越界等 fail-closed 错误（policy.mjs 自 2026-11 起不再静默回落 v1）：
+  // CLI 以干净消息退出而非裸崩栈——退出方向不变（非零 = 不产出）。
+  console.error(`[effective-policy] ❌ ${(err && err.message) || err}`);
   process.exit(1);
 }
-fs.mkdirSync(path.dirname(OUT), { recursive: true });
-fs.writeFileSync(OUT, text);
-console.log(`✅ 已生成 ${path.relative(process.cwd(), OUT)}`);

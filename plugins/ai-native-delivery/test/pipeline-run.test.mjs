@@ -493,6 +493,36 @@ test('status --adopt：run 文件丢失后按文档重建', () => {
   assert.equal(runFile(f, id).stage, 'adopted');
 });
 
+test('next 并发互斥：run 文件被另一进程持锁时响亮失败，不覆盖状态（2026-11-05 并发修复回归）', () => {
+  const f = buildFixture();
+  prun(f, ['start', '给 wiki 加主题']);
+  const id = latestId(f);
+  const runPath = path.join(runsDir(f), `${id}.json`);
+  const eventsBefore = runFile(f, id).events.length;
+  // 子进程持 run 文件锁 6s（> withLedgerLock 等待上限 3s、< 陈旧接管 15s）——确定性不靠时序运气。
+  // 确定性复现：修复前 next 不持锁，照常推进并 saveRun（last-writer-wins 静默覆盖并发进程的事件流）；
+  // 修复后 `<run 文件>.lock` 串行化「读→推进→落盘」，第二个 next 等待超时响亮失败。
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+  const child = spawn(process.execPath, [
+    '-e',
+    `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+    runPath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+  for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(runPath + '.lock'); if (!locked) sleepSync(25); }
+  assert.ok(locked, '子进程未能持住 run 锁');
+  const p = prun(f, ['next', '--triage', 'kind=require level=L1 module=wiki topic=locktest']);
+  assert.notEqual(p.status, 0, `持锁期间 next 竟然成功（无锁覆盖 run 状态）：${out(p)}`);
+  assert.match(String(p.stderr), /另一进程/, String(p.stderr));
+  assert.equal(runFile(f, id).events.length, eventsBefore, 'run 状态被无锁推进覆盖');
+  // 锁释放后重跑 → 正常推进（互斥不钉死 run）
+  for (let i = 0; i < 800 && fs.existsSync(runPath + '.lock'); i++) sleepSync(25);
+  child.kill();
+  const p2 = prun(f, ['next', '--triage', 'kind=require level=L1 module=wiki topic=locktest']);
+  assert.equal(p2.status, 0, out(p2));
+});
+
 // ---- 执行驱动（2026-10-10 shard-check-loop-test 二期：shard / parent / 顺序 三态）----
 // 26 组测试各自 buildFixture() 独立夹具（模块级零共享态，假 git 经 env 注入互不干扰）→
 // idx % K round-robin 可并行。K = clamp(1..6, floor(cpus/2))（12 核本机 6，小核 CI=1 顺序等价）；

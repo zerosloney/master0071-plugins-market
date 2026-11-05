@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 let pass = 0, fail = 0;
@@ -82,6 +82,54 @@ try {
   check('S10 分片目录原样保留', fs.existsSync(shardDir3) && fs.existsSync(path.join(shardDir3, 'shard-c.jsonl')));
 } finally {
   fs.rmSync(tmp3, { recursive: true, force: true });
+}
+
+// 场景D：收缩期间分片被并发写者持锁（<分片>.lock）→ compact 拒绝无锁收缩（2026-11-05 并发修复回归）
+// 旧实现「读分片→tmp+rename 写主→unlink」全程无锁：收缩期间并发确认追加（ledger-loader.
+// writeConfirmation / confirm-doc）落到该分片时，新行既没进 merged 又随 unlink 静默丢失。
+// 修复后 compact 对每个分片持 `<分片>.lock`（复用 ledger-shards 的 withLedgerLock，与追加者同把锁）。
+// 确定性：子进程先持住分片锁并空转 > withLedgerLock 等待上限（3s）、< 陈旧接管线（15s）——
+//   修复前：compact 全程无锁，照常「合并→unlink」成功（exit 0），持锁者形同虚设（RED）；
+//   修复后：compact 拿锁等待超时 → 响亮非零退出，分片不删、主台账原样；锁释放后重跑成功（GREEN）。
+{
+  const tmp4 = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-'));
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  try {
+    const mainLedger4 = path.join(tmp4, '.agents', 'confirmations.jsonl');
+    const shardDir4 = path.join(tmp4, '.agents', 'confirmations.d');
+    fs.mkdirSync(shardDir4, { recursive: true });
+    const mainBefore4 = '{"id":20}\n';
+    fs.writeFileSync(mainLedger4, mainBefore4);
+    const shardPath = path.join(shardDir4, 'shard-held.jsonl');
+    fs.writeFileSync(shardPath, '{"id":21}\n');
+
+    // 子进程持锁 6s（> 3s 等待上限，< 15s 陈旧接管——不靠时序运气）
+    const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+    const child = spawn(process.execPath, [
+      '-e',
+      `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+      shardPath,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+    for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(shardPath + '.lock'); if (!locked) sleepSync(25); }
+    check('S11 前置：子进程已持住分片锁', locked);
+    if (locked) {
+      const proc4 = spawnSync(process.execPath, [cliPath], { cwd: tmp4, encoding: 'utf8' });
+      check('S12 持锁期间收缩 → CLI exit 非 0（拒绝无锁收缩）', proc4.status !== 0, `status=${proc4.status} stderr=${proc4.stderr}`);
+      check('S13 拒绝时报「写锁等待超时」而非静默', /写锁等待超时/.test(proc4.stderr || ''), proc4.stderr);
+      check('S14 分片未被 unlink（持锁者保护成功）', fs.existsSync(shardPath), 'shard gone');
+      check('S15 主台账保持原样', fs.readFileSync(mainLedger4, 'utf8') === mainBefore4, fs.readFileSync(mainLedger4, 'utf8'));
+    }
+    // 等子进程释放锁（最长 20s）后重跑 → 成功且内容正确（互斥不钉死收缩）
+    for (let i = 0; i < 800 && fs.existsSync(shardPath + '.lock'); i++) sleepSync(25);
+    child.kill();
+    const proc5 = spawnSync(process.execPath, [cliPath], { cwd: tmp4, encoding: 'utf8' });
+    check('S16 锁释放后重跑收缩 → exit 0', proc5.status === 0, proc5.stderr);
+    check('S17 重跑后主台账含合并行', fs.readFileSync(mainLedger4, 'utf8') === '{"id":20}\n{"id":21}\n', fs.readFileSync(mainLedger4, 'utf8'));
+    check('S18 重跑后分片已清理', !fs.existsSync(shardPath));
+  } finally {
+    fs.rmSync(tmp4, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

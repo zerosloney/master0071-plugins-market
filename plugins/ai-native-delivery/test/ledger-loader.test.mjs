@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { loadAllConfirmations, writeConfirmation } from '../scripts/ledger-loader.mjs';
 
 let pass = 0, fail = 0;
@@ -151,6 +152,48 @@ try {
         JSON.stringify(res8));
     } finally {
       fs.rmSync(tmp5, { recursive: true, force: true });
+    }
+  }
+
+  // 9. writeConfirmation 持分片锁（2026-11-05 并发修复回归）
+  // 旧实现 appendFileSync 无锁：compact-ledgers 收缩「锁内重读分片→并入主台账→unlink」期间，
+  // 落进该分片的确认行随 unlink 静默丢失。修复后与 compact-ledgers / ledger-shards 持同一把
+  // `<分片>.lock`（withLedgerLock 单源）：锁被他人持有时等待，超时响亮抛错——绝不无锁写
+  //（写进正在收缩的分片 = 该行随收缩丢失）。
+  {
+    const tmp6 = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-loader-test-'));
+    const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+    try {
+      const shardDir6 = path.join(tmp6, '.agents', 'confirmations.d');
+      fs.mkdirSync(shardDir6, { recursive: true });
+      // 分片名 = doc 基名（writeConfirmation 的落点规则）——doc 是 workflow/intents/held.md → held.jsonl
+      const shard6 = path.join(shardDir6, 'held.jsonl');
+      fs.writeFileSync(shard6, '{"seed":1}\n', 'utf8');
+      // 子进程持锁 6s（> withLedgerLock 等待上限 3s、< 陈旧接管线 15s）——确定性不靠时序运气
+      const child = spawn(process.execPath, [
+        '-e',
+        `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+        shard6,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+      for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(shard6 + '.lock'); if (!locked) sleepSync(25); }
+      check('S9a 前置：子进程已持住分片锁', locked);
+      let threw = null;
+      if (locked) {
+        try { writeConfirmation(tmp6, { doc: 'workflow/intents/held.md', stage: 'approved', fingerprint: 'fp9' }, { shard: true }); } catch (e) { threw = e; }
+        check('S9b 持锁期间写入 → 响亮抛错（不无锁追加）', threw !== null && /写锁等待超时/.test(threw.message), threw && threw.message);
+        check('S9c 等待期间不落盘（分片原样、无半行撕裂）', fs.readFileSync(shard6, 'utf8') === '{"seed":1}\n', fs.readFileSync(shard6, 'utf8'));
+      }
+      // 等锁释放（最长 20s）后重写 → 成功且锁文件已清理（互斥不钉死写入）
+      for (let i = 0; i < 800 && fs.existsSync(shard6 + '.lock'); i++) sleepSync(25);
+      child.kill();
+      writeConfirmation(tmp6, { doc: 'workflow/intents/held.md', stage: 'approved', fingerprint: 'fp9' }, { shard: true });
+      check('S9d 锁释放后写入成功', fs.readFileSync(shard6, 'utf8').includes('fp9'), fs.readFileSync(shard6, 'utf8'));
+      check('S9e 写完锁文件已释放', !fs.existsSync(shard6 + '.lock'));
+      check('S9f 联合读取含新确认行', loadAllConfirmations(tmp6).some((r) => r.fingerprint === 'fp9'));
+    } finally {
+      fs.rmSync(tmp6, { recursive: true, force: true });
     }
   }
 

@@ -4,6 +4,7 @@
 // audit 不在本表：缺省视为全量检查（已装仓库与无配置的测试夹具）；init 新装显式写 false。
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // 基线与增量（2026-10-10 收敛系列 6）：版本表改「基线 + 显式差异」声明式构造——每版本只写
 // 相对基线变化的锚，消除「全量手抄日期键、漏抄即静默改语义」的脆弱点（原 v2 注释自警）。
@@ -175,8 +176,19 @@ export function loadKitPolicy(root) {
   try {
     raw = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'config', 'engine.json'), 'utf8'));
   } catch { /* 无 kit 或不可解析 */ }
-  const requested = raw && Number.isInteger(raw.policyVersion) ? raw.policyVersion : 1;
-  const policyVersion = Object.prototype.hasOwnProperty.call(POLICIES, requested) ? requested : 1;
+  // 越界 fail-closed（2026-11 市场审查裁决）：显式声明的 policyVersion 不在版本表内（非整数 /
+  // 非正整数 / 高于当前最大）不再静默回落 v1——回落会把 §3x/§23 等依赖新锚的 hard 门整段关停，
+  // 「配置写错」不能成为关停门禁的通道。engine.json 缺失 / 不可解析 / 缺 policyVersion 键仍按
+  // 既有契约回落 v1（装户未选版 = 最保守基线；fixture 沙箱依赖此语义，见文件头注）。
+  const SUPPORTED = Object.keys(POLICIES).map(Number).sort((a, b) => a - b);
+  const declared = raw && raw.policyVersion !== undefined ? raw.policyVersion : 1;
+  const requested = declared;
+  if (!Number.isInteger(requested) || !Object.prototype.hasOwnProperty.call(POLICIES, requested)) {
+    throw new Error(`policy.mjs: engine.json policyVersion ${JSON.stringify(raw ? raw.policyVersion : requested)} 不受支持——`
+      + `须为支持的版本之一（${SUPPORTED[0]}..${SUPPORTED[SUPPORTED.length - 1]}）；越界不再静默回落 v1`
+      + `（回落会跳过 §3x/§23 等 hard 门），请把 policyVersion 改为上述范围内的整数后重试`);
+  }
+  const policyVersion = requested;
   // convergenceCommands（2026-10-31 市场审查）：检查 23 的全量门命令按项目扩展（使用项目引用
   // pytest / go test 等自己的工具链时，源项目硬编码的 npm/dotnet/vue-tsc 白名单永远对不上账）。
   // 只透传非空字符串数组，其余形态忽略——坏值按「未配置」处理，不误扩白名单。
@@ -198,15 +210,27 @@ export function auditEnabled(policy) {
 
 // ---- 测试绿凭证判定（verify-evidence）----
 // 单源（confirm-doc done 前置与 check-loop 检查 8 对账共用——防两处窗口字面量漂移，N3 教训）：
-// hasFreshVerifyLine(lines, now)：verifications.jsonl 的行数组里是否存在「ts 距 now ≤ 24h 且
-// exitCode === 0」的绿行。坏行（非 JSON / 缺 ts）跳过不抛；窗口 24h = 覆盖「跑 verify → 跨会话/
+// hasFreshVerifyLine(lines, now, ctx)：verifications.jsonl 的行数组里是否存在「ts 距 now ≤ 24h 且
+// exitCode === 0」的绿行；ctx = { cwd } 为绿行 head 字段的 git 锚核验环境（见下方 git 锚注）。
+// 坏行（非 JSON / 缺 ts）跳过不抛；窗口 24h = 覆盖「跑 verify → 跨会话/
 // 隔夜 → 次日关单」节奏（spec 2026-10-07-verify-evidence 论证）。
 // testCmd 行剔除（2026-10-09 AI-Native 架构审查修复）：verify.mjs --test-cmd 是引擎自测的夹具通道，
 // 其绿行记的是注入的假命令（exitCode 0 ≠ 真门全绿），不得充当关单凭证——正常生产跑不写此键。
 // scope 行放行（verify-diet 2026-10-21 ②）：verify --scope diff 的绿行带 scope 标记（变更面未触产品
 // 重门的增量关单）——算合法关单凭证：面计算已担保分支未触对应产品路径（口径单源 verify-scope.mjs），
 // 信任级同 24h 窗；关单前新提交须重跑（先提交、后跑门）。
-export function hasFreshVerifyLine(lines, now = Date.now()) {
+// git 锚（2026-11 凭证消费侧）：行带 head 字段（写入侧自本版起落的绿行引用提交 sha）时，须
+// `git merge-base --is-ancestor <head> HEAD` 成立才认——「凭证行引用不在当前历史的提交」
+// （换分支 / rebase 丢弃 / 手造行）按行不可信。无 head 的存量行维持现行认可（向后兼容：写入侧
+// 升级前落的台账仍有效）。git 校验失败 / 非仓库 / 未提供可核验环境（ctx 无 cwd）→ 该行不可信
+// （fail-closed 只否该行，不影响其余行判定）。ctx 形态：{ cwd: <仓库根> }。
+const headAncestorOk = (head, ctx) => {
+  const cwd = ctx && typeof ctx.cwd === 'string' ? ctx.cwd : null;
+  if (!cwd) return false;
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', String(head), 'HEAD'], { cwd, encoding: 'utf8' });
+  return r.status === 0;
+};
+export function hasFreshVerifyLine(lines, now = Date.now(), ctx = null) {
   for (const line of lines || []) {
     if (!line || !line.trim()) continue;
     try {
@@ -216,6 +240,8 @@ export function hasFreshVerifyLine(lines, now = Date.now()) {
       // 本就不为其落绿行，此处再拦一道，防未来回归把 7 门绿写成 all-gates 凭证。
       if (e && e.engineOnly === true) continue;
       if (e && e.exitCode === 0 && typeof e.ts === 'string') {
+        // git 锚：仅对「否则会过关」的行核验祖先关系（红行/超窗行不必 spawn）
+        if (e.head !== undefined && e.head !== null && !headAncestorOk(e.head, ctx)) continue;
         const t = Date.parse(e.ts);
         if (Number.isFinite(t) && now - t <= 24 * 60 * 60 * 1000) return true;
       }

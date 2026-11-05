@@ -20,10 +20,13 @@ export function run() {
   //（v1-v4）→ ctxBase null → 对账整体跳过（向后兼容）
   const verifySinceOf = kitPolicy.verifySince;
   // 读口在 kit：--rev 且树上没有凭证文件时回退主工作区，其余路径只读 ROOT。
+  // ctx 传 ROOT（2026-11 续单）：绿行 head 字段的 git 锚核验环境（--rev 时 ROOT=临时 worktree，
+  // 与主仓同对象库，HEAD=被扫提交，锚语义正确）——裸调会把 verify.mjs 本版起落 head 的
+  // 全部合法新绿凭证判不可信（verify 对账整体回归）。
   const verifyFresh = (() => {
     try {
       const text = readVerifyLedgerText();
-      return text != null ? hasFreshVerifyLine(text.split(/\r?\n/)) : false;
+      return text != null ? hasFreshVerifyLine(text.split(/\r?\n/), Date.now(), { cwd: ROOT }) : false;
     } catch { return false; }
   })();
   const acceptanceDocs = docFiles('intents').filter((intent) => fmGet(intent, '状态') === 'done');

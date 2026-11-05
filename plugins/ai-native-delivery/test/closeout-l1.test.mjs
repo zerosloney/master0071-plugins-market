@@ -3,6 +3,11 @@
 // parseArgs / fmOf / acceptanceOf / preflight 进程内断言：快筛差距逐项暴露、
 // L2/L3 与终态件不受理、勾验缺一即拦、verify 凭证缺失即拦。
 // 运行：node test/closeout-l1.test.mjs
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parseArgs, fmOf, acceptanceOf, preflight } from '../scripts/closeout-l1.mjs';
 
 let pass = 0;
@@ -92,6 +97,57 @@ const PLAN_OK = `---
   check('A6 verify 凭证缺失 → 拦并指 verify.mjs', !noVerify.ok && noVerify.problems.some((p) => p.includes('verify.mjs')), JSON.stringify(noVerify.problems));
   const noAcc = preflight({ rel: 'workflow/plans/x.md', text: PLAN_OK.split('## 验收标准')[0], freshVerify: true });
   check('A6 无验收节 → 拦', !noAcc.ok && noAcc.problems.some((p) => p.includes('验收标准')));
+}
+
+// ---- B1 freshVerifyOf git 锚接线（2026-11 续单，e2e）：带 head 绿行须被预检认可 ----
+// verify.mjs 自本版起给绿凭证落 head（提交 sha）→ main → freshVerifyOf(root) → hasFreshVerifyLine
+// 须传 { cwd: root } 供 git 锚核验；裸调会把所有带 head 的合法新凭证判不可信（预检恒拦）。
+// 临时真仓自造自清；反例 = head 不在当前历史 → 仍拦。
+{
+  const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'closeout-l1.mjs');
+  const mkRepo = (headSha) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'closeout-l1-git-'));
+    const g = (args) => {
+      const r = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`fixture git 失败: git ${args.join(' ')}\n${r.stderr}`);
+      return String(r.stdout || '').trim();
+    };
+    g(['init', '-q', '-b', 'main']);
+    g(['config', 'user.email', 't@t']);
+    g(['config', 'user.name', 't']);
+    fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'workflow', 'plans', '2026-10-15-demo.md'), PLAN_OK, 'utf8');
+    const line = { ts: new Date().toISOString(), exitCode: 0, suite: 'npm test' };
+    if (headSha !== null) line.head = headSha;
+    fs.writeFileSync(path.join(root, '.agents', 'verifications.jsonl'), `${JSON.stringify(line)}\n`, 'utf8');
+    g(['add', '-A']);
+    g(['commit', '-qm', 'fixture']);
+    return { root, revParseHead: () => g(['rev-parse', 'HEAD']) };
+  };
+  const runPrecheck = (root) => spawnSync(process.execPath, [CLI, 'workflow/plans/2026-10-15-demo.md', '--root', root],
+    { cwd: root, encoding: 'utf8' });
+  // ① head=当前 HEAD（祖先）→ 预检认可（exit 0 + 「预检通过」）
+  {
+    const { root, revParseHead } = mkRepo(null);
+    const head = revParseHead();
+    fs.writeFileSync(path.join(root, '.agents', 'verifications.jsonl'),
+      `${JSON.stringify({ ts: new Date().toISOString(), exitCode: 0, suite: 'npm test', head })}\n`, 'utf8');
+    const r = runPrecheck(root);
+    check('B1 预检 git 锚：head=当前 HEAD 的绿行 → 认可（预检通过 exit 0；修复前裸调判不可信=RED）',
+      r.status === 0 && /预检通过/.test(String(r.stdout || '')),
+      `exit=${r.status}\n${String(r.stdout || '')}${String(r.stderr || '')}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // ② head 不在当前历史 → 仍拦（exit 2 + verify 绿行差距）
+  {
+    const { root } = mkRepo('f'.repeat(40));
+    const r = runPrecheck(root);
+    check('B1 预检 git 锚反例：head 不在历史的绿行 → 仍不认（预检拦下 exit 2）',
+      r.status === 2 && /verify 绿行/.test(String(r.stderr || '')),
+      `exit=${r.status}\n${String(r.stdout || '')}${String(r.stderr || '')}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

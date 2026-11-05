@@ -204,6 +204,41 @@ root = makeFixture({
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- T13 暂存清单 >1MB（spawnSync 默认 maxBuffer 即 ENOBUFS 截断）：截断后的暂存清单静默缺行 →
+//      目标条目被截掉即整门跳过（静默放行）。修复后 ≤64MB 正常执法（T13a）；>64MB git 输出超限
+//      fail-closed 不放行（T13b）。条目名刻意取 zz 前缀（排在 deep/ 之后）：截断丢的正是尾部行。
+// 夹具不落工作区文件清单：git update-index --index-info 直写索引（等价 mock 大暂存清单输出）
+const indexInfo = (root, entries) => {
+  const blob = spawnSync('git', ['hash-object', '-w', '--stdin'],
+    { cwd: root, encoding: 'utf8', input: 'x'.repeat(60) + '\n' }).stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(blob)) throw new Error('fixture hash-object 失败');
+  const lines = entries.map((p) => `100644 ${blob} 0\t${p}`);
+  const r = spawnSync('git', ['update-index', '--index-info'], { cwd: root, encoding: 'utf8', input: lines.join('\n') + '\n' });
+  if (r.status !== 0) throw new Error(`fixture update-index 失败: ${r.stderr}`);
+};
+{
+  const root = makeFixture({ budgets: 'zz-late.md 5\n', files: { 'zz-late.md': 'x'.repeat(50) } });
+  const g = (args, input) => spawnSync('git', args, { cwd: root, encoding: 'utf8', input });
+  g(['init', '-q']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  const seg = 'd'.repeat(180);
+  const long = [seg, seg, seg].join('/');
+  indexInfo(root, [...Array(3000).keys()].map((i) => `deep/${long}/f${i}.txt`).concat(['zz-late.md']));
+  const r = run(root, '--staged');
+  check('T13a 暂存清单 >1MB → maxBuffer 提升后照常执法（zz-late.md 超限 exit 1；修复前截断丢行静默 exit 0）',
+    r.code === 1 && r.out.includes('常驻面超限：zz-late.md'), `exit=${r.code}\n${r.out.slice(0, 300)}`);
+}
+{
+  const root = makeFixture({ budgets: 'zz-late.md 5\n', files: { 'zz-late.md': 'x'.repeat(50) } });
+  const g = (args, input) => spawnSync('git', args, { cwd: root, encoding: 'utf8', input });
+  g(['init', '-q']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't']);
+  const seg = 'd'.repeat(760);
+  const long = [seg, seg, seg, seg].join('/');
+  indexInfo(root, [...Array(23000).keys()].map((i) => `deep/${long}/f${i}.txt`).concat(['zz-late.md']));
+  const r = run(root, '--staged');
+  check('T13b 暂存清单 >64MB → git 输出超限 fail-closed exit 1（门不放行，不再按截断清单放行）',
+    r.code === 1 && /超限|fail-closed/.test(r.out), `exit=${r.code}\n${r.out.slice(0, 300)}`);
+}
+
 for (const d of fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('rule-budget-'))) {
   try { fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true }); } catch { /* Windows 文件锁容忍 */ }
 }

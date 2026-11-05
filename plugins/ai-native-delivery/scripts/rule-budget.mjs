@@ -27,9 +27,18 @@ import { findProjectRoot, scriptPath, commandsDir, PLUGIN_CONFIG_TEMPLATES_DIR, 
 
 const mode = process.argv[2] === '--staged' ? '--staged' : '--all';
 
+// maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：spawnSync 默认 1MB，
+// 大暂存清单（>1MB）即 ENOBUFS——现役 pre-commit 门拿到被截断的清单，触及目标条目被截掉时整门
+// 静默放行。spawn 层故障（git 起不来 / 输出超限）一律 fail-closed 退非零；git 正常报告的业务失败
+// （非 git 目录、条目不在索引）维持既有回退语义（status≠0 ≠ 基础设施故障）。
+const GIT_MAXBUF = 64 * 1024 * 1024;
 const git = (args) => {
-  const r = spawnSync('git', args, { encoding: 'utf8' });
-  return { ok: !r.error && r.status === 0, out: (r.stdout || '').trim() };
+  const r = spawnSync('git', args, { encoding: 'utf8', maxBuffer: GIT_MAXBUF });
+  if (r.error) {
+    console.log(`rule-budget: git 输出超限/执行失败（${r.error.code || r.error.message}）——暂存清单/提交后树不可判定，门不放行（fail-closed）`);
+    process.exit(1);
+  }
+  return { ok: r.status === 0, out: (r.stdout || '').trim() };
 };
 const ROOT = findProjectRoot() || process.cwd();
 if (ROOT !== process.cwd()) { try { process.chdir(ROOT); } catch { /* chdir 失败则按绝对路径口径走 */ } }

@@ -35,7 +35,7 @@ L1 快速道在 `commands/new-task.md` §L1 快速道。本文件留给 L2/L3、
 ## 1. 静态门 (Static Gates)
 **Input**: 待验证代码变更
 **Process**:
-1. **执行门禁**: `node <插件根>/scripts/verify.mjs`（增量用 `--scope`，面规则在 `<插件根>/scripts/verify-scope.mjs`）。项目构建、测试、类型检查的命令清单单源是 `.agents/hooks/commit-check.config.json`。
+1. **执行门禁**: `node <插件根>/scripts/verify.mjs`（增量用 `--scope`，面规则在 `<插件根>/scripts/verify-scope.mjs`）。产品门（构建 / 测试 / 类型检查）自带 `requires` 路径判据——所需项目侧路径不在即判「不适用」SKIP，跳过沿依赖边传播；项目适配点（runtime-env、e2e harness 等）见插件 README「项目侧约定（插件不附带）」一节。
 2. **故障处置**: 任一失败 $\rightarrow$ **HALT**。L1 回 `commands/new-task.md` 快速道第 5 步改代码。L2/L3 回 `build.md` 修复。偶发/跨层问题用 `diagnosing-bugs` 诊断。全量首跑红、隔离重跑转绿不算绿：按 flaky 立项（papercut/incident）后修复，禁以重跑绿直接关单。
 **Output**: 静态门全绿证据
 **Note**: 运行环境细节见 `.agents/notes/runtime-env.md` §1, §2；长门禁命令（verify 全量/`dotnet test`）**分段等 + 每段回报进度**，不阻塞到 timeout 上限——口径 §6.4「后台长任务取结果」

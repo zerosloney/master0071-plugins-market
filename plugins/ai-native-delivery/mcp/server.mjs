@@ -32,9 +32,34 @@ rl.on("line", (line) => {
   } catch {
     return;
   }
+  // 四道闸（2026-11-05 市场审查修复，照 plugins/systemone-decision/mcp/server.mjs 同款）：
+  //   形状闸：非对象 / 缺 method 的消息不是 JSON-RPC，丢弃；
+  //   版本闸：jsonrpc 白名单外拒收——回包等于对任意版本都声称兼容；
+  //   id 闸：id 非字符串/数字（对象/数组/布尔）时无法回写合法响应，拒收不回显；
+  //   通知闸：无 id 一律不回包、不分发——副作用工具（tools/call）不得被通知触发。
+  if (!message || typeof message !== "object" || typeof message.method !== "string") return;
+  if (message.jsonrpc !== "2.0") return;
+  if (message.id !== undefined && message.id !== null && typeof message.id !== "string" && typeof message.id !== "number") return;
+  if (message.id === undefined || message.id === null) return;
   Promise.resolve(handle(message)).catch((err) => {
     if (message && message.id !== undefined) {
       replyError(message.id, -32603, err && err.message ? err.message : String(err));
     }
   });
+});
+
+// 宿主正常关停（关掉 stdio 读端）的瞬间，挂起的 write 会抛 EPIPE——不挂 error 处理就是
+// uncaughtException 兜底加崩栈收场（退出码 1），长驻服务在正常关停时也以失败退出。
+// EPIPE 只意味着对端已不在：安静退出即可（口径同 plugins/systemone-decision/mcp/server.mjs
+// 的既有先例）；其余错误原样上抛，维持 uncaughtException 兜底。
+process.stdout.on("error", (err) => {
+  if (err && err.code === "EPIPE") process.exit(0);
+  throw err;
+});
+
+process.on("uncaughtException", (e) => {
+  process.stderr.write(`[ai-native-delivery] uncaught: ${e && e.stack ? e.stack : e}\n`);
+  // 记完日志必须退出：带未知状态继续跑，宿主 MCP 客户端会一直等那条永远不会到的响应，
+  // 只能耗到自己的超时才发现出了问题（口径同姊妹实现）。
+  process.exit(1);
 });

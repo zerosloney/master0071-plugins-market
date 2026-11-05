@@ -770,6 +770,92 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 16：凭证链写入侧加固（closeout-anchor 2026-11-05）——head 锚 + 门脚本 provenance ----
+// ① 凭证行（绿/红）带 head = 落账时刻 HEAD 全 SHA（消费侧 policy 对含 head 行做
+//    merge-base --is-ancestor 祖先校验——伪造行从此须锚进真 git 史）；无 HEAD（非 git/空仓）
+//    显式写 null（键在场、值 null），不伪造、不省键。
+// ② 全绿凭证行 gates = 逐门 provenance 数组 [{id, exit, src}]——src = 门执行脚本的
+//    scriptPath 解析结果（项目侧 .agents/scripts 优先：桩替换从此在凭证里可对质）；
+//    无脚本门（npm/dotnet 原生命、注入命令）src=null，诚实缺省。
+{
+  const root = mkfix();
+  const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['config', 'user.email', 't@t']);
+  git(['config', 'user.name', 't']);
+  fs.writeFileSync(path.join(root, 'README.md'), 'stub\n');
+  git(['add', '-A']);
+  git(['commit', '-qm', 'base']);
+  const sha = git(['rev-parse', 'HEAD']).stdout.trim();
+  const r = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const green = lines.find((l) => l.exitCode === 0 && l.suite === 'all-gates') || null;
+  check('场景 16a：git 夹具根全绿凭证行带 head=当前 HEAD 全 SHA',
+    r.status === 0 && green !== null && green.head === sha,
+    `exit=${r.status} line=${JSON.stringify(green)}\nsha=${sha}`);
+  check('场景 16b：绿凭证行 gates=逐门 provenance（stub 单门 id/exit/src 齐全，单行 JSON）',
+    green !== null && Array.isArray(green.gates) && green.gates.length === 1
+      && green.gates[0].id === 'stub' && green.gates[0].exit === 0 && 'src' in green.gates[0],
+    `gates=${JSON.stringify(green && green.gates)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // 非 git 夹具根（mkdtemp）：head 显式 null——存量「无 head」行由消费侧兼容放行，
+  // 新写行必须显式出账（空仓/非 git 环境不伪造 SHA）。
+  const root = mkfix();
+  const r = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const line = fs.existsSync(vp) ? JSON.parse(fs.readFileSync(vp, 'utf8').trim()) : null;
+  check('场景 16c：非 git 夹具根绿行 head 显式 null（不省键、不伪造 SHA）',
+    r.status === 0 && line !== null && 'head' in line && line.head === null,
+    `line=${JSON.stringify(line)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // 红行同带 head 锚：git 夹具根 + 测试步红 → 失败行 head=当前 SHA（留痕也可对质）。
+  const root = mkfix();
+  const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['config', 'user.email', 't@t']);
+  git(['config', 'user.name', 't']);
+  fs.writeFileSync(path.join(root, 'README.md'), 'base\n');
+  git(['add', '-A']);
+  git(['commit', '-qm', 'base']);
+  const sha = git(['rev-parse', 'HEAD']).stdout.trim();
+  const r = run(['--test-cmd', `node ${mkCmd(3)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  check('场景 16d：git 夹具根失败行带 head=当前 HEAD 全 SHA',
+    r.status === 1 && lines.length === 1 && lines[0].exitCode === 3 && lines[0].head === sha,
+    `lines=${JSON.stringify(lines)}\nsha=${sha}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // gateSrc 单源解析（导出锁语义，同 optionalGateMissing 先例）：项目侧 .agents/scripts 桩优先
+  //（桩替换可对质），无桩回退插件内本体；无脚本门 src=null——不伪造路径。
+  const { gateSrc, GATES } = await import('../scripts/verify.mjs');
+  const root = mkfix();
+  const cl = GATES.find((g) => g.id === 'check-loop');
+  const ss = GATES.find((g) => g.id === 'secrets-scan');
+  const et = GATES.find((g) => g.id === 'engine-tests');
+  const pluginSrc = gateSrc(cl, root);
+  check('场景 16e：无项目桩 → src=插件内本体（scriptPath 回退链）',
+    typeof pluginSrc === 'string' && pluginSrc.length > 0 && !pluginSrc.startsWith(root) && pluginSrc.endsWith('check-loop.mjs'),
+    `src=${pluginSrc}`);
+  fs.mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'scripts', 'check-loop.mjs'), '// 项目侧桩\n', 'utf8');
+  const stubSrc = gateSrc(cl, root);
+  check('场景 16e：项目侧桩在场 → src 指向 .agents/scripts 桩（桩替换在凭证可对质）',
+    stubSrc === path.join(root, '.agents', 'scripts', 'check-loop.mjs'), `src=${stubSrc}`);
+  check('场景 16e：secrets-scan（eng 门无 optional，显式 script）→ src 非空',
+    !!ss && typeof gateSrc(ss, root) === 'string' && gateSrc(ss, root).endsWith('check-secrets.mjs'),
+    `src=${ss && gateSrc(ss, root)}`);
+  check('场景 16e：无脚本门（engine-tests npm 原生命）→ src=null（诚实缺省）',
+    gateSrc(et, root) === null, `src=${et && gateSrc(et, root)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

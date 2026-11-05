@@ -2976,6 +2976,49 @@ SCEN(async () => {
   rmfix(T2);
 });
 
+// ---- 场景:检查 8 凭证对账 × git 锚（2026-11 续单）：绿行带 head 须被 s08 对账认可 ----
+// verify.mjs 自本版起给绿凭证落 head（提交 sha）→ s08 裸调 hasFreshVerifyLine 未传 ctx 会把
+// 所有带 head 的合法新绿凭证判不可信（verify 对账整体回归）。夹具沿检查 8 既有 mkVe 真仓形态，
+// head 取当前 HEAD（祖先）/ 不在历史的 40 位假 sha（反例）。
+SCEN(async () => {
+  const mkVeHead = (head) => {
+    const T = mkfix();
+    gitInit(T);
+    w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 5 }));
+    const iBody = '# INTENT — veh\n\n## 验收标准（可测试）\n- [x] 用例通过（证据:测试全绿）\n';
+    const pBody = '# PLAN — veh\n';
+    const fpI = computeFingerprint(`---\n状态: approved\n级别: L1\n日期: 2026-10-07\n---\n${iBody}`);
+    const fpP = computeFingerprint(`---\n状态: approved\n级别: L1\n---\n${pBody}`);
+    w(T, 'workflow/intents/2026-10-07-veh.md', `---\n状态: done\n级别: L1\n日期: 2026-10-07\n确认指纹: ${fpI.slice(0, 16)}\n---\n${iBody}`);
+    w(T, 'workflow/plans/2026-10-07-veh.md', `---\n状态: done\n级别: L1\n确认指纹: ${fpP.slice(0, 16)}\n---\n${pBody}`);
+    const now = new Date().toISOString();
+    writeLedger(T, [
+      { ts: now, doc: 'workflow/intents/2026-10-07-veh.md', stage: 'done', fingerprint: fpI, prev: 'approved' },
+      { ts: now, doc: 'workflow/plans/2026-10-07-veh.md', stage: 'done', fingerprint: fpP, prev: 'approved' },
+    ]);
+    gitCommitAll(T, 'feat: veh fixture');
+    if (head !== null) {
+      const headSha = head === 'bogus' ? 'f'.repeat(40) : gitRetry(['rev-parse', 'HEAD'], T).stdout.trim();
+      w(T, '.agents/verifications.jsonl', `${JSON.stringify({ ts: new Date().toISOString(), exitCode: 0, suite: 'npm test', head: headSha })}\n`);
+    }
+    return T;
+  };
+  // ① head=当前 HEAD（祖先）→ verify 型豁免出账、零「测试绿缺凭证」
+  const T1 = mkVeHead('head');
+  let r = run(T1);
+  check('检查 8 凭证 git 锚:绿行 head=当前 HEAD → verify 豁免出账（修复前裸调判不可信=RED）',
+    r.status === 0 && outOf(r).includes('证据豁免 verify') && !outOf(r).includes('测试绿缺凭证'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T1);
+  // ② head 不在当前历史 → 仍判「测试绿缺凭证」（锚 fail-closed 只否该行）
+  const T2 = mkVeHead('bogus');
+  r = run(T2);
+  check('检查 8 凭证 git 锚反例:head 不在历史 → 仍缺凭证告警（不认）',
+    r.status === 0 && outOf(r).includes('测试绿缺凭证') && !outOf(r).includes('证据豁免 verify'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T2);
+});
+
 // ---- 检查 3 扩展：incident 防复发验证证据门（2026-10-09；锚 incidentRegrSince）----
 SCEN(async () => {
   const incBody = (name, st, verBody) => {
@@ -3641,6 +3684,67 @@ ${rows.map((r) => `| ${r} |`).join('\n')}
     r.status === 0 && outOf(r).includes('漏斗协议前超标') && outOf(r).includes('2026-09 60% → 2026-10 50%'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T6);
 });
+// ---- 2026-11 市场审查修复：6 项门禁缺陷失效测试（先 RED 后 GREEN）----
+// §1a 红线判低缩进逃逸：两空格缩进的勾选红线行此前被 /^- \[x\]/（不吃行首空白）漏判 → 放行
+SCEN(async () => {
+  const T = mkfix();
+  w(T, 'workflow/plans/2026-10-10-rl-ind.md', PLAN('rl-ind', '状态: draft\n级别: L1',
+    '\n## 入口\n  - [x] 规则 / 契约变更 → 级别至少 L2\n'));
+  const r = run(T, { args: [] });
+  check('红线判低：两空格缩进勾选红线行 → hard（缩进不再逃逸）',
+    r.status === 1 && outOf(r).includes('红线判低'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+// §1b/§1c 措辞逃逸：「升级至 L2」「→ 升 L2」变体此前不中第二正则 → 放行
+SCEN(async () => {
+  const T = mkfix();
+  w(T, 'workflow/plans/2026-10-10-rl-up.md', PLAN('rl-up', '状态: draft\n级别: L1',
+    '\n## 入口\n- [x] 规则 / 契约变更，级别升级至 L2\n'));
+  const r = run(T, { args: [] });
+  check('红线判低：「级别升级至 L2」措辞变体 → hard',
+    r.status === 1 && outOf(r).includes('红线判低'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+SCEN(async () => {
+  const T = mkfix();
+  w(T, 'workflow/plans/2026-10-10-rl-sh.md', PLAN('rl-sh', '状态: draft\n级别: L1',
+    '\n## 入口\n- [x] → 升 L2\n'));
+  const r = run(T, { args: [] });
+  check('红线判低：「→ 升 L2」措辞变体 → hard',
+    r.status === 1 && outOf(r).includes('红线判低'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+// §15 确认指纹「无日期」逃逸：无台账行 + frontmatter/文件名均无日期的新档此前整段豁免 →
+// 修复后日期兜底回退 git 首加日（① 台账行 ② 自报日期 ③ git 首加日，三选一即受管）→ hard 确认未对账
+SCEN(async () => {
+  const T = mkfix();
+  gitInit(T);
+  // 文件名非日期前缀（避开文件名日期判定）+ frontmatter 无「日期/发现」
+  w(T, 'workflow/intents/7-undated.md', INTENT('undated', '状态: approved\n级别: L1'));
+  gitCommitAll(T, 'undated intent');
+  const r = run(T, { git: true, args: [] });
+  check('检查15：无台账+无自报日期新档 → git 首加日兜底受管 → hard 确认未对账',
+    r.status === 1 && outOf(r).includes('确认未对账'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+// §5 policyVersion 越界：此前静默回落 v1（§3x/§23 hard 门整段关停）→ 修复后 fail-closed 非零退出带指引
+SCEN(async () => {
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 99 }) + '\n');
+  const r = run(T, { args: [] });
+  check('policyVersion 越界（99）→ fail-closed 非零退出且带版本指引',
+    r.status !== 0 && outOf(r).includes('policyVersion') && outOf(r).includes('99'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+// §5 对照：合法版本（1 在表内）行为不变
+SCEN(async () => {
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 1 }) + '\n');
+  const r = run(T, { args: [] });
+  check('policyVersion 1（合法表内）→ 行为不变 exit 0', r.status === 0, `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+
 // 场景间零共享态（各自 mkfix 独立临时仓 + git init，评估期逐块审计确认）→ 按 idx % K round-robin
 // 分片可安全并行。K = clamp(1..8, floor(cpus/1.5))：12 核本机 8；小核 CI 自适应到 1 = 顺序等价（行为
 // 与分片化前一致）；CHECK_LOOP_TEST_SHARDS 钉死（调试/复现单线程顺序）。--shard=i/K = 子进程态，

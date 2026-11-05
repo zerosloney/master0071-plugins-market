@@ -571,6 +571,50 @@ SCEN(async () => {
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+// ---- 合并缝（2026-11-05 merge-gap）：分片/台账生于**第二父**、合并只留其行集子集 ----
+// 旧代码 `base = tryBlob(parents[0]:rel) === null → continue` 整文件跳过——既不判删除也漏并集对账，
+// 跨父丢行 exit 0。修复后：base===null 且是多父时，对每个父分别取基线做并集对账
+//（mergeUnionProblem 原语义：结果行集须恰为各父行集之并——无丢失、无凭空行），不再整文件 continue。
+// N1：第二父创建分片 s1+s2，合并解析只留 s1（丢 s2）→ 必须拦（修复前 RED：exit 0）
+// N2：同一形态但合并保留全部分片行（并集）→ union 认可 exit 0（不误伤合法形态）
+SCEN(async () => {
+  const d = mkrepo();
+  mkDoc(d, 'q');
+  const s1 = row({ ts: '2026-10-02T01:00:00.000Z', doc: 'workflow/intents/q.md' });
+  const s2 = row({ ts: '2026-10-02T02:00:00.000Z', stage: 'done', doc: 'workflow/intents/q.md' });
+  const BR = G(d, ['symbolic-ref', '--short', 'HEAD']).stdout.trim();
+  G(d, ['checkout', '-qb', 'br']);
+  shardWrite(d, 'doc-q', [s1, s2]); // 第二父创建分片（首父从头到尾无此路径）
+  commitAll(d, 'br creates shard doc-q');
+  G(d, ['checkout', '-q', BR]);
+  fs.writeFileSync(path.join(d, 'workflow', 'intents', 'demo.md'), '---\n状态: approved\n级别: L1\n日期: 2026-10-02\n模块: pipeline\n---\n# I-main\n'); // 首父独立推进 → 真分叉
+  commitAll(d, 'main unrelated change');
+  G(d, ['merge', '--no-commit', 'br']); // 分片无冲突：合并自动取 br 版（s1+s2）
+  fs.writeFileSync(path.join(shardDirOf(d), 'doc-q.jsonl'), s1 + '\n'); // 合并解析只留子集——s2 借缝消失
+  commitAll(d, 'merge keeps only s1 (s2 lost)');
+  const r = run(d);
+  check('N1 第二父创建分片、合并只留子集 → exit 1 且报「合并丢失」', r.code === 1 && r.out.includes('合并丢失'), r.out.slice(-400));
+  fs.rmSync(d, { recursive: true, force: true });
+});
+SCEN(async () => {
+  const d = mkrepo();
+  mkDoc(d, 'q2');
+  const s1 = row({ ts: '2026-10-02T01:00:00.000Z', doc: 'workflow/intents/q2.md' });
+  const s2 = row({ ts: '2026-10-02T02:00:00.000Z', stage: 'done', doc: 'workflow/intents/q2.md' });
+  const BR = G(d, ['symbolic-ref', '--short', 'HEAD']).stdout.trim();
+  G(d, ['checkout', '-qb', 'br']);
+  shardWrite(d, 'doc-q2', [s1, s2]);
+  commitAll(d, 'br creates shard doc-q2');
+  G(d, ['checkout', '-q', BR]);
+  fs.writeFileSync(path.join(d, 'workflow', 'intents', 'demo.md'), '---\n状态: approved\n级别: L1\n日期: 2026-10-02\n模块: pipeline\n---\n# I-main\n');
+  commitAll(d, 'main unrelated change');
+  G(d, ['merge', '--no-commit', 'br']); // 分片整体保留（父母行集之并）
+  commitAll(d, 'merge keeps full shard');
+  const r = run(d);
+  check('N2 第二父创建分片、合并保留并集 → union 认可 exit 0', r.code === 0 && /并集无丢失/.test(r.out), r.out.slice(-400));
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 // ---- 合并态 --staged（2026-10-14 staged-merge-prune）：pre-commit 在合并进行中按父母并集对账 ----
 // 共用造仓：main 已含 r2 → br 修剪 r2 并等义补 comp 行（manifest 随 br）→ main 另加无关改动后
 //   merge --no-commit（真合并、MERGE_HEAD 在场，暂存 = br 版）。r2 必须先在首父——否则暂存相对 HEAD

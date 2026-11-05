@@ -13,12 +13,15 @@
 # 说明：本文件会被 core.autocrlf 检出为 CRLF，读取方（rule-budget.mjs）已显式去 \r，禁止依赖行尾格式。
 # 口径：预算比较用「索引 / HEAD 字节」（git cat-file，LF 归一）；禁用工作区 wc -c 核对（CRLF 膨胀，2026-09-21 实测差 ~500B）。
 AGENTS.md 8704
-backend/AGENTS.md 7424
-frontend/AGENTS.md 4992
-.trae/rules/project-workflow.md 1792
+# ↓ 源项目专有预算行已泛化为注释示例（2026-11-05 插件化迁移脱敏：backend / frontend / .trae /
+#   .codebuddy 是源项目工具链路径，不随种子分发——对照 gate-budgets.json 的插件形态重标定先例）。
+#   项目按自有常驻面改写：取消注释、按「瘦身后实测 + 余量」定上限；预算路径在项目里不存在时不计超限。
+# backend/AGENTS.md 7424
+# frontend/AGENTS.md 4992
+# .trae/rules/project-workflow.md 1792
 # 2026-10-09 CodeBuddy 适配收口：rules 常驻面（project-workflow + 中文 + 提交）+ 主记忆 CODEBUDDY.md 首入预算（实测 rules 合计 2162B / CODEBUDDY.md 475B）
-.codebuddy/rules/ 2336
-.codebuddy/CODEBUDDY.md 512
+# .codebuddy/rules/ 2336
+# .codebuddy/CODEBUDDY.md 512
 .agents/commands/*.md 8704
 # 2026-10-21 第五轮：路由表去重与快速道检索前移后重定目录上限。实测 commands 合计 41256B（索引 LF），
 # 上限 67584→44144B（余量 2888B ≈ 7.0%）。单篇上限 8704B 不变（峰值 new-task.md 6121B）。

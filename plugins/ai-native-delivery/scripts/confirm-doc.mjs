@@ -71,11 +71,13 @@ function nowIso() {
 
 // hasFreshVerify(root)：读 <root>/.agents/verifications.jsonl 判 24h 窗口绿行（判定单源
 // policy.hasFreshVerifyLine）。只读，台账缺失/不可读一律 false（=无凭证，advisory 层 fail-open）。
+// ctx 传 root（2026-11 续单）：绿行 head 字段的 git 锚核验环境——verify.mjs 自本版起落 head，
+// 裸调会把全部合法新绿凭证判不可信（hard 档恒拒——功能回归）。
 function hasFreshVerify(root) {
   try {
     const p = path.join(root, '.agents', 'verifications.jsonl');
     if (!fs.existsSync(p)) return false;
-    return hasFreshVerifyLine(fs.readFileSync(p, 'utf8').split(/\r?\n/));
+    return hasFreshVerifyLine(fs.readFileSync(p, 'utf8').split(/\r?\n/), Date.now(), { cwd: root });
   } catch {
     return false;
   }

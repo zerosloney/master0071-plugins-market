@@ -14,6 +14,9 @@
 //   重生成自动纠正——须人工改正；若本地台账仍持同一 SHA，重生成会按台账重写该行（须连同台账处理）。
 // 时机：verify.mjs 全绿尾部自动重生成（2026-10-11 C4 事件原子化——检查 23 收敛硬门读本文件，滞后即误拦）
 //   + 关单时随三件套同笔提交；CI 侧重生成于 CI 工作区、不回流本仓，无副作用；--check 只供本地自检。
+// 对质事实（closeout-anchor 2026-11-05）：本地台账绿行新带 head（HEAD 全 SHA）与逐门
+//   gates[{id,exit,src}]（门脚本 scriptPath 解析结果）——渲染为末列 head=/src= 尾注，桩替换与
+//   伪造锚从此在入库视图里可对质；行仍为 5 列形态（尾注拼末列，verify-scope 行正则兼容）。
 // 用法：node <插件根>/scripts/gen-verify-evidence.mjs [--root <dir>] [--check]
 // 测试：node <插件根>/test/gen-verify-evidence.test.mjs（fixture 注入 --root）
 import fs from 'node:fs';
@@ -39,9 +42,18 @@ const OUT = path.join(ROOT, 'workflow', 'verify-evidence.md');
 
 const ROW_RE = /^\|\s*`([0-9a-f]{7,40})`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*$/;
 
+/** src 展示路径（closeout-anchor 2026-11-05）：项目侧（根内）相对根 + 正斜杠（入库视图跨机可读）；根外（插件内）原样绝对路径 */
+function displayPath(p) {
+  const rel = path.relative(ROOT, p);
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : p;
+}
+
 /** 按本地台账条目渲染数据行 */
 function renderRow(e) {
   const cnt = Number.isFinite(e.passed) ? `PASS ${e.passed} / FAIL ${e.failed ?? 0}` : '—';
+  // 门数列（closeout-anchor 2026-11-05）兼容两代 schema：新 = 逐门 provenance 数组（取长度），
+  // 旧 = 数字计数；缺省 —。
+  const gateCnt = Array.isArray(e.gates) ? e.gates.length : Number.isFinite(e.gates) ? e.gates : '—';
   // scope 标记（verify-diet 2026-10-21 ②）：增量关单绿行末列自带面与基线——审计可对质「跳了哪些门」；
   // 门数列显示实跑数（如 10），与全量 16 行天然可辨。baseSource=evidence（verify-evidence-fallback
   // 2026-10-22）显式标注「基线取自仓库凭证而非本地台账」——诚实边界不降，来源可对质。
@@ -56,7 +68,14 @@ function renderRow(e) {
   // 但此前末列仍显示 `—`，外观与全量绿行无异（实测 11 条被下游当基线用了 20 次）。
   // 显式渲染跳过事实，使「该行没跑哪些门」在摘要面可见，且 parseEvidenceGreens 也会拒作全量锚。
   const envNote = Array.isArray(e.envSkips) && e.envSkips.length ? `skip-env=${e.envSkips.join('+')}` : '';
-  return `| \`${e.headShort}\` | ${e.ts} | ${e.gates} | ${cnt} | ${[scopeNote, flakyNote, fastNote, envNote, e.runId].filter(Boolean).join(' ') || '—'} |`;
+  // head 锚 + 门脚本 src（closeout-anchor 2026-11-05）：入库视图携带对质事实——head = 凭证行
+  // 锚定的 HEAD 全 SHA；src 只列有解析路径的门（`src=<门>:<路径>`，项目侧桩路径相对根显示，
+  // null src 省略）。拼进末列，5 列行形态不变（verify-scope.parseEvidenceGreens 正则不可破）。
+  const headNote = e.head ? `head=${e.head}` : '';
+  const srcNote = Array.isArray(e.gates)
+    ? e.gates.filter((g) => g && typeof g.src === 'string' && g.src).map((g) => `src=${g.id}:${displayPath(g.src)}`).join('+')
+    : '';
+  return `| \`${e.headShort}\` | ${e.ts} | ${gateCnt} | ${cnt} | ${[scopeNote, flakyNote, fastNote, envNote, headNote, srcNote, e.runId].filter(Boolean).join(' ') || '—'} |`;
 }
 
 /**
@@ -98,7 +117,7 @@ function render() {
   lines.push('# 验证绿凭证摘要（生成物，勿手改）');
   lines.push('');
   lines.push('> 生成器 `node <插件根>/scripts/gen-verify-evidence.mjs`（verify.mjs 全绿尾部自动重生成，2026-10-11 C4 起；源 .agents/verifications.jsonl 为本地台账）。');
-  lines.push('> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证。非签名链——诚实边界同 check-loop 检查 15。');
+  lines.push('> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证；`head=<SHA>` 为该凭证行锚定的 HEAD 全 SHA、`src=<门>:<路径>` 为该门脚本的解析来源（项目侧 .agents/scripts 桩替换可对质，2026-11-05 closeout-anchor）。非签名链——诚实边界同 check-loop 检查 15。');
   lines.push('> 行来源 = 本地台账绿行 ∪ 本文件既有行（**追加保全**：跨机 / 换 worktree 不失历史；代价：错行不会被重生成自动纠正，须人工改正后重跑）。');
   lines.push('');
   lines.push('| 提交(短SHA) | 时间(UTC) | 门数 | 断言计数 | runId |');

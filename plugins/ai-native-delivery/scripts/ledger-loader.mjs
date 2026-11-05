@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectRoot } from './paths.mjs';
+import { withLedgerLock } from './ledger-shards.mjs';
 
 // 默认根锚定 git root（paths.mjs 单源）：调用方不显式传根时，子目录调用不漂移。
 export function loadAllConfirmations(root = projectRoot()) {
@@ -65,11 +66,17 @@ export function writeConfirmation(root = projectRoot(), entry, { shard = false }
     fs.mkdirSync(shardDir, { recursive: true });
     const baseName = path.basename(entry.doc, '.md');
     targetFile = path.join(shardDir, `${baseName}.jsonl`);
+    // 2026-11-05 并发修复：追加全程持 `<分片>.lock`（withLedgerLock 单源，与 compact-ledgers /
+    // ledger-shards 同一把锁）。此前 appendFileSync 无锁——compact-ledgers 收缩「锁内重读分片→
+    // 并入主台账→unlink」期间落进来的确认行会随 unlink 静默丢失。锁被他人持有时等待，超时响亮
+    // 抛错（fail-loud），绝不无锁写。
+    withLedgerLock(targetFile, () => {
+      fs.appendFileSync(targetFile, JSON.stringify(entry) + '\n', 'utf8');
+    });
   } else {
     targetFile = path.join(root, '.agents', 'confirmations.jsonl');
     fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.appendFileSync(targetFile, JSON.stringify(entry) + '\n', 'utf8');
   }
-
-  fs.appendFileSync(targetFile, JSON.stringify(entry) + '\n', 'utf8');
   return targetFile;
 }

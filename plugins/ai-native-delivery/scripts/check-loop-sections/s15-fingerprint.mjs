@@ -54,10 +54,15 @@ export function run() {
       //   ② 自报日期 ≥ 生效日——覆盖「新档完全没跑 confirm-doc」的漏网面（此类无台账行，
       //      仅靠 ① 会被误判为存量豁免而静默放行）。
       // 两条件皆不满足 = 存量豁免（生效日前既有、从未走确认门，不追溯）。
+      // ② 的日期三选一兜底（2026-11 市场审查修复「无日期」逃逸）：frontmatter「日期/发现」→
+      //   文件名日期前缀 → **git 首加日**（单源 kit addedDateOf，检查 8 同款判据）——此前三处皆无
+      //   即整段豁免，等于「新档不写日期 + 不跑 confirm-doc」就能静默绕过本 hard 门；git 首加日
+      //   在真实仓恒存在（夹具/非 git 仍返回空 → 存量豁免语义原样保留）。
       const docEntries = ledger.filter((e) => e && e.doc === rel && VALID_STAGES.has(e.stage));
       const eff = sub === 'incidents' ? kitPolicy.confirmIncidentsEffective : EFFECTIVE;
       let d = fmGet(doc, '日期') || fmGet(doc, '发现');
       if (!d) d = /^\d{4}-\d{2}-\d{2}$/.test(base.slice(0, 10)) ? base.slice(0, 10) : '';
+      if (!d) d = addedDateOf(doc);
       const dateManaged = /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= eff;
       if (!docEntries.length && !dateManaged) continue; // 存量豁免
       const fp = fmGet(doc, '确认指纹');

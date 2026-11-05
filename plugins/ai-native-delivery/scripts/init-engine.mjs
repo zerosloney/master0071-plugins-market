@@ -67,11 +67,16 @@ function walkFiles(dir, base = dir) {
 
 // config-templates → .agents/config 种子清单。排除：githooks/（.git/hooks 安装的模板源，非项目配置）、
 // settings.json（项目侧专位在 .agents/settings.json，与 config/ 平级——§5.2 目录规范）、
-// pipelines/（项目侧专位在 .agents/pipelines/——编排脚本落位口径，见下方 ①b）。
+// pipelines/（项目侧专位在 .agents/pipelines/——编排脚本落位口径，见下方 ①b）、
+// ledger-prune/rebuild-manifest.json（2026-11-05：owner 授权修剪/重建的凭据（逐行 sha256）与授权
+//   原文属**运行数据**，按「运行数据不迁」红线不随 init 种子——check-ledger-invariant 只消费
+//   提交自带的 manifest（git 对象读取，工作区/插件目录一律不读），项目侧不预置即无特许通道；
+//   config-templates 留档仅作格式样例，见两文件 _note）。
 function configSeedFiles() {
   return walkFiles(PLUGIN_CONFIG_TEMPLATES_DIR)
     .map((rel) => rel.split(path.sep).join('/'))
-    .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json' && !rel.startsWith('pipelines/'));
+    .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json' && !rel.startsWith('pipelines/')
+      && rel !== 'ledger-prune-manifest.json' && rel !== 'ledger-rebuild-manifest.json');
 }
 
 // ①b 编排脚本种子 → 项目侧 .agents/pipelines/（2026-10-27 插件化修复）。
@@ -144,13 +149,20 @@ function installHooks(root, report) {
       //（实测：重跑打印 skip、commit 仍 exit 1），真修法只剩手工删钩子。
       // 只刷新「本插件装的、且 baked 的引擎脚本已不存在」的那一类；不是本插件装的钩子
       // 保持"不覆盖用户钩子"的语义不变。
+      // 自装判据（2026-11-05 迁移修复）：首版用 p.startsWith(PLUGIN_ROOT) 判自装——那是拿
+      // **当前**插件根当锚，宿主缓存整体搬家后 baked 的是旧安装根路径，前缀恒 false → 旧钩子
+      // 被误判成第三方 skip，"重跑 init-engine"仍是 no-op。改判「路径形态属于本插件」：resolve
+      // 后含本插件目录名的**独立路径段**（按分隔符切分后整段相等，`…-old` 后缀目录不误命中）
+      // 且 baked 的引擎脚本已不存在 → 刷新；当前根前缀命中是其子集，一并保留。
       let staleOwn = false;
       try {
         const cur = fs.readFileSync(target, 'utf8');
         const baked = /const\s+ENGINE_SCRIPT\s*=\s*("(?:[^"\\]|\\.)*")/.exec(cur);
         if (baked) {
           const p = JSON.parse(baked[1]);
-          staleOwn = typeof p === 'string' && p.startsWith(PLUGIN_ROOT) && !fs.existsSync(p);
+          staleOwn = typeof p === 'string'
+            && !fs.existsSync(p)
+            && (p.startsWith(PLUGIN_ROOT) || path.resolve(p).split(/[\\/]/).includes(path.basename(PLUGIN_ROOT)));
         }
       } catch {
         staleOwn = false; // 读不出/解析不出 → 当作别人的钩子，不动
