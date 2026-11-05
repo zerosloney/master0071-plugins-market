@@ -109,8 +109,14 @@ export function renderTemplate(template, { labels = {}, decision = {}, confidenc
   if (!template) return '';
   const ctx = { labels, decision, confidences, derived };
   let out = String(template).replace(/\\([{}])/g, '\u0000$1');
+  // 占位符名字符集（so-M5）：[\w&] 只认 ASCII，中文 qid（{知识点}）与带连字符的 id
+  // （{my-qid}、{my-qid?真|假}）不被当成占位符，原样漏进给模型/用户的建议文本。
+  // 改用 \p{L}\p{N}（Unicode 字母/数字）+ _ - + 既有 &（u 标志）；ASCII 行为完全向后兼容
+  //（\w = ASCII 字母数字下划线，是这里的子集）。取值形态的 .prop 选择器仍限 \w+：
+  // 语义选择器只有 key / confidence 两个 ASCII 词。与 noulOf / finiteScore 的边界收紧同一原则：
+  // 字符类口径收在「能构成名字」上，而不是靠上游保证。
   out = out.replace(
-    /\{([\w&]+)\?([^{}|]*)(?:\|([^{}|]*))?(?:\|([^{}|]*))?\}/g,
+    /\{([\p{L}\p{N}_&-]+)\?([^{}|]*)(?:\|([^{}|]*))?(?:\|([^{}|]*))?\}/gu,
     (_, names, thenText, elseText, unknownText) => {
       const state = conditionState(names.split('&'), ctx);
       if (state === true) return thenText;
@@ -119,7 +125,7 @@ export function renderTemplate(template, { labels = {}, decision = {}, confidenc
       return unknownText ?? '';
     },
   );
-  out = out.replace(/\{(\w+)(?:\.(\w+))?\}/g, (_, name, prop) => {
+  out = out.replace(/\{([\p{L}\p{N}_-]+)(?:\.(\w+))?\}/gu, (_, name, prop) => {
     if (prop === 'key') return stringify(decision[name]);
     if (prop === 'confidence') {
       const c = confidences[name];

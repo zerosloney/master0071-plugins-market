@@ -256,6 +256,12 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+// 「像状态文件」判定：有 version/prompt 才算。init 与 write 共用同一口径（见 init 分支的
+// foreignFile 注释：覆盖非状态文件是数据损失，不是管道重置/更新）。
+function looksLikeState(value) {
+  return isObject(value) && value.version === 1 && typeof value.prompt === "string";
+}
+
 function validateState(state, pipeline) {
   const errors = [];
   const warnings = [];
@@ -672,8 +678,7 @@ function main() {
       if (existsSync(file)) {
         try {
           const existing = JSON.parse(readFileSync(file, "utf8"));
-          const looksLikeState = isObject(existing) && existing.version === 1 && typeof existing.prompt === "string";
-          if (!looksLikeState) {
+          if (!looksLikeState(existing)) {
             foreignFile = true;
           } else {
             existingProgress = !args.force && Boolean(
@@ -733,11 +738,33 @@ function main() {
     }
     const { errors, warnings } = validateState(state, pipeline);
     if (errors.length) fail(`invalid state:\n- ${errors.join("\n- ")}`);
+    // 防误覆盖（对齐 init 的 foreignFile 检测）：write 也可能被指到别人的文件——
+    // `write --file package.json` 实测会把 package.json 整份替换成状态对象、exit 0。
+    // 判定口径与 init 完全一致（looksLikeState：有 version/prompt 才算状态文件）。
+    // 检测在锁内完成（避免 TOCTOU），fail 放在锁外——process.exit 不会跑 withLock 的 finally，
+    // 锁内 fail 会把锁留在盘上。
+    let foreignFile = false;
     withLock(file, () => {
-      const transitions = diffTaskStatus(file, state);
-      writeAtomic(file, state);
-      logEvent(file, pipeline, "write", state, { transitions });
+      if (existsSync(file)) {
+        try {
+          if (!looksLikeState(JSON.parse(readFileSync(file, "utf8")))) foreignFile = true;
+        } catch {
+          // 损坏 JSON 与 init 同一立场：可能是被中断的状态文件，不新增误拒、放行 write
+        }
+      }
+      if (!foreignFile) {
+        const transitions = diffTaskStatus(file, state);
+        writeAtomic(file, state);
+        logEvent(file, pipeline, "write", state, { transitions });
+      }
     });
+    if (foreignFile) {
+      fail(
+        `refusing to overwrite ${file}: it exists but is not a pipeline state file (no version/prompt).\n` +
+          `Overwriting a non-state file is data loss, not a pipeline update.\n` +
+          `Init it first (state.mjs init --pipeline ${pipeline} --file ${file} --prompt ...) or check --file.`,
+      );
+    }
     if (args.json) console.log(JSON.stringify({ file, warnings }));
     else console.log(`Wrote ${file}${warnings.length ? `\nWarnings:\n- ${warnings.join("\n- ")}` : ""}`);
     return;

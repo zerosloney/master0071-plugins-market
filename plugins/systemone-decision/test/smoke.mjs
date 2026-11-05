@@ -10,7 +10,7 @@ import path from 'node:path';
 import { rejectDataPath, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
 import { renderTemplate, deriveFields } from '../mcp/format.mjs';
 import { extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
-import { BUILTIN_SCENARIOS, resolveScenarios } from '../mcp/scenarios.mjs';
+import { BUILTIN_SCENARIOS, resolveScenarios, validateScenario } from '../mcp/scenarios.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.join(here, '..');
@@ -109,7 +109,9 @@ const FIXTURE = {
 // 按请求中的问题动态生成答案：已知 qid 用 fixture 原值，其余按题型套模板，
 // 以此同时校验"发出的问题被正确序列化 + answers 按请求 qid 对齐"。
 function answerFor(qid, q) {
-  if (FIXTURE.answers[qid]) return FIXTURE.answers[qid];
+  // hasOwn 而非真值下标：qid="__proto__" 时普通对象上的下标会沿原型链取到 Object.prototype
+  //（真值），钉住测试（so-M4）就会拿到一个空壳答案而不是按题型生成的答案
+  if (Object.hasOwn(FIXTURE.answers, qid)) return FIXTURE.answers[qid];
   if (q.type === 'choice') {
     const keys = Object.keys(q.criteria || {});
     const probabilities = Object.fromEntries(keys.map((k, i) => [k, i === 0 ? 0.9 : 0.1 / Math.max(keys.length - 1, 1)]));
@@ -253,7 +255,27 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ ...FIXTURE, answers }));
       return;
     }
-    // 置信度垃圾值：JSON 没有 NaN/Infinity 字面量，1e999 靠文本替换注入（解析后即 Infinity）。
+    // so-M1 缺陷回归夹具：上游把 score 回成空串。Number('') === 0，弱实现把它捏造成
+    // 0 分再取 legend[0] 捏造等级标签、顺 severity 派生 P4，needs_human_review=false 静默放行。
+    if (parsed.state === 'mock:score-coerced') {
+      const answers = {};
+      for (const [qid, q] of Object.entries(parsed.questions || {})) {
+        if (q.type === 'score') {
+          answers[qid] = {
+            type: 'score',
+            legend: { '0': '轻微问题，不影响功能', '1': '部分功能受影响，但存在替代方案', '2': '核心功能不可用，没有替代方案', '3': '造成严重业务或安全影响' },
+            probabilities: { '0': 0.1, '1': 0.1, '2': 0.1, '3': 0.1 },
+            score: '',
+            confidence: 0.91,
+          };
+        } else {
+          answers[qid] = answerFor(qid, q);
+        }
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...FIXTURE, answers }));
+      return;
+    }
     // typeof Infinity === 'number' 会漏过弱守卫；choice 的 probabilities 回退值还可能是非数字字符串。
     // 归一化必须把它们收敛成 null（与 normalizeDecision 同一套 finite 口径），noul 概率无效时
     // decision 已是「无法判断」，必须同步转人工。
@@ -278,7 +300,9 @@ const mock = http.createServer((req, res) => {
       res.end(JSON.stringify({ ...FIXTURE, answers }).replaceAll('"__INF__"', '1e999'));
       return;
     }
-    const answers = {};
+    // 无原型对象承载（so-M4 依赖）：qid="__proto__" 时普通 {} 上的赋值会触发原型 setter，
+    // mock 自己把这道题的答案丢掉，钉住测试就测不到真实链路了
+    const answers = Object.create(null);
     for (const [qid, q] of Object.entries(parsed.questions || {})) answers[qid] = answerFor(qid, q);
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ...FIXTURE, answers }));
@@ -527,6 +551,21 @@ const main = async () => {
         assert.ok(bad.summary.includes('需要人工复核'), '摘要必须提示需复核');
       });
     }
+
+    // so-M1：上游把 score 回成空串（""）——Number('') === 0，弱实现捏造成 0 分，
+    // 取 legend[0] 捏造等级标签、顺 severity 派生 P4，needs_human_review=false 静默放行
+    const coerced = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'customer_service', state: 'mock:score-coerced' })
+    );
+    check('畸形 score（score = ""）不得捏造成 0 分：无法判断 + 不派生优先级 + 转人工', () => {
+      assert.equal(coerced.answers.severity.value, null, '空串不是 0 分');
+      assert.equal(coerced.answers.severity.level, null, '不得回退到 legend[0]');
+      assert.equal(coerced.decision.severity, null);
+      assert.equal(coerced.labels.severity, '无法判断');
+      assert.equal(coerced.derived.priority, undefined, '不得派生凭空的优先级');
+      assert.equal(coerced.needs_human_review, true, 'score="" 必须转人工');
+      assert.deepEqual(coerced.low_confidence_questions, ['severity']);
+    });
 
     // 同类缺口：noul 完全没有概率字段时，confidence 恒为 null，原先会静默按「无需复核」放行
     const badNoul = toolResult(
@@ -1470,6 +1509,62 @@ const main = async () => {
     uiClient.close();
   }
 
+  // so-M4 钉住：applyParams 的 params 覆盖路径曾用裸 {} 承载合并结果，qid="__proto__" 时
+  // `merged[qid] = next` 触发原型 setter——该题静默丢出 merged 的自有键，Object.entries 就此
+  // 丢题，模型收不到、判定照常返回且无任何报错。0.5.13 已修（server.mjs 改用
+  // Object.create(null)），当时没有测试。这里走真实路径钉住：tools/call → action=run →
+  // params 覆盖 × qid="__proto__"。JSON 串直写避免 JS 字面量的 __proto__ 特殊语义。
+  // （必须排在 mock.close() 之前：钉住走的是真实判定请求）
+  {
+    const protoScenario = JSON.stringify([
+      {
+        id: 'proto_params',
+        title: '原型钉住',
+        description: '',
+        questions: JSON.parse('{"__proto__":{"type":"noul","label":"可接受吗","instructions":"这样可接受吗？"}}'),
+        derive: {},
+        recommendation: '',
+      },
+    ]);
+    const protoClient = new McpClient({
+      SYSTEMONE_API_KEY: 'test-key',
+      SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      SYSTEMONE_PLUGIN_SCENARIOS: protoScenario,
+    });
+    try {
+      const protoRun = toolResult(
+        await protoClient.call('tools/call', {
+          name: 'systemone_scenario',
+          arguments: {
+            action: 'run',
+            scenario: 'proto_params',
+            state: '原型钉住',
+            params: JSON.parse('{"__proto__":{"label":"覆盖后的标签"}}'),
+          },
+        })
+      );
+      check('params 覆盖 qid="__proto__"：题目不丢、answers/labels 不长出污染键（applyParams 钉住）', () => {
+        assert.equal(protoRun.ok, true);
+        // JSON 序列化里出现 "__proto__" 键 = 它是自有键（落进原型 setter 的键会被
+        // JSON.stringify 整个丢掉）。三视图 + 原始响应一起对账。
+        assert.ok(Object.hasOwn(protoRun.answers, '__proto__'), 'answers 必须含 __proto__ 题');
+        assert.ok(Object.hasOwn(protoRun.labels, '__proto__'), 'labels 必须含 __proto__ 题');
+        assert.ok(Object.hasOwn(protoRun.decision, '__proto__'));
+        assert.ok(Object.hasOwn(protoRun.raw.answers, '__proto__'), '原始响应的 answers 必须含 __proto__ 题');
+        assert.equal(protoRun.decision['__proto__'], true, 'noul=0.87 → 是');
+        // 请求体里确实带了这道题（params 覆盖没有把它丢出合并表）
+        const protoRequests = received.filter((r) => r.body.questions && Object.hasOwn(r.body.questions, '__proto__'));
+        assert.equal(protoRequests.length, 1, '判定请求必须携带 __proto__ 题（丢题 = applyParams 落了原型 setter）');
+        assert.equal(protoRequests[0].body.questions.__proto__.type, 'noul');
+        // 原型干净：污染形态（赋值落 setter）会把题目变成本题对象的原型而非自有键，
+        // 上面的 hasOwn 断言已钉死；这里再锚一遍测试进程内的解析产物没被污染
+        assert.equal(Object.getPrototypeOf(protoRun.answers), Object.prototype);
+      });
+    } finally {
+      protoClient.close();
+    }
+  }
+
   // PLUGIN_DATA 存在时（Agent Plugins 规范提供的跨插件更新可写数据目录），
   // 端点共享文件应落在那里而不是插件根——插件更新后状态不丢，也不污染包目录。
   const dataDir = path.join(runRoot, 'plugin-data');
@@ -1575,6 +1670,13 @@ const main = async () => {
     check('URL 内嵌凭据一律判为不安全（即使 host 确是回环）', () => {
       assert.equal(isInsecureBaseUrl('http://user:pw@127.0.0.1:8080/v1'), true, '口令不该出现在端点配置里');
     });
+    // so-M6：注释契约是「含内嵌凭据（userinfo）的 URL 一律判不安全」，但 `https:` 早退
+    // 排在了 userinfo 检查之前——https://user:pass@host 被判安全。凭据不该出现在端点
+    // 配置里，这契约与 scheme 无关；https 的早退只该对「不含 userinfo」的 URL 生效。
+    check('https + userinfo 同样判为不安全（早退不得跳过 userinfo 检查）', () => {
+      assert.equal(isInsecureBaseUrl('https://user:pw@127.0.0.1:8080/v1'), true, 'https 回环 + userinfo');
+      assert.equal(isInsecureBaseUrl('https://user:pw@evil.example/v1'), true, 'https 外部主机 + userinfo');
+    });
     check('回环判定不接受「以回环开头的域名」', () => {
       assert.equal(isInsecureBaseUrl('http://127.0.0.1.evil.example/v1'), true);
       assert.equal(isInsecureBaseUrl('http://localhost.evil.example/v1'), true);
@@ -1632,6 +1734,45 @@ const main = async () => {
       assert.equal(renderTemplate('{constructor?真|假}', { decision: {} }), '', '不存在的键是未知，不是真');
       assert.equal(renderTemplate('{toString}', { decision: {} }), '', '原型上的函数不得被渲染进结果');
     });
+    // so-M5：占位符名字符集只认 ASCII（[\w&]+ / \w+），中文 qid 与带连字符的 id 不被
+    // 当成占位符——原样漏进给模型与用户的建议文本，渲染层对它是静默的。
+    // 名字口径 = Unicode 字母/数字 + _ - &（\p{L}\p{N}），ASCII 行为保持向后兼容。
+    check('中文 qid 参与条件与取值渲染', () => {
+      assert.equal(renderTemplate('{知识点?需补充|已明确}', { decision: { 知识点: true } }), '需补充');
+      assert.equal(renderTemplate('{知识点?需补充|已明确}', { decision: { 知识点: false } }), '已明确');
+      assert.equal(renderTemplate('结论：{知识点}', { labels: { 知识点: '明确' } }), '结论：明确');
+    });
+    check('带连字符的 qid 参与渲染（含 .key 取值与三态）', () => {
+      assert.equal(renderTemplate('{my-qid?真|假}', { decision: { 'my-qid': true } }), '真');
+      assert.equal(renderTemplate('{my-qid?真|假|未知}', { decision: { 'my-qid': null } }), '未知');
+      assert.equal(renderTemplate('值：{my-qid.key}', { decision: { 'my-qid': 'x' } }), '值：x');
+      assert.equal(renderTemplate('{my-qid}', { derived: { 'my-qid': '高' } }), '高');
+    });
+    check('ASCII 名字行为向后兼容（下划线、多条件与）', () => {
+      assert.equal(renderTemplate('{snake_case?是|否}', { decision: { snake_case: true } }), '是');
+      assert.equal(renderTemplate('{a_1&b?双真|非双真}', { decision: { a_1: true, b: true } }), '双真');
+    });
+  }
+
+  // so-M5 配套校验层：recommendation 引用的名字必须落在本场景的 qid 或派生字段上，
+  // 否则 renderTemplate 把未知名字静默渲染成空串——模板写错 qid 没有任何报错，
+  // 建议文本缺一块却看不出来（derive 的 question 早有同类校验，模板引用层补齐同一道闸）。
+  {
+    const base = () => ({ id: 'tpl_check', title: 't', questions: { q: { type: 'choice', instructions: '?', criteria: { a: 'A', b: 'B' } } } });
+    check('validateScenario 拦截模板引用的未知问题/派生名', () => {
+      const problems = validateScenario({ ...base(), recommendation: '结论 {q}，补充 {nope}' });
+      assert.ok(problems.some((p) => /nope/.test(p)), `应指明未知名字 nope：${problems.join('；')}`);
+      const derivedProblems = validateScenario({ ...base(), derive: { d: { question: 'q', map: { a: '高' } } }, recommendation: '{ghost} 与 {q}' });
+      assert.ok(derivedProblems.some((p) => /ghost/.test(p)), `派生名与 qid 之外的名字同样要拦：${derivedProblems.join('；')}`);
+    });
+    check('validateScenario 放行合法引用（qid / 派生名 / .key / .confidence / & / 转义花括号）', () => {
+      const problems = validateScenario({
+        ...base(),
+        derive: { d: { question: 'q', map: { a: '高' } } },
+        recommendation: '{d} / {q} / {q.key} / {q.confidence} / {q&d?双真|非双真} / \\{字面\\}',
+      });
+      assert.deepEqual(problems, []);
+    });
   }
 
   // criteria / spec.map 的原型链（2026-10-29 修复）：模型回 choice="constructor" 时，
@@ -1677,6 +1818,40 @@ const main = async () => {
       assert.equal(fill(0).probability, 0);
       assert.equal(fill(1).probability, 1);
       assert.equal(isBorderlineAnswer(fill(1), { type: 'noul' }, { noul: 1 }), false);
+    });
+  }
+
+  // score 分值的类型收窄（so-M1）：Number('') === 0、Number(false) === 0、Number([]) === 0、
+  // Number(true) === 1——上游把「没给分值」回成空串/布尔/数组时，Number() 强转会把它们捏造
+  // 成合法分值，再取 legend[0] 捏造等级标签，needs_human_review=false 静默放行。与 noul 的
+  // typeof 收窄同口径：只有有限数字与非空数字字符串可用，其余一律归 null 走转人工路径。
+  {
+    const LEVELS = ['轻微', '可逆', '难回滚', '不可逆'];
+    const fill = (raw) => {
+      const out = { type: 'score' };
+      fillAnswerByType(out, raw, { type: 'score', criteria: LEVELS });
+      return out;
+    };
+    const borderline = (raw) => isBorderlineAnswer(fill(raw), { type: 'score', criteria: LEVELS }, raw);
+    check('score="" 归 null 并转人工，不捏造 0 分与等级标签', () => {
+      const a = fill({ score: '', legend: { '0': '轻微问题' }, confidence: 0.91 });
+      assert.equal(a.value, null);
+      assert.equal(a.level, null, '不得用捏造的 0 分去取 legend[0]');
+      assert.equal(borderline({ score: '', confidence: 0.91 }), true);
+    });
+    check('score=false / true / [] 同样归 null', () => {
+      for (const raw of [false, true, []]) {
+        assert.equal(fill({ score: raw, confidence: 0.9 }).value, null, `score=${JSON.stringify(raw)} 不得被 Number() 捏成分值`);
+        assert.equal(borderline({ score: raw, confidence: 0.9 }), true, `score=${JSON.stringify(raw)} 必须转人工`);
+      }
+    });
+    check('非空数字字符串 "0.8" 仍被接受（既有宽容口径保留）', () => {
+      assert.equal(fill({ score: '0.8', confidence: 0.9 }).value, 0.8);
+      assert.equal(borderline({ score: '0.8', confidence: 0.9 }), false);
+    });
+    check('score=null / 缺失字段既有行为不变（归 null）', () => {
+      assert.equal(fill({ score: null, confidence: 0.9 }).value, null);
+      assert.equal(fill({ confidence: 0.9 }).value, null);
     });
   }
 

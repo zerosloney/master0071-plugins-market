@@ -188,6 +188,34 @@ const tmpLeftovers = readdirSync(path.dirname(writeFile)).filter(
 );
 check("write 接受合法状态并原子落盘", written.status === 0 && existsSync(writeFile) && tmpLeftovers.length === 0, written.stderr);
 
+// 防误覆盖（对齐 init 的 foreignFile 检测）：write 指到「存在但不是状态文件」的路径必须拒绝，
+// 而不是把别人的文件整份替换成状态对象后 exit 0。
+const foreignPkg = path.join(sandbox, "package.json");
+const foreignPkgText = JSON.stringify({ name: "x", version: "1.0.0" });
+writeFileSync(foreignPkg, foreignPkgText);
+const refusedWrite = run("state.mjs", ["write", "--pipeline", "ralph", "--file", foreignPkg], JSON.stringify(valid));
+check(
+  "write 拒绝覆盖非状态 JSON",
+  refusedWrite.status === 2 && /not a pipeline state file/.test(refusedWrite.stderr),
+  refusedWrite.stderr,
+);
+check("write 被拒后原文件原样保留", readFileSync(foreignPkg, "utf8") === foreignPkgText, readFileSync(foreignPkg, "utf8"));
+
+// 不误伤首写：write 指向不存在的路径照常创建
+const freshWriteFile = path.join(sandbox, "fresh-write.json");
+const freshWrite = run("state.mjs", ["write", "--pipeline", "ralph", "--file", freshWriteFile], JSON.stringify(valid));
+check("write 指向不存在的路径照常创建", freshWrite.status === 0 && existsSync(freshWriteFile), freshWrite.stderr);
+
+// 正常链路回归：init → write 循环照旧
+const loopFile = path.join(sandbox, "loop.json");
+const loopInit = run("state.mjs", ["init", "--pipeline", "ralph", "--file", loopFile, "--prompt", "loop"]);
+const loopWrite = run("state.mjs", ["write", "--pipeline", "ralph", "--file", loopFile], JSON.stringify(valid));
+check(
+  "init → write 循环不受防护影响",
+  loopInit.status === 0 && loopWrite.status === 0 && JSON.parse(readFileSync(loopFile, "utf8")).round === 1,
+  `${loopInit.stderr} | ${loopWrite.stderr}`,
+);
+
 console.log("\n== scope ==");
 const repo = path.join(sandbox, "repo");
 mkdirSync(repo);

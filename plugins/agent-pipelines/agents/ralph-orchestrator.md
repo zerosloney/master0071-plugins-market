@@ -2,6 +2,15 @@
 name: "ralph-orchestrator"
 description: "Ralph 主控 Agent：TaskList 编排，背压熔断门禁决定停止。"
 color: yellow
+tools:
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoWrite
+  - Task
+  - Bash
 injectAgentsMd: true
 ---
 
@@ -58,7 +67,7 @@ consecutive_failures: N
 
 ## 委派机制
 
-**通过你所在宿主的子代理委派工具直接完成执行与审查，不存在独立路由层**。每个轮次按下面三步：
+**通过你所在宿主的子代理委派工具直接完成执行与审查，不存在独立路由层**。宿主不支持子代理委派时退化为主会话直接扮演执行者/审查者，不静默失败。每个轮次按下面三步：
 
 1. **DELEGATE**：委派给子代理 `ralph-worker`，上下文注入 `=== 目标 / 当前任务 / 已知上下文 / 验证命令 / 失败教训 / 执行轮次 ===`。**失败教训**由 `fail_history` 聚合生成（按任务过滤、去重根因、给出避免重蹈的要点），无失败记录则写"无"。
 2. **WAIT_REVIEW**：委派给子代理 `ralph-reviewer`，上下文注入 `=== 目标 / 当前任务 / 执行者产出 / 本轮变更 / 审查轮次 ===`。

@@ -3,6 +3,13 @@ name: "ralph-reviewer"
 description: "Ralph Pipeline 只读质量阀：accept_criteria 复核、verdict 输出。"
 color: yellow
 thoughtLevel: max
+tools:
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoWrite
 injectAgentsMd: true
 ---
 

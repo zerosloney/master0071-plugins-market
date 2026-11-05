@@ -28,6 +28,19 @@ export const SHELL_TOOL_NAMES = [
 ];
 const SHELL_TOOL = new RegExp(`(^|[_\\-. ])(?:${SHELL_TOOL_NAMES.join('|')})([_\\-. ]|$)`, 'i');
 
+// 粘连词尾形态（2026-11-05，so-M3）：matcher 是子串正则，`nushell` / `myshell` / `fishshell`
+// 里的 shell 会被 [Ss][hH][eE][lL][lL] 命中并拉起 hook，而上面的边界字符类要求关键词两侧
+// 是分隔符——'nushell' 里 shell 前面是字母 u，内核判「非 shell 工具」静默放行，
+// 整类免检且零信号。补一条「关键词作为整个工具名的词尾（前面是字母前缀）」的形态：
+// nushell / powershell / fishshell 都是真 shell 名。方向安全：只会扩大管辖
+//（多发一次判定请求），不会让 shell 工具漏出，与拆词（normalizeToolName）同一性质。
+// fish 不进词尾形态：shellfish / catfish 这类英语词以 fish 结尾，会把非 shell 工具误收；
+// 由此留下「matcher 命中但内核不认」的残余缝（如 shellfish），由 assess 里的 stderr 告警兜底。
+const SHELL_TOOL_TAIL = new RegExp(`[a-z](?:${SHELL_TOOL_NAMES.filter((n) => n !== 'fish').join('|')})$`, 'i');
+// matcher 命中的近似判定：matcher 按同一份名单做子串匹配（大小写变体字符类），
+// 内核不知道宿主的 matcher 长什么样，用「名字含关键词子串」作代理——命中而内核不认时告警。
+const SHELL_TOOL_SUBSTRING = new RegExp(`(?:${SHELL_TOOL_NAMES.join('|')})`, 'i');
+
 // 驼峰工具名先拆词再匹配（2026-10-28）：宿主用 `RunCommand` / `ExecuteCommand` / `BashTool` 这类
 // 命名时，`Command` 前是大写字母 R、后是小写字母 T——两侧都不是 [_\-.] 边界，于是 matcher 命中
 // （它按子串判定，hook 被调用）而内核对不上，落进「非 shell 工具」静默放行。这是 2026-10-27 修的
@@ -157,10 +170,17 @@ const QUESTIONS = {
 
 /** 该工具是否属于风险闸的管辖范围（shell 类）。
  *  先按原样匹配（大小写变体如 `basH` 直接命中）；失败再拆驼峰词重试——`RunCommand` 拆成
- *  `Run Command` 后 `Command` 前是空格边界。两步都失败才算不管辖。 */
+ *  `Run Command` 后 `Command` 前是空格边界。两步之外再认粘连词尾形态（`nushell` 的 shell
+ *  前面是字母 u，两侧都不是分隔符）；四条形态全不命中才算不管辖。 */
 export function applies(toolName) {
   if (typeof toolName !== 'string') return false;
-  return SHELL_TOOL.test(toolName) || SHELL_TOOL.test(normalizeToolName(toolName));
+  const normalized = normalizeToolName(toolName);
+  return (
+    SHELL_TOOL.test(toolName) ||
+    SHELL_TOOL.test(normalized) ||
+    SHELL_TOOL_TAIL.test(toolName) ||
+    SHELL_TOOL_TAIL.test(normalized)
+  );
 }
 
 // 退化路径：宿主用了别的字段名承载命令。原先把整个 tool_input 序列化外发，
@@ -214,7 +234,18 @@ export async function assess(toolName, toolInput, env = process.env, opts = {}) 
   // 管辖权判断先行：名字可读且非 shell 类的工具不归风险闸管，即使 stdin 被截断也直接放行——
   // 截断转人工只对将要分析的 shell 命令有意义。名字读不出来时（stdin 截断时 hook-io 不解析
   // JSON，tool_name 为 undefined）无法判定管辖权，落入下面的截断 fail-closed 分支。
-  if (typeof toolName === 'string' && !applies(toolName)) return null;
+  if (typeof toolName === 'string' && !applies(toolName)) {
+    // 兜底信号（so-M3）：matcher 是子串正则、比内核宽。名字含 shell 词族但内核不认的形态
+    //（如 shellfish——shell 在词中间，词尾形态不收）——宿主既然拉起了 hook，多半是按
+    //「这是 shell 工具」的意图匹配的，内核放行不能一声不吭：至少在 stderr 留一行，
+    // 让「matcher 命中但内核不认」的缺口可见，而不是整类免检且零信号。
+    if (SHELL_TOOL_SUBSTRING.test(toolName)) {
+      process.stderr.write(
+        `[systemone-decision hook] 工具 "${toolName}" 命中 hooks.json matcher 但风险闸内核不认（非 shell 管辖形态），已静默放行；若是 shell 类工具请反馈\n`,
+      );
+    }
+    return null;
+  }
   // stdin 被截断（超 100K 上限）时 tool_name / tool_input 都可能不完整——分析不到的尾巴里
   // 可以藏 `; rm -rf /`。不能走只读捷径，也不把残缺输入交给判定模型：fail-closed 转人工确认。
   //（管辖内的 shell 工具，以及 tool_name 不可读、无法排除 shell 类的情形）

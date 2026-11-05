@@ -256,7 +256,7 @@ value: {baseline_value}
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
 - 任一任务 `failures` 达到 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
-- scope 复算 FAIL 与 reviewer 的 REJECT 同样触发 ESCALATE，不等重试计数。
+- scope 复算 FAIL 与 reviewer 明示「不可恢复」的 REJECT 立即触发 ESCALATE，不等重试计数；普通 REJECT 按执行路径回 `pending`/`blocked` 并计入连续失败，计数触顶由熔断判定 ESCALATE。
 
 ## 停止
 

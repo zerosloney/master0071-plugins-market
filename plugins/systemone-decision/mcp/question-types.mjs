@@ -218,9 +218,20 @@ export function describeCriteria(q) {
  */
 export function finiteScore(answer) {
   const raw = answer ? answer.score : undefined;
-  if (raw === null || raw === undefined) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+  // typeof 收窄而非 Number() 强转（so-M1）：Number('') === 0、Number(false) === 0、
+  // Number([]) === 0、Number(true) === 1——上游把「没给分值」回成空串/布尔/数组时，
+  // isFinite 判真会把它们捏造成合法分值，再经 legend 捏造出等级标签，
+  // needs_human_review=false 静默放行。只认两类：
+  //   ① 有限数字（Infinity / NaN 不算）；② 非空、非纯空白的数字字符串
+  //     （上游偶尔把 0.8 序列化成 "0.8"，这层宽容保留）。
+  // 布尔、数组、对象、空串/空白串一律 null → 走 borderline 转人工。
+  // 与 DECISION_EXTRACTORS.noul / finiteConfidence / hooks/decide-client.noulOf 同口径的边界收紧。
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 /**

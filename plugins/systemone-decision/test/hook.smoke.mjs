@@ -596,10 +596,44 @@ const main = async () => {
       assert.ok(matcher.test(hostName), `前提失效：matcher 本应命中 "${hostName}"（对账基准变了请更新本断言）`);
       assert.ok(riskGate.applies(hostName), `matcher 命中但内核不认 "${hostName}"——hook 被调用却静默放行`);
     }
+    // so-M3：matcher 的 [Ss][hH][eE][lL][lL] 是子串正则，粘连词尾形态（nushell / myshell /
+    // fishshell）也会拉起 hook，而内核的边界字符类只认分隔符两侧的 shell——hook 被调用、
+    // 内核判「非 shell 工具」静默放行，整类免检且零信号。双向都必须认（powershell 名单里
+    // 本来就有，钉住不回归）。词尾形态对原样与拆驼峰两种形态都生效。
+    const gluedShellNames = ['nushell', 'powershell', 'myshell', 'fishshell'];
+    for (const hostName of gluedShellNames) {
+      assert.ok(matcher.test(hostName), `前提失效：matcher 本应命中 "${hostName}"（对账基准变了请更新本断言）`);
+      assert.ok(riskGate.applies(hostName), `matcher 命中但内核不认粘连词尾 "${hostName}"——hook 被调用却静默放行`);
+      assert.ok(riskGate.applies(riskGate.normalizeToolName(hostName)), `拆词形态下内核也不认 "${hostName}"`);
+    }
     // 管辖范围没有被放大到普通工具上（拆词不能把 Read/Write 也拉进来）
     for (const notShell of ['Read', 'Write', 'Edit', 'Task', 'Grep', 'WebFetch']) {
       assert.ok(!riskGate.applies(notShell), `内核误把非 shell 工具 "${notShell}" 纳入管辖——每次文件读写都会发判定请求`);
     }
+    // 词尾形态的边界：shell 出现在词中间且后面还有字母的名字不是 shell 工具
+    //（shellfish / SeashellApp 拆词后 shell 都不落在词尾），不得被拉进管辖。
+    // 注意 matcher 对它们仍会命中（子串正则），这条缝由 stderr 告警兜底信号覆盖。
+    for (const notShell of ['shellfish', 'SeashellApp']) {
+      assert.ok(!riskGate.applies(notShell), `内核误把词中 shell 的 "${notShell}" 纳入管辖`);
+      assert.ok(!riskGate.applies(riskGate.normalizeToolName(notShell)), `拆词形态下也不得纳入 "${notShell}"`);
+    }
+  });
+
+  // so-M3 兜底信号：matcher 是子串正则、比内核宽，宿主可能用内核不认的 shell 词族名字
+  //（如 shellfish）拉起 hook——内核放行不能一声不吭，stderr 至少留一行让缺口可见。
+  // （修复前整类免检且零信号，这里从「无告警」变为「有告警」）
+  gateScenario = 'allow';
+  received = [];
+  await checkA('matcher 命中但内核不认：stderr 留兜底告警且不发判定请求', async () => {
+    const r = await gateRun({ tool_name: 'shellfish', tool_input: { command: 'ls -la' } });
+    assert.equal(r.status, 0, '放行路径必须静默 exit 0');
+    assert.equal(r.stdout, '', '不得输出拦截结论（fail-open 契约不变）');
+    assert.equal(received.length, 0, '内核不认的工具不该发判定请求');
+    assert.match(r.stderr, /matcher/, `stderr 应有「matcher 命中但内核不认」的兜底告警，实际：${r.stderr.trim()}`);
+    assert.match(r.stderr, /shellfish/, '告警应带上工具名，方便定位是哪个名字对不上');
+    // 对照组：不含 shell 词族的普通工具（Read）不产生告警
+    const quiet = await gateRun({ tool_name: 'Read', tool_input: { file_path: 'x' } });
+    assert.equal(quiet.stderr, '', '不含 shell 词族的工具不得产生告警噪音');
   });
 
   // stdin 截断 / 命令超 100K 上限时无法完整分析：不得走只读捷径，也不发判定请求，fail-closed 转 ask

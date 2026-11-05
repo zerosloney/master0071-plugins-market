@@ -70,7 +70,7 @@ scope 也可直接传 `--hard "src/**,test/**" --soft "docs/**" --forbidden "dis
 
 宿主加载矩阵（0.1.3 首次实测，机制未变；0.1.14 起脚本为 `scripts/` 目录共享 `args.mjs`）：Codex 0.163.0 安装后 skills 可见，模型报告 `agent-pipelines:coding-pipeline` 与 `agent-pipelines:ralph-pipeline`；commands/agents 按 Codex 规则不加载。Oh My Pi 18.12.6 安装后缓存含 2 skills / 2 commands / 6 agents，模型确认两个 skill 可用。ZCode 没有 CLI 安装入口，需 GUI，未实测。contract 继续检查三个垫片声明的路径真实存在。
 
-`test/contract.mjs` 校验静态契约（118 断言，含角色文件与 references 注入段落一致性），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志（含轮转）、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（135 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定（83 断言），`test/regression.mjs` 锁住审计实测过的缺陷回归（scope 判定锚 git 根 / DONE 校验 critical_checkpoints / scope 接入门禁 / args 不吞 `--` 开头的值，62 断言）。四者都不替代真实宿主上的端到端运行。
+`test/contract.mjs` 校验静态契约（118 断言，含角色文件与 references 注入段落一致性），`test/pipeline.mjs` 跑状态机、scope、锁、事件日志（含轮转）、任务状态迁移、预算、依赖图、可视化渲染、实时看板与单任务上限（135 断言），`test/equivalence.mjs` 把 4 份提示词文档写死的编排规则与 `scripts/state.mjs` 的源码常量及 `gate` 实际行为做等价性锚定（83 断言），`test/regression.mjs` 锁住审计实测过的缺陷回归（scope 判定锚 git 根 / DONE 校验 critical_checkpoints / scope 接入门禁 / args 不吞 `--` 开头的值，70 断言）。四者都不替代真实宿主上的端到端运行。
 
 ## 使用
 
@@ -153,9 +153,19 @@ node test/equivalence.mjs
 node test/regression.mjs
 ```
 
-零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致、orchestrator 的 `tools` 白名单含子代理派发工具与 Bash。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举 / `action` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。`regression.mjs` 在临时 git 仓里复现审计实测过的缺陷（scope 判定基准、critical checkpoint 门禁、scope→gate 串联、`--` 开头参数值），防止它们回归。它们不执行管道，也不替代真实宿主上的端到端验证。
+零依赖。`contract.mjs` 检查 6 个角色文件与 2 个 skill/command 入口齐全、agent frontmatter 不写死模型、`MAX_CYCLES` / `STALL_MAX` / 拆分预算 / `max_failures` 在三份拷贝中一致、标准 skill 不链接非标准目录、三个垫片都声明 skills 且版本一致、orchestrator 的 `tools` 白名单含子代理派发工具与 Bash（coding / ralph 两条管线的 orchestrator 均按此登记，contract 机器校验 coding 侧清单）。`pipeline.mjs` 跑状态机、scope、锁、事件日志、任务状态迁移、预算、依赖图与可视化渲染。`equivalence.mjs` 把 4 份提示词文档（commands/ + skills/）写死的编排规则（`MAX_CYCLES` / `STALL_MAX` / 默认值 / `stop_reason` 枚举 / `action` 枚举）锚定到 `scripts/state.mjs` 的源码常量，并用最小合法状态验证文档声明的判停规则与优先级和 `gate` 实际输出一致——文档与脚本漂移时以脚本为准修文档。`regression.mjs` 在临时 git 仓里复现审计实测过的缺陷（scope 判定基准、critical checkpoint 门禁、scope→gate 串联、`--` 开头参数值），防止它们回归。它们不执行管道，也不替代真实宿主上的端到端验证。
 
 ## 版本变更
+
+**0.1.24**
+
+全量审查（脚本层 + 编排工件层）的 Major 首批收口：
+
+- **`write` 拒绝覆盖非状态文件**：`state.mjs write` 此前没有 `init` 的「非状态文件」防护，`--file` 传错（如指向 `package.json`）会把目标整份替换成状态对象、exit 0 无提示——`init` 对同一危害定性为数据损失且 `--force` 都不放行，`write` 却裸奔。现在锁内落盘前做同款检查（与 `init` 共用提出来的 `looksLikeState`，口径同一函数），拒绝时原样保留目标文件并给出补救指引；损坏 JSON 的放行立场与 `init` 一致不变。
+- **REJECT 口径统一（4 处停止侧）**：coding 管线此前对普通 REJECT 给出两个相反后继——执行路径说「回 `pending`/`blocked` + 连续失败计数」，熔断章节说「与 scope 复算 FAIL 同样立即 ESCALATE、不等重试计数」。统一为脚本机制的实际语义：普通 REJECT 计入连续失败、计数触顶由 gate 判 ESCALATE；立即 ESCALATE 只保留给 scope 复算 FAIL 与 reviewer 明示「不可恢复」的 REJECT（沿用 ralph 侧既有措辞先例）。
+- **ralph 管线补「宿主无子代理委派」降级路径**：coding 三处都有「退化为主会话直接扮演、不静默失败」，ralph 的 command 与 orchestrator 缺失——无子代理工具的宿主上 ralph 管线无法启动。两处按 ralph 角色措辞补齐。
+- **frontmatter 工具登记对称**：`ralph-orchestrator` 补 tools 白名单（镜像 coding-orchestrator，8 项无一可裁）；`ralph-reviewer` 补只读白名单（精确镜像 coding-reviewer）——「只读质量阀」从纯 prompt 约束升级为工具级护栏；README 的 tools 声明改写为覆盖两条管线。
+- README 的 regression 断言数声明 62 → 70（与实测对齐）。
 
 **0.1.23**
 

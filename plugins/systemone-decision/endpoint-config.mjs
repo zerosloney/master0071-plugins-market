@@ -134,11 +134,13 @@ export function isInsecureBaseUrl(baseUrl) {
     // 解析不了就不能证明它安全：宁可拒绝，也不把一个看不懂的串当成本机端点放行
     return true;
   }
+  // userinfo 存在即拒（so-M6 修复：检查必须排在 https 早退之前）：`http://localhost@evil.example`
+  // 的 host 是 evil.example，且真实口令进过配置文件（会被错误文案回显）。契约是「含内嵌
+  // 凭据的 URL 一律判不安全」，与 scheme 无关——旧实现 https 早退在前，
+  // `https://user:pass@host` 被判安全，契约被跳过。
+  if (url.username || url.password) return true;
   if (url.protocol === 'https:') return false;
   if (url.protocol !== 'http:') return true;
-  // userinfo 存在即拒：`http://localhost@evil.example` 的 host 是 evil.example，
-  // 且真实口令进过配置文件（会被错误文案回显）
-  if (url.username || url.password) return true;
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return !LOOPBACK_HOSTNAMES.has(host);
 }

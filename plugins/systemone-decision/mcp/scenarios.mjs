@@ -669,6 +669,35 @@ export function validateScenario(spec) {
   }
   if (spec.recommendation !== undefined && typeof spec.recommendation !== 'string') {
     problems.push('recommendation 必须是字符串');
+  } else if (typeof spec.recommendation === 'string' && spec.recommendation.includes('{')) {
+    // 模板引用对账（so-M5 配套）：renderTemplate 对未知名字静默渲染成空串——模板里写错
+    // qid 没有任何报错，建议文本缺一块却看不出来。derive.question 早有同样的对账，
+    // 模板引用层补齐同一道闸。只拦渲染层真的会解释的写法（名字字符集与 format.mjs 的
+    // 占位符正则同口径：Unicode 字母/数字 + _ - &）；渲染层不认的名字（含点号的杂写等）
+    // 会原样留在文本里，不算引用错误，不在这里误伤。
+    const deriveNames =
+      spec.derive && typeof spec.derive === 'object' && !Array.isArray(spec.derive) ? Object.keys(spec.derive) : [];
+    const known = new Set([...ids, ...deriveNames]);
+    const unknown = (name) => {
+      const available = `问题：${ids.join('、')}${deriveNames.length ? `；派生：${deriveNames.join('、')}` : ''}`;
+      return `recommendation 引用的 "{${name}}" 不是本场景的问题或派生字段（${available}）`;
+    };
+    const tpl = spec.recommendation.replace(/\\[{}]/g, ''); // 字面花括号（\{ \}）不参与引用对账
+    for (const m of tpl.matchAll(/\{([^{}]+)\}/g)) {
+      const body = m[1];
+      if (body.includes('?')) {
+        const group = body.slice(0, body.indexOf('?'));
+        if (!/^[\p{L}\p{N}_&-]+$/u.test(group)) continue;
+        for (const name of group.split('&')) {
+          if (!known.has(name)) problems.push(unknown(name));
+        }
+      } else {
+        const dot = body.indexOf('.');
+        const base = dot === -1 ? body : body.slice(0, dot);
+        if (!/^[\p{L}\p{N}_-]+$/u.test(base)) continue;
+        if (!known.has(base)) problems.push(unknown(base));
+      }
+    }
   }
   if (
     spec.confidenceThreshold !== undefined &&

@@ -293,14 +293,14 @@ value: {baseline_value}
 - `consecutive_failures` 达到状态文件里的 `max_failures`（默认 3）→ 立即 ESCALATE，停止委派。
 - 任一任务 `failures` 达到状态文件里的 `max_attempts`（默认 4）→ 立即 ESCALATE，避免单任务无限重试。
 - `retry_on_failure=true` 时，单次 FAIL 可重试一次再计入连续计数。
-- scope 复算 FAIL 与 Reviewer 的 REJECT 同样触发 ESCALATE，不等重试计数。
+- scope 复算 FAIL 与 Reviewer 明示「不可恢复」的 REJECT 立即触发 ESCALATE，不等重试计数；普通 REJECT 按执行路径回 `pending`/`blocked` 并计入连续失败，计数触顶由熔断判定 ESCALATE。
 
 ## 停止
 
 按顺序判断：
 
 1. **DONE** —— 见「完成标准」，全部满足。
-2. **ESCALATE** —— 熔断触发、Reviewer REJECT、边界漂移、manual review required。
+2. **ESCALATE** —— 熔断触发、Reviewer 明示不可恢复的 REJECT、边界漂移、manual review required。
 3. BUDGET（token 或费用预算耗尽）
 4. **HOLD** —— 需求或方案需要用户选择。
 5. **STALL** —— `stall_counter >= STALL_MAX`（默认 2，连续 2 轮任务状态签名无变化）。

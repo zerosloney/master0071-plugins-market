@@ -146,7 +146,7 @@ coding 域专属约束：
 
 按顺序判断：
 1. DONE：全部完成标准满足（含零 critical/major + scope 无漂移 + critical checkpoints 全通过）。
-2. ESCALATE：审查者 REJECT、边界漂移、manual review required、连续失败达 `max_failures` 或任一任务 `failures` 达 `max_attempts`（默认 4）。
+2. ESCALATE：审查者明示不可恢复的 REJECT、边界漂移、manual review required、连续失败达 `max_failures` 或任一任务 `failures` 达 `max_attempts`（默认 4）。普通 REJECT 回 `pending`/`blocked` 并计入连续失败，计数触顶才由本条熔断触发 ESCALATE。
 3. BUDGET：`budget.spent_tokens` / `budget.spent_cost_usd` 达到对应上限。
 4. HOLD：需求或方案需要用户选择。
 5. STALL：`stall_counter` 达到 `STALL_MAX`（=2）——连续 2 轮任务状态签名（所有任务 `id:status` 有序串）无变化。

@@ -292,6 +292,16 @@ icon.png           界面 logo
 
 ## 版本变更
 
+**0.5.14**
+
+全量审查（MCP 层 + hooks 层）的 Major/Minor 首批收口：
+
+- **`score` 的类型收窄**：`finiteScore` 此前只拦 `null`/`undefined`，上游返回空串、布尔、数组时被 `Number()` 捏造成 0/1 分——severity 落最低档、`needs_human_review: false` 静默放行。现在只接受有限数字与非空数字字符串，其余归 null 走人工复审路径（与 `noulOf` 同口径）。
+- **模板占位符支持中文与连字符 id**：`{知识点}`、`{my-qid?真|假}` 此前不渲染、原样漏进给 agent 的建议文本。字符集扩为 Unicode 字母/数字 + `-_`，ASCII 行为不变；`validateScenario` 同时新增「recommendation 引用的名字必须是本场景 qid 或派生字段」检查，写错名字在建场景时即报错而不是静默渲染成空串。
+- **风险闸管辖缝收口**：`nushell` / `powershell` / `myshell` 等粘连词尾的工具名命中 hooks.json 的 matcher 但内核不认，风险闸对该工具整类免检且零信号。内核现认「关键词作整名词尾」形态（词中形态如 `shellfish` 不误收）；matcher 命中而内核不认时 stderr 留一行兜底告警，不再零信号。
+- **https + 内嵌凭据判不安全**：userinfo 检查提到 https 早退之前，`https://user:pass@host` 不再被误判安全——对齐本函数注释一直声明的「含 userinfo 一律不安全」。
+- **`params` 覆盖路径的 `__proto__` 丢题补上回归测试**：0.5.13 的修复此前无测试钉住；新用例走真实 `tools/call → action=run → params 覆盖 × qid="__proto__"` 路径，并在临时副本上回退修复验证了该用例确实会红。
+
 **0.5.13**
 
 - **`params` 覆盖路径的 `__proto__` 丢题**：`applyParams` 用裸 `{}` 承载问题表，`params` 里覆盖任意一题时，自定义场景中 id 为 `__proto__` 的那道题会静默消失（0.5.12 修的是加载路径，这是第二处承载点）。改用无原型对象；预检配额会话桶同型一并收口。
