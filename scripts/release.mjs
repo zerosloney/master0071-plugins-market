@@ -38,6 +38,7 @@
 //                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
 //                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
 //     根 README.md 插件表版本 ×1
+//     Qwen 包由 scripts/build-qwen-extension.mjs 生成，版本从 plugin.json 读取，不是版本位
 //     注意：pstack 的版本号只表示本仓库的移植包版本，与上游 poteto/pstack 的版本号解耦，
 //     上游版本记录在 plugins/pstack/NOTICE-PORT.md，不在此同步。
 //
@@ -81,7 +82,8 @@ const MARKETS = ['marketplace.json', '.omp-plugin/marketplace.json'];
 const inPlugin = (name, rel) => `plugins/${name}/${rel}`;
 
 // 每个插件四份清单：根 plugin.json 是 Agent Plugins 标准清单（版本权威来源），
-// .zcode-plugin / .codex-plugin / .omp-plugin 是超出标准的客户端兼容垫片
+// .zcode-plugin / .codex-plugin / .omp-plugin 是超出标准的客户端兼容垫片。
+// pstack 的 Qwen 包由 scripts/build-qwen-extension.mjs 从 plugin.json 现生成，不占版本位。
 const PLUGIN_MANIFESTS = ['plugin.json', '.zcode-plugin/plugin.json', '.codex-plugin/plugin.json', '.omp-plugin/plugin.json'];
 
 const PLUGINS = {

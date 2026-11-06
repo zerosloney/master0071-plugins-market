@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SessionStart entry for pstack, all runtimes: `node session-start.mjs <runtime>`
-// with runtime one of claude, codex, copilot, zcode. Replaces the POSIX
+// with runtime one of claude, codex, copilot, zcode, qwen. Replaces the POSIX
 // session-start.sh / PowerShell session-start.ps1 pair: Windows hosts execute
 // .sh through a shell that opens it as a document instead of running it, so
 // every hook registration now runs this node script instead. Behavior is the
@@ -43,13 +43,15 @@ const sheets = {
   // ZCODE_HOME mirrors CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME: an
   // override for tests and relocated installs.
   zcode: () => join(process.env.ZCODE_HOME ?? join(homedir(), '.zcode'), 'pstack-models.md'),
+  // Qwen Code keeps its global config in ~/.qwen; QWEN_HOME relocates it.
+  qwen: () => join(process.env.QWEN_HOME ?? join(homedir(), '.qwen'), 'pstack-models.md'),
 };
 // Object.hasOwn 而非 `in`（2026-10-29 修复）：`in` 沿原型链匹配，runtime="toString" /
 // "constructor" / "valueOf" 时全部通过校验，随后 `sheets[runtime]()` 取到的是原型函数——
 // 实测 `toString` 分支静默输出 **claude** 的路由令（把一张无关的表当成用户模型表读），
 // `__proto__` 则直接抛未捕获 TypeError、exit 1。运行时名来自 argv，不是可信输入。
 if (!Object.hasOwn(sheets, runtime)) {
-  console.error(`session-start.mjs: unknown runtime '${runtime ?? ''}' (expected claude, codex, copilot, or zcode)`);
+  console.error(`session-start.mjs: unknown runtime '${runtime ?? ''}' (expected claude, codex, copilot, zcode, or qwen)`);
   process.exit(2);
 }
 
@@ -87,6 +89,7 @@ if (runtime === 'zcode') {
   body = i >= 0 ? `${body.slice(0, i)}\n${notes}\n${body.slice(i)}` : `${body}\n${notes}`;
   process.stdout.write(`${JSON.stringify({ additionalContext: body })}\n`);
 } else {
-  // Claude Code and Codex: the mandate verbatim, byte for byte like `cat`.
+  // Claude Code, Codex, and Qwen Code: the mandate verbatim, byte for byte
+  // like `cat`. Qwen adds bare SessionStart stdout to the model context.
   process.stdout.write(readFileSync(join(hooksDir, 'session-start-context.md')));
 }

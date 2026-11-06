@@ -1,4 +1,4 @@
-// One-shot test suite for the node hook port: session-start.mjs (all four
+// One-shot test suite for the node hook port: session-start.mjs (all five
 // runtimes x sheet states), pre-tool-use.mjs (view/task/bash rules, parser
 // strictness, resume/log/transcript script contracts). Run: node
 // test/run-hook-tests.mjs (from the plugin root). Sheet-format parity with the
@@ -28,8 +28,9 @@ const claudeHome = path.join(home, 'claude');
 const codexHome = path.join(home, 'codex');
 const copilotHome = path.join(home, 'copilot');
 const zcodeHome = path.join(home, '.zcode');
+const qwenHome = path.join(home, '.qwen');
 const ws = path.join(home, 'ws');
-for (const d of [claudeHome, codexHome, copilotHome, zcodeHome, ws]) mkdirSync(d);
+for (const d of [claudeHome, codexHome, copilotHome, zcodeHome, qwenHome, ws]) mkdirSync(d);
 const posix = (p) => p.replaceAll('\\', '/');
 // zcode 分支没有专属 home 变量，默认读 ~/.zcode——os.homedir() 在 Windows 读 USERPROFILE、
 // 在 POSIX 读 HOME。此前只覆盖 USERPROFILE，Linux CI 上脚本仍读真实 /home/runner，找不到
@@ -65,6 +66,14 @@ ok('codex no sheet: mandate', r.code === 0 && r.out === mandate);
 writeFileSync(path.join(codexHome, 'pstack-models.md'), 'session hook: off\n');
 r = run('session-start.mjs', ['codex'], { ...envBase, CODEX_HOME: codexHome });
 ok('codex off: silent', r.code === 0 && r.out === '');
+
+r = run('session-start.mjs', ['qwen'], { ...envBase, QWEN_HOME: qwenHome });
+ok('qwen no sheet: byte-identical mandate', r.code === 0 && r.out === mandate);
+writeFileSync(path.join(qwenHome, 'pstack-models.md'), 'session hook: off\n');
+r = run('session-start.mjs', ['qwen'], { ...envBase, QWEN_HOME: qwenHome });
+ok('qwen off: silent', r.code === 0 && r.out === '');
+r = run('session-start.mjs', ['qwen'], { ...envBase, QWEN_HOME: path.join(home, 'missing-qwen') });
+ok('qwen missing QWEN_HOME: mandate', r.code === 0 && r.out === mandate);
 
 r = run('session-start.mjs', ['zcode'], fakeHomeEnv);
 let j = JSON.parse(r.out);

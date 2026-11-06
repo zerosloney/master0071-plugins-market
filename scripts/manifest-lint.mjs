@@ -300,6 +300,47 @@ for (const plugin of plugins) {
   }
 }
 
+// ── Qwen Code 适配源（2026-11-06）─────────────────────────────────────────
+// Qwen 原生包由 scripts/build-qwen-extension.mjs 生成，源在 plugins/pstack/qwen/agents、
+// hooks/hooks.qwen.json、QWEN.md。生成包的完整性由 test/qwen-extension-parity.mjs 跑；
+// 这里只守源、hook 注册与生成器，防止“源在但包永远装不全”。
+{
+  const dirRel = 'plugins/pstack';
+  if (fs.existsSync(path.join(ROOT, dirRel, 'qwen-extension.json'))) {
+    fail(`${dirRel}/qwen-extension.json: 根目录清单会被 Agent Plugins 的 plugin.json 抢先加载，Qwen 包必须由 scripts/build-qwen-extension.mjs 生成`);
+  }
+  const qwenAgentsAbs = path.join(ROOT, dirRel, 'qwen/agents');
+  if (fs.existsSync(qwenAgentsAbs)) {
+    if (!fs.readdirSync(qwenAgentsAbs).some((f) => f.endsWith('.md'))) {
+      fail(`${dirRel}/qwen/agents/: 没有任何 .md agent，Qwen 包会缺子智能体`);
+    }
+    if (!fs.existsSync(path.join(ROOT, dirRel, 'QWEN.md'))) {
+      fail(`${dirRel}/QWEN.md: 缺 Qwen 扩展上下文文件`);
+    }
+    if (!fs.existsSync(path.join(ROOT, 'scripts/build-qwen-extension.mjs'))) {
+      fail('scripts/build-qwen-extension.mjs: 缺 Qwen 包生成器，源码无法装成原生扩展');
+    }
+    const hookRel = `${dirRel}/hooks/hooks.qwen.json`;
+    const hookAbs = path.join(ROOT, hookRel);
+    if (!fs.existsSync(hookAbs)) {
+      fail(`${hookRel}: 缺 Qwen hook 注册，生成包不会有 SessionStart 路由`);
+    } else {
+      const hookReg = JSON.parse(fs.readFileSync(hookAbs, 'utf8'));
+      if (!hookReg.hooks?.SessionStart?.length) {
+        fail(`${hookRel}: 没有 SessionStart 注册——自动路由不会触发`);
+      }
+      for (const s of stringsOf(hookReg)) {
+        for (const mm of s.matchAll(PATH_TOKEN_RE)) {
+          const tok = mm[1] || mm[2];
+          if (tok && !fs.existsSync(path.join(ROOT, dirRel, tok))) {
+            fail(`${hookRel}: hook 命令引用 ${JSON.stringify(tok)} 不存在（按插件根解析）`);
+          }
+        }
+      }
+    }
+  }
+}
+
 // ── 组件实体 vs 垫片声明（2026-10-28 第二轮市场审查）─────────────────────────
 // 垫片漏声明一个组件面 = 那个宿主上这批 skill / command / agent 静默不加载。2026-10-28 实测抓到
 // 一条：ai-native-delivery 的 zcode 垫片声明了 skills/hooks/mcpServers 却漏了 commands 与 agents，

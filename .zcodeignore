@@ -11,6 +11,10 @@ plugins/*/precheck-quota.json*
 # `bun build --compile` 在源文件旁留的构建元数据（pstack 的 watch-pr 测试用它在 Windows 上
 # 生成真 .exe 当假 gh——见 plugins/pstack/extras/poteto-mode-scripts/watch-pr/fake-gh.test-helper.ts）。
 *.bun-build
+# Qwen Code 原生扩展的生成包（scripts/build-qwen-extension.mjs 现生成）
+dist/
+# Qwen Code 本地会话/调式临时文件
+.qwen/tmp/
 # 逐插件的临时夹具/调试现场（含嵌套 .git 与写了绝对本地路径的钩子），永不入库
 .tmp-review/
 # 同类的审计夹具现场（如 .audit-tmp3/：整棵 proj 种子工程），不入库、由作者自行清理

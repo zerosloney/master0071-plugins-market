@@ -13,7 +13,11 @@ On GitHub Copilot, read the [platform mapping](../poteto-mode/references/copilot
 
 On ZCode, read the [platform mapping](../poteto-mode/references/zcode-tools.md), including its per-skill notes, before following this skill.
 
+On Qwen Code, read the [platform mapping](../poteto-mode/references/qwen-tools.md), including its per-skill notes, before following this skill.
+
 On GitHub Copilot, follow [the Copilot setup](copilot.md) in place of steps 1, 3, 4, and 7 and step 6's header.
+
+On Qwen Code, follow [the Qwen setup](qwen.md) in place of steps 1, 3, 4, and 7 and step 6's header.
 
 On another runtime, read [Other runtimes](#other-runtimes) below for where the sheet lives and how it loads; the steps are the same.
 
@@ -47,7 +51,7 @@ Then ask for the default reasoning effort, the `default effort` line. It is `ses
 
 ### 4. Choose whether the session hook routes tasks
 
-On Claude Code and Codex, the plugin's `SessionStart` hook injects the poteto-mode mandate on startup, resume, clear, and compact. Codex asks the user to trust plugin hooks through `/hooks` before running them. On Pi, the pstack extension adds the same mandate to the system prompt at every agent start. Ask whether to keep the hook. The default is on. The answer is the `session hook` line in the current runtime's sheet: `on` or `off`. With no sheet or no line, the hook injects. The line is inert on other runtimes.
+On Claude Code, Codex, and Qwen Code, the plugin's `SessionStart` hook injects the poteto-mode mandate on startup, resume, clear, and compact. Codex asks the user to trust plugin hooks through `/hooks` before running them. On Pi, the pstack extension adds the same mandate to the system prompt at every agent start. Ask whether to keep the hook. The default is on. The answer is the `session hook` line in the current runtime's sheet: `on` or `off`. With no sheet or no line, the hook injects. The line is inert on other runtimes.
 
 ### 5. Validate
 
@@ -104,13 +108,14 @@ Check whether the project already has a formal verification skill (a project ski
 
 ## Other runtimes
 
-The role lines are the same everywhere. What differs is the sheet path, how the runtime loads it, and how you list models. Detect models with the runtime's own tool and never write a slug you have not seen listed. A runtime whose subagent call has no model parameter still gets the sheet and applies it where it can; on ZCode the rows dispatch through agent types, as the ZCode row below and [zcode-tools.md](../poteto-mode/references/zcode-tools.md#model-names) describe. The `session hook` line applies to the Claude Code, Codex, ZCode, and GitHub Copilot plugins in this port.
+The role lines are the same everywhere. What differs is the sheet path, how the runtime loads it, and how you list models. Detect models with the runtime's own tool and never write a slug you have not seen listed. A runtime whose subagent call has no model parameter still gets the sheet and applies it where it can; on ZCode the rows dispatch through agent types, as the ZCode row below and [zcode-tools.md](../poteto-mode/references/zcode-tools.md#model-names) describe. The `session hook` line applies to the Claude Code, Codex, ZCode, GitHub Copilot, and Qwen Code plugins in this port.
 
 | Runtime | Sheet | Load | List models | Status |
 | --- | --- | --- | --- | --- |
 | Claude Code | `<config>/pstack-models.md` | `@<config>/pstack-models.md` in `<config>/CLAUDE.md` | the `Agent` tool's model parameter | verified live |
 | Codex | `<codex-home>/pstack-models.md` | model rows: paste into `<codex-home>/AGENTS.md`; hook setting: read by the plugin | your configured Codex models, see [codex-tools.md](../poteto-mode/references/codex-tools.md#model-names) | hook contract tested; discovery verified |
 | Pi | `pstack-models.md` in the Pi agent directory, `$PI_CODING_AGENT_DIR` or `~/.pi/agent` | read by the pstack Pi extension, model rows and hook setting both; no include line | `pi --list-models` | no Pi extension ships in this port; the row is upstream reference only |
+| Qwen Code | `${QWEN_HOME:-~/.qwen}/pstack-models.md` | `@<qwen-home>/pstack-models.md` in `~/.qwen/QWEN.md` or the project `QWEN.md`; the generated package's hook reads the same sheet for the hook setting | `agents.modelGrades` in `settings.json`; see [qwen-tools.md](../poteto-mode/references/qwen-tools.md#model-names) | generated package, namespace, and hook loaded by Qwen 0.26.8; live authenticated session not run |
 | GitHub Copilot (CLI and app) | `${COPILOT_HOME:-~/.copilot}/pstack-models.md` | the plugin hook checks it and injects its role lines at session start; skills-only installs read it with `view` | the `task` tool's `model` enum, see [copilot-tools.md](../poteto-mode/references/copilot-tools.md#model-names) | hook contract tested; CLI install smoke-tested. **The `pre-tool-use` script gate is not registered by any manifest in this repo** — it runs only if you wire `hooks/copilot-hooks.json` into your Copilot client's own hook config; otherwise treat Copilot as a skills-only install |
 | ZCode | `~/.zcode/pstack-models.md` | read by the plugin's node SessionStart hook, which injects the routing mandate; the `Agent` call has no `model` parameter, so the rows dispatch through agent types per the [zcode-tools.md mapping table](../poteto-mode/references/zcode-tools.md#model-names) | the host's model list (its model-listing tool or settings), see [zcode-tools.md](../poteto-mode/references/zcode-tools.md#model-names) | plugin install, skills, agents, and session hook verified live; tier and effort dispatch go through agent types, per-call model unavailable |
 | opencode | `~/.config/opencode/pstack-models.md` | add the path to the `instructions` array in `opencode.json` | the `models` slash command in the session | from published docs, no live session |
