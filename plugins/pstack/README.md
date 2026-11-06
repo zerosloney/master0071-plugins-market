@@ -120,6 +120,10 @@ node scripts/release.mjs pstack <新版本>
 
 ## 版本变更
 
+**0.1.23**
+
+- **effort 注册口径文档收口**：7 个 skill（arena / interrogate / architect / how / swarm / reflect / why）的 Reasoning effort 段仍是「无宿主注册 effort agents」的 0.1.22 前旧口径，统一替换为与 `poteto-mode` SKILL.md 一致的表述（ZCode 自 0.1.22 起注册 `effort-*` / `poteto-agent-*` 两族三档，medium→high、xhigh→max；其余宿主仍不注册，fallback 规则照旧）；`extras/README.md` 的「ZCode 只注册 4 个基础代理」同步改为「全部 15 个」。纯文档对齐，无代码/映射表改动，`test/role-table-parity.mjs`（68 断言）通过。
+
 **0.1.22**
 
 - **ZCode 派发能力落地**：`models.json` 新增 `zcode` 块（tier/level → subagent_type 映射表），`agents/` 注册 `poteto-agent-strong`、4 个 `panelist-*` 多模型席位与 6 个 effort 力度变体（medium→high、xhigh→max 折映射），thermo 双审计子代理补钉 GLM-5.3@max——ZCode 的 `Agent` 调用无 per-call 模型，模型与力度改由 agent 类型 frontmatter 钉定；`zcode-tools.md`、`setup-pstack` 运行时表、`test/role-table-parity.mjs`（新增 zcode 块 ↔ agents/ frontmatter 对账）联动。
