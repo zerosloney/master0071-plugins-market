@@ -1,6 +1,8 @@
 ---
 name: thermo-nuclear-code-quality-review-subagent
 description: Thermo-nuclear code quality audit (maintainability, structure, 1k-line rule, spaghetti, code-judo). Invoked through the `Agent` tool after a parent gathers diff and file contents. Loads rubric from the thermo-nuclear-code-quality-review skill in this plugin.
+model: "account:bigmodel-individual-coding-plan/GLM-5.3"
+thoughtLevel: max
 ---
 
 # Thermo-Nuclear Code Quality Review

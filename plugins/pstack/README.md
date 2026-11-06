@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 14 个子智能体（`agents/` 4 个基础；另 10 个 effort 分级变体在 `extras/`，当前无宿主加载）+ 1 条会话启动 hook。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 15 个注册子智能体（`agents/`：4 个基础、`poteto-agent-strong`、4 个 `panelist-*` 多模型席位、6 个 effort 力度变体；`extras/effort-agents/` 另存 10 个五档全集作上游参考）+ 1 条会话启动 hook。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -44,7 +44,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 66 个 skill，无需 prompts 垫片 |
 | `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
-| `agents/` | **客户端约定**；4 个基础子智能体（ZCode 实证注册）。10 个 effort 分级变体已移至 `extras/effort-agents/`：Agent Plugins 1.0.0 的 `extensions` 命名空间尚无客户端实现（Claude Code 用自有目录约定且只认 `agents/`），ZCode 也只注册 `agents/` 的 4 个，effort 语义不可用，按上游原样隔离保留 |
+| `agents/` | **客户端约定**；15 个全部注册（ZCode 实证）：4 个基础子智能体、`poteto-agent-strong`（强判断档，钉 GLM-5.3@max）、4 个 `panelist-*` 多模型席位（多模型面板在 ZCode 上的载体，模型按宿主模型清单实测钉定，见 `NOTICE-PORT.md` 第 10 条）、`{effort,poteto-agent}-{low,high,max}` 六个力度变体（上游五档折映射：medium→high、xhigh→max）。`extras/effort-agents/` 另存 10 个五档全集作上游参考，不注册 |
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口）。`hooks/copilot-hooks.json` **未被任何清单引用**，Copilot 上需手工登记，见下 |
 | `models.json` | skill 内多处引用它说明模型分工的出处；改它需要同步更新各 skill 的 Models 列表（各文件已注明，本移植未附带生成脚本） |
 
@@ -119,6 +119,11 @@ node scripts/release.mjs pstack <新版本>
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
 
 ## 版本变更
+
+**0.1.22**
+
+- **ZCode 派发能力落地**：`models.json` 新增 `zcode` 块（tier/level → subagent_type 映射表），`agents/` 注册 `poteto-agent-strong`、4 个 `panelist-*` 多模型席位与 6 个 effort 力度变体（medium→high、xhigh→max 折映射），thermo 双审计子代理补钉 GLM-5.3@max——ZCode 的 `Agent` 调用无 per-call 模型，模型与力度改由 agent 类型 frontmatter 钉定；`zcode-tools.md`、`setup-pstack` 运行时表、`test/role-table-parity.mjs`（新增 zcode 块 ↔ agents/ frontmatter 对账）联动。
+- **席位按宿主模型清单实测重钉**（2026-11-06）：panelist 定为 `minimax-m3.1-flash` / `spark-x2.6` / zai 路线 `GLM-5.3-Flash` / 计费档 `GLM-5.3-Flash`；跨家族真多样性为 MiniMax 与 Spark 两族，zai 帧为同族二次采样。钉定不在宿主清单内的 ID 会静默回退会话模型（实测结论），供应商增删后应对照清单重钉。
 
 **0.1.21**
 
