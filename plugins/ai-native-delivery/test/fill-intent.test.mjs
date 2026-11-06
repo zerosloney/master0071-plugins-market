@@ -1,6 +1,11 @@
-// fill-intent.test.mjs — fill-intent 工具测试（2026-09-25 doc-fill-tools）
+// fill-intent.test.mjs — fill-intent 工具测试（2026-09-25 doc-fill-tools；2026-11-05 补 CLI 输出守卫场景）
 // 方法：直接 import 模块调 renderIntent 拿字符串（不写盘），断言 frontmatter 字段 + 节数 + 枚举值合法性
 // 用法：node test/fill-intent.test.mjs
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { renderIntent } from '../scripts/fill-intent.mjs';
 
 let pass = 0, failCount = 0;
@@ -74,6 +79,51 @@ function check(name, cond, detail = '') {
   const { body } = renderIntent({ topic: 't', module: 'pipeline', level: 'L2' });
   const fm = body.match(/^---([\s\S]*?)---/)[1];
   check('S8 risk_level 不再写入 frontmatter（退役回归钉）', !/^risk_level:/m.test(fm));
+}
+
+// ---- 场景 9-11：CLI 输出守卫（2026-11-05 台账族 Minor#9：存在守卫 / 工作区围栏 / 换行注入）----
+const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'fill-intent.mjs');
+{
+  // ① 存在守卫：--output 已存在 → 拒绝（--force 才覆盖）。旧实现静默覆盖——approved/done 文档
+  //    会被打回 draft 模板（不可逆内容损失）。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-intent-guard-'));
+  const out = path.join(root, 'existing.md');
+  fs.writeFileSync(out, '---\n状态: approved\n---\n已确认文档');
+  const r1 = spawnSync(process.execPath, [CLI, '--module', 'pipeline', '--level', 'L1', '--topic', 't', '--output', out], { cwd: root, encoding: 'utf8' });
+  check('S9 --output 已存在 → 拒绝覆盖（旧实现静默打回 draft 模板）',
+    r1.status === 1 && /拒绝覆盖/.test(r1.stderr) && fs.readFileSync(out, 'utf8').includes('状态: approved'),
+    JSON.stringify({ status: r1.status, stderr: r1.stderr }));
+  const r2 = spawnSync(process.execPath, [CLI, '--module', 'pipeline', '--level', 'L1', '--topic', 't', '--output', out, '--force'], { cwd: root, encoding: 'utf8' });
+  check('S9b --force 显式覆盖放行', r2.status === 0 && fs.readFileSync(out, 'utf8').includes('状态: draft'),
+    JSON.stringify({ status: r2.status, stderr: r2.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ② 工作区围栏：output 落在 workflow/ 树内 → 必须在 workflow/intents/（错子目录拒；仓外草稿不受围栏）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-intent-fence-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'specs'), { recursive: true });
+  const badOut = path.join(root, 'workflow', 'specs', '2026-11-05-fence.md');
+  const r1 = spawnSync(process.execPath, [CLI, '--module', 'pipeline', '--topic', 't', '--output', badOut], { cwd: root, encoding: 'utf8' });
+  check('S10 围栏：workflow 树内错子目录 → 拒（intent 只落 workflow/intents/）',
+    r1.status === 1 && /围栏拒绝/.test(r1.stderr) && !fs.existsSync(badOut),
+    JSON.stringify({ status: r1.status, stderr: r1.stderr }));
+  const okOut = path.join(root, 'workflow', 'intents', '2026-11-05-fence.md');
+  const r2 = spawnSync(process.execPath, [CLI, '--module', 'pipeline', '--topic', 't', '--output', okOut], { cwd: root, encoding: 'utf8' });
+  check('S10b 协议子目录内放行', r2.status === 0 && fs.existsSync(okOut),
+    JSON.stringify({ status: r2.status, stderr: r2.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ③ 换行注入：--notes 自由文本入 frontmatter 前剥换行——旧实现可借换行注入任意键（RED：多出键）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-intent-inject-'));
+  const out = path.join(root, 'x.md');
+  const r = spawnSync(process.execPath, [CLI, '--module', 'pipeline', '--topic', 't', '--notes', 'x\n级别: L3\n模块: evil', '--output', out], { cwd: root, encoding: 'utf8' });
+  const body = fs.readFileSync(out, 'utf8');
+  const fm = body.match(/^---\n([\s\S]*?)\n---/)[1];
+  check('S11 --notes 换行注入被剥（frontmatter 不多出键，单行化）',
+    r.status === 0 && (fm.match(/^级别:/gm) || []).length === 1 && (fm.match(/^模块:/gm) || []).length === 1
+      && /^备注: x 级别: L3 模块: evil$/m.test(fm), fm);
+  fs.rmSync(root, { recursive: true, force: true });
 }
 
 console.log('\n合计: PASS ' + pass + ' / FAIL ' + failCount);

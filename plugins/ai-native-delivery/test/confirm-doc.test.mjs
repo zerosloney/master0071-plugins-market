@@ -28,6 +28,13 @@ const check = (desc, cond, detail = '') => {
 };
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+// 2026-11-05 CLI 写侧 fail-closed（非 git 目录拒写台账，confirm-doc 内 resolveProjectRoot 门 +
+// paths.mjs testAnyRootAllowed）的**仅测试**逃生门：本套件大量夹具是非 git 临时目录（历史
+// 「就地操作」契约；git 依赖场景另有显式 gitInit 夹具）。双条件须同时 NODE_ENV=test（生产
+// 路径不设，沿 CONFIRM_DOC_TEST_TTY 信任边界口径）。spawnSync 未显式传 env 时子进程默认
+// 继承本进程环境，套件内既有场景零改动；S69 拒写用例自行关掉这两个变量。
+process.env.NODE_ENV = 'test';
+process.env.LEDGER_CLI_TEST_ANYROOT = '1';
 // 插件化落位（2026-10-27 迁移）：引擎脚本在 ../scripts/（原与测试同目录的源仓形态）
 const CLI = path.join(SCRIPT_DIR, '..', 'scripts', 'confirm-doc.mjs');
 
@@ -1537,6 +1544,92 @@ const intentDoc = (acceptBody) => `---\n状态: approved\n级别: L1\n日期: 20
     noRow.status === 2 && /委派台账在场门/.test(noRow.stderr) && /2026-10-27/.test(noRow.stderr)
       && withRow.status === 0 && fs.readFileSync(p, 'utf8').includes('状态: done'),
     JSON.stringify({ noRow: noRow.status, withRow: withRow.status, stderr: String(noRow.stderr).slice(0, 300) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S69 写侧 fail-closed：bare 仓 / 非 git 目录拒写台账（2026-11-05 台账族 Minor#4）----
+// 旧口径 projectRoot() 回退 cwd（RED：确认行「就地」落 cwd、文档被就地翻面）；bare 仓曾被
+// 误诊为 git-unavailable 走错降级路。用例显式关掉本文件顶部的测试逃生门。
+{
+  const GITBIN = process.platform === 'win32' ? 'git.exe' : 'git';
+  const noEscape = { ...process.env, NODE_ENV: '', LEDGER_CLI_TEST_ANYROOT: '' };
+  const docRel = 'workflow/plans/2026-11-05-fc.md';
+  const mkFixture = (dir) => {
+    fs.mkdirSync(path.join(dir, 'workflow', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(dir, ...docRel.split('/')), '---\n状态: draft\n级别: L1\n---\n# P');
+  };
+
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-fc-bare-'));
+  spawnSync(GITBIN, ['init', '-q', '--bare'], { cwd: bare });
+  mkFixture(bare);
+  const pBare = spawnSync(process.execPath, [CLI, docRel, '--delegated', '可以'], { cwd: bare, encoding: 'utf8', env: noEscape });
+  check('S69a bare 仓确认 → 非零拒写（bare 不再误诊 git-unavailable）',
+    pBare.status !== 0 && /拒绝写台账/.test(pBare.stderr), `status=${pBare.status} err=${pBare.stderr}`);
+  check('S69b bare 仓内文档未翻、台账未落',
+    fs.readFileSync(path.join(bare, ...docRel.split('/')), 'utf8').includes('状态: draft')
+      && !fs.existsSync(path.join(bare, '.agents', 'confirmations.d', '2026-11-05-fc.jsonl')));
+
+  const nongit = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-fc-ng-'));
+  mkFixture(nongit);
+  const pNg = spawnSync(process.execPath, [CLI, docRel, '--delegated', '可以'], { cwd: nongit, encoding: 'utf8', env: noEscape });
+  check('S69c 非 git 目录确认 → 非零拒写（不「就地」落 cwd）',
+    pNg.status !== 0 && /拒绝写台账/.test(pNg.stderr), `status=${pNg.status} err=${pNg.stderr}`);
+  check('S69d 非 git 目录文档未翻',
+    fs.readFileSync(path.join(nongit, ...docRel.split('/')), 'utf8').includes('状态: draft'));
+
+  // 显式 --root 原样采信路径，但同样须在 git 仓库内（对齐 MCP requireRoot 口径）
+  const pRoot = spawnSync(process.execPath, [CLI, docRel, '--delegated', '可以', '--root', nongit], { cwd: nongit, encoding: 'utf8', env: noEscape });
+  check('S69e 显式 --root 指向非 git 目录 → 同拒',
+    pRoot.status !== 0 && /拒绝写台账/.test(pRoot.stderr), `status=${pRoot.status} err=${pRoot.stderr}`);
+
+  fs.rmSync(bare, { recursive: true, force: true });
+  fs.rmSync(nongit, { recursive: true, force: true });
+}
+
+// ---- S70 双写事务化：台账先行 + 幂等守卫（2026-11-05 台账族 Minor#7）----
+// 故障注入（monkeypatch 第二步抛错）：NODE_OPTIONS --require 预挂 fs 补丁——第一笔落盘
+//（旧序 = 文档翻面 writeFileSync；新序 = 台账 appendFileSync）成功后即抛错模拟中途崩溃。
+// 崩溃后重跑（无注入）必须自然完成闭环：文档 approved、台账恰 1 行（幂等守卫拦重复落账）。
+// 旧实现（先翻文档后写台账）崩溃窗口 = 文档已翻、台账无行 → 重跑无合法跳转、确认行永久
+// 缺失（RED：S70b 台账 0 行 / S70c 重跑补不了行）。文档写经 tmp+rename 原子化（Minor#6），
+// 崩溃现场无半写文档、无 tmp 残留。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-crash-'));
+  const docRel = 'workflow/plans/2026-11-05-tx.md';
+  const docAbs = path.join(root, ...docRel.split('/'));
+  fs.mkdirSync(path.dirname(docAbs), { recursive: true });
+  fs.writeFileSync(docAbs, '---\n状态: draft\n级别: L1\n---\n# P\n\n## 改动方案\n\n- 文件：x（双写事务夹具）\n');
+  // NODE_OPTIONS 路径统一正斜杠（Windows 下反斜杠会被其参数解析吃掉）
+  const crashCjs = path.join(root, 'crash.cjs').replace(/\\/g, '/');
+  fs.writeFileSync(path.join(root, 'crash.cjs'), [
+    "const fs = require('node:fs');",
+    'let crashed = false;',
+    "for (const name of ['appendFileSync', 'writeFileSync']) {",
+    '  const orig = fs[name];',
+    '  fs[name] = function (...args) {',
+    '    const r = orig.apply(fs, args);',
+    "    if (!crashed) { crashed = true; throw new Error('CONFIRM_TEST_CRASH: 模拟双写中途崩溃'); }",
+    '    return r;',
+    '  };',
+    '}',
+  ].join('\n'));
+  const crashEnv = { ...process.env, NODE_OPTIONS: `--require ${crashCjs}` };
+  const run1 = spawnSync(process.execPath, [CLI, docRel, '--delegated', '可以'], { cwd: root, encoding: 'utf8', env: crashEnv });
+  check('S70a 注入第一步后崩溃 → 进程非零退出', run1.status !== 0, `status=${run1.status} err=${String(run1.stderr).slice(0, 200)}`);
+  const rows1 = readLedgerOf(root).filter((e) => e.doc === docRel);
+  check('S70b 崩溃现场：台账先行已落行、文档未翻（原子写无半写、无 tmp 残留；旧实现台账 0 行）',
+    rows1.length === 1
+      && fs.readFileSync(docAbs, 'utf8').includes('状态: draft')
+      && !fs.existsSync(`${docAbs}.confirm-tmp`),
+    JSON.stringify({ rows: rows1.length, doc: fs.readFileSync(docAbs, 'utf8').slice(0, 40) }));
+  const run2 = spawnSync(process.execPath, [CLI, docRel, '--delegated', '可以'], { cwd: root, encoding: 'utf8' });
+  const rows2 = readLedgerOf(root).filter((e) => e.doc === docRel);
+  check('S70c 重跑自然完成闭环（exit 0 + 文档 approved + 台账恰 1 行不重复落账）',
+    run2.status === 0 && fs.readFileSync(docAbs, 'utf8').includes('状态: approved') && rows2.length === 1,
+    JSON.stringify({ status: run2.status, stderr: String(run2.stderr).slice(0, 200), rows: rows2.length }));
+  check('S70d 收尾无残留（锁文件 / 原子写临时文件）',
+    !fs.existsSync(`${docAbs}.confirm-tmp`)
+      && !fs.existsSync(path.join(root, '.agents', 'confirmations.d', '2026-11-05-tx.jsonl.lock')));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

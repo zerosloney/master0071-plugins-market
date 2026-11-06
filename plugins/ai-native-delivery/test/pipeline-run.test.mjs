@@ -80,7 +80,8 @@ console.log('[verify] ✅ 全绿');
 
   fake('fake-git.mjs', `#!/usr/bin/env node
 import fs from 'node:fs';
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+while (args[0] === '-c') args = args.slice(2); // 剥引擎统一注入的 -c core.quotepath=off（2026-11-05 quotepath 对齐）
 fs.appendFileSync(process.env.PRTEST_GITLOG, args.join(' ') + '\\n');
 if (args[0] === 'status' && args[1] === '--porcelain') { process.stdout.write(process.env.FIXTURE_GIT_STATUS || ''); process.exit(0); }
 if (args[0] === 'rev-parse') { console.log('abc1234'); process.exit(0); }
@@ -521,6 +522,108 @@ test('next 并发互斥：run 文件被另一进程持锁时响亮失败，不�
   child.kill();
   const p2 = prun(f, ['next', '--triage', 'kind=require level=L1 module=wiki topic=locktest']);
   assert.equal(p2.status, 0, out(p2));
+});
+
+// ── 2026-11-05 六项 Minor 追加：runId 越界围栏 / latestRunId mtime 序 / quotepath / 门超时 ──────
+
+// T1 runId 白名单：--run 路径穿越响亮拒绝（修复前误读为「文件不存在或损坏」，同为 exit 1 但不响亮）
+test('runId 白名单：--run 路径穿越响亮拒绝', () => {
+  const f = buildFixture();
+  prun(f, ['start', '给 wiki 加主题']);
+  const p = prun(f, ['status', '--run', '../../x']);
+  assert.notEqual(p.status, 0, `穿越 id 竟被受理：${out(p)}`);
+  assert.match(String(p.stderr), /非法|白名单|穿越/, `须响亮拒绝而非误报损坏：${p.stderr}`);
+  const ok = prun(f, ['status']); // 合法缺省（latestRunId）不受影响
+  assert.equal(ok.status, 0, out(ok));
+});
+
+// T2 saveRun 围栏：run 文件内 runId 含 ../ 不得越界写（修复前 <root>/pwned.json 真实落盘）
+test('saveRun 围栏：文件内 runId 穿越拒绝越界写', () => {
+  const f = buildFixture();
+  fs.mkdirSync(runsDir(f), { recursive: true });
+  const planted = { runId: '../../pwned', requirement: 'x', stage: 'triage', stopType: 'work-order',
+    workOrder: null, awaitConfirm: null, docs: { entry: null, spec: null, plan: null }, events: [] };
+  fs.writeFileSync(path.join(runsDir(f), 'good-id.json'), JSON.stringify(planted), 'utf8');
+  const p = prun(f, ['abort', '--run', 'good-id']); // abort 无可翻文档 → 直达 saveRun
+  assert.notEqual(p.status, 0, `越界 runId 竟被受理：${out(p)}`);
+  assert.match(String(p.stderr), /非法|越界|围栏|穿越/, String(p.stderr));
+  assert.ok(!fs.existsSync(path.join(f.root, 'pwned.json')), '越界写已发生：<root>/pwned.json 落盘');
+});
+
+// T3 latestRunId：同分钟多 run 按 mtime 取最新（runId 尾部随机串使字符串序≠时序——字符串序仅兜底）
+test('latestRunId 同分钟多 run 按 mtime 取最新', () => {
+  const f = buildFixture();
+  fs.mkdirSync(runsDir(f), { recursive: true });
+  const mk = (id) => ({ runId: id, requirement: 'x', stage: 'triage', stopType: 'work-order',
+    workOrder: null, awaitConfirm: null, docs: { entry: null, spec: null, plan: null }, events: [] });
+  const older = '20261105-1200-zzz-late'; // 字符序更大（随机尾 zzz）
+  const newer = '20261105-1200-aaa-fast'; // 实际后写（mtime 更新）
+  fs.writeFileSync(path.join(runsDir(f), `${older}.json`), JSON.stringify(mk(older)), 'utf8');
+  fs.writeFileSync(path.join(runsDir(f), `${newer}.json`), JSON.stringify(mk(newer)), 'utf8');
+  const t = Date.now();
+  fs.utimesSync(path.join(runsDir(f), `${older}.json`), new Date(t), new Date(t));
+  fs.utimesSync(path.join(runsDir(f), `${newer}.json`), new Date(t + 60000), new Date(t + 60000));
+  const p = prun(f, ['status', '--json']); // 无 --run → latestRunId 裁决
+  assert.equal(p.status, 0, out(p));
+  const picked = JSON.parse(out(p));
+  assert.equal(picked.runId, newer, `mtime 后写者须胜（修复前字符串序选中 ${picked.runId}）`);
+});
+
+// T4 门命令超时上界：慢门 fail-closed 判红（修复前 next 被挂死的门挂死——看门狗 spawnSync 强杀即 RED）
+test('门命令超时上界：慢门 fail-closed 判红', () => {
+  const f = buildFixture();
+  fs.writeFileSync(path.join(f.bin, 'fill-plan.mjs'), 'setTimeout(() => {}, 30000);\n', 'utf8'); // 慢门：睡 30s
+  prun(f, ['start', '给 wiki 加主题']);
+  const wd = spawnSync(process.execPath, [MAIN, 'next', '--triage', 'kind=require level=L1 module=wiki topic=slowgate'], {
+    env: { ...process.env, PIPELINE_RUN_ROOT: f.root, PIPELINE_RUN_BIN: f.bin,
+      PIPELINE_RUN_GIT_BIN: `node ${path.join(f.bin, 'fake-git.mjs')}`,
+      PRTEST_GITLOG: f.gitLog, PRTEST_LEDGER: f.ledger, PRTEST_VERIFY_FAIL: f.verifyFailMarker,
+      PIPELINE_RUN_TODAY: '2026-10-02', PIPELINE_RUN_GATE_TIMEOUT_MS: '800' },
+    encoding: 'utf8', windowsHide: true,
+    timeout: 15000, // 看门狗（修复前挂死被强杀 → RED，防套件挂死）
+  });
+  assert.notEqual(wd.status, null, '看门狗击杀——next 被慢门挂死（修复前 RED）');
+  assert.notEqual(wd.status, 0, `慢门竟放行：${out(wd)}\n${wd.stderr}`);
+  assert.match(String(wd.stdout) + String(wd.stderr), /超时/, `超时须响亮出账：${out(wd)}\n${wd.stderr}`);
+  const run = runFile(f, latestId(f));
+  const gateEv = run.events.filter((e) => e.type === 'gate' && e.note);
+  assert.ok(gateEv.length >= 1 && /超时/.test(gateEv[gateEv.length - 1].note), '超时事件须入 run 事件流（gate note）');
+});
+
+// T5 quotepath=off（对齐 verify-scope M2）：真 git 仓 + 中文路径——checkAuthorized 逐字比对不再假越权。
+// 基线先行入库（夹具随行件 git.log/confirm-ledger.jsonl/workflow-enums.txt 均为已跟踪无改动），
+// 使 implement 时点的 git status 改动面恰为中文新文件。
+test('quotepath=off：中文改动文件不假越权（真 git 仓）', () => {
+  const f = buildFixture();
+  const g = (...a) => spawnSync('git', a, { cwd: f.root, encoding: 'utf8' });
+  g('init', '-q');
+  g('config', 'user.email', 'prtest@example.com');
+  g('config', 'user.name', 'prtest');
+  g('config', 'core.quotepath', 'true'); // 显式钉住默认形态（判据不赌机器全局配置）
+  g('add', '-A');
+  assert.equal(g('commit', '-qm', 'base').status, 0, '基线提交失败');
+  // confirm-doc 夹具台账放仓外（tmp）——真 git status 下它属「基线后写入的未跟踪变化」，会污染改动面
+  const ledgerOutside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'prun-ledger-')), 'ledger.jsonl');
+  fs.writeFileSync(ledgerOutside, '', 'utf8');
+  const prunReal = (args) => spawnSync(process.execPath, [MAIN, ...args], {
+    env: { ...process.env, PIPELINE_RUN_ROOT: f.root, PIPELINE_RUN_BIN: f.bin, PIPELINE_RUN_GIT_BIN: 'git',
+      PRTEST_GITLOG: f.gitLog, PRTEST_LEDGER: ledgerOutside, PRTEST_VERIFY_FAIL: f.verifyFailMarker,
+      PIPELINE_RUN_TODAY: '2026-10-02' },
+    encoding: 'utf8', windowsHide: true,
+  });
+  prunReal(['start', '给 wiki 加主题']);
+  prunReal(['next', '--triage', 'kind=require level=L1 module=wiki topic=zh']);
+  editDoc(f, 'workflow/plans/2026-10-02-zh.md', fillValid);
+  prunReal(['next']);
+  prunReal(['next', '--delegated', 'plan ok']);
+  prunReal(['next', '--delegated', '改动清单 ok']); // → implement 工单停机
+  fs.mkdirSync(path.join(f.root, 'wiki'), { recursive: true });
+  fs.writeFileSync(path.join(f.root, 'wiki', '中文说明.md'), '# 中文\n');
+  const p = prunReal(['next', '--files', 'wiki/中文说明.md']);
+  assert.equal(p.status, 0, `中文改动文件被假越权拦截（八进制转义逐字失配）：${out(p)}\n${p.stderr}`);
+  assert.doesNotMatch(out(p) + String(p.stderr), /超出回填清单|偏离即停/);
+  const log = g('-c', 'core.quotepath=off', 'log', '--name-only', '--format=%s'); // 检出侧读路径也须 quotepath=off（夹具仓已显式钉 true）
+  assert.match(log.stdout, /中文说明\.md/, `verify 绿后的代码提交须以原文路径收录：${log.stdout}\n${log.stderr}`);
 });
 
 // ---- 执行驱动（2026-10-10 shard-check-loop-test 二期：shard / parent / 顺序 三态）----

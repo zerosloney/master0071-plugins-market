@@ -9,8 +9,15 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   LEDGERS, isDataRow, inScope, monthOf, readLedger, readLedgerText,
-  splitMain, appendRows, shardPathFor, renderShard,
+  splitMain, appendRows, shardPathFor, renderShard, withLedgerLock,
 } from '../scripts/ledger-shards.mjs';
+
+// 2026-11-05 CLI 写侧 fail-closed（非 git 目录拒写台账，paths.mjs testAnyRootAllowed）的
+// **仅测试**逃生门：本套件夹具是非 git 临时目录（历史「就地操作」契约）。双条件须同时
+// NODE_ENV=test（生产路径不设，沿 CONFIRM_DOC_TEST_TTY 信任边界口径）。spawnSync 未显式传
+// env 时子进程默认继承本进程环境，套件内既有 CLI 场景（S24 --split 等）零改动。
+process.env.NODE_ENV = 'test';
+process.env.LEDGER_CLI_TEST_ANYROOT = '1';
 
 let pass = 0;
 let fail = 0;
@@ -474,6 +481,98 @@ const wf = (root, ...p) => path.join(root, 'workflow', ...p);
   const p2 = spawnSync(process.execPath, [cli, '--split', 'papercuts'], { cwd: root, encoding: 'utf8' });
   check('S24e 锁释放后重跑 --split → 迁移成功', p2.status === 0, p2.stderr);
   check('S24f 待迁行已迁入分片', fs.readFileSync(shard, 'utf8').includes('待迁行'), fs.readFileSync(shard, 'utf8'));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S25 CLI 回执诚实：新落盘 / 幂等跳过分账（2026-11-05 台账族 Minor#2）----
+// 旧实现重复行静默跳过但 CLI 无条件打「✓ 追加 1 行」——回执与磁盘事实不符（RED：重复追加
+// 照称「追加」）。
+{
+  const root = mkroot();
+  const cli = fileURLToPath(new URL('../scripts/ledger-shards.mjs', import.meta.url));
+  const row = '| 2026-11-05 | 回执 | s | f |';
+  const p1 = spawnSync(process.execPath, [cli, '--append', 'papercuts', '--row', row], { cwd: root, encoding: 'utf8' });
+  check('S25a 首次追加回执「✓ 追加 1 行」', p1.status === 0 && /✓ 追加 1 行/.test(p1.stdout), `out=${p1.stdout} err=${p1.stderr}`);
+  const p2 = spawnSync(process.execPath, [cli, '--append', 'papercuts', '--row', row], { cwd: root, encoding: 'utf8' });
+  check('S25b 重复追加回执含「幂等跳过」且不再假称追加',
+    p2.status === 0 && /幂等跳过/.test(p2.stdout) && !/✓ 追加/.test(p2.stdout), `out=${p2.stdout} err=${p2.stderr}`);
+  const rows = fs.readFileSync(shardPathFor(root, 'papercuts', '2026-11'), 'utf8').split(/\r?\n/).filter((l) => isDataRow('papercuts', l));
+  check('S25c 重复追加未重复落盘（仍 1 行）', rows.length === 1, `rows=${rows.length}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S26 CLI 写侧 fail-closed：bare 仓 / 非 git 目录拒写（2026-11-05 台账族 Minor#4）----
+// 旧口径 projectRoot() 回退 cwd（RED：台账「就地」落 cwd）；bare 仓曾被误诊为 git-unavailable。
+// 只读巡检 --check 不受限（裁决：status 类命令维持现状）。用例显式关掉本文件顶部的测试逃生门。
+{
+  const cli = fileURLToPath(new URL('../scripts/ledger-shards.mjs', import.meta.url));
+  const GITBIN = process.platform === 'win32' ? 'git.exe' : 'git';
+  const noEscape = { ...process.env, NODE_ENV: '', LEDGER_CLI_TEST_ANYROOT: '' };
+  const row = '| 2026-11-05 | bare | s | f |';
+
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-shards-bare-'));
+  spawnSync(GITBIN, ['init', '-q', '--bare'], { cwd: bare });
+  const pBare = spawnSync(process.execPath, [cli, '--append', 'papercuts', '--row', row], { cwd: bare, encoding: 'utf8', env: noEscape });
+  check('S26a bare 仓 --append → 非零拒写（bare 不再误诊 git-unavailable）',
+    pBare.status !== 0 && /拒绝写台账/.test(pBare.stderr), `status=${pBare.status} err=${pBare.stderr}`);
+  check('S26b bare 仓内未落盘', !fs.existsSync(path.join(bare, 'workflow')));
+
+  const nongit = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-shards-nongit-'));
+  const pNg = spawnSync(process.execPath, [cli, '--append', 'papercuts', '--row', row], { cwd: nongit, encoding: 'utf8', env: noEscape });
+  check('S26c 非 git 目录 --append → 非零拒写', pNg.status !== 0 && /拒绝写台账/.test(pNg.stderr), `status=${pNg.status} err=${pNg.stderr}`);
+  check('S26d 非 git 目录未落盘（不「就地」落 cwd）', !fs.existsSync(path.join(nongit, 'workflow')));
+
+  const pChk = spawnSync(process.execPath, [cli, '--check'], { cwd: nongit, encoding: 'utf8', env: noEscape });
+  check('S26e 只读 --check 不受限（exit 0）', pChk.status === 0, `status=${pChk.status} err=${pChk.stderr}`);
+
+  fs.rmSync(bare, { recursive: true, force: true });
+  fs.rmSync(nongit, { recursive: true, force: true });
+}
+
+// ---- S27 锁加固：陈旧接管原子化 + pid 死亡提前接管 + 释放非己不删（2026-11-05 台账族 Minor#11，
+// 移植 agent-pipelines/scripts/state.mjs 0.1.26 的 withLock/takeOverStale 模式）----
+{
+  const root = mkroot();
+  const target = wf(root, 'papercuts.md');
+  fs.writeFileSync(target, '# 台账\n', 'utf8');
+  const lockPath = `${target}.lock`;
+
+  // ① 陈旧锁（utimesSync 回拨 > 15s）→ 接管；接管后锁内容 = 新持有者（本进程 owner）
+  fs.writeFileSync(lockPath, '999999:stale-owner-xyz', 'utf8');
+  const old = new Date(Date.now() - 20_000);
+  fs.utimesSync(lockPath, old, old);
+  let innerOwner = '';
+  await withLedgerLock(target, () => { innerOwner = fs.readFileSync(lockPath, 'utf8'); });
+  check('S27a 陈旧锁可接管（临界区内锁内容 = 新持有者 pid）', innerOwner.startsWith(`${process.pid}:`), innerOwner);
+  check('S27b 释放后锁已清理', !fs.existsSync(lockPath));
+
+  // ② 锁龄新鲜但持有者 pid 已死 + 等待超 deadline → 提前原子接管（旧实现：无 pid 判定，
+  //    白等满 3s 后超时抛错——RED：抛「写锁等待超时」）。确定性：持锁 pid 用一个已退出的
+  //    真实子进程（kill(pid,0) 稳定 ESRCH），锁 mtime 保持现在时（不走 15s 陈旧路径）。
+  const deadChild = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  await new Promise((res) => deadChild.on('exit', res));
+  fs.writeFileSync(lockPath, `${deadChild.pid}:deadbeef`, 'utf8');
+  fs.utimesSync(lockPath, new Date(), new Date());
+  let earlyErr = null;
+  let earlyOk = false;
+  const t0 = Date.now();
+  try { await withLedgerLock(target, () => { earlyOk = true; }); } catch (e) { earlyErr = e; }
+  check('S27c pid 已死残留锁 → 提前接管成功（旧实现超时抛错）', earlyOk, earlyErr && earlyErr.message);
+  check('S27d 提前接管在等待超时线附近完成（未拖到 15s 陈旧阈值）', Date.now() - t0 < 15_000, `dur=${Date.now() - t0}`);
+
+  // ③ 释放时非己不删：临界区期间锁被第三方接管（内容非己）→ 迟到的释放不误删
+  fs.writeFileSync(lockPath, '777777:to-be-taken', 'utf8');
+  fs.utimesSync(lockPath, old, old); // 陈旧 → 本进程进场时接管（内容 = 本进程 owner）
+  let sawUsurp = false;
+  await withLedgerLock(target, () => {
+    fs.writeFileSync(lockPath, '888888:usurper', 'utf8'); // 第三方在临界区期间接管
+    sawUsurp = fs.readFileSync(lockPath, 'utf8') === '888888:usurper';
+  });
+  check('S27e 释放时非己不删（接管者的锁不被迟到释放误删）',
+    sawUsurp && fs.existsSync(lockPath) && fs.readFileSync(lockPath, 'utf8') === '888888:usurper',
+    fs.existsSync(lockPath) ? fs.readFileSync(lockPath, 'utf8') : 'lock gone');
+  fs.unlinkSync(lockPath);
+
   fs.rmSync(root, { recursive: true, force: true });
 }
 

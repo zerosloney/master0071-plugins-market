@@ -191,8 +191,25 @@ function main() {
     process.exit(0);
   }
 
-  const frontend = parseFrontendQueryInterfaces();
-  const { violations, exempted, paired, backendCount } = compareContracts(frontend, parseBackendQueryDtos());
+  // 契约面守卫（2026-11 Minor 修复）：前后端目录缺失 / 契约文件不可读此前直接崩栈。本门是
+  // advisory 对账（脚本头定位）——「无契约可查」是合法形态（消费项目可以没有 frontend/backend
+  // 布局），缺面跳过不拦；读失败同口径 advisory 放行并给原因。fail-loud 保留给「有契约面对不上」
+  // 的违例出口，不在基础设施缺失上误伤。
+  const missing = [FRONTEND_API_DIR, BACKEND_DIR].filter((d) => !fs.existsSync(d));
+  if (missing.length) {
+    console.log(`[查询契约对账] ⏭️ 无契约可查（缺目录：${missing.join('、')}）——本门为 advisory 对账门，无前后端布局的项目合法，跳过不拦`);
+    process.exit(0);
+  }
+  let frontend;
+  let contract;
+  try {
+    frontend = parseFrontendQueryInterfaces();
+    contract = compareContracts(frontend, parseBackendQueryDtos());
+  } catch (err) {
+    console.log(`[查询契约对账] ⏭️ 契约面不可读（${err.message}）——advisory 放行；若属布局变更有意为之，请同步调整脚本头部的目录位`);
+    process.exit(0);
+  }
+  const { violations, exempted, paired, backendCount } = contract;
 
   console.log(`[查询契约对账] 前端 Query 接口 ${frontend.length} 个（配对 ${paired.length}、豁免 ${exempted.length}）、后端 QueryDto ${backendCount} 个`);
   for (const e of exempted) console.log(`  豁免：${e}`);

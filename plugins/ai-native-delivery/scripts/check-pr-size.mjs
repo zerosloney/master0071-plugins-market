@@ -21,6 +21,15 @@ const argOf = (k) => {
 const asJson = argv.includes('--json');
 const base = argOf('--base') || 'origin/main';
 const head = argOf('--head') || 'HEAD';
+// git 选项注入拒绝（2026-11 Minor 修复）：--base/--head 的值以 `-` 开头时会被拼进 git 参数表
+//（rev-parse --verify / diff --numstat）按选项解析——透传即注入面，报错还会误诊为「基线不存在」。
+// 两道独立防线：①入口显式拒收（错误消息点名参数）；②调用面分隔（rev-parse 用 --end-of-options、
+// diff 的范围 token 前加 `--`），即使未来有人在拒收前加路径也兜得住。
+const looksLikeOption = (v) => /^-/.test(String(v));
+if (looksLikeOption(base) || looksLikeOption(head)) {
+  console.error(`check-pr-size: --base/--head 须为 ref 名，不得以 "-" 开头（现 base=${base || '（空）'} head=${head || '（空）'}）——以 "-" 开头的值会被 git 当选项解析（注入面），拒收`);
+  process.exit(2);
+}
 
 const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 if (root.status !== 0 || !root.stdout.trim()) {
@@ -32,7 +41,7 @@ process.chdir(root.stdout.trim());
 // maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：默认 1MB 在大 diff 下
 // ENOBUFS——spawn 层故障与业务失败分流出账，均不放行（exit 2 方向不变，不误诊为「基准不可解」）
 const git = (args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-const verify = (ref) => git(['rev-parse', '--verify', `${ref}^{commit}`]);
+const verify = (ref) => git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]);
 if (verify(base).status !== 0) {
   console.error(`check-pr-size: 基线 ${base} 不存在（先 git fetch origin，或用 --base 指定）`);
   process.exit(2);
@@ -79,7 +88,9 @@ const globMatch = (p, pat) => {
 };
 const isFree = (p) => freePatterns.some((pat) => globMatch(p, pat)) || linguist.some((pat) => globMatch(p, pat));
 
-const diff = git(['-c', 'core.quotepath=off', 'diff', '--numstat', '-M', `${base}...${head}`]);
+// 范围 token 尾置 `--`（显式「其后无 pathspec」）：范围仍按 rev 解析、后续不可能出现选项/路径歧义。
+// 注意不能把 `--` 放范围**前**——那会让 git 把范围当 pathspec、静默空 diff（门恒绿的假阴性）。
+const diff = git(['-c', 'core.quotepath=off', 'diff', '--numstat', '-M', `${base}...${head}`, '--']);
 if (diff.error) {
   console.error(`check-pr-size: git 输出超限/执行失败（${diff.error.code || diff.error.message}）——diff 不可判定，门不放行（fail-closed）`);
   process.exit(2);

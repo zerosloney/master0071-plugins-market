@@ -824,6 +824,23 @@ SCEN(async () => {
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+// ---- ROOT 解析 fail-closed（2026-11-05 台账族 Minor#10）----
+// 非 git 目录且未给 --root：旧实现裸 execFileSync('git') 未捕获 → 未捕获异常（git fatal + 调用栈
+// 刷屏，无指引）。修复后走 git-core 的 GIT 常量（CHECK_LOOP_GIT 注入钩子生效）+ try/catch 转
+// fail-closed 可读报错、非零退出（RED 断言点：报错含「无法定位 git 仓库根」指引文案，旧实现无）。
+// 须在分片 runner（SHARD_ARG 分支）之前注册——注册在 runner 之后会被静默漏跑。
+SCEN(() => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-inv-nongit-'));
+  const r = spawnSync(process.execPath, [SCRIPT], { cwd: d, encoding: 'utf8' });
+  check('ROOT-FC1 非 git 目录且未给 --root → fail-closed 可读报错（含定位指引）+ 非零退出',
+    r.status === 1 && /无法定位 git 仓库根/.test(String(r.stderr || '')),
+    `status=${r.status} err=${String(r.stderr || '').slice(0, 300)}`);
+  check('ROOT-FC2 不外泄未捕获调用栈（拒绝是设计内出口，不是崩溃）',
+    !/\n\s+at /.test(String(r.stderr || '')),
+    String(r.stderr || '').slice(0, 300));
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 // 场景间零共享态（各自 mkrepo 独立临时仓 + git init，评估期逐块确认辅助函数全在模块级）→ 按
 // idx % K round-robin 分片可安全并行。K = clamp(1..4, floor(cpus/3))：12 核本机 4；小核 CI 自适应到 1
 // = 顺序等价（行为与分片化前一致）；CHECK_LEDGER_TEST_SHARDS 钉死（调试/复现单线程顺序）。

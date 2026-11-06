@@ -36,6 +36,17 @@ const TERMINAL = ['done', 'superseded', 'cancelled', 'closed'];
 const FIX_CAP = 3;
 const GIT_NEVER_FLAGS = ['--no-verify', '-n']; // 不变量：任何 git 调用不得携带（防御性断言，正常路径不会拼出）
 
+// 门命令超时上界（2026-11-05 Minor：无 timeout 的门挂死 next/abort——fail-closed：超时即门红，不放行不静默）。
+// 默认 10min：本执行器的 verify 门（runNode('verify.mjs')）包的是**整场 verify**（其预算体系 fullMs 中位
+// ~234s、engine-tests ~118s），单门上界须宽于 verify 全量墙钟故取 600s；其余门（fill-*/confirm-doc/check-loop）
+// 皆秒级。PIPELINE_RUN_GATE_TIMEOUT_MS 为测试注入点（与 PIPELINE_RUN_TODAY 同风格）；超时 exit 取 124
+// （GNU timeout 惯例，与普通门红 exit 1 可区分）。
+const GATE_TIMEOUT_MS = (() => {
+  const n = Number(process.env.PIPELINE_RUN_GATE_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 600_000;
+})();
+const isGateTimeout = (err) => Boolean(err && (err.code === 'ETIMEDOUT' || err.killed === true));
+
 function fail(msg, code = 1) { console.error('❌ ' + msg); process.exit(code); }
 const nowIso = () => new Date().toISOString();
 const today = () => process.env.PIPELINE_RUN_TODAY || nowIso().slice(0, 10);
@@ -63,7 +74,27 @@ function moduleList(ctx) {
 }
 
 // ── run 文件（原子写；事件 append-only） ──────────────────────────────
-function runFileOf(ctx, runId) { return path.join(ctx.runsDir, `${runId}.json`); }
+// runId 白名单 + 围栏（2026-11-05 Minor）：--run 与 run 文件内 runId 此前均无格式校验——
+// `--run ../../x` 可越界读状态文件、文件内 runId 含 ../ 可借 saveRun 越界写。白名单 [\w-]+
+//（newRunId 产物天然合式）；runFileOf 单源再验路径必须落在 runs 目录内（纵深防御，saveRun/loadRun/锁同享）。
+const RUN_ID_RE = /^[\w-]+$/;
+const isRunId = (id) => typeof id === 'string' && id.length > 0 && RUN_ID_RE.test(id);
+
+function runFileOf(ctx, runId) {
+  if (!isRunId(runId)) throw new Error(`runId 格式非法：${JSON.stringify(String(runId))}——白名单 [A-Za-z0-9_-]，拒绝路径穿越`);
+  const f = path.join(ctx.runsDir, `${runId}.json`);
+  const rel = path.relative(ctx.runsDir, f); // 围栏：即使未来白名单放宽，越出 runs 目录的路径一律拒绝
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`run 文件路径越界：${f}（须落在 ${ctx.runsDir} 内）`);
+  return f;
+}
+
+// --run 消费口（2026-11-05）：格式不符响亮拒绝（fail 非零退出 + 明示白名单），不误报「文件不存在或损坏」
+function runArgOf(a) {
+  if (a.run !== undefined && !isRunId(a.run)) {
+    fail(`--run 非法：${JSON.stringify(String(a.run))}——runId 只允许字母/数字/下划线/连字符（拒绝路径穿越）`);
+  }
+  return a.run;
+}
 
 function loadRun(ctx, runId) {
   const f = runFileOf(ctx, runId);
@@ -72,9 +103,11 @@ function loadRun(ctx, runId) {
 }
 
 function saveRun(ctx, run) {
+  let f;
+  try { f = runFileOf(ctx, run.runId); }
+  catch (e) { fail(`run 状态文件拒绝落盘：${e.message}（文件内 runId 越界——拒绝越界写）`); }
   fs.mkdirSync(ctx.runsDir, { recursive: true });
   run.updatedAt = nowIso();
-  const f = runFileOf(ctx, run.runId);
   const tmp = f + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(run, null, 2) + '\n');
   fs.renameSync(tmp, f);
@@ -116,12 +149,20 @@ function withRunLock(ctx, runId, fn) {
 
 function latestRunId(ctx) {
   if (!fs.existsSync(ctx.runsDir)) return null;
-  const ids = fs.readdirSync(ctx.runsDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    const r = loadRun(ctx, ids[i]);
-    if (r && !['done', 'aborted'].includes(r.stopType)) return ids[i];
+  // 同分钟多 run（2026-11-05 Minor）：runId 尾部是随机串，同分钟内字符串序≠时序——以文件 mtime 降序
+  // 为主序键（后写者胜），字符串序仅作 mtime 相等时的确定性兜底。白名单外文件名（异常落盘物）跳过。
+  const ids = fs.readdirSync(ctx.runsDir).filter((f) => f.endsWith('.json')).map((f) => {
+    let m = 0;
+    try { m = fs.statSync(path.join(ctx.runsDir, f)).mtimeMs; } catch { /* 并发窗口被删：mtime 退 0，仍可按字符串序兜底 */ }
+    return { id: f.slice(0, -5), m };
+  }).filter((x) => isRunId(x.id))
+    .sort((a, b) => (b.m - a.m) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+    .map((x) => x.id);
+  for (const id of ids) {
+    const r = loadRun(ctx, id);
+    if (r && !['done', 'aborted'].includes(r.stopType)) return id;
   }
-  return ids[ids.length - 1] || null;
+  return ids[0] || null;
 }
 
 function newRunId(requirement) {
@@ -138,22 +179,28 @@ function runNode(ctx, run, script, args) {
   const t0 = Date.now();
   // PIPELINE_RUN_ID 注入（verify-evidence 复核 P2-1）：verify.mjs 绿行据此绑定 runId
   //（对质链与 run 事件流同源，docsCommit 格式已含同一 runId）——spec「pipeline-run 路径自动绑定」落点
-  const p = spawnSync(process.execPath, [scriptPath, ...args], { cwd: ctx.root, encoding: 'utf8', windowsHide: true, env: { ...process.env, PIPELINE_RUN_ID: run.runId } });
+  const p = spawnSync(process.execPath, [scriptPath, ...args], { cwd: ctx.root, encoding: 'utf8', windowsHide: true, env: { ...process.env, PIPELINE_RUN_ID: run.runId }, timeout: GATE_TIMEOUT_MS, killSignal: 'SIGKILL' });
   const ms = Date.now() - t0;
-  const exit = p.status ?? 1;
-  emit(run, { type: 'gate', cmd, exit, ms });
-  return { exit, stdout: p.stdout || '', stderr: p.stderr || '' };
+  const timedOut = isGateTimeout(p.error);
+  const exit = timedOut ? 124 : (p.status ?? 1);
+  emit(run, { type: 'gate', cmd, exit, ms, ...(timedOut ? { note: `门超时（上限 ${Math.round(GATE_TIMEOUT_MS / 1000)}s）被中止——fail-closed 按门红处理，不放行` } : {}) });
+  return { exit, stdout: p.stdout || '', stderr: (p.stderr || '') + (timedOut ? `\npipeline-run: 门命令超时（上限 ${GATE_TIMEOUT_MS}ms）已中止——按门红处理，不放行` : '') };
 }
 
 function runGit(ctx, run, args) {
   if (args.some((a) => GIT_NEVER_FLAGS.includes(a))) fail('不变量破坏：git 调用携带禁用旗标', 1);
   const cmd = `git ${args.join(' ')}`;
   const t0 = Date.now();
-  const p = spawnSync(ctx.gitPrefix[0], [...ctx.gitPrefix.slice(1), ...args], { cwd: ctx.root, encoding: 'utf8', windowsHide: true });
+  // -c core.quotepath=off（2026-11-05 对齐 verify-scope.mjs 同款参数；M2 事故同款）：默认 quotepath=true
+  // 的机器上 status 输出非 ASCII 路径为八进制转义（"wiki/\344..."）——checkAuthorized 与 --files 回填
+  // 逐字比对失配 → 中文改动文件假越权 gate-fail。
+  const argv = [...ctx.gitPrefix.slice(1), '-c', 'core.quotepath=off', ...args];
+  const p = spawnSync(ctx.gitPrefix[0], argv, { cwd: ctx.root, encoding: 'utf8', windowsHide: true, timeout: GATE_TIMEOUT_MS, killSignal: 'SIGKILL' });
   const ms = Date.now() - t0;
-  const exit = p.status ?? 1;
-  emit(run, { type: 'gate', cmd, exit, ms });
-  return { exit, stdout: p.stdout || '', stderr: p.stderr || '' };
+  const timedOut = isGateTimeout(p.error);
+  const exit = timedOut ? 124 : (p.status ?? 1);
+  emit(run, { type: 'gate', cmd, exit, ms, ...(timedOut ? { note: `门超时（上限 ${Math.round(GATE_TIMEOUT_MS / 1000)}s）被中止——fail-closed 按门红处理，不放行` } : {}) });
+  return { exit, stdout: p.stdout || '', stderr: (p.stderr || '') + (timedOut ? `\npipeline-run: git 门超时（上限 ${GATE_TIMEOUT_MS}ms）已中止——按门红处理，不放行` : '') };
 }
 
 // ── 文档读取/校验 ──────────────────────────────────────────────────────
@@ -882,7 +929,7 @@ function parseArgs(argv) {
 }
 
 function resolveRun(ctx, a) {
-  const id = a.run || latestRunId(ctx);
+  const id = runArgOf(a) || latestRunId(ctx);
   if (!id) fail('无活跃 run——先 start "<需求原文>"');
   const run = loadRun(ctx, id);
   if (!run) fail(`run 文件不存在或损坏：${id}（status --adopt 可按文档现状重建）`);
@@ -909,7 +956,7 @@ if (isMain) {
     saveRun(ctx, run);
     advance(ctx, run, {}); // 首停机点 = triage 工单
   } else if (cmd === 'next') {
-    const id0 = a.run || latestRunId(ctx);
+    const id0 = runArgOf(a) || latestRunId(ctx);
     if (!id0) fail('无活跃 run——先 start "<需求原文>"'); // 空仓无 run：不为其造锁文件
     // 读→推进→落盘全程持 `<run 文件>.lock`（2026-11-05 并发修复，见 withRunLock 头注）——
     // load 也须在锁内，否则锁外读到的陈旧快照仍会覆盖并发进程刚落的推进。
@@ -936,6 +983,7 @@ if (isMain) {
     process.exit(0);
   } else if (cmd === 'watch') {
     const interval = Math.max(1, Number(a.interval) || 2);
+    runArgOf(a); // 响亮拒绝非法 --run（2026-11-05）
     const render = () => {
       const id = a.run || latestRunId(ctx);
       console.log('\x1B[2J\x1B[H');
@@ -952,6 +1000,7 @@ if (isMain) {
     setInterval(render, interval * 1000);
   } else if (cmd === 'abort') {
     if (!a.run) fail('abort 必填 --run <id>');
+    runArgOf(a); // 响亮拒绝非法 --run（2026-11-05）
     const run = loadRun(ctx, a.run);
     if (!run) fail(`run 不存在：${a.run}`);
     const to = a.to === true ? 'cancelled' : (a.to || 'cancelled');
@@ -983,7 +1032,7 @@ if (isMain) {
 
 // ── adopt：run 文件丢失/损坏时按文档现状重建（尽力而为，非权威仲裁） ──
 function adoptRun(ctx, a) {
-  const id = a.run || latestRunId(ctx);
+  const id = runArgOf(a) || latestRunId(ctx);
   if (!id) fail('无可 adopt 的 run id');
   const topic = (id.split('-').slice(2, -1).join('-')) || 'task';
   const find = (dir) => {

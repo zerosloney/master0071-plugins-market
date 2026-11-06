@@ -210,5 +210,46 @@ const runTool = (root, base, level) => spawnSync(process.execPath,
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 16-18：CLI 输出守卫（2026-11-05 台账族 Minor#9：存在守卫 / 工作区围栏 / 换行注入）----
+{
+  // ① 存在守卫：--output 已存在 → 拒绝（--force 才覆盖）。旧实现静默覆盖——approved/done plan
+  //    会被打回 draft 模板（不可逆内容损失）。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-plan-guard-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  const out = path.join(root, 'workflow', 'plans', '2026-11-05-guard.md');
+  fs.writeFileSync(out, '---\n状态: approved\n级别: L1\n---\n已确认 plan');
+  const r1 = spawnSync(process.execPath, [CLI, '--topic', 't', '--level', 'L1', '--output', out], { cwd: root, encoding: 'utf8' });
+  check('S16 --output 已存在 → 拒绝覆盖（旧实现静默打回 draft 模板）',
+    r1.status === 1 && /拒绝覆盖/.test(r1.stderr) && fs.readFileSync(out, 'utf8').includes('状态: approved'),
+    JSON.stringify({ status: r1.status, stderr: r1.stderr }));
+  const r2 = spawnSync(process.execPath, [CLI, '--topic', 't', '--level', 'L1', '--output', out, '--force'], { cwd: root, encoding: 'utf8' });
+  check('S16b --force 显式覆盖放行（L1 plan 即入口，无前置门）',
+    r2.status === 0 && fs.readFileSync(out, 'utf8').includes('状态: draft'),
+    JSON.stringify({ status: r2.status, stderr: r2.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ② 工作区围栏：output 落在 workflow/ 树内 → 必须在 workflow/plans/（错子目录拒；仓外草稿不受围栏）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-plan-fence-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'specs'), { recursive: true });
+  const out = path.join(root, 'workflow', 'specs', '2026-11-05-fence.md');
+  const r = spawnSync(process.execPath, [CLI, '--topic', 't', '--level', 'L1', '--output', out], { cwd: root, encoding: 'utf8' });
+  check('S17 围栏：workflow 树内错子目录 → 拒（plan 只落 workflow/plans/）',
+    r.status === 1 && /围栏拒绝/.test(r.stderr) && !fs.existsSync(out),
+    JSON.stringify({ status: r.status, stderr: r.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ③ 换行注入：--topic 自由文本剥换行——旧实现可借换行向正文注入任意分节（RED：出现独立注入节）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-plan-inject-'));
+  const out = path.join(root, 'x.md');
+  const r = spawnSync(process.execPath, [CLI, '--topic', 't\n\n## 注入节', '--output', out], { cwd: root, encoding: 'utf8' });
+  const body = fs.readFileSync(out, 'utf8');
+  check('S18 --topic 换行剥单行（正文标题不被注入分节）',
+    r.status === 0 && /^# PLAN — t\s+## 注入节$/m.test(body) && !/^## 注入节$/m.test(body),
+    body.slice(0, 160));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log('\n合计: PASS ' + pass + ' / FAIL ' + failCount);
 process.exit(failCount ? 1 : 0);

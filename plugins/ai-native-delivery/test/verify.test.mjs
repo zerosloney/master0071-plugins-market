@@ -856,6 +856,51 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 17：退出码三态（2026-11-05 Minor：usage/参数错与门红混同 exit 1）----
+// 三态口径：2 = usage/参数错（未跑任何门——自动化可区分「参数写错」与「验证没过」）；
+// 1 = 门红/fail-fast（场景 2/3/5/7 已锁，此处不重复）；崩溃走 run().catch 亦非 0。
+{
+  const root = mkfix();
+  const r = run(['--list', '--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  check('场景 17：--list 与 --test-cmd 互斥 → usage 错 exit 2（修复前与门红混同 exit 1）',
+    r.status === 2, `exit=${r.status}\n${r.stdout}\n${r.stderr}`);
+  const r2 = run(['--test-cmd'], { env: { ...process.env, CHECK_LOOP_ROOT: root } }); // 缺命令值
+  check('场景 17：--test-cmd 缺命令值 → usage 错 exit 2（修复前落门执行 exit 1）',
+    r2.status === 2, `exit=${r2.status}\n${r.stdout}\n${r2.stderr}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 18：门命令超时上界（2026-11-05 Minor：无 timeout 的门挂死整场 verify）----
+// 慢门 stub（睡 30s）+ 项目侧 gate-budgets.json 覆写 gateTimeoutMs=1.2s（与 fullMs/scopeMs 同源预算体系）。
+// 看门狗：外层 spawnSync timeout 20s 强杀——修复前 verify 挂死被看门狗击杀（RED，防套件挂死）；
+// 修复后门超时 = 门红 fail-closed（不放行、不静默、失败行留痕）。
+{
+  const root = mkfix();
+  fs.writeFileSync(path.join(root, '.agents', 'config', 'gate-budgets.json'), JSON.stringify({ gateTimeoutMs: 1200 }), 'utf8');
+  const slowDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-slow-'));
+  const slowCmd = path.join(slowDir, 'sleep30.mjs');
+  fs.writeFileSync(slowCmd, 'setTimeout(() => {}, 30000);\n', 'utf8');
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, [VERIFY, '--stub-gate', `node "${slowCmd}"`], {
+    encoding: 'utf8',
+    timeout: 20000, // 看门狗（修复前此处强杀挂死的 verify → RED）
+    env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' },
+  });
+  const ms = Date.now() - t0;
+  check('场景 18：慢门被超时中止、verify 自行返回（修复前挂死 → 看门狗击杀）',
+    r.status !== null, `wd-kill exit=${r.status} err=${r.error && r.error.code}`);
+  check('场景 18：门超时 = 门红 fail-closed（exit 1，不放行不静默）',
+    r.status === 1, `exit=${r.status}\n${r.stdout}\n${r.stderr}`);
+  check('场景 18：超时响亮出账（stderr 含「超时/不放行」）且用时 ≪ 慢门时长',
+    /超时|不放行/.test(String(r.stderr)) && ms < 25000, `ms=${ms}\n${r.stderr}`);
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  check('场景 18：失败行留痕（suite=stub、note=gate-timeout）',
+    lines.length === 1 && lines[0].suite === 'stub' && lines[0].note === 'gate-timeout', JSON.stringify(lines));
+  try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 }); } catch { /* RED 路径看门狗击杀后孤儿 stub 可能暂占目录——尽力清理 */ }
+  try { fs.rmSync(slowDir, { recursive: true, force: true }); } catch { /* 同上 */ }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

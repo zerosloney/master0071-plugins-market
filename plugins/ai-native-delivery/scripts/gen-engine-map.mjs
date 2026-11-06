@@ -3,7 +3,7 @@
 // 用途：一页冷启动地图——引擎怎么执行、几个卡口、几道门、台账在哪、机制状态如何，
 //       全部从单源**现场取数**渲染到 .agents/notes/engine-map.md。禁手写（手写地图自己会漂，
 //       同 narrative-claims 哲学）；--check 防漂移：改引擎后须重生成随同提交。
-// 单源：.githooks/ 文件清单｜verify.mjs GATES（spawn --list，即时不执行门）｜
+// 单源：git 钩子目录清单（gitHooksDir 实化取数，2026-11 修复）｜verify.mjs GATES（spawn --list，即时不执行门）｜
 //       check-loop.mjs SECTIONS（lane 计数）｜mechanism-registry.md（parseRegistry 复用）｜
 //       commands/skills/roles 目录清单。静态文字仅「执行模型/卡口职责/台账用途」三段说明性内容。
 // 用法：node <插件根>/scripts/gen-engine-map.mjs [--check] [--root <仓库根>]
@@ -16,7 +16,7 @@ import { parseRegistry, STATUSES } from './mechanism-retire-watch.mjs';
 // 路径收口（2026-10-27 插件化迁移改道 paths.mjs）：脚本本体落插件 scripts/；check-loop 段表走
 // scriptPath、机制台账走 configDir（项目侧优先回退插件内种子）；命令/技能/角色载体项目侧优先、
 // 回退插件内（模型侧载体随插件分发）。
-import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir } from './paths.mjs';
+import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir, gitHooksDir } from './paths.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 const argv = process.argv.slice(2);
@@ -37,10 +37,20 @@ function readText(rel) {
   const p = path.join(ROOT, rel);
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
 }
-const listDir = (rel) => {
-  const p = path.join(ROOT, rel);
-  return fs.existsSync(p) ? fs.readdirSync(p).sort() : [];
-};
+// 钩子清单取数（2026-11 修复）：git **实际会执行钩子的目录**（paths.mjs gitHooksDir——core.hooksPath
+// 已设置取其路径，否则 `git rev-parse --git-path hooks`，与 init-engine 的钩子安装位同源）。
+// 此前锚 <root>/.githooks 是源仓形态的布局：插件形态（init-engine 把钩子装进 git 钩子目录、
+// 项目侧无 .githooks/）恒取到空集 →「git 钩子 0 个」，且 --check 与生成物自洽 → 漂移门恒绿，
+// 对真漂移（增删钩子）完全无感。*.sample（git init 自带样例，git 不执行）与目录不入计；
+// 解析不出钩子目录（非 git 仓 / git 不可用）按 0 个计（生成器不因锚点缺失崩）。
+function hookFiles() {
+  const dir = gitHooksDir(ROOT);
+  if (!dir || !fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isFile() && !d.name.endsWith('.sample'))
+    .map((d) => d.name)
+    .sort();
+}
 // 只列目录（2026-10-24 复核 P1）：技能面此前直接列全部条目，未跟踪的 tfs-pr.zip 被当成第 23 个技能
 // 写进地图，干净检出上 --check 必红（生成物依赖工作区脏文件，不可复现）。只用于目录型载体。
 const listSubdirs = (rel) => {
@@ -134,13 +144,13 @@ const HOOK_DESC = {
 };
 
 function buildMap() {
-  const hooks = listDir(path.join('.githooks'));
+  const hooks = hookFiles();
   const gates = verifyGateIds();
   const secs = loopSections();
   const reg = registrySummary();
   const ci = ciSummary();
   // 模型侧载体目录定位（2026-10-27 插件化迁移改道）：命令/技能/角色随插件分发——项目侧 .agents/<x>
-  // 存在则优先（项目自有扩展面），否则列插件内本体；.githooks / azure-pipelines.yml 仍为项目侧单源。
+  // 存在则优先（项目自有扩展面），否则列插件内本体；钩子经 gitHooksDir 实化取数、azure-pipelines.yml 仍为项目侧单源。
   const carrierDir = (projectRel, pluginRel) => {
     const p = path.join(ROOT, projectRel);
     return fs.existsSync(p) ? p : path.join(PLUGIN_ROOT, pluginRel);

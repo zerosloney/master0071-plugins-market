@@ -8,8 +8,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeJsonlLines } from './git-merge-jsonl.mjs';
-import { projectRoot } from './paths.mjs';
+import { projectRoot, resolveProjectRoot, ledgerRefusal, testAnyRootAllowed } from './paths.mjs';
 import { withLedgerLock } from './ledger-shards.mjs';
+
+// 写侧 fail-closed（2026-11-05）：打包归并会整写主台账并删片，必须解析到 git 仓库根才可执行
+//（对齐 MCP requireRoot 口径）。旧口径 projectRoot() 回退 cwd——非 git 目录（含 bare 仓）跑
+// compact 会把主台账「就地」写进调用目录，违反「台账只落使用项目仓库根」不变量。
+{
+  const pr = resolveProjectRoot();
+  if (!pr.root && !testAnyRootAllowed()) {
+    console.error(`[compact-ledgers] ❌ ${ledgerRefusal(pr.status, pr.detail)}`);
+    console.error('hint: 在使用项目的 git 仓库内运行（或先 git init）。');
+    process.exit(1);
+  }
+}
 
 // 根锚定 git root（paths.mjs 单源）：在子目录调用时台账仍归仓库根，不落进子目录。
 const root = projectRoot();

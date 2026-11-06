@@ -583,6 +583,32 @@ SCEN(async () => {
   rmfix(T);
 });
 
+// ---- 场景 17b:检查 8 豁免标记须独占一行（2026-11 市场审查 Minor）——行中出现不算豁免 ----
+// 旧行为：全文任意行出现「存量对账豁免（」→ ex=true → evidenceItems 不收集 → 锚后新档把该串
+// 嵌进任务描述行即整档跳过证据核验（伪造证据漏检）。新行为：标记须行首（允空白/引用块/加粗装饰）。
+SCEN(async () => {
+  const T = mkfix();
+  gitInit(T);
+  // 豁免串嵌在 [x] 任务描述行中（非独占一行）→ 不得触发豁免：伪造 SHA 仍须报「证据伪造」
+  w(T, 'workflow/plans/2026-11-05-xm1.md', PLAN('xm1', '状态: done\n级别: L1'));
+  w(T, 'workflow/intents/2026-11-05-xm1.md', INTENT('xm1', '状态: done\n级别: L1\n日期: 2026-11-05',
+    '\n## 验收标准（可测试）\n- [x] 用例通过（本项沿用存量对账豁免（历史口径）声明的形式补记）（证据:commit deadbeef1）\n'));
+  gitCommitAll(T, 'docs: xm1 intent');
+  const r = run(T);
+  check('豁免串嵌任务描述行 → 不触发豁免，伪造证据仍报「证据伪造」',
+    outOf(r).includes('证据伪造'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // 独占一行（允行首尾空白）→ 豁免保持：存量件不计「验收对账存量」（场景 17 引用块形态的裸行变体）
+  const T2 = mkfix();
+  w(T2, 'workflow/intents/2026-09-01-xm2.md', INTENT('xm2', '状态: done\n级别: L1\n日期: 2026-09-01',
+    '\n## 验收标准（可测试）\n  存量对账豁免（2026-09-12，用户拍板不追溯）  \n- [ ] 用例通过\n'));
+  w(T2, 'workflow/plans/2026-09-01-xm2.md', PLAN('xm2', '状态: done\n级别: L1'));
+  const r2 = run(T2);
+  check('豁免标记独占一行（允首尾空白）→ 豁免保持，无验收对账存量',
+    r2.status === 0 && !outOf(r2).includes('验收对账存量'), `exit=${r2.status}\n${outOf(r2)}`);
+  rmfix(T2);
+});
+
 // ---- 场景 18:新建 done intent 缺「## 验收标准」节 → hard（2026-09-16 补口回归）----
 SCEN(async () => {
   const T = mkfix();
@@ -3500,6 +3526,45 @@ SCEN(async () => {
   r = run(T, { git: true });
   check('检查23 convergenceCommands 无全绿行 → 仍 HARD（绿凭证不放水）',
     r.status !== 0 && outOf(r).includes('[收敛未覆盖]'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑲ 证据路径收紧（2026-11 市场审查 Minor）：.. 段 / 绝对形态不认——存在性 oracle 不越出仓库根，出账点名
+  // 旧行为：PATH_RE 字符类含 . 与斜杠 → ../../x.cs 原样进 existsSync（../.. 落到仓库外照样「认」）；
+  // /abs/x.md 在 join 语义下落回仓库内亦可「认」。修复前两形态都「认」→ 本两断言 RED。
+  T = mkSpec(TABLE([
+    '| 越界证据 | ../../outside.cs | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  const outside = path.resolve(T, '../../outside.cs');
+  fs.writeFileSync(outside, '// 仓库外文件\n');
+  r = run(T, { git: true });
+  check('检查23 ../ 段证据路径 → 不认（收敛未覆盖，不越界 existsSync）',
+    outOf(r).includes('收敛未覆盖'), `exit=${r.status}\n${outOf(r)}`);
+  fs.rmSync(outside, { force: true });
+  rmfix(T);
+  T = mkSpec(TABLE([
+    '| 绝对证据 | /etc/passwd.md | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  fs.mkdirSync(path.join(T, 'etc'), { recursive: true });
+  w(T, 'etc/passwd.md', '# fixture\n');
+  r = run(T, { git: true });
+  check('检查23 绝对形态证据路径（/…）→ 不认（收敛未覆盖）',
+    outOf(r).includes('收敛未覆盖'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // 盘符绝对形态：旧 PATH_RE 本就不匹配（冒号断类）→ 一直不认；修复后相对性守卫显式拒绝同一形态
+  T = mkSpec(TABLE([
+    '| 盘符证据 | C:\\temp\\x.cs | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  r = run(T, { git: true });
+  check('检查23 盘符绝对形态证据路径（C:\\…）→ 不认（收敛未覆盖）',
+    outOf(r).includes('收敛未覆盖'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑳ 出账定界（2026-11 市场审查 Minor）：判据文本拼进出账行前 JSON.stringify 定界——引号/换行不可伪装
+  // 输出形态。换行形态端到端不可达（表格按行解析、win32 文件名禁换行），定界转义同源，引号形态钉住该路径。
+  T = mkSpec(TABLE([
+    '| 判据"x" | backend/tests/Nope.Tests.cs | 覆盖 |',
+  ]), '2026-10-12', 'L2', 11);
+  r = run(T, { git: true });
+  check('检查23 判据含引号 → 出账行定界形态（原始引号不直拼）',
+    outOf(r).includes('"判据\\"x\\""→') && !outOf(r).includes('判据"x"→'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
 });
 

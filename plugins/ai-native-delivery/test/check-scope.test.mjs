@@ -98,5 +98,37 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// S7 quotepath=off（2026-11-05 对齐 verify-scope.mjs:122-129 同款参数；M2 事故同款）：
+// 默认 core.quotepath=true 的机器上非 ASCII 路径被引号+八进制转义（"workflow/incidents/\344\270\255..."）——
+// --base/--staged 分支本就不剥引号 → 白名单前缀失配 → 中文闭环随行件假越界；报告路径不可读。
+// 夹具显式 git config core.quotepath true——判据不赌机器全局配置。
+{
+  const { root } = mkRepo();
+  const g = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+  g('config', 'core.quotepath', 'true');
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'workflow', 'incidents'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'zh.md'), '## 改动面\n- docs/notes.md：改\n');
+  const incRel = 'workflow/incidents/2026-11-05-事故复盘.md'; // 白名单豁免的中文随行件（未声明——闭环随行件不算越界）
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'notes.md'), '# N\n');
+  fs.writeFileSync(path.join(root, incRel), '# 事故\n');
+  g('add', 'docs/notes.md', incRel);
+  const st = g('status', '--porcelain');
+  check('S7 夹具自检：暂存面在且中文路径被 git 转义（quotepath=true 前提成立）',
+    st.status === 0 && /\\3[0-9]{2}/.test(st.stdout), JSON.stringify({ out: st.stdout, err: st.stderr }));
+  const r = run(root, ['workflow/plans/zh.md', '--staged', '--strict']);
+  check('S7 --staged --strict：中文白名单随行件不假越界（修复前引号+转义击穿白名单 → exit 1）',
+    r.status === 0, `exit=${r.status}\n${r.stdout}\n${r.stderr}`);
+  check('S7 报告无八进制转义且白名单随行件被正确豁免（对齐 → 不出越界清单）',
+    !/\\3[0-9]{2}/.test(r.stdout) && r.stdout.includes('双向对齐'), r.stdout);
+  // 工作区分支（status --porcelain 本就剥引号）：未声明的中文新文件仍须真越界被拦，且原样可读
+  fs.writeFileSync(path.join(root, 'docs', '中文说明.md'), '# 中\n');
+  const r2 = run(root, ['workflow/plans/zh.md', '--strict']);
+  check('S7 工作区未声明中文新文件 → 真越界仍被拦（quotepath=off 不放水）且路径原样可读',
+    r2.status === 1 && r2.stdout.includes('docs/中文说明.md'), `exit=${r2.status}\n${r2.stdout}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

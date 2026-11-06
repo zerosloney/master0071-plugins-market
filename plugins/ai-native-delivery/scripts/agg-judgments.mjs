@@ -6,15 +6,21 @@
 // 源：.agents/judgments.jsonl（check-loop.mjs 每次真实运行追加一行，本地 gitignore；
 //     缺文件 = 尚无运行记录，提示后 exit 0——与 delegations 台账「必在」不同，这是渐积数据）。
 // 仓库级数据面（gate-metrics-shard 2026-10-22）：--emit-month 把某月聚合落成
-//     workflow/gate-metrics.d/<YYYY-MM>.jsonl（每月一行，随提交入库；多机并集）。
+//     workflow/gate-metrics.d/<YYYY-MM>.jsonl（每月一行，随提交入库；多机并集——并集语义由
+//     .gitattributes 的 merge=jsonl-union 保证，契约须同时覆盖 .agents/*.jsonl 与
+//     workflow/gate-metrics.d/*.jsonl 两面，对质门 = check-local-gates ③ / check-local-gate-config）。
 //     --retire-candidates 读「本地台账 ∪ 分片」——换机/换树不再归零，退役判据才有燃料。
 // 消费：mechanism-registry 月度对账（「触发统计口径」列的 WARN/BLOCK 计数）与 advisory→hard
 //     升格 / 退役判定的直接查账面——替代原「人工 grep check-loop 输出」。
-// --retire-candidates（2026-10-15 减重手段①，规则的死亡机制）：列出「连续 N 个有数据月零命中
+// --retire-candidates（2026-10-15 减重手段①，规则的死亡机制）：列出「连续 N 个日历月零命中
 //     （WARN+BLOCK 全为 0）」的规则作为退役候选——月度对账时按 mechanism-registry「退役判据」列
 //     逐条裁决（安全主干/级别闭环主干等「不退役」行除外；「且 X 停滞」类附加条件由人判）。
-//     台账不足 N 个数据月 → 数据不充分，不产候选（年轻遥测不得制造假候选）。判定口径 = 尾部
-//     N 个「有运行的月」（非日历月——遥测断档的月不算零命中，防漏跑误判退役）。
+//     判定口径（2026-11 统一，与 mechanism-retire-watch.evaluate 同款、注释互指）：以「最近一个
+//     有数据的月」为锚取 N 个**日历月**窗口（含无数据月，按零命中计）+ 双守卫——新鲜度守卫
+//     （锚月距今超过 RETIRE_STALE_MONTHS 月 = 遥测停摆，不产候选，出「遥测陈旧」告警）与
+//     观测史守卫（首数据月晚于窗口起点 = 年轻遥测不满窗，数据不充分不产候选）。
+//     此前本侧取「末 N 个有数据的月」、retire-watch 取「日历窗+缺月拒判」，同一句「连续 N 月 = 0」
+//     同数据两种结论（双口径漂移），本次统一为日历窗口语义。
 // 测试：node <插件根>/test/agg-judgments.test.mjs（纯函数 aggFromRows / retireCandidates 进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';
@@ -75,7 +81,9 @@ function readRows() {
 // ---- 月度分片（gate-metrics-shard 2026-10-22）----
 // judgments.jsonl 是 per-worktree / gitignore 的本地台账——换机、换 worktree 即归零，退役判据
 // （连续 N 月 = 0）永远缺燃料。分片 = 仓库级事实：workflow/gate-metrics.d/<YYYY-MM>.jsonl，
-// 每月一行（与台账同构：ts + rules），多机并集（.gitattributes merge=jsonl-union）。
+// 每月一行（与台账同构：ts + rules），多机并集（.gitattributes 的 merge=jsonl-union 契约须同时
+// 覆盖 workflow/gate-metrics.d/*.jsonl——月分片跨机合并走默认策略会静默丢别机快照；对质门见
+// check-local-gates ③ / check-local-gate-config，2026-11 契约扩展）。
 // 读侧 mergeJudgmentRows 按月×规则取 max（分片是月末快照，本地可能更新；max 幂等、不重复计）。
 export const SHARD_DIR_REL = path.join('workflow', 'gate-metrics.d');
 
@@ -191,17 +199,64 @@ export function prevMonthKey(now = new Date()) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-// retireCandidates(rows, windowMonths)：退役候选 = 「尾部 windowMonths 个有数据月零命中」的规则。
-// 口径：数据月 = 该月至少一次运行（断档月不参与，不按零命中计）；候选须在全历史出现过（含只剩
-//   零命中的月）且尾部窗口内 WARN+BLOCK 全 0。输出按全历史命中数升序（最冷门在前）。
-//   rows 不足 windowMonths 个数据月 → { sufficient:false }——年轻遥测不产候选。
-export function retireCandidates(rows, windowMonths = 6) {
+// calendarWindow(endYm, n)：以 endYm 为终点向前取 n 个日历月（含终点）。
+// （2026-11 退役口径统一时自 mechanism-retire-watch.mjs 迁入：retireCandidates 与 evaluate 共用
+// 同一窗口构造，单源在本文件；mechanism-retire-watch 转出该名，导出面不变。）
+export function calendarWindow(endYm, n) {
+  const [y, m] = String(endYm).split('-').map(Number);
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+// monthDistance(fromYm, toYm)：两个 YYYY-MM 之间的日历月数（to − from，跨年安全）。
+export function monthDistance(fromYm, toYm) {
+  const [y1, m1] = String(fromYm).split('-').map(Number);
+  const [y2, m2] = String(toYm).split('-').map(Number);
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+// nowYmOf(d)：本地日历月 YYYY-MM。退役新鲜度用本地月——与 mechanism-retire-watch.localDay 的
+// 本地日口径一致（用户感知的「这个月」是本地月），不用 UTC 月。
+export function nowYmOf(d = new Date()) {
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// RETIRE_STALE_MONTHS：退役判定的新鲜度半径（日历月）。锚月（最近一个有数据的月）距今超过该
+// 月数 = 遥测停摆，停摆期的零命中不可作退役证据。取 2 留余量：月度分片在次月初归档，当月或
+// 上月有运行即算新鲜。两侧共用（mechanism-retire-watch.evaluate 同一守卫，注释互指）。
+export const RETIRE_STALE_MONTHS = 2;
+
+// retireCandidates(rows, windowMonths, { now, staleMonths })：退役候选 = 「以末个有数据月为锚的
+// windowMonths 个日历月（含无数据月）零命中」的规则。
+// 口径（2026-11 统一，与 mechanism-retire-watch.evaluate 同款、注释互指）：
+//   - 锚 = 最近一个有数据的月；窗口 = calendarWindow(锚, N) 的 N 个**日历月**——窗口内无数据的
+//     月按零命中计（不再「只数有数据的月」：旧口径同一句「连续 N 月 = 0」与 retire-watch 的
+//     日历窗两解，同数据可出相反结论）。
+//   - 新鲜度守卫：锚月距今（nowYmOf(now)）超过 staleMonths（默认 RETIRE_STALE_MONTHS）→ 遥测
+//     停摆，不产候选（stale=true，sufficient=false，调用方出「遥测陈旧」告警）。
+//   - 观测史守卫：首数据月晚于窗口起点 → 观测史不满窗（年轻遥测），数据不充分不产候选。
+// 候选须在全历史出现过（judgments 只记命中行，全账零命中的规则不入账）且窗口内 WARN+BLOCK 全 0。
+// 输出按全历史命中数升序（最冷门在前）。sufficient=false（含 stale）→ candidates 恒 []。
+export function retireCandidates(rows, windowMonths = 6, { now = new Date(), staleMonths = RETIRE_STALE_MONTHS } = {}) {
   const { byMonth } = aggFromRows(rows);
   const months = Object.keys(byMonth).sort();
-  if (months.length < windowMonths) {
-    return { sufficient: false, dataMonths: months.length, windowMonths, candidates: [], recentHits: [] };
+  const base = { stale: false, anchor: null, dataMonths: months.length, windowMonths, windowFrom: null, windowTo: null, candidates: [], recentHits: [] };
+  if (!months.length) return { sufficient: false, ...base };
+  const anchor = months[months.length - 1];
+  const window = calendarWindow(anchor, windowMonths);
+  const common = { ...base, anchor, windowFrom: window[0], windowTo: anchor };
+  if (monthDistance(anchor, nowYmOf(now)) > staleMonths) {
+    return { sufficient: false, ...common, stale: true }; // 遥测停摆——零命中窗口不可作退役证据
   }
-  const trailing = new Set(months.slice(-windowMonths));
+  if (months[0] > window[0]) {
+    return { sufficient: false, ...common }; // 年轻遥测不满窗
+  }
+  const trailing = new Set(window);
   const allRules = new Set();
   for (const ym of months) for (const r of Object.keys(byMonth[ym].rules)) allRules.add(r);
   const candidates = [];
@@ -225,15 +280,7 @@ export function retireCandidates(rows, windowMonths = 6) {
   }
   candidates.sort((a, b) => a.total - b.total || a.rule.localeCompare(b.rule));
   recentHits.sort((a, b) => b.total - a.total || a.rule.localeCompare(b.rule));
-  return {
-    sufficient: true,
-    dataMonths: months.length,
-    windowMonths,
-    windowFrom: months.slice(-windowMonths)[0],
-    windowTo: months[months.length - 1],
-    candidates,
-    recentHits,
-  };
+  return { sufficient: true, ...common, candidates, recentHits };
 }
 
 function printRetireCandidates(read) {
@@ -241,10 +288,16 @@ function printRetireCandidates(read) {
   const windowMonths = Number.isFinite(wArg) && wArg >= 1 ? Math.floor(wArg) : 6;
   const r = retireCandidates(read.rows, windowMonths);
   if (!r.sufficient) {
-    console.log(`agg-judgments: 退役候选窗口 ${windowMonths} 个月——数据月仅 ${r.dataMonths} 个（台账 ${read.rows.length} 行），数据不充分不产候选。继续积累运行记录。`);
+    if (r.stale) {
+      // 新鲜度守卫（2026-11 统一口径）：锚月（末个有数据月）距今超半径 = 遥测停摆，不产候选。
+      console.log(`agg-judgments: 遥测陈旧——末个有数据月 ${r.anchor} 距今超过 ${RETIRE_STALE_MONTHS} 个日历月（停摆期的零命中不可作退役证据），不产候选。先恢复 check-loop 运行 / 分片归档，再判退役。`);
+    } else {
+      console.log(`agg-judgments: 退役候选窗口 ${windowMonths} 个日历月（锚 ${r.anchor || '—'}）——观测史不满窗（数据月 ${r.dataMonths} 个、台账 ${read.rows.length} 行），数据不充分不产候选。继续积累运行记录。`);
+    }
+    if (read.bad) console.error(`agg-judgments: 跳过坏行 ${read.bad}（JSON 解析失败，不中断聚合）`);
     return;
   }
-  console.log(`退役候选（零命中窗口 ${r.windowFrom}..${r.windowTo}，共 ${r.windowMonths} 个数据月）——仅机械筛查，裁决走 mechanism-registry「退役判据」列（「不退役」主干除外）：`);
+  console.log(`退役候选（零命中窗口 ${r.windowFrom}..${r.windowTo}，共 ${r.windowMonths} 个日历月、含无数据月）——仅机械筛查，裁决走 mechanism-registry「退役判据」列（「不退役」主干除外）：`);
   if (!r.candidates.length) {
     // 口径诚实化（2026-10-27）：judgments 台账**只记命中行**——「全账零命中」的规则根本不在账内，
     // 因此「无候选」只说明「账内规则在尾部窗口内都有命中」，不代表「所有规则都有命中」（设计文档 §12.5）。

@@ -89,9 +89,12 @@ if (MODE === 'source-repo') {
     {
       // 判据脱敏泛化（2026-10-27 插件化迁移）：appsettings 具体路径按使用项目替换（源为业务解决方案内
       // 固定路径，出库前清洗）——机制语义不变：连接串所在 appsettings.json 须有 merge=ours 保护行。
+      // 契约覆盖（2026-11 Minor 扩展）：jsonl-union 同时盖住 .agents/*.jsonl 与 workflow/gate-metrics.d/*.jsonl
+      // ——月分片跨机合并走默认策略会静默丢别机快照（退役判据燃料缺损且无报错），与台账同严。
       ok: /appsettings\.json\s+merge=ours$/m.test(gaText)
-        && /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText),
-      name: '.gitattributes 含 merge=ours 与 merge=jsonl-union 两行',
+        && /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText)
+        && /^workflow\/gate-metrics\.d\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText),
+      name: '.gitattributes 含 merge=ours 与 merge=jsonl-union（.agents/*.jsonl + workflow/gate-metrics.d/*.jsonl）',
       fix: null, // 仓库侧文件：git checkout -- .gitattributes 恢复
     },
     {
@@ -121,13 +124,17 @@ if (MODE === 'source-repo') {
   }
   // 台账并发合并：插件随分发 git-merge-jsonl.mjs，但 git config 与 .gitattributes 属项目侧资产，
   // init-engine 不代改（改动合并语义是用户决策）——如实提示接线方式，不计入缺配、不触发 --strict。
+  // 契约覆盖（2026-11 Minor 扩展）：jsonl-union 须同时盖住 .agents/*.jsonl 与 workflow/gate-metrics.d/*.jsonl
+  //（月分片走默认策略会静默丢别机快照）。
   const jsonlDriver = `node "${scriptPath(root, 'git-merge-jsonl.mjs')}" %O %A %B`;
   const gaText = (() => {
     try { return fs.readFileSync(path.join(root, '.gitattributes'), 'utf8').replace(/\r/g, ''); } catch { return ''; }
   })();
-  advisories.push(`台账并发并集合并（可选，插件不代改项目 git 配置）：`
+  const gaJsonlOk = /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
+  const gaGateMetricsOk = /^workflow\/gate-metrics\.d\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
+  advisories.push(`台账与月分片并发并集合并（可选，插件不代改项目 git 配置）：`
     + `driver ${git(['config', 'merge.jsonl-union.driver']) ? '已配' : '未配'}`
-    + `、.gitattributes 行 ${/^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText) ? '已在' : '未在'}`
+    + `、.gitattributes 行 ${gaJsonlOk && gaGateMetricsOk ? '已在' : `未齐（.agents/*.jsonl ${gaJsonlOk ? '已在' : '未在'} / workflow/gate-metrics.d/*.jsonl ${gaGateMetricsOk ? '已在' : '未在'}——分片默认策略可静默丢别机快照）`}`
     + ` —— 期望驱动值 ${jsonlDriver}（含嵌套引号，落地时按你的 shell 调整引号写法）`);
 }
 

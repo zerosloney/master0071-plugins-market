@@ -39,6 +39,11 @@
 //     桩替换在凭证与入库视图里可对质；无脚本门 src=null）。旧「gates: 通过门数」计数由数组长度取代。
 //   --list：按执行序打印门 id 后退出（含 RUN_E2E=1 时的条件门），不执行；不参与默认裁剪（门表恒 20）。
 //   --jobs / --serial：并发档位与串行回退（见上「编排」）。
+//   **退出码三态（2026-11-05 Minor 退出码区分）**：2 = usage/参数错（未跑门）；1 = 门红/fail-fast 与
+//     运行时崩溃（非 0）；门红恒 1 不被参数错误稀释——自动化消费面可区分「参数写错」与「验证没过」。
+//   **门命令超时上界（2026-11-05 Minor）**：单门默认 300s（≥ 最慢门 engine-tests 实测 ~2min 的余量），
+//     可在 .agents/config/gate-budgets.json 以 gateTimeoutMs 按项目覆写（与 fullMs/scopeMs 同源预算体系）；
+//     超时 = 门红 fail-closed（整树杀 + 「门超时不放行」响亮出账 + 失败行留痕），不静默跳过。
 // 沿革：verify-evidence（凭证落账）；2026-10-09 统一质量检查门禁 d009965（九门）；
 //       guardian-selfcheck（修 :31 缺 =、GATES 加 scripts-syntax/engine-tests、
 //       恢复 --test-cmd 夹具缝供 verify.test.mjs 断言）；
@@ -310,6 +315,10 @@ async function run() {
     console.error('[verify] --stub-gate 需要一条命令');
     process.exit(2);
   }
+  if (ti >= 0 && !testCmd) {
+    console.error('[verify] --test-cmd 需要一条命令');
+    process.exit(2);
+  }
   if (stubCmd && testCmd) {
     console.error('[verify] --stub-gate 与 --test-cmd 互斥');
     process.exit(2);
@@ -482,10 +491,13 @@ async function run() {
     }
   }
 
+  // 退出码三态（2026-11-05 Minor：usage/参数错此前与门红混同 exit 1，自动化消费面不可区分）：
+  //   2 = usage/参数错（未跑任何门——「参数写错了」，可纠正后重试；上方互斥/缺值/门表断言各口径同此）
+  //   1 = 门红 / fail-fast（真执法裁决——语义保持不变）＋运行时崩溃（run().catch，非 0）
   if (argv.includes('--list')) {
     if (testCmd) {
       console.error('[verify] --list 与 --test-cmd 互斥');
-      process.exit(1);
+      process.exit(2);
     }
     const verbose = argv.includes('--verbose');
     for (const g of gates) console.log(verbose ? `${g.id}\t${g.cmd}` : g.id);
@@ -505,6 +517,11 @@ async function run() {
     process.exit(2);
   }
   const JOBS = serial ? 1 : Math.min(jobsRaw ?? Math.max(2, Math.min(4, Math.floor(os.cpus().length / 4))), gates.length);
+  // 单门超时上界（2026-11-05 Minor，fail-closed）：挂起的门此前会占死并发位并挂死整场 verify。
+  // 默认 300s；gate-budgets.json 的 gateTimeoutMs 可覆写（与 fullMs/scopeMs 同源预算体系）。
+  const budgetConf = readGateConfig(ROOT);
+  const GATE_TIMEOUT_MS = Number.isFinite(Number(budgetConf.gateTimeoutMs)) && Number(budgetConf.gateTimeoutMs) > 0
+    ? Number(budgetConf.gateTimeoutMs) : 300_000;
   // 单门输出上限（与旧 spawnSync maxBuffer 同口径）：超限即树杀判红，不静默截断
   const MAX_GATE_OUTPUT = 32 * 1024 * 1024;
   // 树杀（fail-fast 中止在跑门）：Windows 下 shell:true 起的是 cmd.exe，kill 只杀壳不杀孙进程
@@ -567,6 +584,9 @@ async function run() {
     const t0 = performance.now();
     const child = spawn(gate.cmd, { shell: true, cwd: path.join(ROOT, gate.folder) });
     running.set(i, child);
+    // 门超时看门狗（2026-11-05，fail-closed）：到点整树杀；裁决按门红出账（finishGate 的 timedOut 分支）
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; killTree(child); }, GATE_TIMEOUT_MS);
     const buf = { stdout: '', stderr: '', overflow: false };
     const pump = (src, key) => {
       src.setEncoding('utf8');
@@ -584,8 +604,9 @@ async function run() {
       const settle = (status, error) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         running.delete(i);
-        resolve({ status, error, ...buf, durMs: Math.round(performance.now() - t0) });
+        resolve({ status, error, timedOut, ...buf, durMs: Math.round(performance.now() - t0) });
       };
       child.on('error', (e) => settle(null, e));
       child.on('close', (status) => settle(status, null));
@@ -627,6 +648,13 @@ async function run() {
       recordFailure(gate.id, -1, 'output-overflow');
       return true;
     }
+    // 门超时（2026-11-05 Minor）：fail-closed——挂起的门不许静默放行，判红并留痕，与门红同一消费面（exit 1）
+    if (r.timedOut) {
+      console.error(`[verify] ❌ ${i + 1}/${gates.length} ${gate.name} 未通过（门超时 >${Math.round(GATE_TIMEOUT_MS / 1000)}s 已中止——门超时不放行）`);
+      persistGateLog(gate, r);
+      recordFailure(gate.id, -1, 'gate-timeout');
+      return true;
+    }
     if (r.status !== 0) {
       const logPath = persistGateLog(gate, r);
       // LEDGER 不可写时 logPath 为 null（persistGateLog 拒绝落插件目录）——note 只报 exit code，
@@ -662,7 +690,8 @@ async function run() {
   const runGate = async (i) => {
     const gate = gates[i];
     const first = await startGate(i);
-    if (!flakyRetryEnabled || first.status === 0 || !retryGates.has(gate.id)) return first;
+    // 门超时不进 flaky 重跑（2026-11-05）：挂死不是争用偶发——重跑只是再挂一个上界时长
+    if (!flakyRetryEnabled || first.status === 0 || first.timedOut || !retryGates.has(gate.id)) return first;
     const attribution = classifyFailure(`${first.stdout || ''}\n${first.stderr || ''}`);
     if (attribution !== 'flaky') return first;
     console.log(`[verify] 🔁 ${gate.name} 首跑红且命中 flaky 签名——隔离重跑一次（两跑结果都报告）...`);

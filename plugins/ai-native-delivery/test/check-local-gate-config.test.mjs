@@ -27,7 +27,7 @@ const mkfix = (full, form = 'source-repo') => {
   git(root, ['config', 'user.email', 't@t']);
   git(root, ['config', 'user.name', 't']);
   fs.writeFileSync(path.join(root, '.gitattributes'),
-    'backend/shared/App.Api/appsettings.json merge=ours\n.agents/*.jsonl merge=jsonl-union\n'); // 脱敏泛化（2026-10-27）：appsettings 路径按使用项目替换
+    'backend/shared/App.Api/appsettings.json merge=ours\n.agents/*.jsonl merge=jsonl-union\nworkflow/gate-metrics.d/*.jsonl merge=jsonl-union\n'); // 脱敏泛化（2026-10-27）：appsettings 路径按使用项目替换；2026-11 契约扩展覆盖 gate-metrics 月分片
   if (form === 'source-repo') {
     fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
     for (const h of ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit']) {
@@ -127,6 +127,22 @@ const run = (root, args = [], env = {}) => spawnSync(process.execPath, [SCRIPT, 
   check('S6 非 git 仓：exit 0 + 跳过说明（fixture 合法形态）',
     r.status === 0 && /非 git 仓库/.test(r.stdout || ''),
     `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S7 契约覆盖守卫（2026-11 Minor）：.gitattributes 缺 workflow/gate-metrics.d/*.jsonl 行 → 判缺 ----
+// gate-metrics 月分片跨机合并若走默认合并策略会静默丢别机快照（退役判据燃料缺损）——契约检查
+// 必须与 .agents/*.jsonl 同严。修复前该形态判绿（RED）。
+{
+  const root = mkfix(true, 'source-repo');
+  fs.writeFileSync(path.join(root, '.gitattributes'),
+    'backend/shared/App.Api/appsettings.json merge=ours\n.agents/*.jsonl merge=jsonl-union\n'); // 缺 gate-metrics 行
+  const warn = run(root);
+  check('S7 缺 gate-metrics 契约行：默认 WARN 点名 gate-metrics + exit 0（WARN 档）',
+    warn.status === 0 && /gate-metrics\.d/.test(warn.stdout || ''), `exit=${warn.status}\n${warn.stdout}${warn.stderr}`);
+  const strict = run(root, ['--strict']);
+  check('S7 --strict：缺 gate-metrics 契约行 → exit 1',
+    strict.status === 1 && /gate-metrics\.d/.test(strict.stdout || ''), `exit=${strict.status}\n${strict.stdout}${strict.stderr}`);
   fs.rmSync(root, { recursive: true, force: true });
 }
 

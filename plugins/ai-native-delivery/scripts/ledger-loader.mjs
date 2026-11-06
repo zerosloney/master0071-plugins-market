@@ -9,21 +9,32 @@ import { projectRoot } from './paths.mjs';
 import { withLedgerLock } from './ledger-shards.mjs';
 
 // 默认根锚定 git root（paths.mjs 单源）：调用方不显式传根时，子目录调用不漂移。
-export function loadAllConfirmations(root = projectRoot()) {
-  // 按 doc + stage + fingerprint 去重，**保留末次出现**——append-only 台账末次生效（重确认场景：
-  // 同键多行仅 ts 不同时，取末次行判锚，见 check-loop-sections/s15-fingerprint.mjs 内容绑定）。
-  // 主台账先读、分片按文件名序后读，同键时后读覆盖（分片视为较新）。
+// loadAllConfirmationsDetailed：统一视图 + 坏行大声计数（2026-11-05，对齐 agg-judgments
+// .readShardsDetailed 口径）。此前 parseLines 的 catch 无计数无 stderr——坏行（半行撕裂 /
+// 手改坏行）从所有视图静默消失，台账破损不可见。坏行仍不中断聚合（不因一行坏数据丢整本
+// 视图），但计数必须出声——不可判定 ≠ 已放行。
+export function loadAllConfirmationsDetailed(root = projectRoot()) {
+  // 按 doc + stage + fingerprint 去重，**值与位置都保留末次出现**——append-only 台账末次生效
+  // （重确认场景：同键多行仅 ts 不同时，取末次行判锚，见 check-loop-sections/s15-fingerprint.mjs
+  // 内容绑定）。主台账先读、分片按文件名序后读，同键时后读覆盖（分片视为较新）。
+  // 2026-11-05 顺序修复：此前 Map 去重「值保留末次、位置保持首次」——跨源（主台账+分片）时
+  // 数组序 ≠ 追加时序，消费方取「末行」会取错行。现按最后一次出现的位置排序（值与位置同取
+  // 末次），「视图末行 = 真末次」语义成立，取末行的消费方无感。
   const byKey = new Map();
+  const lastPos = new Map(); // key → 最后一次读到的行序（全源统一计）
+  let seq = 0;
+  let badLines = 0;
 
   const parseLines = (text) => {
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of String(text).split(/\r?\n/)) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
         const key = `${obj.doc || ''}|${obj.stage || ''}|${obj.fingerprint || ''}`;
-        byKey.set(key, obj); // 覆盖 = 保留末次
+        byKey.set(key, obj); // 覆盖 = 保留末次（值）
+        lastPos.set(key, seq++); // 位置也取末次
       } catch {
-        // 坏行容忍跳过（与既有门禁一致）
+        badLines++;
       }
     }
   };
@@ -56,7 +67,21 @@ export function loadAllConfirmations(root = projectRoot()) {
     }
   }
 
-  return [...byKey.values()];
+  if (badLines > 0) {
+    console.error(`[ledger-loader] ${badLines} 坏行（JSON 解析失败跳过）——台账破损，这些行不进任何视图，请人工检查台账文件`);
+  }
+
+  return {
+    rows: [...byKey.entries()]
+      .map(([k, obj]) => ({ obj, pos: lastPos.get(k) }))
+      .sort((a, b) => a.pos - b.pos)
+      .map((e) => e.obj),
+    badLines,
+  };
+}
+
+export function loadAllConfirmations(root = projectRoot()) {
+  return loadAllConfirmationsDetailed(root).rows;
 }
 
 export function writeConfirmation(root = projectRoot(), entry, { shard = false } = {}) {

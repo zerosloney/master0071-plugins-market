@@ -46,6 +46,9 @@ const PATH_EXT = 'tsx|mjs|json|html|sql|vue|cs|md|ts|js';
 // 路径体 = 原 ASCII 路径字符 + 字母（中文目录），单字符类，避免 (A|B)+ 在长说明上回溯。
 // 标点（如路径后的「（说明）」）不在类内，仍截断。
 const PATH_RE = new RegExp(`(?:^|[\\s\`'"（(])([\\w.@\\-\\\\/\\p{L}]+\\.(?:${PATH_EXT}))`, 'gu');
+// 证据路径口径（2026-11 市场审查 Minor 2）：只认仓库相对形态——绝对形态（盘符前缀或行首斜杠/反斜杠）
+// 与含 .. 段的路径不认（存在性 oracle 不得越出仓库根），命中即该行证据无效、落 missed 出账点名。
+const REPO_REL_PATH = (p) => !/^(?:[a-zA-Z]:)?[\\/]/.test(p) && p.split('/').every((seg) => seg !== '..');
 const SEC_RE = /^##\s+.*验收判据/;
 // 与 gen-verify-evidence.mjs 数据行同形态：短 SHA | ISO 时间 | …。只取日期，不复述门数。
 const EVIDENCE_ROW_RE = /^\|\s*`[0-9a-f]{7,40}`\s*\|\s*([^|]+?)\s*\|/;
@@ -108,7 +111,9 @@ export function run() {
  .filter((cells) => !isPlaceholder(cells[0])); // 模板占位行
  const base = path.basename(spec);
  if (!rows.length) {
- warnings.push(`- [WARN 收敛无判据] ${base} 无「验收判据」表或表为空——L2/L3 done spec 须逐条登记可验判据（检查 23，模板 workflow/specs/_TEMPLATE.md）`);
+ // 出账定界（2026-11 市场审查 Minor 3）：外部值（档名/判据/证据文本）拼进出账行前一律 JSON.stringify——
+ // 引号/换行不再可伪装输出形态（对齐 agent-pipelines state.mjs 定界先例）。本段各出账行同此。
+ warnings.push(`- [WARN 收敛无判据] ${JSON.stringify(base)} 无「验收判据」表或表为空——L2/L3 done spec 须逐条登记可验判据（检查 23，模板 workflow/specs/_TEMPLATE.md）`);
  continue;
  }
  const missed = [];
@@ -121,13 +126,13 @@ export function run() {
  else {
  const cands = [];
  for (const m of ev.matchAll(PATH_RE)) cands.push(m[1].replace(/\\/g, '/'));
- ok = cands.some((p) => fs.existsSync(path.join(ROOT, p)));
+ ok = cands.some((p) => REPO_REL_PATH(p) && fs.existsSync(path.join(ROOT, p)));
  }
  }
- if (!ok) missed.push(`${crit}→${ev || '（空）'}`);
+ if (!ok) missed.push(`${JSON.stringify(crit)}→${ev ? JSON.stringify(ev) : '（空）'}`);
  }
  if (missed.length) {
- const detail = `${base} ${rows.length} 条判据中 ${missed.length} 条证据无效（${missed.join('; ')}）`;
+ const detail = `${JSON.stringify(base)} ${rows.length} 条判据中 ${missed.length} 条证据无效（${missed.join('; ')}）`;
  if (hard) blockers.push(`- [收敛未覆盖] ${detail}——状态列自报不作数；命令须是全量门（npm test / dotnet test / dotnet build / npm run build / verify.mjs）且 workflow/verify-evidence.md 有不早于本 spec 日期的全绿行；本项目的全量门命令可在 .agents/config/engine.json 的 convergenceCommands 数组里声明扩展；路径只认存在（检查 23，含 .vue 与中文目录）。若本 spec 已标 done：先标后补会与本门互为前提（verify 门序含 check-loop）——解锁序：改正文 → 状态改回 approved（勿改 draft，L3 必须 approved/done）→ confirm-doc 重录指纹 → 再标 done。中间态不要提交`);
  else warnings.push(`- [WARN 收敛未覆盖] ${detail}——状态列自报不作数，证据须存在或为验证命令（检查 23）`);
  }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { loadAllConfirmations, writeConfirmation } from '../scripts/ledger-loader.mjs';
+import { loadAllConfirmations, loadAllConfirmationsDetailed, writeConfirmation } from '../scripts/ledger-loader.mjs';
 
 let pass = 0, fail = 0;
 const check = (name, cond, detail = '') => {
@@ -194,6 +194,72 @@ try {
       check('S9f 联合读取含新确认行', loadAllConfirmations(tmp6).some((r) => r.fingerprint === 'fp9'));
     } finally {
       fs.rmSync(tmp6, { recursive: true, force: true });
+    }
+  }
+
+  // 10. 坏行大声计数（2026-11-05 台账族 Minor#3，对齐 agg-judgments.readShardsDetailed 口径）
+  // 旧实现 parseLines catch 无计数无 stderr——坏行从所有视图静默消失（RED：无计数无出账）。
+  {
+    const tmp7 = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-loader-test-'));
+    try {
+      fs.mkdirSync(path.join(tmp7, '.agents'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp7, '.agents', 'confirmations.jsonl'),
+        [
+          JSON.stringify({ doc: 'workflow/intents/2026-11-05-task-h.md', stage: 'approved', fingerprint: 'fp10a' }),
+          '{broken json',
+          JSON.stringify({ doc: 'workflow/intents/2026-11-05-task-i.md', stage: 'approved', fingerprint: 'fp10b' }),
+        ].join('\n') + '\n',
+        'utf8',
+      );
+      const errs = [];
+      const origError = console.error;
+      console.error = (...args) => errs.push(args.join(' '));
+      let detailed;
+      try {
+        detailed = loadAllConfirmationsDetailed(tmp7);
+      } finally {
+        console.error = origError;
+      }
+      check('S10a 坏行计数入返回结构（badLines=1）且合法行照常入视图',
+        detailed.badLines === 1 && detailed.rows.length === 2, JSON.stringify({ bad: detailed.badLines, n: detailed.rows.length }));
+      check('S10b 坏行 stderr 大声计数（一行 N 坏行口径）',
+        errs.join('\n').includes('1 坏行'), JSON.stringify(errs));
+      check('S10c loadAllConfirmations 消费方零改动（仍返回纯数组）',
+        Array.isArray(loadAllConfirmations(tmp7)) && loadAllConfirmations(tmp7).length === 2);
+    } finally {
+      fs.rmSync(tmp7, { recursive: true, force: true });
+    }
+  }
+
+  // 11. 跨源同键去重：值与位置同取末次（2026-11-05 台账族 Minor#8）
+  // 旧实现「值保留末次、位置保持首次」——跨源时数组序 ≠ 追加时序，取「末行」的消费方（s15）
+  // 会取错行。主台账 [K(v1), X]，分片 [K(v2)] → 真实追加序 K,X,K → 视图应为 [X, K(v2)]。
+  {
+    const tmp8 = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-loader-test-'));
+    try {
+      fs.mkdirSync(path.join(tmp8, '.agents', 'confirmations.d'), { recursive: true });
+      const K = { doc: 'workflow/intents/2026-11-05-order.md', stage: 'approved', fingerprint: 'fp11' };
+      fs.writeFileSync(
+        path.join(tmp8, '.agents', 'confirmations.jsonl'),
+        [
+          JSON.stringify({ ...K, ts: 'T1', src: 'main-first' }),
+          JSON.stringify({ doc: 'workflow/plans/2026-11-05-order.md', stage: 'approved', fingerprint: 'fp-other', ts: 'T2' }),
+        ].join('\n') + '\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(tmp8, '.agents', 'confirmations.d', '2026-11-05-order.jsonl'),
+        JSON.stringify({ ...K, ts: 'T3', src: 'shard-last' }) + '\n',
+        'utf8',
+      );
+      const rows = loadAllConfirmations(tmp8);
+      const kRow = rows.find((r) => r.fingerprint === 'fp11');
+      check('S11a 同键值取末次（分片行胜出）', kRow && kRow.src === 'shard-last', JSON.stringify(rows));
+      check('S11b 位置也取末次（视图末行 = 真末次；旧实现 K 排首位）',
+        rows.length === 2 && rows[0].fingerprint === 'fp-other' && rows[1].fingerprint === 'fp11', JSON.stringify(rows));
+    } finally {
+      fs.rmSync(tmp8, { recursive: true, force: true });
     }
   }
 

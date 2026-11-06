@@ -113,9 +113,19 @@ if (typeFilter && typeFilter.some((t) => !DOC_TYPES.includes(t))) {
   console.error(`--type 取值须为 ${DOC_TYPES.join('|')}（现 ${typeFilter.join(',')}）\n\n${USAGE}`);
   process.exit(1);
 }
-const MODULES = fs.readFileSync(MODULES_FILE, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+// 模块词表缺失（2026-11 Minor 修复）：项目侧 .agents/config/ 目录在场但缺词表文件时 configDir
+// 不回退插件种子 → 此前 readFileSync ENOENT 裸堆栈崩出。词表是 --module 校验的单源，缺失属配置
+// 断裂——fail-loud 且带可执行指引（指向 config 文件路径，口径对齐 workflow-enums.loadEnums）。
+let MODULES = [];
+try {
+  MODULES = fs.readFileSync(MODULES_FILE, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+} catch (err) {
+  console.error(`模块词表不可读：${MODULES_FILE} — ${err.message}\n` +
+    `修：node <插件根>/scripts/init-engine.mjs 重新初始化，或按插件 config-templates/workflow-modules.txt 补该文件（--module 校验需要词表单源）。\n\n${USAGE}`);
+  process.exit(1);
+}
 if (moduleFilter && !MODULES.includes(moduleFilter)) {
-  console.error(`--module 未知模块：${moduleFilter}（词表见 .agents/config/workflow-modules.txt：${MODULES.join(' / ')}）\n\n${USAGE}`);
+  console.error(`--module 未知模块：${moduleFilter}（词表见 ${MODULES_FILE}：${MODULES.join(' / ')}）\n\n${USAGE}`);
   process.exit(1);
 }
 
@@ -223,18 +233,21 @@ if (cacheUsable) {
 }
 marks.cache = performance.now() - tCache0;
 
-// 取一个源文件的缓存条目；miss 时 build()（读全文提取可检索子集）并登记回写。返回 {st, meta?, title?, lines}
+// 取一个源文件的缓存条目；miss 时 build()（读全文提取可检索子集）并登记回写。返回 {st, meta?, title?, lines}；
+// 源文件 statSync 失败（TOCTOU：列目录后被删 / 悬空链接）→ 返回 null，调用方按不可检索跳过。
 function cachedEntry(relPath, kind, build) {
   const abs = path.resolve(relPath);
+  // statSync 竞态补 try（2026-11 Minor 修复）：readdir 给出的清单到 stat 之间文件可能已消失——
+  // 读缓存回退重建与冷扫两条路径都在此 stat，此前直接抛 ENOENT 崩出。
+  let st;
+  try { st = fs.statSync(abs); } catch { counts.miss += 1; return null; }
  if (!cache) {
  const e = build();
- const st = fs.statSync(abs);
  e.st = [st.mtimeMs, st.size];
  counts.miss += 1;
  return e;
  }
  const key = ROOT_NS + relPath.split(path.sep).join('/');
- const st = fs.statSync(abs);
  const sig = [st.mtimeMs, st.size];
  const e = cache[key];
  if (e && e.kind === kind && Array.isArray(e.st) && e.st[0] === sig[0] && e.st[1] === sig[1] && linesShapeOk(e.lines)) {
@@ -301,6 +314,7 @@ function searchWorkflow(words) {
         const { meta, title } = parseDoc(text);
         return { meta, title, lines: workflowLines(text) };
       });
+      if (!e) continue; // TOCTOU：列出后被删——按不可检索跳过
       const meta = e.meta || {};
       const status = meta['状态'] || '';
       const module = meta['模块'] || '—';
@@ -323,11 +337,20 @@ function searchWorkflow(words) {
 }
 
 // ---- wiki 检索（口径同 2026-09-21 降噪版 wiki-search）----
-const walkWiki = (dir, rel) => {
+// walkWiki(dir, rel, visited)：visited = 已递归目录的 realpath 集（2026-11 Minor 修复）——符号链接
+// 成环（目录自环 / 互指）此前无限递归爆栈；junction/符号链接 realpath 解析回真身，环即断、重复
+// 到达同一真身也不二次展开。statSync 失败（悬空链接 / 竞态删除）按不可遍历跳过，不崩。
+const walkWiki = (dir, rel, visited) => {
   const out = [];
+  let real = null;
+  try { real = fs.realpathSync(dir); } catch { return out; }
+  if (visited.has(real)) return out;
+  visited.add(real);
   for (const e of fs.readdirSync(dir)) {
     const p = path.join(dir, e);
-    if (fs.statSync(p).isDirectory()) { out.push(...walkWiki(p, `${rel}/${e}`)); continue; }
+    let isDir = false;
+    try { isDir = fs.statSync(p).isDirectory(); } catch { continue; }
+    if (isDir) { out.push(...walkWiki(p, `${rel}/${e}`, visited)); continue; }
     if (!WIKI_EXTS.test(e) || WIKI_EXCLUDE.has(e)) continue;
     out.push({ fsPath: p, key: `${rel}/${e}` });
   }
@@ -338,19 +361,23 @@ function searchWiki(words) {
   const results = [];
   let skipped = 0;
   if (!fs.existsSync('wiki')) return { results, skipped };
+  const visited = new Set(); // 跨整棵 wiki 树共享（真身去重 = 环断）
   for (const d of fs.readdirSync('wiki')) {
     const dir = path.join('wiki', d);
     if (!fs.statSync(dir).isDirectory() || d === 'drafts-archive') continue;
     if (topicFilter && d !== topicFilter) continue;
- for (const { fsPath: p, key } of walkWiki(dir, d)) {
+ for (const { fsPath: p, key } of walkWiki(dir, d, visited)) {
  counts.wiki += 1;
- const size = fs.statSync(p).size;
+ // TOCTOU 容错（2026-11 Minor）：列出后文件被删/链接悬空 → 跳过该文件，不崩
+      let size = 0;
+      try { size = fs.statSync(p).size; } catch { continue; }
       if (!includeGenerated && (/\.visual-check\./i.test(path.basename(p)) || size > WIKI_MAX_KB * 1024)) { skipped++; continue; }
       const e = cachedEntry(p, 'wiki', () => {
         let text;
         try { text = fs.readFileSync(p, 'utf8'); } catch { return { lines: [] }; }
         return { lines: text.split('\n').map((line, i) => ({ ln: i + 1, line })) };
       });
+      if (!e) continue;
       if (!e.lines.length) continue;
       const hits = matchWords(e.lines.filter((x) => words.some((w) => x.line.includes(w)) || anyWords.some((w) => x.line.includes(w))), words, anyWords);
       if (!hits) continue;

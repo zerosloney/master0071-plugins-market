@@ -6,7 +6,11 @@
 //   与判定流水（本地 .agents/judgments.jsonl ∪ 入库分片 workflow/gate-metrics.d/*.jsonl，
 //   gate-metrics-shard 2026-10-22——换机/换 worktree 不再归零）。
 // 判定（确定性，无 LLM）：
-//   ① 现役行 + 阈值形态「连续 N 月 = 0」+ 口径列含「规则名」→ 以有数据的末月为终点取 N 个日历月，缺月不算零命中，全 0 即触达 → 动作项。
+//   ① 现役行 + 阈值形态「连续 N 月 = 0」+ 口径列含「规则名」→ 以有数据的末月为**锚**取 N 个日历月
+//     窗口（含无数据月按零命中计——2026-11 与 agg-judgments.retireCandidates 统一口径，注释互指：
+//     旧「缺月拒判」与旧 agg「末 N 个数据月」双口径对同数据可出相反结论）。双守卫：新鲜度守卫
+//     （锚月距今超过 RETIRE_STALE_MONTHS 月 = 遥测停摆 → notAuto「遥测陈旧」不产候选）与观测史
+//     守卫（首数据月晚于窗口起点 = 年轻遥测不满窗 → notAuto 不产候选）。全 0 即触达 → 动作项。
 //   ② 待退役行 + 处置期限为日期且已过 → 动作项（逾期）。
 //   ③ 其余阈值形态（不退役主干 / 使用率型 / 数据源型）→ 非自动可判，仅计数，交人工月判。
 //   ④ 现役行 + 处置期限列含「复评 YYYY-MM-DD」且已过 → 动作项（owner-fiat 复评到期，2026-10-21 W5 惯例：
@@ -17,8 +21,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { aggFromRows, readAllJudgments } from './agg-judgments.mjs';
+import { aggFromRows, readAllJudgments, calendarWindow, monthDistance, nowYmOf, RETIRE_STALE_MONTHS } from './agg-judgments.mjs';
 import { findProjectRoot, projectRoot } from './paths.mjs';
+
+// calendarWindow（2026-11 退役口径统一迁至 agg-judgments.mjs 单源，两侧共用同一窗口构造）；
+// 此处转出维持既有导出面（历史消费者 / 测试可能经本模块引用）。
+export { calendarWindow };
 
 const argv = process.argv.slice(2);
 const argOf = (k) => { const i = argv.indexOf(k); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : ''; };
@@ -114,17 +122,6 @@ export function localDay(d) {
   return `${dt.getFullYear()}-${m}-${day}`;
 }
 
-// calendarWindow(endYm, n)：以有数据的末月为终点，向前取 n 个日历月（含终点）。
-export function calendarWindow(endYm, n) {
-  const [y, m] = String(endYm).split('-').map(Number);
-  const out = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(y, m - 1 - i, 1));
-    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
-  }
-  return out;
-}
-
 // evaluate(registryRows, judgmentRows, now)：纯函数——产动作项。测试进程内断言。
 export function evaluate(registryRows, judgmentRows, now = new Date(), { modelBaseline = '', model = '' } = {}) {
   const { byMonth } = aggFromRows(judgmentRows || [], null);
@@ -169,27 +166,35 @@ export function evaluate(registryRows, judgmentRows, now = new Date(), { modelBa
     const rules = ruleNamesOf(r.criterion);
     if (n === null) { notAuto.push({ name: r.name, reason: '阈值形态非「连续 N 月 = 0」' }); continue; }
     if (!rules.length) { notAuto.push({ name: r.name, reason: '口径列未列规则名（无法映射 judgments）' }); continue; }
-    if (months.length < n) { notAuto.push({ name: r.name, reason: `judgments 仅 ${months.length} 月 < 阈值 ${n} 月（数据不足）` }); continue; }
+    if (!months.length) { notAuto.push({ name: r.name, reason: 'judgments 无数据月（数据不足）' }); continue; }
 
-    // 日历连续：缺月不算零命中（漏跑数月后陈旧月份不得凑成「连续」）。
-    const window = calendarWindow(months[months.length - 1], n);
-    const missing = window.filter((ym) => !byMonth[ym]);
-    if (missing.length) {
-      notAuto.push({ name: r.name, reason: `日历窗口 ${window.join(' / ')} 缺月 ${missing.join(' / ')}（断档不算零命中）` });
+    // 退役窗口统一口径（2026-11，与 agg-judgments.retireCandidates 同款、注释互指）：
+    // 锚 = 末个有数据的月；窗口 = calendarWindow(锚, n) 的 n 个日历月，**含无数据月按零命中计**
+    // （旧「缺月拒判」与旧 agg「末 N 个数据月」双口径对同数据可出相反结论，本次统一）。
+    const anchor = months[months.length - 1];
+    // 新鲜度守卫：锚月距今超过半径 = 遥测停摆——停摆期的零命中不可作退役证据，不产候选。
+    if (monthDistance(anchor, nowYmOf(now)) > RETIRE_STALE_MONTHS) {
+      notAuto.push({ name: r.name, reason: `遥测陈旧：末个有数据月 ${anchor} 距今超过 ${RETIRE_STALE_MONTHS} 个月（停摆期零命中不可作退役证据）——恢复运行/分片归档后再判` });
+      continue;
+    }
+    const window = calendarWindow(anchor, n);
+    // 观测史守卫：首数据月晚于窗口起点 = 年轻遥测不满窗——早于建账的月份是「未观测」不是「零命中」。
+    if (months[0] > window[0]) {
+      notAuto.push({ name: r.name, reason: `观测史不满窗：首数据月 ${months[0]} 晚于窗口起点 ${window[0]}——数据不足（年轻遥测不产候选）` });
       continue;
     }
     const hits = window.map((ym) => {
-      const cell = byMonth[ym].rules;
+      const cell = byMonth[ym] ? byMonth[ym].rules : null; // 无数据月 = 零命中（日历窗口口径）
       let c = 0;
       for (const rule of rules) {
-        const e = cell[rule];
+        const e = cell ? cell[rule] : undefined;
         if (e) c += (e.WARN || 0) + (e.BLOCK || 0);
       }
       return { ym, count: c };
     });
     const total = hits.reduce((s, h) => s + h.count, 0);
     if (total === 0) {
-      actions.push({ kind: 'threshold', name: r.name, detail: `连续 ${n} 月零触发（${window.join(' / ')}；规则 ${rules.join('、')}）——阈值触达，评估退役（改状态「待退役」并填处置期限）` });
+      actions.push({ kind: 'threshold', name: r.name, detail: `连续 ${n} 月零触发（${window.join(' / ')}，日历月含无数据月；规则 ${rules.join('、')}）——阈值触达，评估退役（改状态「待退役」并填处置期限）` });
     }
   }
   return { actions, notAuto, months, monthCount: months.length };

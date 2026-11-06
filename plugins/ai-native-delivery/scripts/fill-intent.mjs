@@ -1,6 +1,6 @@
 // fill-intent：起草 intent 草稿（背景与问题/历史教训防复发/目标/非目标/约束/影响面/触达红线/验收标准 8 节正文 + 确认与复核 共 9 节）
 // 读 workflow/intents/_TEMPLATE.md 的节标题 → 输出符合 frontmatter 受限子集（5 字段）的草稿到指定文件
-// 用法：node <插件根>/scripts/fill-intent.mjs --module pipeline --level L1 --topic "test" --output /tmp/x.md
+// 用法：node <插件根>/scripts/fill-intent.mjs --module pipeline --level L1 --topic "test" --output /tmp/x.md [--force 覆盖已存在输出]
 // 零依赖；CLI 解析用最简字符串匹配；不替代 AI 起草——本工具只输出模板与提示句
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,8 +38,12 @@ const SECTIONS = [
 
 export function renderIntent({ topic, module, level, notes, date = TODAY }) {
   if (!LEVELS.includes(level)) throw new Error('level 不在枚举 ' + LEVELS.join('|') + '：' + level);
-  const fm = '---\n状态: draft\n级别: ' + level + '\n日期: ' + date + '\n模块: ' + module + '\n备注: ' + (notes || '<可选：附注自由文本，check-loop 不解析>') + '\n---\n';
-  let body = '# INTENT — ' + topic + '\n\n<!-- 复制本模板为 YYYY-MM-DD-<主题>.md 后填写；plans/ 下同名文件与本文件配对 -->\n<!-- frontmatter 受限子集（2026-09-13）：每行 键: 值；状态∈draft/approved/done/superseded/cancelled（严格枚举，附注写备注键）；级别∈L1/L2/L3；check-loop 只扫 frontmatter 取机器字段，正文不再写状态/级别行 -->\n\n';
+  // 自由文本剥换行（2026-11-05 frontmatter 注入防护）：--topic/--module/--notes 是 CLI 自由文本，
+  // 直接拼进 frontmatter 时可借换行注入任意键（备注: x\n级别: L3）。入 frontmatter/正文前剥成单行。
+  // 仅处理字符串：undefined 沿透传设计原样（renderIntent 缺 topic → 'INTENT — undefined'，既有测试钉住）。
+  const oneLine = (v) => (typeof v === 'string' ? v.replace(/\r?\n/g, ' ') : v);
+  const fm = '---\n状态: draft\n级别: ' + level + '\n日期: ' + date + '\n模块: ' + oneLine(module) + '\n备注: ' + (oneLine(notes) || '<可选：附注自由文本，check-loop 不解析>') + '\n---\n';
+  let body = '# INTENT — ' + oneLine(topic) + '\n\n<!-- 复制本模板为 YYYY-MM-DD-<主题>.md 后填写；plans/ 下同名文件与本文件配对 -->\n<!-- frontmatter 受限子集（2026-09-13）：每行 键: 值；状态∈draft/approved/done/superseded/cancelled（严格枚举，附注写备注键）；级别∈L1/L2/L3；check-loop 只扫 frontmatter 取机器字段，正文不再写状态/级别行 -->\n\n';
   for (const { title, hint } of SECTIONS) {
     body += '## ' + title + '\n\n' + hint + '\n\n';
   }
@@ -49,9 +53,30 @@ export function renderIntent({ topic, module, level, notes, date = TODAY }) {
 
 const isMain = process.argv[1] && process.argv[1].endsWith('fill-intent.mjs');
 if (isMain) {
-  const a = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const a = parseArgs(argv);
   if (!a.topic || !a.module || !a.output) fail('必填：--topic / --module / --output；选填：--level（默认 L1）/ --notes');
   if (!LEVELS.includes(a.level)) fail('level 必须在 ' + LEVELS.join('|') + '：' + a.level);
+  // 输出守卫（2026-11-05 台账族 Minor#9；与 fill-plan/fill-spec 同口径）：
+  // ① 存在守卫：--output 已存在 → 拒绝，--force 显式才覆盖——静默覆盖会把 approved/done 文档
+  //    打回 draft 模板（不可逆内容损失）。
+  // ② 工作区围栏：output 落在 workflow/ 树内时必须落本工具的协议子目录 intents/（检测判据与
+  //    stage-gates.resolveWorkspace 同；本地最小实现，不为围栏引入 stage-gates 依赖链，零依赖
+  //    头注不变）；仓外草稿（无 workflow 段）不受围栏（既有契约）。
+  const absOut = path.resolve(a.output);
+  if (fs.existsSync(absOut) && !argv.includes('--force')) {
+    fail('输出已存在，拒绝覆盖（防把已确认文档打回 draft 模板）：' + absOut + '——确认后加 --force 显式覆盖');
+  }
+  const parts = absOut.split(path.sep);
+  for (let i = parts.length - 2; i >= 0; i--) {
+    if (parts[i].toLowerCase() !== 'workflow') continue;
+    const want = path.join(parts.slice(0, i).join(path.sep) || path.sep, 'workflow', 'intents');
+    const rel = path.relative(want, path.dirname(absOut));
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      fail('围栏拒绝：output 落在 workflow/ 树内但不在 workflow/intents/ 下——' + absOut + '（intent 草稿只落 workflow/intents/；仓外草稿不受限）');
+    }
+    break;
+  }
   const { body } = renderIntent(a);
   fs.mkdirSync(path.dirname(a.output), { recursive: true });
   fs.writeFileSync(a.output, body);

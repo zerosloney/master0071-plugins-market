@@ -94,6 +94,8 @@ const END = '<!-- GENERATED:END -->';
 const kb = (b) => (b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(2)} MB`);
 
 // ---- 语料统计：按类型聚合文件数/字节 + 活跃终态 + 模块已填 ----
+// 空仓守卫（2026-11 Minor）：workflow/<type> 目录缺失按空集处理（与 gen-workflow-index 同款守卫）——
+// 生成器对空仓/新仓是合法调用，此前 readdirSync ENOENT 直接崩栈；空集 + 说明行，不崩也不静默。
 function scanDocs() {
   const perType = {};
   let files = 0;
@@ -101,10 +103,12 @@ function scanDocs() {
   let active = 0;
   let invalid = 0;
   let withModule = 0;
+  const missingTypes = [];
   for (const type of DOC_TYPES) {
     let n = 0;
     let b = 0;
     const dir = path.join(WORKFLOW, type);
+    if (!fs.existsSync(dir)) { missingTypes.push(type); perType[type] = { n: 0, b: 0 }; continue; }
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.md') || f === '_TEMPLATE.md') continue;
       const p = path.join(dir, f);
@@ -129,6 +133,9 @@ function scanDocs() {
     perType[type] = { n, b };
     files += n;
     bytes += b;
+  }
+  if (missingTypes.length) {
+    console.error(`[gen-workflow-metrics] 说明：workflow/ 缺目录 ${missingTypes.join('、')}——按空集处理（空仓/新仓合法形态，不崩）`);
   }
   return { perType, files, bytes, active, terminal: files - active - invalid, invalid, withModule };
 }
@@ -653,5 +660,6 @@ if (existing.includes(BEGIN) && existing.includes(END)) {
 } else {
   out = (existing ? existing.replace(/\s*$/, '') + '\n\n' : HEADER) + inner + '\n';
 }
+fs.mkdirSync(path.dirname(METRICS_P), { recursive: true }); // 空仓守卫配套：workflow/ 未建时先建（写侧）
 fs.writeFileSync(METRICS_P, out, 'utf8');
 console.log(`✅ 已更新 workflow/metrics.md（${month} 行；共 ${rows.length} 个月）`);

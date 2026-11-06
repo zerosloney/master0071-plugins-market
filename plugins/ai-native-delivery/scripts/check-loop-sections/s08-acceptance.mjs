@@ -61,7 +61,9 @@ export function run() {
       currentEvidence = '';
     };
     for (const line of lines) {
-      if (/存量对账豁免（/.test(line)) ex = true;
+      // 豁免标记须独占一行（行首允空白/引用块「>」/加粗装饰）；行中出现（任务描述正文等）不算——
+      // 防锚后新档在任意行塞入该串即整档跳过证据核验（2026-11 市场审查 Minor 1）
+      if (/^\s*(?:>\s*)*\*{0,2}存量对账豁免（/.test(line)) ex = true;
       if (/^\s*##\s+[^#]*验收标准/.test(line)) { hs = true; insec = true; closeItem(); continue; }
       if (insec && /^\s*##\s/.test(line)) { insec = false; closeItem(); continue; }
       if (!insec) continue;
@@ -95,7 +97,9 @@ export function run() {
       const hasImplEvidence = results.some((r) => r.t.ok && (r.t.type === 'sha' || r.t.type === 'process'));
       for (const r of results) {
         if (r.t.ok && r.t.type === 'verify-missing') {
-          warnings.push(`- [WARN 测试绿缺凭证] ${base} 验收证据声明「测试绿」但 24h 内无 verify 凭证（verifications.jsonl）——跑 node <插件根>/scripts/verify.mjs 后重跑（advisory，灰度第一档）`);
+          // 出账定界（2026-11 市场审查 Minor 3）：外部名（档名）拼进出账行前一律 JSON.stringify——
+          // 引号/换行不再可伪装输出形态（对齐 agent-pipelines state.mjs 定界先例）。本段各出账行同此。
+          warnings.push(`- [WARN 测试绿缺凭证] ${JSON.stringify(base)} 验收证据声明「测试绿」但 24h 内无 verify 凭证（verifications.jsonl）——跑 node <插件根>/scripts/verify.mjs 后重跑（advisory，灰度第一档）`);
           continue;
         }
         if (r.t.ok) continue;
@@ -103,7 +107,7 @@ export function run() {
           warnEvidenceExempt('record', planBase);
           continue;
         }
-        blockers.push(`- [证据${r.t.type === 'forged' ? '伪造' : '无关'}] ${base} 验收证据校验失败: ${r.t.msg}`);
+        blockers.push(`- [证据${r.t.type === 'forged' ? '伪造' : '无关'}] ${JSON.stringify(base)} 验收证据校验失败: ${r.t.msg}`);
       }
     }
     // 生效日锚 = git 首次加入日期（2026-09-28 改；此前取文件名前 10 字符）。**准确收益**：关掉
@@ -114,14 +118,14 @@ export function run() {
     const isNew = adddate !== '' && adddate >= accCutoff;
     const docWord = path.basename(path.dirname(intent)) === 'plans' ? 'plan' : 'intent';
     if (!hs) {
-      if (isNew) blockers.push(`- [验收未对账] done ${docWord} 缺「## 验收标准」节(勾验无从核对):${base}`);
+      if (isNew) blockers.push(`- [验收未对账] done ${docWord} 缺「## 验收标准」节(勾验无从核对):${JSON.stringify(base)}`);
       else if (!ex) legacyUnaccounted++;
       continue;
     }
     if (!uc && !ne) continue;
       if (isNew) {
-        if (uc) blockers.push(`- [验收未对账] done ${docWord} 验收标准有未勾验项:${base}（逐条勾验并补证据：commit/用例/冒烟输出）`);
-        if (ne) blockers.push(`- [验收缺证据] ${base} 验收标准勾选项缺「证据：」标注——证据是闭环准确性的唯一机器事实`);
+        if (uc) blockers.push(`- [验收未对账] done ${docWord} 验收标准有未勾验项:${JSON.stringify(base)}（逐条勾验并补证据：commit/用例/冒烟输出）`);
+        if (ne) blockers.push(`- [验收缺证据] ${JSON.stringify(base)} 验收标准勾选项缺「证据：」标注——证据是闭环准确性的唯一机器事实`);
       } else if (!ex) {
         legacyUnaccounted++;
       }

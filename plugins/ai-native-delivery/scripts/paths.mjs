@@ -40,11 +40,24 @@ export function resolveProjectRoot(startDir = process.cwd()) {
     return { root: null, status: 'not-a-repo', detail: 'git rev-parse --show-toplevel 无输出' };
   }
   const msg = String(r.stderr || '').trim();
-  if (/not a git repository/i.test(msg)) {
+  // bare 仓归入 not-a-repo（2026-11-05 误诊修复）：bare 仓 `rev-parse --show-toplevel` 以
+  // exit 128 + "this operation must be run in a work tree" 拒绝——旧判据只认 "not a git
+  // repository"，把 bare 误诊成 git-unavailable（基础设施故障），CLI 写侧据此走了错误的降级路。
+  // bare 与「不在 git 仓库内」同属「这里没有可挂台账的工作树」，不是 git 故障。
+  if (/not a git repository/i.test(msg) || /must be run in a work tree/i.test(msg)) {
     return { root: null, status: 'not-a-repo', detail: msg || '不在 git 仓库内' };
   }
   return { root: null, status: 'git-unavailable', detail: msg || `git rev-parse exit ${r.status}` };
 }
+
+// testAnyRootAllowed()：CLI 写侧 fail-closed 的**仅测试**逃生门（2026-11-05）。
+// 背景：ledger-shards --append/--split、confirm-doc、compact-ledgers 的写侧统一改为
+// fail-closed（非 git 仓库拒绝操作，对齐 MCP requireRoot 口径）；而测试夹具大量使用
+// 非 git 临时目录（历史契约「就地操作」）。双条件（沿 CONFIRM_DOC_TEST_TTY 的信任边界声明）：
+// 单看「TEST」字样的变量名不构成机器约束，须同时 NODE_ENV === 'test' 才放行——生产路径
+// 不设这两个变量，本地刻意伪造双变量组合属事后对质（git 历史）兜底范畴。
+export const testAnyRootAllowed = () =>
+  process.env.LEDGER_CLI_TEST_ANYROOT === '1' && process.env.NODE_ENV === 'test';
 
 // findProjectRoot(startDir)：git 仓库根锚定（rev-parse --show-toplevel），不锚 cwd——
 // 嵌套目录调用不漂移。非 git 仓库返回 null，调用方按各自语义降级（kit：跳过扫描）。

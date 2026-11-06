@@ -102,6 +102,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { GIT } from './git-core.mjs'; // git 调用单源（2026-11-05）：此前 ROOT 解析裸 'git'，绕开 CHECK_LOOP_GIT 注入钩子
 
 const argv = process.argv.slice(2);
 const argOf = (k) => {
@@ -109,7 +110,22 @@ const argOf = (k) => {
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : '';
 };
 const staged = argv.includes('--staged');
-const ROOT = argOf('--root') || (staged ? process.cwd() : execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
+// ROOT 解析 fail-closed（2026-11-05）：此前裸 execFileSync('git') 无 try/catch——非 git 目录 /
+// bare 仓（rev-parse exit 128）直接抛未捕获异常（git fatal + 调用栈刷屏），而非可读拒绝。
+// 走 git-core 的 GIT 常量后，解析失败转 fail-closed 报错、非零退出。
+let ROOT;
+if (argOf('--root')) ROOT = argOf('--root');
+else if (staged) ROOT = process.cwd();
+else {
+  try {
+    ROOT = execFileSync(GIT, ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+    if (!ROOT) throw new Error('rev-parse --show-toplevel 无输出');
+  } catch (err) {
+    console.error(`台账不变量：无法定位 git 仓库根（${(err && err.message) || err || 'git 不可用'}）。`
+      + '台账不变量校验只在 git 仓库内运行——用 --root <仓库根> 显式指定后重试。');
+    process.exit(1);
+  }
+}
 const REL = '.agents/confirmations.jsonl';
 const SHARD_DIR = '.agents/confirmations.d';
 const MANIFEST_REL = '.agents/config/ledger-prune-manifest.json';

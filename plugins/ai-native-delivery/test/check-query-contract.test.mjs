@@ -124,5 +124,42 @@ try {
   }
 }
 
+// ---- S14 契约面守卫（2026-11 Minor）：前后端目录缺失 →「无契约可查」advisory exit 0，不崩 ----
+// 本门是 advisory 对账（脚本头定位）：消费项目可以没有 frontend/backend 布局——此前 readdirSync
+// ENOENT 直接崩栈。黑盒 spawn 断言退出契约。
+{
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'check-query-contract.mjs');
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'qc-bare-'));
+  try {
+    const r = spawnSync(process.execPath, [script], { cwd: bare, encoding: 'utf8' });
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    check('S14 前后端目录缺失 → exit 0 + 无契约可查 advisory（不崩栈）',
+      r.status === 0 && /无契约可查/.test(out) && !/ENOENT.*at\s/.test(out), `exit=${r.status}\n${out.slice(0, 400)}`);
+  } finally {
+    fs.rmSync(bare, { recursive: true, force: true });
+  }
+}
+
+// ---- S15 契约文件读失败（目录位被同名文件占用 → readdirSync ENOTDIR）→ advisory 放行 exit 0 ----
+{
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'check-query-contract.mjs');
+  const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'qc-broken-'));
+  try {
+    fs.mkdirSync(path.join(broken, 'backend'), { recursive: true });
+    fs.mkdirSync(path.join(broken, 'frontend', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(broken, 'frontend', 'src', 'api'), 'not a dir', 'utf8'); // api 是文件 → ENOTDIR
+    const r = spawnSync(process.execPath, [script], { cwd: broken, encoding: 'utf8' });
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    check('S15 契约面不可读 → exit 0 + advisory 点名原因（不崩栈）',
+      r.status === 0 && /契约面不可读/.test(out) && !/ENOTDIR.*at\s/.test(out), `exit=${r.status}\n${out.slice(0, 400)}`);
+  } finally {
+    fs.rmSync(broken, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

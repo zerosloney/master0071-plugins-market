@@ -1,5 +1,5 @@
 // fill-plan：起草 plan 草稿（L1 五节且 plan 即入口 / L2-L3 完整 4 节）
-// 用法：node <插件根>/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--root <仓库根>]
+// 用法：node <插件根>/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--root <仓库根>] [--force 覆盖已存在输出]
 // L1：入口 + 改动方案 + 约束与风险 + 验证计划 + 验收标准（不另立 intent）
 // L2/L3：改动方案 + 任务拆解 + 执行顺序 + 验证计划
 // 起草门（stage-gate-machine）：output 落于工作区（路径含 workflow 段）时，须同主题入口已确认，
@@ -54,6 +54,9 @@ const FULL_SECTIONS = [
 export function renderPlan({ topic, level = 'L1', date = TODAY }) {
   if (!LEVELS.includes(level)) throw new Error('level 不在枚举 ' + LEVELS.join('|') + '：' + level);
   const sections = level === 'L1' ? L1_SECTIONS : FULL_SECTIONS;
+  // 自由文本剥换行（2026-11-05 注入防护，同 fill-intent）：--topic 是 CLI 自由文本，换行可
+  // 向正文/标题结构注入任意内容。入正文前剥成单行。
+  const oneLine = (v) => (typeof v === 'string' ? v.replace(/\r?\n/g, ' ') : v);
   // 日期写进 frontmatter（2026-10-27）：此前 renderPlan 收了 date 参数却从不落 frontmatter，
   // 致 plan 无「日期」字段——委派台账在场门（confirm-doc）与检查 18 均以日期为适用前提，
   // 缺日期即整段跳过 = 本门对绝大多数 L2/L3 plan 静默失效。文件名兜底为第二道保险。
@@ -61,7 +64,7 @@ export function renderPlan({ topic, level = 'L1', date = TODAY }) {
   const entryLine = level === 'L1'
     ? '对应入口：本 plan（L1 不再另立 intent）。修复类另保留 ../incidents/YYYY-MM-DD-<主题>.md\n对应 spec：省略\n\n'
     : '对应入口：../intents/YYYY-MM-DD-<主题>.md 或 ../incidents/YYYY-MM-DD-<主题>.md（保留实际一项）\n对应 spec：../specs/YYYY-MM-DD-<主题>.md\n\n';
-  let body = '# PLAN — ' + topic + '\n\n<!-- L2/L3 与 intents/ 或 incidents/ 下同名入口配对，且须先有 ../specs/ 同名 spec；L1 本文件即入口 -->\n<!-- frontmatter 受限子集：状态∈draft/approved/done/superseded/cancelled；级别∈L1/L2/L3；正文不再写状态/级别行 -->\n<!-- L1：一份 plan 收口来源/目标/红线/改动/验证/验收。L2/L3 仍走 intent + spec + 下面 4 节 -->\n\n' + entryLine;
+  let body = '# PLAN — ' + oneLine(topic) + '\n\n<!-- L2/L3 与 intents/ 或 incidents/ 下同名入口配对，且须先有 ../specs/ 同名 spec；L1 本文件即入口 -->\n<!-- frontmatter 受限子集：状态∈draft/approved/done/superseded/cancelled；级别∈L1/L2/L3；正文不再写状态/级别行 -->\n<!-- L1：一份 plan 收口来源/目标/红线/改动/验证/验收。L2/L3 仍走 intent + spec + 下面 4 节 -->\n\n' + entryLine;
   for (const { title, hint } of sections) {
     body += '## ' + title + '\n\n' + hint + '\n\n';
   }
@@ -71,11 +74,25 @@ export function renderPlan({ topic, level = 'L1', date = TODAY }) {
 
 const isMain = process.argv[1] && process.argv[1].endsWith('fill-plan.mjs');
 if (isMain) {
-  const a = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const a = parseArgs(argv);
   if (!a.topic || !a.output) fail('必填：--topic / --output；选填：--level（默认 L1）/ --root');
   if (!LEVELS.includes(a.level)) fail('level 必须在 ' + LEVELS.join('|') + '：' + a.level);
-  const ws = resolveWorkspace(a.output, a.root);
+  // 输出守卫（2026-11-05 台账族 Minor#9；与 fill-intent/fill-spec 同口径）：
+  // ① 存在守卫：--output 已存在 → 拒绝，--force 显式才覆盖（防把 approved/done 文档打回 draft 模板）；
+  // ② 工作区围栏：output 落在 workflow/ 树内时必须落本工具的协议子目录 plans/；仓外草稿
+  //    （无 workflow 段）不受围栏（既有契约）。
+  const absOut = path.resolve(a.output);
+  if (fs.existsSync(absOut) && !argv.includes('--force')) {
+    fail('输出已存在，拒绝覆盖（防把已确认文档打回 draft 模板）：' + absOut + '——确认后加 --force 显式覆盖');
+  }
+  const ws = resolveWorkspace(absOut, a.root);
   if (ws) {
+    const want = path.join(path.resolve(ws.root), 'workflow', 'plans');
+    const rel = path.relative(want, path.dirname(absOut));
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      fail('围栏拒绝：output 落在 workflow/ 树内但不在 workflow/plans/ 下——' + absOut + '（plan 草稿只落 workflow/plans/；仓外草稿不受限）');
+    }
     const gate = draftGateFor('plan', ws.root, ws.base, { level: a.level });
     if (!gate.ok) {
       console.error('❌ 起草门未过（stage-gates）：' + gate.reason);

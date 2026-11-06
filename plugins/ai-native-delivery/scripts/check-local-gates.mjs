@@ -79,15 +79,21 @@ if (MODE === 'source-repo') {
 // ③ .gitattributes 的 merge=ours 与 merge=jsonl-union 行（仓库侧声明，与 ②/②b 配对生效）
 // 判据脱敏泛化（2026-10-27 插件化迁移）：appsettings 具体路径按使用项目替换（源为业务解决方案内
 // 固定路径，出库前清洗）——机制语义不变：连接串所在 appsettings.json 须有 merge=ours 保护行。
+// 契约覆盖（2026-11 Minor 扩展）：jsonl-union 须同时盖住 .agents/*.jsonl 与 workflow/gate-metrics.d/*.jsonl
+// ——gate-metrics 月分片跨机合并若走默认策略，同月分片按文本冲突/取我方，会**静默丢掉别机的月快照**
+// （退役判据燃料缺损，且无任何报错）。
 const gaText = fs.existsSync('.gitattributes') ? fs.readFileSync('.gitattributes', 'utf8').replace(/\r/g, '') : '';
 const gaOursOk = /appsettings\.json\s+merge=ours$/m.test(gaText);
 const gaJsonlOk = /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
+const gaGateMetricsOk = /^workflow\/gate-metrics\.d\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
 if (MODE === 'source-repo') {
-  check(gaOursOk && gaJsonlOk, '.gitattributes 含 appsettings merge=ours 与 jsonl merge=jsonl-union 行',
-    (!gaOursOk ? 'appsettings 行缺失; ' : '') + (!gaJsonlOk ? '.agents/*.jsonl 行缺失' : ''), null);
+  check(gaOursOk && gaJsonlOk && gaGateMetricsOk,
+    '.gitattributes 含 appsettings merge=ours 与 jsonl merge=jsonl-union 行（.agents/*.jsonl + workflow/gate-metrics.d/*.jsonl）',
+    (!gaOursOk ? 'appsettings 行缺失; ' : '') + (!gaJsonlOk ? '.agents/*.jsonl 行缺失; ' : '')
+      + (!gaGateMetricsOk ? 'workflow/gate-metrics.d/*.jsonl 行缺失（月分片跨机合并须同受并集驱动，否则静默丢别机快照）' : ''), null);
 } else {
-  console.log(`  [提示] .gitattributes 含 .agents/*.jsonl merge=jsonl-union 行（台账并发合并声明）：`
-    + `${gaJsonlOk ? '已在' : '未在 —— 台账并发合并按普通文本冲突处理（不丢行但会冲突）'}`);
+  console.log(`  [提示] .gitattributes 含 .agents/*.jsonl 与 workflow/gate-metrics.d/*.jsonl 的 merge=jsonl-union 行（台账与月分片并发合并声明）：`
+    + `${gaJsonlOk && gaGateMetricsOk ? '已在' : `未齐（.agents/*.jsonl ${gaJsonlOk ? '已在' : '未在'} / gate-metrics.d ${gaGateMetricsOk ? '已在' : '未在'}）—— jsonl 并发合并按普通文本冲突处理（不丢行但会冲突）；gate-metrics 分片走默认策略可静默丢别机月快照`}`);
 }
 
 // ④ 钩子文件在位（防「配了但文件缺」的假上岗）——源仓形态判 .githooks/ 五钩子；插件形态已在 ① 判过

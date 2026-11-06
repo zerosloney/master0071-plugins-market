@@ -416,6 +416,146 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   check('stderr 无 EPIPE 崩栈痕迹', !/EPIPE/.test(out.stderrTxt), out.stderrTxt.slice(0, 200));
 }
 
+// ---- 单行上限：>1MiB 的行拒收回 -32700（2026-11-05 收尾批 ①）----
+// 移植姊妹实现 plugins/systemone-decision/mcp/server.mjs 的 LINE_MAX_BYTES 先例：旧实现用
+// readline，一行迟迟不出现换行时（宿主异常灌数据/管道错位）行缓冲无限累积直到吃光内存。
+// 修复后超限行（含未完结尾的半行）直接拒收并回 JSON-RPC 约定的 Parse error（id=null：行级
+// 超限无法可靠解析出 id），拒收后清缓冲，服务对后续行照常应答。
+{
+  const { spawn } = await import('node:child_process');
+  const out = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [SERVER], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdoutTxt = '';
+    let stderrTxt = '';
+    child.stdout.on('data', (c) => { stdoutTxt += c; });
+    child.stderr.on('data', (c) => { stderrTxt += c; });
+    const big = 'a'.repeat(1024 * 1024 + 100);
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 'big', method: 'ping', pad: big }) + '\n');
+    child.stdin.write(big); // 无换行的超限尾巴：旧 readline 在此无限缓冲
+    child.stdin.write('\n' + JSON.stringify({ jsonrpc: '2.0', id: 'after', method: 'ping' }) + '\n');
+    child.stdin.end();
+    const guard = setTimeout(() => child.kill(), 10000);
+    child.on('exit', () => { clearTimeout(guard); resolve({ stdoutTxt, stderrTxt }); });
+    child.on('error', () => { clearTimeout(guard); resolve({ stdoutTxt, stderrTxt }); });
+  });
+  const frames = [];
+  for (const line of out.stdoutTxt.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const m = JSON.parse(line);
+      if (m && (m.id !== undefined || m.error)) frames.push(m);
+    } catch { /* 非回执行忽略 */ }
+  }
+  const parseErrs = frames.filter((m) => m.error && m.error.code === -32700 && m.id === null);
+  check('超限行 → -32700 Parse error（id=null）恰好 2 帧（完整行 + 无换行尾巴），不再按正常请求应答',
+    parseErrs.length === 2 && !frames.some((m) => m.id === 'big' && m.result),
+    JSON.stringify(frames.map((m) => ({ id: m.id, code: m.error && m.error.code, hasResult: !!m.result }))));
+  check('超限拒收后服务照常应答后续行（id=after 正常回包）', frames.some((m) => m.id === 'after' && m.result), out.stdoutTxt.slice(0, 200));
+  check('超限拒收不产生崩栈 stderr', !/uncaught|EPIPE/i.test(out.stderrTxt), out.stderrTxt.slice(0, 200));
+}
+
+// ---- 协议版本协商 + 裸 initialized 带 id 回包（2026-11-05 收尾批 ②）----
+// initialize 只认单一版本时，客户端报**受支持的旧版本**（2025-03-26）也被回落声明——等于对
+// 受支持版本谎报不兼容；照姊妹实现收成版本列表（支持则原样回显，未知才回落）。裸 initialized
+// 以请求形态（带 id）到达时旧实现不回包，客户端挂到自己的超时；修复后回空 result。标准通知
+// 形态（notifications/initialized，无 id）仍不回包（id 闸拦截，进不了分派）。
+{
+  const { replies: nego, proc: negoProc } = call(root, [
+    { jsonrpc: '2.0', id: 'v1', method: 'initialize', params: { protocolVersion: '2025-03-26' } },
+    { jsonrpc: '2.0', id: 'v2', method: 'initialize', params: { protocolVersion: '1999-01-01' } },
+    { jsonrpc: '2.0', id: 'initdone', method: 'initialized' },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 'nego-alive', method: 'ping' },
+  ]);
+  check('受支持的旧版本 2025-03-26 → 原样回显（不回落）',
+    nego.get('v1')?.result?.protocolVersion === '2025-03-26', JSON.stringify(nego.get('v1')));
+  check('未知版本 1999-01-01 → 回落声明 2025-06-18',
+    nego.get('v2')?.result?.protocolVersion === '2025-06-18', JSON.stringify(nego.get('v2')));
+  check('裸 initialized 带 id → 回空 result（客户端不再挂到超时）',
+    nego.get('initdone') && nego.get('initdone').result !== undefined && !nego.get('initdone').error,
+    JSON.stringify(nego.get('initdone')));
+  const negoLines = (negoProc.stdout || '').split('\n').filter((l) => l.trim());
+  check('通知形态（无 id）仍不回包：恰好 4 条回包（v1/v2/initdone/nego-alive）',
+    negoLines.length === 4 && Boolean(nego.get('nego-alive')), negoProc.stdout);
+}
+
+// ---- append 前置探测与回执统计的失败面（2026-11-05 收尾批 ④⑤）----
+// 进程内直驱 core.toolUpdateLedger，以 fs.statSync 桩注入读失败（EACCES 在常规夹具里造不出来；
+// ESM 侧 node:fs 的默认导出与 core.mjs 共享同一对象，桩只在断言窗口挂上、用完即还原）。
+{
+  const core = await import('../mcp/core.mjs');
+  const realStat = fs.statSync.bind(fs);
+
+  // ④ 末字节探测读失败（非 ENOENT）→ 响亮抛错：旧实现把 EACCES 一并 catch 成「无前导换行」，
+  // 文件尾半行会被新内容直接粘连（坏行进台账）。修复后只把 ENOENT 当「文件不存在」。
+  fs.statSync = (p, ...rest) => {
+    if (String(p).endsWith('probe-deny.md')) { const e = new Error('EACCES: permission denied (test stub)'); e.code = 'EACCES'; throw e; }
+    return realStat(p, ...rest);
+  };
+  let probeErr = null;
+  try { core.toolUpdateLedger({ root, file: 'workflow/probe-deny.md', content: '- x', mode: 'append' }); } catch (e) { probeErr = e; }
+  fs.statSync = realStat;
+  check('append 末字节探测读失败 → 响亮抛错（ToolError 点名探测）',
+    probeErr instanceof core.ToolError && /末字节探测/.test(probeErr.message),
+    probeErr ? `${probeErr.name}: ${probeErr.message.slice(0, 120)}` : '(未抛错——静默按无换行追加)');
+  check('append 探测失败 → 数据未落盘（不粘半行）',
+    !fs.existsSync(path.join(root, 'workflow', 'probe-deny.md')),
+    fs.existsSync(path.join(root, 'workflow', 'probe-deny.md')) ? '文件被创建（探测失败被吞后照写）' : '');
+
+  // 反向锚：ENOENT（目标不存在）仍按「文件不存在：直接追加」——首次建文件不被误伤
+  const payloadOf = (r) => { try { return JSON.parse(r.content[0].text); } catch { return null; } };
+  const enoentR = payloadOf(core.toolUpdateLedger({ root, file: 'workflow/probe-new.md', content: '- first', mode: 'append' }));
+  check('append 目标不存在（ENOENT）→ 正常建文件追加',
+    enoentR && enoentR.written === true && fs.readFileSync(path.join(root, 'workflow', 'probe-new.md'), 'utf8').includes('- first'),
+    JSON.stringify(enoentR));
+
+  // ⑤ 追加**成功后**的回执 stat 失败 → 回执降级「已追加（大小未知）」而非 isError：数据已落盘，
+  // 报错等于回执与磁盘状态相反。桩按调用计数：第 1 次（探测步）放行、第 2 次（回执步）抛 EACCES。
+  const target5 = path.join(root, 'workflow', 'receipt-stat.md');
+  fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节，stat 恰好只在回执处二次触桩
+  let statCalls = 0;
+  fs.statSync = (p, ...rest) => {
+    if (String(p) === target5 && ++statCalls >= 2) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
+    return realStat(p, ...rest);
+  };
+  let r5 = null;
+  let receiptErr = null;
+  try { r5 = payloadOf(core.toolUpdateLedger({ root, file: 'workflow/receipt-stat.md', content: '- line', mode: 'append' })); } catch (e) { receiptErr = e; }
+  fs.statSync = realStat;
+  check('append 成功后回执 stat 失败 → 仍 written:true（bytesUnknown，大小未知），不报错',
+    receiptErr === null && r5 && r5.written === true && r5.bytesUnknown === true,
+    JSON.stringify({ r5, err: receiptErr && receiptErr.message.slice(0, 120) }));
+  check('append 成功后回执 stat 失败 → 数据确实落盘', fs.readFileSync(target5, 'utf8').includes('- line'), fs.readFileSync(target5, 'utf8'));
+}
+
+// ---- gate-budgets.json fullMs 封顶（2026-11-05 收尾批 ⑥）----
+// fullMs 只验 >0 时项目可写 1e12——verify_gate 的 spawnSync 是**串行**的，单线程服务会被一次
+// 自定预算拖住数小时，其余请求全部饿死。修复后按同文件预算常量量级封顶（600_000），越界按
+// 封顶执行并 stderr 告警，让「成本异动」可见而不是默默变慢/变死。
+{
+  const capRoot = mkRepo();
+  initEngine(capRoot);
+  fs.mkdirSync(path.join(capRoot, '.agents', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(capRoot, '.agents', 'config', 'gate-budgets.json'), JSON.stringify({ fullMs: 1e12 }), 'utf8');
+  const t0 = Date.now();
+  const { replies: cap, proc: capProc } = call(capRoot, [
+    { jsonrpc: '2.0', id: 'cap1', method: 'tools/call', params: { name: 'verify_gate', arguments: { lane: 'hard' } } },
+  ]);
+  const vg = jsonOf(cap.get('cap1'));
+  check('fullMs=1e12 → verify_gate 按封顶预算照常执行完（不被自定预算拖死）',
+    vg && vg.timedOut === false && Date.now() - t0 < 120_000,
+    JSON.stringify(vg && { exitCode: vg.exitCode, timedOut: vg.timedOut }));
+  check('fullMs=1e12 → stderr 点名封顶与上限值 600000',
+    /超过封顶/.test(capProc.stderr || '') && /600[_.]?000/.test(capProc.stderr || ''), (capProc.stderr || '').slice(-400));
+  // 反向锚：合规预算（种子标定值 30000）不告警
+  fs.writeFileSync(path.join(capRoot, '.agents', 'config', 'gate-budgets.json'), JSON.stringify({ fullMs: 30000 }), 'utf8');
+  const { proc: okProc } = call(capRoot, [
+    { jsonrpc: '2.0', id: 'cap2', method: 'tools/call', params: { name: 'verify_gate', arguments: { lane: 'hygiene' } } },
+  ]);
+  check('fullMs 合规 → 无封顶告警', !/超过封顶/.test(okProc.stderr || ''), (okProc.stderr || '').slice(-200));
+  fs.rmSync(capRoot, { recursive: true, force: true });
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 fs.rmSync(root, { recursive: true, force: true });
 process.exit(fail ? 1 : 0);

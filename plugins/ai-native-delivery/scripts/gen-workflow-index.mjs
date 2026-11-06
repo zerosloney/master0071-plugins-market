@@ -87,8 +87,14 @@ const esc = (s) => String(s).replace(/\|/g, '\\|'); // 表格单元格内管道�
 
 function scan() {
   const docs = [];
+  // 空仓守卫（2026-11 Minor）：workflow/<type> 目录缺失按空集处理——生成器对空仓/新仓是合法
+  // 调用（机制先于数据建账），此前 readdirSync ENOENT 直接崩栈。不选 workflow-enums 那样的
+  // fail-loud：枚举缺失是配置断裂（缺文件就该响），而「尚无该类文档」是正常形态——空集 +
+  // 说明行，不崩也不静默。
+  const missingTypes = [];
   for (const type of DOC_TYPES) {
     const dir = path.join(WORKFLOW, type);
+    if (!fs.existsSync(dir)) { missingTypes.push(type); continue; }
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.md') || f === '_TEMPLATE.md') continue;
       const name = f.slice(0, -3);
@@ -105,6 +111,9 @@ function scan() {
         accept: parseAcceptance(text),
       });
     }
+  }
+  if (missingTypes.length) {
+    console.error(`[gen-workflow-index] 说明：workflow/ 缺目录 ${missingTypes.join('、')}——按空集处理（空仓/新仓合法形态，不崩）`);
   }
   return docs;
 }
@@ -203,6 +212,7 @@ if (DRY) {
   if (normEol(out) === normEol(existing)) console.log('• workflow/INDEX.md：无变化');
   else previewDiff(existing, out);
 } else {
+  fs.mkdirSync(path.dirname(INDEX_P), { recursive: true }); // 空仓守卫配套：workflow/ 未建时先建（写侧）
   fs.writeFileSync(INDEX_P, out, 'utf8');
   console.log(`✅ 已生成 workflow/INDEX.md：${summary}`);
 }

@@ -277,7 +277,9 @@ const evidenceExemptWarned = new Set();
 function warnEvidenceExempt(type, base) {
   if (evidenceExemptWarned.has(type)) return;
   evidenceExemptWarned.add(type);
-  console.error(`check-loop: 证据豁免 ${type} ${base}——该文档的验收证据未做真相核验`);
+  // 出账定界（2026-11 市场审查 Minor 3）：档名拼进出账行前 JSON.stringify——引号/换行不再可伪装输出
+  // 形态（对齐 agent-pipelines state.mjs 定界先例）
+  console.error(`check-loop: 证据豁免 ${type} ${JSON.stringify(base)}——该文档的验收证据未做真相核验`);
 }
 
 // 证据真相校验：检查证据字符串是否包含合法的 commit SHA，且该 commit 触及了 plan 声明的文件

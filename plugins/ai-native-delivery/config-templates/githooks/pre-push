@@ -16,8 +16,14 @@ import('node:child_process').then(async ({ spawnSync }) => {
   const LANE = "@@LANE@@";
 
   const args = LANE ? [LANE] : [];
+  // 引擎脚本缺席预检（2026-11-05 市场审查）：spawn 前 existsSync——否则 node 先吐满屏 MODULE_NOT_FOUND
+  // 栈，修复指引淹没在噪音里。fail-closed 不变：同样指引 + exit 1（r.error 兜底其余 spawn 故障）。
+  if (!existsSync(ENGINE_SCRIPT)) {
+    console.error(`pre-push: 无法启动闭环扫描（${ENGINE_SCRIPT}）——推送已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
+    process.exit(1);
+  }
   const r = spawnSync(process.execPath, [ENGINE_SCRIPT, ...args], { stdio: 'inherit', windowsHide: true });
-  if (r.error || !existsSync(ENGINE_SCRIPT)) {
+  if (r.error) {
     console.error(`pre-push: 无法启动闭环扫描（${ENGINE_SCRIPT}）——推送已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
     process.exit(1);
   }

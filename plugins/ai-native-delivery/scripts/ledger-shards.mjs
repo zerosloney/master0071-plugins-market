@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { projectRoot } from './paths.mjs';
+import { projectRoot, resolveProjectRoot, ledgerRefusal, testAnyRootAllowed } from './paths.mjs';
 
 // 受管台账清单（单源）：键 = 台账基名，值 = 数据行判定
 // - 表格式台账（delegations/papercuts）：整文件数据行按月迁出
@@ -296,9 +296,28 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+// 锁内容首段是持有者 pid（2026-11-05 锁加固，移植 agent-pipelines/scripts/state.mjs 0.1.26 的
+// withLock/takeOverStale 已验证模式）：等待超时且持有者进程已死（kill(pid,0) ESRCH）→ 残留锁
+// 实锤，可提前原子接管，不必等满陈旧阈值。
+function lockOwnerPid(content) {
+  const pid = Number.parseInt(String(content), 10);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM'; // 进程存在但无权发信号 → 仍视为存活
+  }
+}
+
 /**
  * 对 target 的写临界区加锁执行。拿不到锁**抛错**（fail-loud），不静默降级成无锁写——
  * 无锁写正是本次要修的丢行根因。
+ * 对外契约不变：等待 SHARD_LOCK_WAIT_MS、超时抛「台账写锁等待超时」（2026-11-05 锁加固
+ * 只改接管的原子性与提前接管条件，不改等待/超时语义）。
  * @param {string} target 待写文件绝对路径
  * @param {() => T} fn 临界区
  * @returns {T}
@@ -308,44 +327,75 @@ export function withLedgerLock(target, fn) {
   // owner 带随机后缀而不只是 pid：同一 pid 的两次重入（或 pid 复用）不该互相认成同一把锁
   const owner = `${process.pid}:${randomBytes(4).toString('hex')}`;
   const deadline = Date.now() + SHARD_LOCK_WAIT_MS;
-  let acquired = false;
+  // 陈旧锁接管：不用 unlink+重建——stat 判陈旧到删掉之间锁可能已被他人接管重建，无条件删
+  // 会误删新持锁者的锁、还留下「无锁窗口」让第三方插空。改为把自身 owner 写临时文件后
+  // rename 原子替换锁文件：要么整体换掉要么不动，不存在「误删他人新锁」的中间态。并发接管时
+  // 最后替换者的 owner 留在锁里，release 前的内容比对保证输家不误删赢家的锁。返回是否接管成功。
+  const takeOverStale = () => {
+    try {
+      const mtimeMs = fs.statSync(lockPath).mtimeMs;
+      let stale = Date.now() - mtimeMs > SHARD_LOCK_STALE_MS;
+      if (!stale && Date.now() > deadline) {
+        // 崩溃残留锁早接管（移植 state.mjs）：锁龄未满 15s 但等待已超 deadline 且持有者 pid
+        // 已死 → 残留锁实锤，立即进入接管；pid 存活（正当持锁者只是慢——慢盘大分片临界区）
+        // 绝不提前接管，不会造出双写者，超时报错语义照旧。
+        const pid = lockOwnerPid(fs.readFileSync(lockPath, 'utf8'));
+        stale = pid !== null && !pidAlive(pid);
+      }
+      if (!stale) return false;
+      const tmp = `${lockPath}.${process.pid}.${Date.now().toString(36)}.tmp`;
+      let replaced = false;
+      try {
+        fs.writeFileSync(tmp, owner, 'utf8');
+        fs.renameSync(tmp, lockPath);
+        replaced = true;
+      } finally {
+        if (!replaced) {
+          try { fs.unlinkSync(tmp); } catch { /* 临时文件可能已被 rename 或根本没写成 */ }
+        }
+      }
+      return replaced;
+    } catch {
+      /* 锁刚好被释放/替换（Windows 上 rename 目标被占用等）→ 按普通竞争退避重试 */
+      return false;
+    }
+  };
   for (;;) {
+    let acquired = false;
     try {
       const fd = fs.openSync(lockPath, 'wx');
-      fs.writeSync(fd, owner);
-      fs.closeSync(fd);
+      // writeSync 失败也要关 fd：锁文件句柄一旦泄漏，Windows 上该文件一直被本进程占用，
+      // 后续 unlink/接管都会被拖累。
+      try {
+        fs.writeSync(fd, owner);
+      } finally {
+        fs.closeSync(fd);
+      }
       acquired = true;
-      break;
     } catch (err) {
       // 竞争的表现不只有 EEXIST：Windows 上同一文件正被别的进程创建/删除时，
       // `openSync(...,'wx')` 会报 EPERM/EBUSY/EACCES（实测 24 路并发撞过一次 EPERM，
       // 那一路直接抛错丢行）。它们与 EEXIST 一样是「有人正在动这把锁」，
       // 按同一套退避 + 陈旧接管处理；其余错误码才是真故障。
       if (!err || !LOCK_CONTENDED.has(err.code)) throw err;
-      try {
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > SHARD_LOCK_STALE_MS) {
-          fs.unlinkSync(lockPath); // 持锁进程崩溃留下的死锁不该永久挡住写侧
-          continue;
-        }
-      } catch {
-        /* 锁刚好被别人释放 */
-      }
+    }
+    if (!acquired && !takeOverStale()) {
       if (Date.now() > deadline) {
         throw new Error(`台账写锁等待超时（${lockPath}）——另一个进程正在整写同一台账。`
           + `拒绝在无锁状态下读-改-写（那会把别人刚追加的行抹掉还回成功），请稍后重跑本次写入`);
       }
       sleepSync(25);
+      continue;
     }
-  }
-  if (!acquired) throw new Error(`台账写锁未获取即返回（${lockPath}）——不可能到这里，防御性抛出`);
-  try {
-    return fn();
-  } finally {
     try {
-      // 只释放仍属于自己的锁：被陈旧判定接管后，迟到的释放不能删掉新持锁者的锁
-      if (fs.readFileSync(lockPath, 'utf8') === owner) fs.unlinkSync(lockPath);
-    } catch {
-      /* 已被清理或已被接管 */
+      return fn();
+    } finally {
+      try {
+        // 只释放仍属于自己的锁：被陈旧判定接管后，迟到的释放不能删掉新持锁者的锁
+        if (fs.readFileSync(lockPath, 'utf8') === owner) fs.unlinkSync(lockPath);
+      } catch {
+        /* 已被清理或已被接管 */
+      }
     }
   }
 }
@@ -389,7 +439,8 @@ function appendTailLines(p, lines) {
 // appendRows(root, name, rows, { month, section })：把数据行追加进指定月分片（缺省取行内日期月）。
 // rows 可为字符串数组或 { line, section } 数组（多表台账须带 section 才能归对表）。
 // 分片已存在时：带 section 的行插入该节（不落到文末自做表）；不带 section 的行仍追加到文末。
-// 返回实际写入的分片路径列表。写失败 fail-loud（不静默吞）。
+// 返回 { written: 涉及的分片路径列表, appended: 新落盘行数, skipped: 幂等跳过行数 }。
+// 写失败 fail-loud（不静默吞）。
 //
 // 并发口径（2026-11-01 修复）：此前这里是「readFileSync 全文 → 内存里拼 → writeFileSync 整写」，
 // 多进程同时追加时后写者拿的是自己的陈旧快照，会把别人刚写的行整个抹掉，而 CLI 照样回
@@ -417,7 +468,7 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
     byMonth.get(m).push({ line, section: sec });
   }
 
-  // 单个分片的写临界区（持锁调用）。返回 true 表示有内容落盘。
+  // 单个分片的写临界区（持锁调用）。返回实际新落盘的行数（0 = 全部幂等跳过）。
   const writeShard = (p, rs) => {
     const dedupe = (text, cand) => {
       const seen = new Set(text.split(/\r?\n/).filter((l) => l.trim()));
@@ -425,18 +476,18 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
     };
     let existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
     let fresh = dedupe(existing, rs);
-    if (!fresh.length) return false; // 已在分片 → 幂等跳过
+    if (!fresh.length) return 0; // 已在分片 → 幂等跳过
 
     if (!existing) {
       try {
         fs.writeFileSync(p, renderShard(name, fresh, '\n'), 'utf8', { flag: 'wx' });
-        return true;
+        return fresh.length;
       } catch (e) {
         if (e.code !== 'EEXIST') throw e;
         // 别的进程抢先建好了：按现状重来（去重后走下面的追加/插入路径）
         existing = fs.readFileSync(p, 'utf8');
         fresh = dedupe(existing, fresh);
-        if (!fresh.length) return false;
+        if (!fresh.length) return 0;
       }
     }
 
@@ -444,7 +495,7 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
     const placed = fresh.filter((r) => r.section);
     if (!placed.length) {
       appendTailLines(p, tail.map((r) => r.line));
-      return true;
+      return fresh.length;
     }
 
     let done = false;
@@ -473,22 +524,40 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
       throw new Error(`appendRows: ${p} 连续 8 次在写入前被并发修改——拒绝用陈旧快照整写`
         + `（那会抹掉别人刚追加的台账行），请重跑本次追加`);
     }
-    return true;
+    return tail.length + placed.length;
   };
 
+  let appended = 0;
+  let candRows = 0;
   for (const [m, rs] of byMonth) {
     const p = shardPathFor(root, name, m);
     fs.mkdirSync(path.dirname(p), { recursive: true });
     // 返回的路径列表是「本次涉及的分片」，与旧实现同口径（幂等跳过也算涉及，CLI 据此打印回执）
-    withLedgerLock(p, () => writeShard(p, rs));
+    appended += withLedgerLock(p, () => writeShard(p, rs));
+    candRows += rs.length;
     written.push(p);
   }
-  return written;
+  // 回执诚实（2026-11-05）：区分「新落盘」与「幂等跳过」——重复行静默跳过曾让 CLI 照打
+  // 「✓ 追加 1 行」，写侧回执与磁盘事实不符（审计对不上账）。
+  return { written, appended, skipped: candRows - appended };
 }
 
 // ---- CLI：巡检 / 迁移 ----
 function main() {
   const argv = process.argv.slice(2);
+  // 写侧 fail-closed（2026-11-05）：--append 与真迁移 --split 必须解析到 git 仓库根，否则拒绝
+  // 操作（对齐 MCP requireRoot 口径）。旧口径 projectRoot() 回退 cwd——非 git 目录（含 bare 仓，
+  // 曾被误诊为 git-unavailable）跑写命令会把台账「就地」落进调用目录（可以是用户家目录），
+  // 违反「台账与三本审计账只落使用项目仓库根」不变量。只读命令（--check / --split --dry-run）
+  // 维持 projectRoot() 回退现状，巡检不受限。
+  const splitIdx0 = argv.indexOf('--split');
+  const writeOp = argv.includes('--append') || (splitIdx0 >= 0 && !argv.includes('--dry-run'));
+  const pr = resolveProjectRoot();
+  if (writeOp && !pr.root && !testAnyRootAllowed()) {
+    console.error(`[ledger-shards] ❌ ${ledgerRefusal(pr.status, pr.detail)}`);
+    console.error('hint: 在使用项目的 git 仓库内运行（或先 git init）。只读巡检 --check 与 --split --dry-run 不受限；库调用方可显式传 root。');
+    process.exit(1);
+  }
   // 根锚定 git root（paths.mjs 单源）：子目录调用时台账仍落仓库根，不落进子目录。
   const root = projectRoot();
   if (argv.includes('--check')) {
@@ -545,16 +614,24 @@ function main() {
     const sIdx = argv.indexOf('--section');
     const section = sIdx >= 0 ? argv[sIdx + 1] : '';
     if (sIdx >= 0 && !section) { console.error('--section 须带节标题（如 委派结果）'); process.exit(2); }
-    let written;
+    let r;
     try {
-      written = appendRows(root, name, [row], { month, section });
+      r = appendRows(root, name, [row], { month, section });
     } catch (err) {
       console.error(`追加失败：${err.message}`);
       process.exit(1);
     }
     // 落点打绝对路径：相对路径在子目录调用时看不出台账到底落在仓库根还是子目录（曾把
     // 追加行落进 <repo>/sub/workflow/ 而仓库根 workflow/ 根本不存在，用户无从察觉）。
-    console.log(`✓ 追加 1 行 → ${written.map((p) => path.resolve(p)).join(', ')}`);
+    // 回执如实（2026-11-05）：新落盘与幂等跳过分账——重复行曾照打「✓ 追加 1 行」。
+    const ps = r.written.map((p) => path.resolve(p)).join(', ');
+    if (r.appended > 0 && r.skipped > 0) {
+      console.log(`✓ 新落盘 ${r.appended} 行、幂等跳过 ${r.skipped} 行（分片已有相同行）→ ${ps}`);
+    } else if (r.appended > 0) {
+      console.log(`✓ 追加 ${r.appended} 行 → ${ps}`);
+    } else {
+      console.log(`＝ 幂等跳过 ${r.skipped} 行（分片已有相同行，未重复落盘）→ ${ps}`);
+    }
     return;
   }
   console.error('用法：node <插件根>/scripts/ledger-shards.mjs --check | --split <ledger> [--dry-run] | --append <ledger> --row "<行>" [--month YYYY-MM] [--section <节标题>]');

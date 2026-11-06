@@ -40,6 +40,7 @@ try {
   fs.writeFileSync(path.join(tmp, '.gitattributes'), [
     'backend/shared/App.Api/appsettings.json merge=ours', // 脱敏泛化（2026-10-27）：appsettings 路径按使用项目替换
     '.agents/*.jsonl merge=jsonl-union',
+    'workflow/gate-metrics.d/*.jsonl merge=jsonl-union', // 2026-11 契约扩展：gate-metrics 月分片同受并集驱动
     '',
   ].join('\n'), 'utf8');
   git(tmp, ['config', 'core.hooksPath', '.githooks']);
@@ -142,6 +143,33 @@ try {
   }
 } finally {
   fs.rmSync(tmp4, { recursive: true, force: true });
+}
+
+// S7 契约覆盖守卫（2026-11 Minor）：.gitattributes 只保 .agents/*.jsonl、缺 workflow/gate-metrics.d/*.jsonl
+// 行 → 门卫判缺（跨机合并月分片走默认策略会静默丢别机快照——退役判据燃料缺损）。修复前该形态判绿（RED）。
+const tmp5 = mkRepo();
+try {
+  fs.mkdirSync(path.join(tmp5, '.githooks'), { recursive: true });
+  for (const h of ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit']) {
+    fs.writeFileSync(path.join(tmp5, '.githooks', h), '', 'utf8');
+  }
+  fs.mkdirSync(path.join(tmp5, '.agents', 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(tmp5, '.agents', 'scripts', 'check-loop.mjs'), '// fixture\n');
+  fs.writeFileSync(path.join(tmp5, '.gitattributes'), [
+    'backend/shared/App.Api/appsettings.json merge=ours',
+    '.agents/*.jsonl merge=jsonl-union',
+    // 故意缺：workflow/gate-metrics.d/*.jsonl merge=jsonl-union
+    '',
+  ].join('\n'), 'utf8');
+  git(tmp5, ['config', 'core.hooksPath', '.githooks']);
+  git(tmp5, ['config', 'merge.ours.driver', 'true']);
+  git(tmp5, ['config', 'merge.jsonl-union.driver', jsonlDriver]);
+
+  const bad5 = run(tmp5);
+  check('S7 缺 gate-metrics.d/*.jsonl 契约行 → exit 1 且点名 gate-metrics',
+    bad5.status === 1 && /gate-metrics\.d/.test(bad5.stdout), bad5.stdout.slice(-300));
+} finally {
+  fs.rmSync(tmp5, { recursive: true, force: true });
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

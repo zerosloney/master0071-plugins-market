@@ -514,6 +514,19 @@ const mkSpec = (lines, checks) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 10：空仓守卫（2026-11 Minor）——workflow/<type> 目录缺失按空集处理，生成器不崩 ----
+// 修复前：scanDocs 对 workflow/<type> 直接 readdirSync，空仓/新仓（目录未建）ENOENT 崩栈；
+// 生成器对空仓是合法调用（机制先于数据），缺目录按空集 + 输出说明行。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-workflow-metrics-empty-'));
+  const r = run(root, ['--month', '2026-10']);
+  const md = fs.existsSync(path.join(root, 'workflow', 'metrics.md')) ? readMetrics(root) : '';
+  check('场景 10：完全空仓（无 workflow/）→ exit 0 且 metrics.md 照常落盘',
+    r.status === 0 && md.includes('| 2026-10 |'), `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  check('场景 10：缺目录出说明行（不静默吞）', /缺目录.*按空集/.test(r.stderr), r.stderr);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);

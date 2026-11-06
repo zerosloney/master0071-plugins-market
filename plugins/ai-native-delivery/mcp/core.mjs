@@ -31,6 +31,10 @@ import { withLedgerLock } from '../scripts/ledger-shards.mjs';
 
 const SPAWN_TIMEOUT_MS = 120_000;   // 不变量前置等轻量子进程的墙钟上限
 const OUTPUT_CLIP = 8 * 1024;       // verify_gate 回传 stdout/stderr 摘要的截断上限（防爆）
+// gate-budgets.json fullMs 的封顶（2026-11-05 收尾批）：fullMs 只验 >0 时项目可写 1e12——
+// verify_gate 的 spawnSync 是**串行**的，单线程服务会被一次自定预算拖住数小时，其余请求全部
+// 饿死。取同文件预算常量的量级封顶（默认 300s 的 2 倍），越界按封顶执行并 stderr 告警。
+const FULL_MS_CAP = 600_000;
 
 /** 工具级业务错误：message 原样作为 isError 文本回给客户端（带 hint，不 crash）。 */
 export class ToolError extends Error {}
@@ -272,8 +276,16 @@ export function toolUpdateLedger(args) {
           fs.closeSync(fd);
         }
       }
-    } catch {
-      /* 文件不存在或读不到：直接追加即可（mkdir 已建目录） */
+    } catch (err) {
+      // 末字节探测的失败面（2026-11-05 收尾批）：旧实现把 EACCES 等一并 catch 成「无前导换行」，
+      // 目标文件尾是半行时新内容直接粘上去，台账里多出一条解析器当坏行的粘连记录。现在只把
+      // ENOENT 当「文件不存在」（直接追加即可，mkdir 已建目录）；其余失败响亮抛错——宁可本次
+      // 追加失败（数据未写，调用方拿 isError 重试），不可粘出一条坏行。
+      if (err && err.code === 'ENOENT') {
+        /* 文件不存在：直接追加 */
+      } else {
+        throw new ToolError(`末字节探测失败：${target}（${err.message}）——追加中止，请核对文件权限/占用后重试`);
+      }
     }
     try {
       fs.appendFileSync(target, `${needsLeadingNewline ? '\n' : ''}${body}`, 'utf8');
@@ -285,7 +297,16 @@ export function toolUpdateLedger(args) {
   // 锁拿不到时 withLedgerLock 抛错（fail-loud），退回无锁写等于把本次修复作废。
   if (relPosix === 'workflow' || relPosix.startsWith('workflow/')) withLedgerLock(target, appendOnce);
   else appendOnce();
-  return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
+  // 回执大小（2026-11-05 收尾批）：追加**已成功**后再 stat，若目标恰被并发 compact/archive 移走
+  // 会抛错——按旧实现整笔回 isError，但数据已落盘，回执与磁盘状态相反（「写成功却说失败」比
+  // 失败更误导，调用方会重试再追加一行）。stat 失败时回执降级为「已追加（大小未知）」，不报错。
+  let bytes = null;
+  try {
+    bytes = fs.statSync(target).size;
+  } catch { /* 目标被并发移走：按大小未知回执 */ }
+  return ok(bytes === null
+    ? { written: true, file: relPosix, mode, bytesUnknown: true }
+    : { written: true, file: relPosix, mode, bytes });
 }
 
 /* ---------------------------------------------------------------- confirm */
@@ -376,11 +397,18 @@ export function toolVerifyGate(args) {
     throw new ToolError(`invalid lane \`${String(lane)}\`：只接受 "hard"（默认）、"hygiene"、"all"。`);
   }
   const script = scriptPath(root, 'check-loop.mjs');
-  // 墙钟预算取 gate-budgets.json 的 fullMs（advisory 预算）+ 60s 收尾余量；读不到回退 300s
+  // 墙钟预算取 gate-budgets.json 的 fullMs（advisory 预算）+ 60s 收尾余量；读不到回退 300s。
+  // fullMs 越界按封顶执行（2026-11-05 收尾批）：自定预算把串行服务的单线程拖死数小时，比门
+  // 本身失败更糟——封顶 + stderr 告警让异动可见，而不是默默变慢。
   let timeout = 300_000;
   try {
     const b = JSON.parse(fs.readFileSync(path.join(configDir(root), 'gate-budgets.json'), 'utf8'));
-    if (Number.isFinite(b.fullMs) && b.fullMs > 0) timeout = b.fullMs + 60_000;
+    if (Number.isFinite(b.fullMs) && b.fullMs > 0) {
+      if (b.fullMs > FULL_MS_CAP) {
+        process.stderr.write(`[ai-native-delivery] gate-budgets.json fullMs=${b.fullMs} 超过封顶 ${FULL_MS_CAP}ms——按封顶执行（自定预算不得拖死串行服务）\n`);
+      }
+      timeout = Math.min(b.fullMs, FULL_MS_CAP) + 60_000;
+    }
   } catch { /* 预算表不可读：回退默认 */ }
   const r = spawnNode(script, LANES[lane], { cwd: root, timeout });
   // 状态语义（2026-10-27 修复）：门禁有三种终态，**不得把「没跑完」与「跑过了」同形**——
@@ -521,9 +549,11 @@ export function toolPolicyStatus(args = {}) {
   try { gateBudgets = JSON.parse(fs.readFileSync(path.join(configDir(root), 'gate-budgets.json'), 'utf8')); } catch { /* advisory 面 */ }
 
   // 退役候选（per-rule 聚合，复用 agg-judgments 库函数）：judgments.jsonl 在场才聚合。
-  // 口径标注（任务定案的简化）：原判据「连续 6 个有数据月零命中」由 agg-judgments.retireCandidates
-  // 给出；台账只记命中行，"全账零命中"规则不会出现在账内，因此窗口不满足时不产候选、只报数据月数——
-  // 不伪造候选。输出保留 per-rule 全账命中总数（totals）供人工对账。
+  // 口径标注（2026-11-05 与 agg-judgments/mechanism-retire-watch 统一）：判据为「锚定最近一个
+  // 有数据月，连续 6 个**日历月**（含无数据月，按零命中计）零命中」，另有新鲜度守卫（锚月距
+  // 今超 2 个日历月 → 遥测陈旧不产候选）；台账只记命中行，"全账零命中"规则不会出现在账内，
+  // 因此窗口不满足/守卫触发时不产候选、只报数据月数——不伪造候选。输出保留 per-rule 全账
+  // 命中总数（totals）供人工对账。
   let retire = null;
   const judgmentsFile = path.join(engineDir(root), 'judgments.jsonl');
   if (fs.existsSync(judgmentsFile)) {
@@ -542,9 +572,11 @@ export function toolPolicyStatus(args = {}) {
       ledgerPresent: true,
       rows: read.localRows.length,
       dataMonths: rc.dataMonths,
-      caliber: rc.sufficient
-        ? `连续 ${rc.windowMonths} 个有数据月零命中（agg-judgments 判据，窗口 ${rc.windowFrom}..${rc.windowTo}）`
-        : '数据月不足 6——不产候选（"全账零命中"简化口径下账内规则必有命中记录，零命中规则不在账内出现；口径如实标注，不伪造候选）',
+      caliber: rc.stale
+        ? `遥测陈旧——末个有数据月 ${rc.anchor} 距今超过 2 个日历月，不产候选`
+        : rc.sufficient
+          ? `锚定 ${rc.anchor}，连续 ${rc.windowMonths} 个日历月（含无数据月按零命中计）零命中（agg-judgments 判据，窗口 ${rc.windowFrom}..${rc.windowTo}）`
+          : '数据月不足 6——不产候选（"全账零命中"简化口径下账内规则必有命中记录，零命中规则不在账内出现；口径如实标注，不伪造候选）',
       candidates: rc.candidates,
       totals,
     };

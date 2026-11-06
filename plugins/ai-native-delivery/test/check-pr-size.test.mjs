@@ -127,6 +127,18 @@ const run = (args = [], env = {}) => {
   reset();
 }
 
+// ---- T9 git 选项注入拒绝（2026-11 Minor）：--base/--head 以 - 开头显式拒收，不透传给 git ----
+// 修复前：值原样拼接进 git 参数表（rev-parse --verify / diff --numstat），形如 --exec 的值被当
+// git 选项解析——报错还误诊为「基线不存在」。拒收消息必须点名参数与注入面，exit 2（用法错误档）。
+{
+  const r1 = run(['--base', '--exec']);
+  check('T9 --base --exec → exit 2 且点名「不得以 - 开头」（非误诊基线缺失）',
+    r1.code === 2 && /不得以\s*"-"\s*开头|不得以 "-" 开头/.test(r1.out) && /--base/.test(r1.out), JSON.stringify(r1));
+  const r2 = run(['--base', base, '--head', '--upload-pack=x']);
+  check('T9 --head --upload-pack=x → 同样显式拒收 exit 2',
+    r2.code === 2 && /不得以/.test(r2.out) && /--head/.test(r2.out), JSON.stringify(r2));
+}
+
 fs.rmSync(root, { recursive: true, force: true });
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

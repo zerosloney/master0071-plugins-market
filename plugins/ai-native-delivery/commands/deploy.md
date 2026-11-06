@@ -53,7 +53,7 @@ L1 已在 `commands/new-task.md` §L1 快速道关单，不打开本文件。本
 1. **观察期**: 上线后 24h $\rightarrow$ 用户观察错误率 / 延迟 / 关键业务流
 2. **闭环宣告**: 用户确认无异常 $\rightarrow$ 宣告 prod 闭环
 3. **异常回落**: 超阈值 $\rightarrow$ 生成 `workflow/incidents/` $\rightarrow$ 进 `maintain.md` (止血方案用户拍板)
-4. **观察落账 (2026-10-25 优化5)**: 步骤 2/3 出结论时追加一行进当月分片（一行 = 一次 release；结果枚举 `通过`/`异常`，异常行必须关联 incident，记法见 `workflow/deploy-observations.md` 头部）:
+4. **观察落账 (2026-10-25 优化5)**: 步骤 2/3 出结论时追加一行进当月分片（一行 = 一次 release；结果枚举 `通过`/`异常`，异常行必须关联 incident；记法以下方 `--row` 模板为准、自足于此，台账生而分片——数据行落 `workflow/deploy-observations.d/<YYYY-MM>.md`，分片口径见 `.agents/config/mechanism-registry.md`「发布观察台账」行）:
    `node <插件根>/scripts/ledger-shards.mjs --append deploy-observations --row "| <YYYY-MM-DD> | release/<日期> | 通过|异常 | <incident 文件名或 -> | <确认方式摘要> |"`
    月度聚合进 `metrics.md`「发布观察」表（`gen-workflow-metrics.mjs`）——闭环漏斗延伸到部署后，上线了却长期无行即挂债
 **Note**: 事故响应禁跨智能体协作推送修复 (参考 Anthropic 教训)

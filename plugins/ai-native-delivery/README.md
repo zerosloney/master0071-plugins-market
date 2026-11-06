@@ -121,7 +121,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 两层拦截，配置问题不卡死正常操作，但**deny 面有一道不可下调的内置地板**（2026-10-28 收紧，见下）：
 
 - **PreToolUse 风险闸**（`hooks/pretool-risk.mjs`，Claude 式 hook 宿主生效）：shell 类命令对 deny / ask 两清单静态匹配（曾有的 `allow` 清单已于 2026-10-28 移除——它在判定链末端空转，且列着 `git commit`/`git push`，容易让人误以为这些命令已被预先批准）。清单来源为项目侧 `.agents/settings.json`（`permissions.deny` / `permissions.ask`）→ 插件种子 `config-templates/settings.json` → 代码内兜底，但两清单的信任边界不同：
-  - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `git push --no-verify` / `git commit --no-verify` / `drop database` 六项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
+  - **deny = 内置地板 ∪ 该来源追加**——`git reset --hard` / `git push --force` / `git push -f` / `git push --no-verify` / `git commit --no-verify` / `git commit -n` / `drop database` 七项**被治理项目删不掉**，只能加严。此前是「清单单源」：项目侧文件一在场就整体接管 deny 面，而项目目录正是 agent 能写文件的地方，自写 `{deny:["x"],ask:[]}` 或干脆把 settings.json 写成非法 JSON 触发 fail-open，就能单方面解除这一层——「两层拦截」名不副实。现在损坏文件只让它自己的追加项失效（stderr WARN 点名），地板照拦。
     - `--no-verify` 单列（2026-10-29 补，2026-11-01 补短写）：它是从 shell 层关掉已安装 git hook 的开关，能一条参数解除两层中的一层——而且它有**两个名字**：`git commit -h` 显示 `-n, --no-verify`，所以地板里 `git commit --no-verify` 与 `git commit -n` 两条都在。反面对照：`git push -n` 是 `--dry-run`（不解除任何东西），故有意不放进地板。
     - 匹配前先剥引号（2026-10-29 补）：`git push "--force"` 与 `git push --force` 是同一个命令，旧判据按原样切词元导致引号变体全部静默放行。
     - 短选项簇先展开（2026-11-01 补）：`git push -uf` 与 `git push -u -f` 是同一个命令，旧判据把 `-uf` 当一个词元，规则里的 `-f` 对不上、子串判据也落空，实测 `git push -uf` 与 `git commit -n` 双双静默放行——与引号变体是同一个洞的第二张脸。命令侧与规则侧同时展开，`rm -rf` 规则也才判得中 `rm -fr`。
@@ -130,6 +130,8 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
 
 不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。
+
+三平台 hook 注册差异（机制事实）：`.zcode` 读插件 `./hooks/hooks.json` 拉起 PreToolUse 风险闸；`.codex` 由 `.codex-plugin/plugin.json` 内联同一段 PreToolUse；`.omp-plugin/` 仅为市场清单，未注册任何 hook——`.omp` 宿主不拉起 PreToolUse 风险闸，拦截靠 init-engine 装入 `.git/hooks/` 的 pre-commit / pre-push 兜底（即上句的单层拦截形态）。
 
 ### 与 systemone-decision 共装时（双风险闸，2026-10-28 说明）
 
@@ -157,6 +159,8 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 两条硬约束（由 `test/verify.test.mjs` 场景 15 锁定）：**产品段每一门都必须带其中一个判据**，否则新增门会再退回「消费项目装上即红」；**跳过沿依赖边传播**——上游判不适用时下游同步跳过，避免「构建已跳过、测试照跑因无产物变红」的假红。路径一旦出现，该门自动恢复执法，无需改配置。
 
+退出码三态：`0` = 全绿（含 `--list`）；`1` = 有门红或 verify 运行时崩溃；`2` = 用法 / 门表契约违规（互斥参数、门表被裁剪出依赖孤儿、引擎门缺适用性判据等——verify 自身拒跑，不带病出凭证）。
+
 ## 工程准入与验收
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；
@@ -172,6 +176,17 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.1.13**
+
+审查 Minor 批量收口：六单元 ~35 项，另 4 项评估不修（回归证据宽匹配与 quote 8 字锚属已声明设计上限、workflows-check 深栈属病态输入、check-schema-residue 口令 argv 属源项目向脚本）。
+
+- **服务层收尾**：stdin 单行 1MiB 上限（超限 -32700）；MCP 协议版本协商扩三版、`initialized` 带 id 回包；**空 stdin 转向 ask**（与非 JSON 同为 fail-closed，此前静默放行）；appendOnce 探测失败响亮中止（仅 ENOENT 视为新建）；append 后 stat 失败回执降级 `bytesUnknown` 而非误报失败；`fullMs` 封顶 600s（自定预算不再能拖死串行服务）；决策体写出背压 drain+EPIPE 双路收口。
+- **check-loop 段**：「存量对账豁免（」须行首独占（嵌进任务描述不再触发整档豁免）；§23 证据路径禁 `..` 段与绝对形态；出账行拼接的外部字符串一律 JSON.stringify 定界。
+- **台账族**：合并丢弃末尾崩溃半行、保留原有空行（compact 不再产出被自家门禁拦截的提交）；append 回执区分「新落盘/幂等跳过」；坏行 stderr 大声计数；**非 git 目录 CLI 写侧统一 fail-closed**（bare 仓误诊一并修正，与 MCP 同口径，不再落 cwd）；confirm-doc 文档写改原子（tmp+rename）且**台账先行 + 幂等守卫**（崩溃窗口从死态变为可重跑闭环）；跨源去重改「值与位置同取末次」；fill-* 加存在拒绝/目录围栏/自由文本剥换行；check-ledger-invariant 走 GIT 单源；**锁加固移植 agent-pipelines 模式**（rename 原子接管 + 持有者 pid 已死提前接管 + 释放归属比对）。
+- **verify / pipeline-run**：git-core 统一 60s 超时（挂起 git 不再挂死门禁）；`core.quotepath=off` 补齐 pipeline-run/check-scope 两处（非 ASCII 路径不再假红）；`--run`/runId 白名单 + runs 目录围栏（封越界读写）；verify 退出码三态（2=用法错/1=门红/0=全绿）；latestRunId 改 mtime 次序；verify 单门 300s / pipeline 600s 看门狗——**门超时不放行**（fail-closed，事件留痕）。
+- **生成器与口径**：engine-map 钩子取数锚 `gitHooksDir()`（插件形态不再恒 0）；gen-workflow-index/metrics 空仓不崩；kb-search 词表缺失带指引、防符号链接环、stat 竞态容错；check-query-contract 缺目录转 advisory；check-pr-size `--base/--head` 拒前导 `-` + 尾置 `--`；**退役窗口两侧统一**（锚最近数据月、连续 N 个日历月含无数据月、遥测停摆 >2 月不产候选）；.gitattributes jsonl-union 契约扩展覆盖 `workflow/gate-metrics.d/`；MCP stats 口径文案同步。
+- **文档与模板**：deny 地板正文对齐七项；三平台 hook 注册差异说明（.omp 无 PreToolUse、靠 git hooks 兜底）；verify 三态口径；principles.md 失实自声明改真实口径；engine.json 死配置键删除；deploy.md 悬空指针改自足模板；init-engine WARN 文案；git hooks 模板引擎缺失预检（不再满屏 MODULE_NOT_FOUND）。
 
 **0.1.12**
 

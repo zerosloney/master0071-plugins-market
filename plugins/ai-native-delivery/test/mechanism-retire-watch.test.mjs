@@ -2,7 +2,7 @@
 // mechanism-retire-watch.test.mjs — 1b 机制退役催办纯函数套件（2026-10-14 L5 自举接线 1b）
 // parseRegistry / ruleNamesOf / zeroMonthsOf / evaluate 进程内断言。
 import { parseRegistry, ruleNamesOf, zeroMonthsOf, evaluate, statusOf, tagOf, STATUSES } from '../scripts/mechanism-retire-watch.mjs';
-import { mergeJudgmentRows } from '../scripts/agg-judgments.mjs';
+import { mergeJudgmentRows, retireCandidates } from '../scripts/agg-judgments.mjs'; // S16 两侧对账断言
 
 let pass = 0;
 let fail = 0;
@@ -121,7 +121,10 @@ check('S3 使用率型 → null', zeroMonthsOf('<10% 且无新增 → 退役双�
   const r = evaluate(reg, [], now);
   check('S7b 期限当天本地 09:00 不逾期', r.actions.length === 0, JSON.stringify(r.actions));
 }
-// ---- S4b：有数据月不连续 → 缺月不算零命中 ----
+// ---- S4b（2026-11 统一口径改判）：窗口内缺月按零命中计，不再「缺月拒绝判定」----
+// 旧口径与 agg-judgments 的「末 N 个数据月」双口径：同一句「连续 N 月 = 0」同数据两种结论
+// （本例旧 agg 判候选、旧 retire-watch 拒判）。统一为日历窗口（锚 = 末个有数据月，含无数据月）
+// 后：锚 10、窗 [09,10]，9 月无运行按零计 → 2 月窗触达；停摆误判由新鲜度守卫另挡（S15）。
 {
   const reg = [{ name: '甲门', criterion: 'WARN「甲规则」计数', threshold: '连续 2 月 = 0 → 评估退役', status: '现役', deadline: '—' }];
   const j = [
@@ -129,8 +132,10 @@ check('S3 使用率型 → null', zeroMonthsOf('<10% 且无新增 → 退役双�
     { ts: '2026-10-01T00:00:00Z', rules: [] },
   ];
   const r = evaluate(reg, j, new Date('2026-10-14T00:00:00Z'));
-  check('S4b 8 月与 10 月之间缺 9 月 → 不产退役动作', r.actions.length === 0, JSON.stringify(r.actions));
-  check('S4b 缺月记入 notAuto', r.notAuto.some((x) => x.name === '甲门' && /缺月/.test(x.reason) && /2026-09/.test(x.reason)), JSON.stringify(r.notAuto));
+  check('S4b 缺 9 月按零命中计 → [09,10] 日历窗触达 → threshold 动作',
+    r.actions.length === 1 && r.actions[0].kind === 'threshold', JSON.stringify(r.actions));
+  check('S4b 动作明细含日历窗 2026-09 / 2026-10', r.actions.length === 1 && /2026-09 \/ 2026-10/.test(r.actions[0].detail), r.actions[0]?.detail);
+  check('S4b 不再以「缺月」拒绝判定', !r.notAuto.some((x) => x.name === '甲门' && /缺月/.test(x.reason)), JSON.stringify(r.notAuto));
 }
 
 // ---- S8 空入参 ----
@@ -212,6 +217,38 @@ check('S8 null judgments 不 throw', evaluate([], null, new Date()).actions.leng
   const r = evaluate(reg, rows, new Date('2026-10-01T00:00:00Z'));
   check('S14 分片月计入数据月（6 月窗口零命中 → threshold）',
     r.monthCount === 7 && r.actions.some((a) => a.kind === 'threshold'), JSON.stringify(r));
+}
+
+// ---- S15 新鲜度守卫（2026-11 统一口径）：锚月距今超过 RETIRE_STALE_MONTHS → 遥测陈旧不产候选 ----
+// 旧口径：停摆数月后锚月仍取末个有数据月照凑日历窗（缺月挡了一下），但「数据月连续且停摆」的
+// 形态（分片月一直在归档、近几月断了）会照产候选。统一后：锚月距「今」超半径 → notAuto 遥测陈旧。
+{
+  const reg = [{ name: '甲门', criterion: 'WARN「甲规则」计数', threshold: '连续 2 月 = 0', status: '现役', deadline: '—' }];
+  const j = [
+    { ts: '2026-02-01T00:00:00Z', rules: [] },
+    { ts: '2026-03-01T00:00:00Z', rules: [] },
+  ];
+  const r = evaluate(reg, j, new Date('2026-10-14T00:00:00Z')); // 锚 2026-03 距今 7 个月
+  check('S15 遥测停摆 → notAuto「遥测陈旧」且零 threshold 动作',
+    r.actions.length === 0 && r.notAuto.some((x) => x.name === '甲门' && /遥测陈旧/.test(x.reason) && /2026-03/.test(x.reason)),
+    JSON.stringify(r));
+}
+
+// ---- S16 两侧对账钉住（2026-11 统一口径）：同月份数据 evaluate 与 retireCandidates 结论一致 ----
+// 旧双口径下本夹具两侧各说各话（旧 agg 判候选、旧 evaluate 因缺月拒判）；统一后必须同判。
+{
+  const rows = [
+    { ts: '2026-02-15T00:00:00Z', rules: [{ rule: '规则甲', level: 'WARN', count: 2 }] },
+    { ts: '2026-03-15T00:00:00Z', rules: [] },
+    { ts: '2026-06-15T00:00:00Z', rules: [] }, // 04-05 断档无运行
+  ];
+  const now = new Date('2026-07-01T00:00:00Z'); // 锚 2026-06 距今 1 个月 → 新鲜
+  const reg = [{ name: '甲门', criterion: '「规则甲」', threshold: '连续 3 月 = 0', status: '现役', deadline: '—' }];
+  const r = evaluate(reg, rows, now);
+  const rc = retireCandidates(rows, 3, { now });
+  check('S16 对账：evaluate 触达（threshold）且 agg 判候选——两侧同结论',
+    r.actions.length === 1 && r.actions[0].kind === 'threshold' && rc.sufficient === true && rc.candidates.some((c) => c.rule === '规则甲'),
+    JSON.stringify({ actions: r.actions, rc: { from: rc.windowFrom, to: rc.windowTo, candidates: rc.candidates } }));
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

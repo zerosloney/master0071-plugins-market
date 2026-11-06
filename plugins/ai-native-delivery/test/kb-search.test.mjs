@@ -252,6 +252,57 @@ const files = (out) => (out.match(/^📄 (workflow\/\S+)/gm) || []).map((l) => l
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 13：模块词表缺失 → 带指引报错 exit 1（2026-11 Minor：此前 readFileSync ENOENT 直接崩栈）----
+// configDir 在「项目侧 .agents/config/ 目录在场但缺词表文件」时不回退插件种子——词表缺失属配置
+// 断裂，fail-loud 但必须给可执行的指引（指到 config 文件路径），不能是裸 ENOENT 堆栈。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-search-nomod-'));
+  fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+  const r = run(root, ['编码模板']);
+  const stackLeak = /at\s+\S+[/\\]\S+\.mjs:\d/.test(r.stderr);
+  check('场景 13：词表缺失 → exit 1 且报错点名词表路径（非裸堆栈）',
+    r.status === 1 && /模块词表不可读/.test(r.stderr) && /workflow-modules\.txt/.test(r.stderr) && !stackLeak,
+    `exit=${r.status}\n${r.stderr.slice(0, 400)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 14：wiki 符号链接成环 → visited 断环不爆栈（2026-11 Minor：此前无限递归 RangeError）----
+{
+  const root = mkfix();
+  const theme = path.join(root, 'wiki', '测试主题');
+  const loop = path.join(theme, 'loop');
+  let linkOk = true;
+  try { fs.symlinkSync(theme, loop, 'junction'); } catch { linkOk = false; } // 目录自环（Windows 用 junction 免特权）
+  if (!linkOk) {
+    console.log('SKIP 场景 14：本环境不支持创建目录联接/符号链接');
+  } else {
+    const r = run(root, ['--scope', 'wiki', '编码模板']);
+    check('场景 14：wiki 目录自环 → exit 0（visited 断环，不 RangeError）',
+      r.status === 0 && !/RangeError|Maximum call stack/.test(r.stderr), `exit=${r.status}\n${r.stderr.slice(0, 300)}`);
+    check('场景 14：环内正身文件仍可命中（断环不丢语料）', /wiki\/测试主题\/说明\.md/.test(r.stdout), r.stdout);
+    const r2 = run(root, ['--scope', 'all', '编码模板']);
+    check('场景 14b：all 作用域同样不受环链影响', r2.status === 0 && !/RangeError/.test(r2.stderr), `exit=${r2.status}\n${r2.stderr.slice(0, 300)}`);
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 15：悬空符号链接 → walk 侧 statSync 容错跳过（2026-11 Minor：此前 ENOENT 崩栈）----
+// 与缓存侧 statSync 竞态补 try 同一容错口径：语料里的坏链接按「不可检索条目」跳过，不崩。
+{
+  const root = mkfix();
+  const theme = path.join(root, 'wiki', '测试主题');
+  const dang = path.join(theme, 'dangling.md');
+  let linkOk = true;
+  try { fs.symlinkSync(path.join(root, 'no-such-target.md'), dang, 'file'); } catch { linkOk = false; }
+  if (!linkOk) {
+    console.log('SKIP 场景 15：本环境不支持创建文件符号链接');
+  } else {
+    const r = run(root, ['--scope', 'wiki', '编码模板']);
+    check('场景 15：悬空链接 → exit 0 跳过不崩', r.status === 0 && !/ENOENT/.test(r.stderr), `exit=${r.status}\n${r.stderr.slice(0, 300)}`);
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);

@@ -10,7 +10,8 @@
 //   settings.json 损坏（不可解析 / permissions 形状非法 / deny 键缺失）→ stderr WARN +
 //     **按内置 deny 地板继续执法**（2026-10-28 收紧：此前整体 fail-open 放行，等于「把配置文件
 //     写坏」就能解除风险闸）；ask 回退内置默认；
-//   输入截断 / 坏 JSON → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令）；
+//   输入截断 / 坏 JSON / 空 stdin → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令；
+//     空 stdin 2026-11-05 收尾批：读不到任何输入同样按不可信处理，与非 JSON 同向 fail-closed）；
 //   任何异常 → stderr 告警 + 转 ask（2026-10-31 收紧：静默 exit 0 会凭 hook 自身故障放行
 //     本该命中 deny 的命令；ask 只加确认、不硬阻塞工具调用）。
 // 清单来源：项目侧 .agents/settings.json（permissions.deny / ask，§5.2）→ 插件种子
@@ -214,6 +215,32 @@ const askDecision = (reason) => ({
   },
 });
 
+// 决策体输出（2026-11-05 收尾批）：write 返回 false 时旧实现只等 once('drain')——宿主已死
+// （读端已关）则 drain 永不来，进程悬到宿主 15s 超时被杀。等 drain 的同时挂一次性 error，
+// 先到者胜：EPIPE = 对端已不在，静默 exit 0（口径同 mcp/server.mjs 的 stdout error 处理）；
+// 其余错误 stderr 留痕后按失败退出，不给「写成功」的假象。onExit 在「写完即退」与「drain 后退」
+// 两路都会走（stdinKiller 的 stderr 诊断依赖这一点），error 臂独走。
+const writeAndExit = (text, onExit = () => process.exit(0)) => {
+  if (!text || process.stdout.write(text)) onExit();
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    process.stdout.removeListener('error', onError);
+    onExit();
+  };
+  const onError = (err) => {
+    if (settled) return;
+    settled = true;
+    process.stdout.removeListener('drain', finish);
+    if (err && err.code === 'EPIPE') process.exit(0);
+    process.stderr.write(`[ai-native-delivery hook] stdout 写入失败：${err && err.message ? err.message : err}\n`);
+    process.exit(1);
+  };
+  process.stdout.once('drain', finish);
+  process.stdout.once('error', onError);
+};
+
 function readStdin() {
   return new Promise((resolve) => {
     let raw = '';
@@ -251,13 +278,12 @@ const stdinKiller = () => {
   const text = JSON.stringify(
     askDecision('[ai-native-delivery 风险闸] hook 输入读取超时（stdin 未在共享预算内完成），无法做清单匹配——请向用户展示命令并确认后再执行。'),
   );
-  // 同步写完再退（复用顶层的 drain 手法）：宿主 15s 超时前必须送达 ask
+  // 同步写完再退（复用顶层 writeAndExit 的 drain/error 竞速）：宿主 15s 超时前必须送达 ask
   const diagThenExit = () => {
     process.stderr.write('[ai-native-delivery hook] stdin 未在共享预算内完成读取，兜底输出 ask 转人工\n');
     process.exit(0);
   };
-  if (process.stdout.write(text)) diagThenExit();
-  else process.stdout.once('drain', diagThenExit);
+  writeAndExit(text, diagThenExit);
 };
 
 async function main() {
@@ -271,21 +297,25 @@ async function main() {
   }
   let input = {};
   let jsonBroken = false;
-  if (!truncated) {
+  // 空 stdin（2026-11-05 收尾批）：raw.trim() 为空 = 宿主没喂任何输入——input={} 曾让判定落进
+  // 「非 shell 工具」静默放行，与坏 JSON/截断转 ask 的 fail-closed 方向相反。空输入同样不可信
+  // （连 tool_name 都不存在），与两者同向处理。
+  const emptyInput = !truncated && raw.trim() === '';
+  if (!truncated && !emptyInput) {
     // 坏 JSON 与截断同向处理（2026-10-27 修复）：两者都意味着「命令不可信、读不出来」。
     //   此前坏 JSON 被 catch 成 {} → tool_name='' → 判为「非 shell 工具」→ 静默放行——与截断
     //   转 ask 的 fail-closed 方向相反：宿主喂入非 JSON 时高风险 shell 命令可直接放行且无任何痕迹。
-    try { input = raw.trim() ? JSON.parse(raw) : {}; } catch { input = {}; jsonBroken = true; }
+    try { input = JSON.parse(raw); } catch { input = {}; jsonBroken = true; }
   }
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
   const command = commandOf(input.tool_input);
   // 管辖外（非 shell 工具）与输入不可信的走向：
-  //   输入不可信（截断 / 坏 JSON）→ fail-closed 转 ask，**先于非 shell 判定**——
+  //   输入不可信（截断 / 坏 JSON / 空 stdin）→ fail-closed 转 ask，**先于非 shell 判定**——
   //     宿主已用 matcher 把本 hook 限定在 shell 工具上，输入不可信时连 tool_name 都读不出，
   //     不能拿「读不出名字」当「非 shell 工具」静默放行；
   //   非 shell 工具 → 静默放行；shell 工具但缺 command 字段 → fail-closed 转 ask。
-  if (truncated || jsonBroken) {
-    const why = truncated ? '输入截断' : 'hook 输入不是合法 JSON';
+  if (truncated || jsonBroken || emptyInput) {
+    const why = truncated ? '输入截断' : emptyInput ? 'hook 输入为空' : 'hook 输入不是合法 JSON';
     return askDecision(`[ai-native-delivery 风险闸] hook 输入不完整（${why}），无法做清单匹配——请向用户展示命令并确认后再执行。`);
   }
   if (!applies(toolName)) {
@@ -340,9 +370,7 @@ async function main() {
 
 main()
   .then((out) => {
-    const text = out ? JSON.stringify(out) : '';
-    if (!text || process.stdout.write(text)) process.exit(0);
-    process.stdout.once('drain', () => process.exit(0));
+    writeAndExit(out ? JSON.stringify(out) : '');
   })
   .catch((e) => {
     // 内部故障转 ask（2026-10-31 市场审查）：能走到清单加载/匹配，输入已是「shell 工具 + 有
@@ -350,9 +378,7 @@ main()
     // 转 ask」的 fail-closed 方向相反。ask 不阻断（宿主只加一次确认），「绝不硬阻塞」的契约仍守。
     const msg = e && e.message ? e.message : String(e);
     process.stderr.write(`[ai-native-delivery hook] 风险闸内部故障，转 ask 由用户确认：${msg}\n`);
-    const text = JSON.stringify(
+    writeAndExit(JSON.stringify(
       askDecision(`[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`),
-    );
-    if (!text || process.stdout.write(text)) process.exit(0);
-    process.stdout.once('drain', () => process.exit(0));
+    ));
   });

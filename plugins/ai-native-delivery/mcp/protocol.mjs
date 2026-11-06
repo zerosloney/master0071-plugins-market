@@ -5,14 +5,16 @@
 
 import { tools, ToolError } from "./tools.mjs";
 
-// 协议版本：stdio 传输 initialize 握手可接受的 MCP 协议版本
-const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18"];
+// 协议版本：stdio 传输 initialize 握手可接受的 MCP 协议版本（2026-11-05 收尾批：从单一版本
+// 收成版本列表——只认一个版本时，客户端报**受支持的旧版本**也被回落声明，等于对受支持版本
+// 谎报不兼容；口径同 plugins/systemone-decision/mcp/server.mjs 的版本协商）。
+const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /* --------------------------------------------------------- MCP json-rpc */
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/ai-native-delivery/plugin.json 同步，由 `node scripts/release.mjs ai-native-delivery <x.y.z>` 统一改
-const SERVER_INFO = { name: 'ai-native-delivery', version: '0.1.12' };
+const SERVER_INFO = { name: 'ai-native-delivery', version: '0.1.13' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 
@@ -61,7 +63,10 @@ async function handle(message) {
       });
     case "notifications/initialized":
     case "initialized":
-      return undefined;
+      // 裸 initialized 带 id 的请求（2026-11-05 收尾批）：部分客户端把它发成请求而非通知——
+      // 不回包客户端会挂到自己的超时。能走到这里说明已过 id 闸（必带 id），回空 result 即可；
+      // 标准通知形态（无 id）根本进不了分派（server.mjs 与函数顶的 id 闸都拦），维持不回包。
+      return reply(id, {});
     case "ping":
       return reply(id, {});
     case "tools/list":

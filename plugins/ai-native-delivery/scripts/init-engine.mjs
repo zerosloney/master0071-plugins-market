@@ -203,7 +203,8 @@ export function initEngine(root) {
     let cur = null;
     try { cur = JSON.parse(fs.readFileSync(projEngine, 'utf8')); } catch { /* 损坏交由种子守门（缺文件才补） */ }
     if (cur && Number(cur.policyVersion) !== Number(seedEngine.policyVersion)) {
-      report.warnings.push(`项目 .agents/config/engine.json policyVersion=${cur.policyVersion} 与插件种子 ${seedEngine.policyVersion} 不同——可升级（手工对齐或删除该文件后重跑本脚本重新种子；初始化不自动覆盖）`);
+      const projV = cur.policyVersion === undefined ? '缺 policyVersion（按 v1 基线）' : `policyVersion=${cur.policyVersion}`;
+      report.warnings.push(`项目 .agents/config/engine.json ${projV} 与插件种子 ${seedEngine.policyVersion} 不同——可升级（手工对齐或删除该文件后重跑本脚本重新种子；初始化不自动覆盖）`);
     }
   }
 

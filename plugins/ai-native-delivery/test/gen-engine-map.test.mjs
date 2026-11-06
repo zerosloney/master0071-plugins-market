@@ -20,12 +20,20 @@ const check = (desc, cond, detail = '') => {
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-map-test-'));
 try {
-  // 夹具：钩子 2、SECTIONS hard 1 + hygiene 1、台账 现役 2（均带机制类型标记）+ 已退役 1（含复评挂号称）、命令/技能/角色各 1
+  // 夹具：钩子 2（2026-11 修复：落 **gitHooksDir 实化目录**——git 实际执行钩子的目录，与 init-engine
+  // 安装位同源；不再落源仓形态的 <root>/.githooks——插件形态没有该目录，旧锚恒取空集 →「钩子 0 个」）、
+  // SECTIONS hard 1 + hygiene 1、台账 现役 2（均带机制类型标记）+ 已退役 1（含复评挂号称）、命令/技能/角色各 1
   // 台账状态列带 `[检出型]` / `[健康静默]` 标记是生产实态（2026-10-22 起 35/45 行带标记）——生成器须按
   // 剥离后的状态计数，否则写出「现役 0」（真实发生过的漂移）。
-  fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.githooks', 'pre-commit'), '');
-  fs.writeFileSync(path.join(root, '.githooks', 'pre-push'), '');
+  spawnSync('git', ['init', '-q'], { cwd: root });
+  const gp = spawnSync('git', ['rev-parse', '--git-path', 'hooks'], { cwd: root, encoding: 'utf8' });
+  const hooksRel = String(gp.stdout || '').trim();
+  const hooksDir = path.isAbsolute(hooksRel) ? hooksRel : path.join(root, hooksRel);
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.writeFileSync(path.join(hooksDir, 'pre-commit'), '');
+  fs.writeFileSync(path.join(hooksDir, 'pre-push'), '');
+  // git init 自带的样例钩子（*.sample，git 不执行）不得计入钩子数
+  fs.writeFileSync(path.join(hooksDir, 'pre-commit.sample'), '');
   fs.mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(root, '.agents', 'scripts', 'check-loop.mjs'),
     "const SECTIONS = [\n  { lane: 'hard', run: s01_pairing },\n  { lane: 'hygiene', run: s18_delegations },\n];\n");
@@ -44,7 +52,8 @@ try {
   const mapPath = path.join(root, '.agents', 'notes', 'engine-map.md');
   const text = fs.existsSync(mapPath) ? fs.readFileSync(mapPath, 'utf8') : '';
   check('生成：exit 0 且落盘 engine-map.md', g.status === 0 && text.includes('# 引擎地图'), `${g.status}\n${g.stderr}`);
-  check('生成：钩子 2 个进表（pre-commit/pre-push）', text.includes('git 钩子 2 个') && text.includes('| pre-push |'));
+  check('生成：钩子 2 个进表（pre-commit/pre-push，gitHooksDir 实化取数 ≥1——修复前恒 0）', text.includes('git 钩子 2 个') && text.includes('| pre-push |'));
+  check('生成：钩子计数排除 *.sample（git init 样例钩子不执行，不入计）', text.includes('git 钩子 2 个') && !/\.sample/.test(text), text.split('\n').filter((l) => l.includes('钩子') || l.includes('sample')).join('\n'));
   check('生成：verify 门表来自真 GATES（含 secrets-scan）', /## verify 门表（\d+ 门/.test(text) && text.includes('secrets-scan'), text.slice(0, 400));
   check('生成：SECTIONS 计数 hard 1 + hygiene 1 且段名在场', text.includes('= hard 1 + hygiene 1') && text.includes('s01_pairing'), text);
   check('生成：台账摘要 现役 2（带类型标记）/ 已退役 1 且复评挂号称', text.includes('现役 2 / 已退役 1 / 待退役 0') && text.includes('甲门(2027-01-21)'), text);

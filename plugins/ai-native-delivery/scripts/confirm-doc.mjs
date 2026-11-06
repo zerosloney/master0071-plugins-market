@@ -139,13 +139,43 @@ export function applyTransition(text, targetStage, fingerprint16) {
 
 import { writeConfirmation, loadAllConfirmations } from './ledger-loader.mjs';
 import { delegationRowsOf, rowCovers } from './delegation-presence.mjs';
-import { projectRoot } from './paths.mjs';
+import { projectRoot, resolveProjectRoot, ledgerRefusal, testAnyRootAllowed } from './paths.mjs';
 
 // appendLedger(root, entry, opts)：追加一行 JSON（默认写 .agents/confirmations.d/<doc>.jsonl 分片；
 // opts.shard === false 或 CONFIRM_SHARDED=0 时写主台账 .agents/confirmations.jsonl）
 export function appendLedger(root, entry, opts = {}) {
   const useShard = opts.shard !== undefined ? Boolean(opts.shard) : process.env.CONFIRM_SHARDED !== '0';
   return writeConfirmation(root, entry, { shard: useShard });
+}
+
+// writeDocAtomic(abs, text)：用户文档原子写（2026-11-05）。裸 writeFileSync 先截断后写，
+// 进程中途崩溃会留下半写文档（frontmatter 半行 = 状态机读不出状态 = 死态）。同目录临时文件
+// + rename 保证要么旧要么新（沿 rewrite-file.mjs / git-merge-jsonl.mjs / compact-ledgers.mjs 惯例）。
+function writeDocAtomic(abs, text) {
+  const tmp = `${abs}.confirm-tmp`;
+  try {
+    fs.writeFileSync(tmp, text, 'utf8');
+    fs.renameSync(tmp, abs);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* tmp 可能尚未创建 */ }
+    throw new Error(`文档写入失败: ${abs} (${err.message})——原文件应保持原样，请重跑确认门`);
+  }
+}
+
+// confirmLedgerFirst(root, abs, nextText, entry, opts)：确认落态双写的事务化（2026-11-05）。
+// 旧序「先翻文档后写台账」的崩溃窗口产生死态：文档已翻、台账无行——重跑时状态机无合法跳转，
+// 确认行永久缺失（检查 15 对账永久红）。改为**台账先行**：同 doc+stage+fingerprint 的确认行
+// 已存在则跳过（幂等守卫——重跑场景），再翻文档；文档走 writeDocAtomic 原子写。崩溃窗口变为
+// 「台账有行、文档未翻」→ 重跑确认门自然补翻文档完成闭环，不再死态。返回台账落点（守卫命中时
+// 为占位说明，进成功回执）。
+export function confirmLedgerFirst(root, abs, nextText, entry, opts = {}) {
+  const dup = loadAllConfirmations(root).some((e) => e && e.doc === entry.doc
+    && e.stage === entry.stage && e.fingerprint === entry.fingerprint);
+  const ledgerFile = dup
+    ? '（台账已有同 doc/stage/fingerprint 确认行，未重复落账——补完上次中断的确认）'
+    : appendLedger(root, entry, opts);
+  writeDocAtomic(abs, nextText);
+  return ledgerFile;
 }
 
 const DOC_RE = /^workflow\/(intents|specs|plans|incidents)\/[^/]+\.md$/;
@@ -166,6 +196,7 @@ if (isMain) {
   // 根锚定 git root（paths.mjs 单源）：--root 显式指定仍优先；不指定时子目录调用也落仓库根，
   // 不把台账写进调用时的子目录（台账是项目级资产，位置必须唯一）。
   let root = projectRoot();
+  let rootExplicit = null; // --root 显式根（原样采信路径；fail-closed 门仍要求其在 git 仓库内）
   let delegatedQuote = null; // null = TTY 模式；字符串 = 委托代录的用户对话原话
   let toTarget = null; // null = 默认前向跳转；superseded|cancelled = 放弃态显式目标
   let autoMode = false; // AI 自治模式（信任等级授权，2026-09-30 ai-autonomy-trust）
@@ -179,7 +210,7 @@ if (isMain) {
   let shardMode = process.env.CONFIRM_SHARDED !== '0';
   const docs = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--root') root = path.resolve(argv[++i]);
+    if (argv[i] === '--root') { rootExplicit = path.resolve(argv[++i]); root = rootExplicit; }
     else if (argv[i] === '--delegated') delegatedQuote = argv[++i] ?? '';
     else if (argv[i] === '--to') toTarget = argv[++i] ?? '';
     else if (argv[i] === '--auto') autoMode = true;
@@ -274,6 +305,19 @@ if (isMain) {
       console.error('⚠️  Trusted 自动泳道（隐式）：单份 L1 文档按 AI 自治放行（Level 2 全闭环，台账 source=ai-auto-trust-L2）；L2/L3 与 incidents 仍须人工确认');
     } else {
       console.error('确认门须由用户在终端亲手运行（node <插件根>/scripts/confirm-doc.mjs <workflow/文档>...）——AI 会话内不可代确认；用户对话内明确确认后可用 --delegated "<用户原话>" 委托代录（台账如实记来源）');
+      process.exit(1);
+    }
+  }
+  // 写侧 fail-closed（2026-11-05）：确认门要写台账并翻文档，必须解析到使用项目的 git 仓库根
+  //（对齐 MCP requireRoot 口径）。projectRoot() 的 cwd 回退在非 git 目录（含 bare 仓，曾被
+  // 误诊为 git-unavailable）会把台账「就地」落进调用目录，违反「台账只落使用项目仓库根」不变量。
+  // 显式 --root 沿 paths.mjs ledgerRoot 的 explicit 语义原样采信路径，但同样须在 git 仓库内。
+  // 置于 TTY 门之后：调用形态拒绝（非 TTY 不可代确认）优先于环境拒绝——S9/S10 命题「TTY 门最先」不变。
+  {
+    const probe = resolveProjectRoot(rootExplicit || process.cwd());
+    if (!probe.root && !testAnyRootAllowed()) {
+      console.error(`❌ ${ledgerRefusal(probe.status, probe.detail)}`);
+      console.error('   hint: 在使用项目的 git 仓库内运行，或用 --root <仓库根> 显式指定（须在 git 仓库内）。');
       process.exit(1);
     }
   }
@@ -380,8 +424,8 @@ if (isMain) {
         refused++;
         continue;
       }
-      fs.writeFileSync(abs, rtext);
-      ledgerFile = appendLedger(root, {
+      // 台账先行 + 幂等守卫 + 文档原子翻面（2026-11-05 事务化，见 confirmLedgerFirst 头注）
+      ledgerFile = confirmLedgerFirst(root, abs, rtext, {
         ts: nowIso(), doc, stage: 'approved', fingerprint: rfp, prev: st,
         commit: rcommit,
         source: 'chat-delegated', quote: String(delegatedQuote),
@@ -569,8 +613,8 @@ if (isMain) {
         refused++;
         continue;
       }
-      fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-      ledgerFile = appendLedger(root, {
+      // 台账先行 + 幂等守卫 + 文档原子翻面（2026-11-05 事务化，见 confirmLedgerFirst 头注）
+      ledgerFile = confirmLedgerFirst(root, abs, applyTransition(text, target, fp.slice(0, 16)), {
         ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: `ai-auto-trust-L${trustConfig.level}`, quote: `AI 自治放行 (Trust Level ${trustConfig.level})`,
@@ -610,8 +654,8 @@ if (isMain) {
         }
         console.error(`⚠️  ${doc} ${detail}——advisory 放行，台账行进记 quoteGrounding=${grounding.reason} 供事后对质`);
       }
-      fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-      ledgerFile = appendLedger(root, {
+      // 台账先行 + 幂等守卫 + 文档原子翻面（2026-11-05 事务化，见 confirmLedgerFirst 头注）
+      ledgerFile = confirmLedgerFirst(root, abs, applyTransition(text, target, fp.slice(0, 16)), {
         ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
         commit: commitFp,
         source: 'chat-delegated', quote: String(delegatedQuote),
@@ -641,8 +685,8 @@ if (isMain) {
       console.log(`× 已跳过 ${doc}（未落状态）`);
       continue;
     }
-    fs.writeFileSync(abs, applyTransition(text, target, fp.slice(0, 16)));
-    ledgerFile = appendLedger(root, {
+    // 台账先行 + 幂等守卫 + 文档原子翻面（2026-11-05 事务化，见 confirmLedgerFirst 头注）
+    ledgerFile = confirmLedgerFirst(root, abs, applyTransition(text, target, fp.slice(0, 16)), {
       ts: nowIso(), doc, stage: target, fingerprint: fp, prev: st,
       commit: commitFp,
       source: 'tty',

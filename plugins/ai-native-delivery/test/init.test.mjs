@@ -232,6 +232,37 @@ const snapDiff = (a, b) => {
   fs.rmSync(main, { recursive: true, force: true });
 }
 
+// ---- ⑧ 项目 engine.json 缺 policyVersion → WARN 文案点名缺键而非 undefined（2026-11-05 市场审查）----
+// Number(undefined)=NaN 恒 ≠ 种子版本，WARN 照触发——但旧文案打出 policyVersion=undefined，
+// 把「键缺失」伪装成「版本号为 undefined」。policy.mjs 对缺键按 v1 基线执法，文案须与此对齐。
+{
+  const root = mkRepo();
+  fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+  const custom = path.join(root, '.agents', 'config', 'engine.json');
+  fs.writeFileSync(custom, JSON.stringify({ convergenceCommands: [] }), 'utf8');
+  const r = initEngine(root);
+  const w = r.warnings.find((x) => x.includes('engine.json'));
+  check('⑧ 缺 policyVersion → WARN 触发', Boolean(w), JSON.stringify(r.warnings));
+  check('⑧ WARN 文案点名缺 policyVersion（不出现 undefined）', Boolean(w) && w.includes('缺 policyVersion') && !w.includes('undefined'), w);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑨ 钩子引擎脚本缺席 → fail-closed 不变、stderr 无 MODULE_NOT_FOUND 栈（2026-11-05 市场审查）----
+// 旧模板先 spawn 再判缺席：node 先吐满屏 MODULE_NOT_FOUND 栈，修复指引淹没在噪音里。改为 spawn 前
+// existsSync 预检——退出码与指引文本不变（fail-closed），只消噪音。pre-push 同模板，改一处即两处同款。
+{
+  const root = mkRepo();
+  initEngine(root);
+  const pre = path.join(root, '.git', 'hooks', 'pre-commit');
+  const stale = path.join(root, 'gone', 'check-loop.mjs');
+  const body = fs.readFileSync(pre, 'utf8').replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(stale)}`);
+  fs.writeFileSync(pre, body, 'utf8');
+  const r = spawnSync(process.execPath, [pre], { encoding: 'utf8' });
+  check('⑨ 钩子 fail-closed：exit 1 + 指引在 stderr', r.status === 1 && /无法启动闭环扫描/.test(r.stderr), `status=${r.status} stderr=${(r.stderr || '').slice(0, 200)}`);
+  check('⑨ stderr 无 MODULE_NOT_FOUND 栈噪音', !/MODULE_NOT_FOUND|Cannot find module/.test(r.stderr || ''), (r.stderr || '').slice(0, 200));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // 汇总 + 退出码（2026-10-27 修复：本文件此前无汇总、无 process.exit——断言全挂也返回 0，CI 永不红）
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

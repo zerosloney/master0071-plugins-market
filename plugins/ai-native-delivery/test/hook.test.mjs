@@ -365,5 +365,39 @@ const mkRepo = () => {
     `stdout=${cat.stdout} stderr=${cat.stderr}`);
 }
 
+// ---- ⑬ 空 stdin → fail-closed 转 ask（2026-11-05 收尾批 ③）----
+// 空 stdin 旧实现 input={} → tool_name='' → 判「非 shell 工具」静默放行——与坏 JSON/截断转 ask
+// 的 fail-closed 方向相反。已裁决：空输入同样按不可信处理转 ask（reason 说明 hook 输入为空）。
+{
+  for (const [label, raw] of [['空串', ''], ['纯空白', '  \n ']]) {
+    const r = spawnSync(process.execPath, [HOOK], { input: raw, encoding: 'utf8', cwd: process.cwd(), env: { ...process.env } });
+    const d = decisionOf(r);
+    check(`空 stdin（${label}）→ exit 0（宿主协议）`, r.status === 0, `exit=${r.status} stderr=${r.stderr}`);
+    check(`空 stdin（${label}）→ fail-closed 转 ask（不再静默放行）`, d && d.permissionDecision === 'ask', r.stdout);
+    check(`空 stdin（${label}）→ 理由点明输入为空`, d && /输入为空/.test(d.permissionDecisionReason || ''), d && d.permissionDecisionReason);
+  }
+}
+
+// ---- ⑭ 决策体 write 撞断管 → EPIPE 静默 exit 0（2026-11-05 收尾批 ⑦）----
+// 决策体 write 返回 false 时旧实现只等 once('drain')：宿主已死（读端已销毁）则 drain 永不来，
+// 进程悬到宿主 15s 超时；更常见的是 write 直接撞 EPIPE——旧实现无 error 处理，uncaught 崩栈
+// exit 1。修复后等 drain 的同时挂一次性 error，先到者胜；EPIPE 静默 exit 0（口径同
+// mcp/server.mjs 的 stdout error 处理）。
+{
+  const out = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [HOOK], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderrTxt = '';
+    child.stderr.on('data', (c) => { stderrTxt += c; });
+    child.stdout.destroy(); // 先销毁读端：决策体 write 必撞断管
+    child.stdin.end(JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git push -f' } }));
+    const guard = setTimeout(() => child.kill(), 8000);
+    child.on('exit', (code) => { clearTimeout(guard); resolve({ code, stderrTxt }); });
+    child.on('error', () => { clearTimeout(guard); resolve({ code: -1, stderrTxt }); });
+  });
+  check('宿主销毁 stdout 读端 → 决策体写挂 exit 0（EPIPE 静默，不崩栈/不悬死）', out.code === 0,
+    `exit=${out.code} stderr=${out.stderrTxt.slice(0, 200)}`);
+  check('stderr 无 EPIPE 崩栈痕迹', !/EPIPE|Unhandled/i.test(out.stderrTxt), out.stderrTxt.slice(0, 200));
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

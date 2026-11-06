@@ -7,27 +7,41 @@
 //     「非 git 仓」（status≠0、无 error）仍是合法装户语义、静默降级
 //   - 只读查询记忆化：同参（含 cwd）复用结果；带 error 的基础设施失败不缓存（保留重试语义）
 //   - maxBuffer 32MB（pickaxe/name-only 大输出）
+//   - git 子进程默认超时上界 GIT_TIMEOUT_MS（2026-11-05 Minor：无 timeout 的 spawnSync——一次挂起的 git
+//     挂死所有门禁）。先例：worktree-ops runGitProcess（DEFAULT_GIT_TIMEOUT_MS + killSignal + 可读超时
+//     错误）。取 60s 量级（引擎侧 git 调用皆秒级只读查询/短写，60s 已含慢盘/杀软扫描余量）；
+//     CHECK_LOOP_GIT_TIMEOUT_MS 为测试注入点（与 CHECK_LOOP_GIT 同风格，生产不设）。超时错误翻译为
+//     可读告警（spawnSync ETIMEDOUT 形态），带 error 的结果不入缓存（保留重试语义）。
 import { spawnSync } from 'node:child_process';
 
 export const GIT = process.env.CHECK_LOOP_GIT || (process.platform === 'win32' ? 'git.exe' : 'git');
 
+export const GIT_TIMEOUT_MS = (() => {
+  const n = Number(process.env.CHECK_LOOP_GIT_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 60_000;
+})();
+
 const GIT_TRANSIENT = new Set(['EAGAIN', 'EPERM', 'EMFILE', 'EINTR']);
 const GIT_RESULT_CACHE = new Map(); // 键 = cwd + NUL + args.join(NUL)（多仓安全：confirm-doc 等 root 参数调用方）
 let infraWarned = false;
-function warnInfra(args, code) {
+function warnInfra(args, err) {
   if (infraWarned) return;
   infraWarned = true;
-  console.error(`git-core: git 探测异常 ${args[0]}（${code}）——按非 git 仓降级，检查面可能收窄`);
+  const timedOut = err && (err.code === 'ETIMEDOUT' || err.killed === true);
+  console.error(timedOut
+    ? `git-core: git 命令超时被中止（上限 ${GIT_TIMEOUT_MS}ms）：${args[0]}——挂起的 git 不再挂死门禁，按非 git 仓降级，检查面可能收窄`
+    : `git-core: git 探测异常 ${args[0]}（${(err && (err.code || err.message)) || err}）——按非 git 仓降级，检查面可能收窄`);
 }
 
 export function spawnGit(args, cwd) {
   const cacheKey = cwd + '\u0000' + args.join('\u0000');
   if (GIT_RESULT_CACHE.has(cacheKey)) return GIT_RESULT_CACHE.get(cacheKey);
-  const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 };
+  const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL' };
   let r = spawnSync(GIT, args, opts);
   if (r.error) {
+    // 超时（ETIMEDOUT）不在瞬时集：挂起的 git 重试只是再挂一个 GIT_TIMEOUT_MS，单次即出账
     if (GIT_TRANSIENT.has(r.error.code)) r = spawnSync(GIT, args, opts);
-    if (r.error) warnInfra(args, r.error.code || r.error.message);
+    if (r.error) warnInfra(args, r.error);
   }
   if (!r.error) GIT_RESULT_CACHE.set(cacheKey, r);
   return r;

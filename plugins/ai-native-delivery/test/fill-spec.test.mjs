@@ -258,5 +258,45 @@ const runTool = (root, base) => spawnSync(process.execPath,
     JSON.stringify({ failedLines: negBad }));
 }
 
+// ---- 场景 23-25：CLI 输出守卫（2026-11-05 台账族 Minor#9：存在守卫 / 工作区围栏 / 换行注入）----
+{
+  // ① 存在守卫：--output 已存在 → 拒绝（--force 才覆盖）。旧实现静默覆盖——approved/done spec
+  //    会被打回 draft 模板（不可逆内容损失）。
+  const root = mkws({ entryFile: 'intents/2026-11-05-g.md', entryBody: '---\n状态: approved\n级别: L1\n日期: 2026-01-01\n---\n# I\n' });
+  const out = path.join(root, 'workflow', 'specs', '2026-11-05-g.md');
+  fs.writeFileSync(out, '---\n状态: approved\n---\n已确认 spec');
+  const r1 = spawnSync(process.execPath, [CLI, '--topic', '2026-11-05-g', '--output', out], { cwd: root, encoding: 'utf8' });
+  check('S23 --output 已存在 → 拒绝覆盖（旧实现静默打回 draft 模板）',
+    r1.status === 1 && /拒绝覆盖/.test(r1.stderr) && fs.readFileSync(out, 'utf8').includes('状态: approved'),
+    JSON.stringify({ status: r1.status, stderr: r1.stderr }));
+  const r2 = spawnSync(process.execPath, [CLI, '--topic', '2026-11-05-g', '--output', out, '--force'], { cwd: root, encoding: 'utf8' });
+  check('S23b --force 显式覆盖放行（入口已确认，起草门照过）',
+    r2.status === 0 && fs.readFileSync(out, 'utf8').includes('状态: draft'),
+    JSON.stringify({ status: r2.status, stderr: r2.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ② 工作区围栏：output 落在 workflow/ 树内 → 必须在 workflow/specs/（错子目录拒；仓外草稿不受围栏）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-spec-fence-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  const out = path.join(root, 'workflow', 'plans', '2026-11-05-fence.md');
+  const r = spawnSync(process.execPath, [CLI, '--topic', 't', '--output', out], { cwd: root, encoding: 'utf8' });
+  check('S24 围栏：workflow 树内错子目录 → 拒（spec 只落 workflow/specs/）',
+    r.status === 1 && /围栏拒绝/.test(r.stderr) && !fs.existsSync(out),
+    JSON.stringify({ status: r.status, stderr: r.stderr }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // ③ 换行注入：--topic 自由文本剥换行——旧实现可借换行向正文注入任意分节（RED：出现独立注入节）
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fill-spec-inject-'));
+  const out = path.join(root, 'x.md');
+  const r = spawnSync(process.execPath, [CLI, '--topic', 't\n\n## 注入节', '--output', out], { cwd: root, encoding: 'utf8' });
+  const body = fs.readFileSync(out, 'utf8');
+  check('S25 --topic 换行剥单行（正文标题不被注入分节）',
+    r.status === 0 && /^# SPEC — t\s+## 注入节$/m.test(body) && !/^## 注入节$/m.test(body),
+    body.slice(0, 160));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log('\n合计: PASS ' + pass + ' / FAIL ' + failCount);
 process.exit(failCount ? 1 : 0);

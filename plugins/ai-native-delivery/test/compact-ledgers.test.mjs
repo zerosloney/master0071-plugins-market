@@ -15,6 +15,12 @@ const check = (name, cond, detail = '') => {
 // 子进程按坏路径启动 → status 1 / 空 stdout（2026-10-17 实证）
 const cliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'compact-ledgers.mjs');
 
+// 2026-11-05 CLI 写侧 fail-closed（非 git 目录拒写台账，paths.mjs testAnyRootAllowed）的
+// **仅测试**逃生门：本套件夹具是非 git 临时目录（历史「就地操作」契约）。双条件须同时
+// NODE_ENV=test（生产路径不设）。子进程默认继承本进程 env，套件内既有场景零改动。
+process.env.NODE_ENV = 'test';
+process.env.LEDGER_CLI_TEST_ANYROOT = '1';
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-'));
 
 try {
@@ -130,6 +136,62 @@ try {
   } finally {
     fs.rmSync(tmp4, { recursive: true, force: true });
   }
+}
+
+// 场景E：含空行主台账经 compact 后空行仍在（2026-11-05 台账族 Minor#5）
+// 旧实现 mergeJsonlLines 剥掉主台账内部空行（RED）——compact 后主台账不再是其旧 blob 的
+// 逐字节前缀扩展，提交会被 check-ledger-invariant 判 HARD-BLOCK（自家门禁拦自家归并）。
+{
+  const tmp5 = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-'));
+  try {
+    const mainLedger5 = path.join(tmp5, '.agents', 'confirmations.jsonl');
+    const shardDir5 = path.join(tmp5, '.agents', 'confirmations.d');
+    fs.mkdirSync(shardDir5, { recursive: true });
+    fs.writeFileSync(mainLedger5, '{"id":30}\n\n{"id":31}\n'); // 主台账内部空行
+    fs.writeFileSync(path.join(shardDir5, 'shard-e.jsonl'), '{"id":32}\n');
+
+    const proc5 = spawnSync(process.execPath, [cliPath], { cwd: tmp5, encoding: 'utf8' });
+
+    const merged5 = fs.readFileSync(mainLedger5, 'utf8');
+    check('S19 含空行主台账 compact → 空行仍在（旧实现被剥）',
+      proc5.status === 0 && merged5 === '{"id":30}\n\n{"id":31}\n{"id":32}\n', merged5);
+  } finally {
+    fs.rmSync(tmp5, { recursive: true, force: true });
+  }
+}
+
+// 场景F：bare 仓 / 非 git 目录 → 拒绝收缩（2026-11-05 台账族 Minor#4 CLI 写侧 fail-closed）
+// 旧口径 projectRoot() 回退 cwd（RED：主台账在 cwd 被整写）。用例显式关掉本文件顶部的逃生门。
+{
+  const GITBIN = process.platform === 'win32' ? 'git.exe' : 'git';
+  const noEscape = { ...process.env, NODE_ENV: '', LEDGER_CLI_TEST_ANYROOT: '' };
+
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-bare-'));
+  spawnSync(GITBIN, ['init', '-q', '--bare'], { cwd: bare });
+  const bareMain = path.join(bare, '.agents', 'confirmations.jsonl');
+  const bareShard = path.join(bare, '.agents', 'confirmations.d');
+  fs.mkdirSync(bareShard, { recursive: true });
+  fs.writeFileSync(bareMain, '{"id":40}\n');
+  fs.writeFileSync(path.join(bareShard, 'shard-f.jsonl'), '{"id":41}\n');
+  const pBare = spawnSync(process.execPath, [cliPath], { cwd: bare, encoding: 'utf8', env: noEscape });
+  check('S20a bare 仓 compact → 非零拒写（bare 不再误诊 git-unavailable）',
+    pBare.status !== 0 && /拒绝写台账/.test(pBare.stderr), `status=${pBare.status} err=${pBare.stderr}`);
+  check('S20b bare 仓主台账原样、分片未删',
+    fs.readFileSync(bareMain, 'utf8') === '{"id":40}\n' && fs.existsSync(path.join(bareShard, 'shard-f.jsonl')));
+
+  const nongit = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-nongit-'));
+  const ngMain = path.join(nongit, '.agents', 'confirmations.jsonl');
+  const ngShard = path.join(nongit, '.agents', 'confirmations.d');
+  fs.mkdirSync(ngShard, { recursive: true });
+  fs.writeFileSync(ngMain, '{"id":42}\n');
+  fs.writeFileSync(path.join(ngShard, 'shard-g.jsonl'), '{"id":43}\n');
+  const pNg = spawnSync(process.execPath, [cliPath], { cwd: nongit, encoding: 'utf8', env: noEscape });
+  check('S20c 非 git 目录 compact → 非零拒写（不「就地」落 cwd）',
+    pNg.status !== 0 && /拒绝写台账/.test(pNg.stderr), `status=${pNg.status} err=${pNg.stderr}`);
+  check('S20d 非 git 目录主台账原样', fs.readFileSync(ngMain, 'utf8') === '{"id":42}\n');
+
+  fs.rmSync(bare, { recursive: true, force: true });
+  fs.rmSync(nongit, { recursive: true, force: true });
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

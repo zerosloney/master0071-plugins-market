@@ -167,6 +167,38 @@ const run = (root, args = []) => spawnSync(process.execPath, [GEN, ...args], { c
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 8：空仓守卫（2026-11 Minor）——workflow/<type> 目录缺失按空集处理，生成器不崩 ----
+// 修复前：scan 对 workflow/<type> 直接 readdirSync，空仓/新仓 ENOENT 崩栈；生成器对空仓是
+// 合法调用（机制先于数据建账），缺目录按空集 + 输出说明行（对照 workflow-enums 的 fail-loud：
+// 枚举缺失是配置断裂，而「尚无该类文档」是正常形态，不崩）。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-workflow-index-empty-'));
+  const r = run(root);
+  const idx = fs.existsSync(path.join(root, 'workflow', 'INDEX.md'))
+    ? fs.readFileSync(path.join(root, 'workflow', 'INDEX.md'), 'utf8') : '';
+  check('场景 8：完全空仓（无 workflow/）→ exit 0', r.status === 0, `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  check('场景 8：INDEX.md 照常生成且活跃 0', idx.includes('## 活跃（0）'), `idxLen=${idx.length}\n${r.stderr}`);
+  check('场景 8：缺目录出说明行（不静默吞）', /缺目录.*按空集/.test(r.stderr), r.stderr);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 9：部分缺目录（workflow/ 只有 intents/）→ 同样空集不崩，在场类型正常入表 ----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-workflow-index-part-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'intents'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'intents', '2026-10-01-x.md'), doc(
+    '状态: draft\n级别: L1\n日期: 2026-10-01\n模块: pipeline',
+    'INTENT — 仅存的需求',
+  ), 'utf8');
+  const r = run(root);
+  const idx = fs.existsSync(path.join(root, 'workflow', 'INDEX.md'))
+    ? fs.readFileSync(path.join(root, 'workflow', 'INDEX.md'), 'utf8') : '';
+  check('场景 9：缺 specs/plans/incidents → exit 0 且 intents 正常入表',
+    r.status === 0 && idx.includes('| INTENT |') && idx.includes('## 活跃（1）'), `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  check('场景 9：说明行点名缺失类型', /specs、plans、incidents/.test(r.stderr), r.stderr);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);
