@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // agent-pipelines 等价性锚定测试：提示词文档 ↔ scripts/state.mjs 双实现防漂移。
 // 命令/SKILL 提示词文档（供无 shell 宿主手写执行）与 scripts/state.mjs（有 shell 宿主走脚本）
-// 是同一套编排规则的两份实现。本测试从 state.mjs 源码提取常量，与 4 份文档
-// （commands/、skills/ 下的 ralph/coding）写死的规则逐一比对（A 部分），
-// 再用最小合法状态跑 `state.mjs gate`，验证文档声明的判停规则与优先级和脚本实际输出一致（B 部分）。
-// 文档与脚本漂移时，以脚本为唯一事实来源修文档，不改脚本行为。
+// 是同一套编排规则的两份实现。本测试 import scripts/pipelines.mjs 的共享常量
+// （PIPELINES / attemptLimit / STOP_REASONS 单源于此），并从 state.mjs 源码提取仅存于该
+// 文件的 init 默认值，与 4 份文档（commands/、skills/ 下的 ralph/coding）写死的规则逐一比对
+// （A 部分），再用最小合法状态跑 `state.mjs gate`，验证文档声明的判停规则与优先级和脚本
+// 实际输出一致（B 部分）。文档与脚本漂移时，以脚本为唯一事实来源修文档，不改脚本行为。
 import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PIPELINES, STOP_REASONS, attemptLimit } from "../scripts/pipelines.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stateScript = path.join(root, "scripts", "state.mjs");
@@ -26,32 +28,26 @@ const check = (label, ok, detail = "") => {
   }
 };
 
-console.log("\n== 源码常量提取 ==");
+console.log("\n== 共享常量锚定 ==");
+// 管道参数与枚举本体单源在 scripts/pipelines.mjs，直接 import 与文档比对，不再刮 state.mjs
+// 源码——原先的正则只锚定 state.mjs 里那份拷贝；搬家后锚定语义不变（文档数值 ↔ 实际常量）。
 const source = readFileSync(stateScript, "utf8");
 
 const specs = {};
 for (const pipeline of ["ralph", "coding"]) {
-  const match = source.match(new RegExp(`${pipeline}:\\s*\\{\\s*maxCycles:\\s*(\\d+),\\s*stallMax:\\s*(\\d+)\\s*\\}`));
-  check(`脚本 PIPELINES.${pipeline} 常量存在`, Boolean(match));
-  if (match) specs[pipeline] = { maxCycles: Number(match[1]), stallMax: Number(match[2]) };
+  const spec = PIPELINES[pipeline];
+  check(
+    `pipelines.mjs PIPELINES.${pipeline} 常量存在`,
+    Boolean(spec) && Number.isInteger(spec.maxCycles) && Number.isInteger(spec.stallMax),
+  );
+  if (spec) specs[pipeline] = { maxCycles: spec.maxCycles, stallMax: spec.stallMax };
 }
 
-const attemptMatch = source.match(/const attemptLimit\s*=\s*(\d+)/);
-check("脚本 attemptLimit 常量存在", Boolean(attemptMatch));
-const attemptLimit = attemptMatch ? Number(attemptMatch[1]) : -1;
+check("pipelines.mjs attemptLimit 常量存在", Number.isInteger(attemptLimit));
 
-const stopMatch = source.match(/const STOP_REASONS\s*=\s*new Set\(\[([^\]]*)\]\)/);
-check("脚本 STOP_REASONS 常量存在", Boolean(stopMatch));
-const stopReasons = new Set(
-  stopMatch
-    ? stopMatch[1]
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map((item) => (item === "null" ? null : item.replace(/^"|"$/g, "")))
-    : [],
-);
-check("脚本 STOP_REASONS 解析非空", stopReasons.size > 0 && stopReasons.has(null), JSON.stringify([...stopReasons]));
+check("pipelines.mjs STOP_REASONS 常量存在", STOP_REASONS instanceof Set);
+const stopReasons = STOP_REASONS;
+check("pipelines.mjs STOP_REASONS 解析非空", stopReasons.size > 0 && stopReasons.has(null), JSON.stringify([...stopReasons]));
 
 const failuresMatch = source.match(/max_failures:\s*(\d+)/);
 check("脚本 init max_failures 默认存在", Boolean(failuresMatch));

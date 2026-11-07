@@ -42,9 +42,10 @@ type: git_ref | git_status_snapshot | fingerprint | none
 ## 审查协议
 
 ### Full mode（默认）
+- **输入完整性守卫**：缺少本轮 diff 或声明边界任一段落时，不进入审查，直接输出 verdict="REJECT"、scope_drift="FAIL"、reason="missing_input"。
 - **语义审查**：diff 是否真的解决了任务声明的根因，不是"看起来改了"。
 - **scope drift 检测**：diff 触及的文件路径是否全部落在 hard_scope ∪ soft_scope 内。一行越界即 `scope_drift="FAIL"`。
-- **验证结果复核**：执行者的 check_results 是否可信；MISSING 是否真实；证据不足或可疑时打回，要求 Builder 重跑或补充证据。
+- **验证结果复核**：执行者的 `verification` 是否可信；MISSING 是否真实；证据不足或可疑时打回，要求 Builder 重跑或补充证据。
 - **零证据禁令**：detected_stack 非空且 scripts_gap=true（即验证脚本至少一项 MISSING）时，verdict 不得为 PASS。
 
 ### Lite mode（risk_level=low 且本轮 diff < 50 行时自动启用）

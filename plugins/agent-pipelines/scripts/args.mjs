@@ -1,5 +1,5 @@
 // agent-pipelines 共享参数解析：5 个脚本此前各自复制同一份 parseArgs，任一改动需同步 5 处。
-// 语法：--key value / --key=value / --key（布尔真）；非 -- 开头进位置参数 _。
+// 语法：--key value / --key=value / --key（布尔真）；不接受位置参数。
 //
 // 本版把「无法识别的 -- 形式」显式化——旧实现「下一项以 -- 开头就当布尔」，会静默吞掉值：
 //   `--forbidden --weird` → forbidden 被置成 true（scope 规则整条消失），还凭空多出一个 --weird 键。
@@ -13,14 +13,17 @@
 //     旧实现让 args.file 落成 ""，脚本侧 `if (args.file)` 判假，静默回退默认路径——用户以为
 //     写进了指定文件、实际写去了别处。未传该开关仍走各脚本自己的默认值，语义不变。
 //   - 未登记的 -- 形式按未知参数报错并列出已知开关，不静默吞掉。
+//   - 非 -- 开头的非空参数按位置参数报错（2026-11-07，审计 Nit 1）：旧实现收集进 out._ 但
+//     所有脚本均无消费者——`state.mjs validate mypath.json`（漏写 --file）会静默校验默认
+//     路径，用户传的路径凭空消失还报正常退出。裸空串（引用事故）无语义，维持静默跳过。
 export function parseArgs(argv, spec = {}) {
   const booleans = new Set(spec.boolean || []);
   const values = new Set(spec.value || []);
-  const out = { _: [] };
+  const out = {};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (!arg.startsWith("--")) {
-      out._.push(arg);
+      if (arg !== "") fail(`unexpected positional argument "${arg}"; no positional arguments are accepted — pass the state file with --file <path>`);
       continue;
     }
     const body = arg.slice(2);

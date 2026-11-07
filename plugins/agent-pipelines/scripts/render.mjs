@@ -7,13 +7,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "./args.mjs";
 import { analyzeDependencies } from "./dag.mjs";
-
-const PIPELINES = {
-  ralph: { label: "Ralph Pipeline", color: "#6366f1" },
-  coding: { label: "Coding Pipeline", color: "#0f766e" },
-};
-const STATUS = new Set(["pending", "in_progress", "done", "blocked"]);
-const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL", "MAX_CYCLES", "STOPPED"]);
+import { readEvents } from "./state-persist.mjs";
+// STATUS 与 state.mjs 的 TASK_STATUS 是同一份枚举（单源 pipelines.mjs），这里沿用局部别名
+import { PIPELINES, STOP_REASONS, TASK_STATUS as STATUS } from "./pipelines.mjs";
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -22,7 +18,10 @@ function fail(message) {
 
 export function pipelineOf(args) {
   const pipeline = typeof args.pipeline === "string" ? args.pipeline : "coding";
-  if (!PIPELINES[pipeline]) throw new Error(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);
+  // 校验失败直接 fail 而非 throw（2026-11-07，对齐 state.mjs 的 pipelineOf 与 args.mjs 的 parseArgs）：
+  // 此前抛 Error 无人接——render.main 不 try/catch、serve.mjs 在模块顶层裸调（无 main 守卫），
+  // bogus --pipeline 崩栈 exit 1，恰是契约里的 FAIL 码；契约要求参数错误 → 一行干净报错 + 退出码 2。
+  if (!PIPELINES[pipeline]) fail(`--pipeline must be one of: ${Object.keys(PIPELINES).join(", ")}`);
   return pipeline;
 }
 
@@ -145,29 +144,13 @@ export function loadState(file) {
 }
 
 export function loadEvents(file) {
-  const events = [];
-  const eventsPath = file.replace(/\.json$/, ".events.jsonl");
-  // 轮转段 `.1` 在前、当前文件在后（`.1` 是较早的一段），与 state.mjs:readEvents 同一口径。
-  // 2026-11-01 修复：此前只打开当前一个文件，而 state.mjs 在 5 MiB 处轮转——轮转发生后
+  // 2026-11-01 修复史：此前本函数只打开当前一个文件，而 state.mjs 在 5 MiB 处轮转——轮转发生后
   // 看板与静态 HTML 上的历史事件静默消失（render/serve 读得到状态、读不到早段事件）。
   // README.md:67 的「合并轮转段」承诺此前只写在 events 子命令那一段，render 侧没兑现。
-  for (const p of [`${eventsPath}.1`, eventsPath]) {
-    if (!existsSync(p)) continue;
-    let text;
-    try {
-      text = readFileSync(p, "utf8");
-    } catch {
-      continue; // 观测面读失败不挡住渲染，与 state.mjs 同取舍
-    }
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line);
-        if (event && typeof event === "object") events.push(event);
-      } catch {}
-    }
-  }
-  return events;
+  // 修复时曾内联一份「轮转段 `.1` 在前、当前段在后」的合并读；双实现去重后读取委托
+  // state-persist.readEvents 单源（同一口径）。这里只剩 render 侧的消费守卫：
+  // 损坏日志里的非对象行（如裸 `null` 行）不进渲染——renderEventRow 会对 null 取属性崩溃。
+  return readEvents(file, 0).filter((event) => event && typeof event === "object");
 }
 
 export function buildHtml({ pipeline, file, state, events, graph, warnings, live = false }) {
@@ -301,6 +284,17 @@ function main() {
   // 与首渲染到新路径的合法流程不受影响。
   if (args.out && existsSync(out) && path.extname(out) !== ".html") {
     fail(`--out refuses to overwrite an existing non-HTML file: ${out} (event logs and state files cannot be rebuilt); pass a .html path`);
+  }
+  // 显式 --out 命中事件日志/边车标记的派生路径时无条件拒绝（2026-11-07，审计 m3 及续单）：上一条
+  // 只拦「已存在」，拦不住尚未诞生的派生文件——`render --out <状态>.events.jsonl` 首次 exit 0 把
+  // HTML 写进未来日志路径，此后 state.mjs 首次 write 会把 JSONL 追加进 HTML；`--out
+  // <状态>.promise.json` 同理，promise 子命令的 tmp+rename 此后会把整个 HTML 顶掉。派生规则与
+  // state-persist 同款（eventsFile：同目录、基名 .json → .events.jsonl；promiseFile：.json →
+  // .promise.json），轮转段 `.1` 一并 reserved；默认输出是 .html，永不命中。
+  const eventsLog = path.join(path.dirname(file), `${path.basename(file).replace(/\.json$/, "")}.events.jsonl`);
+  const promisePath = `${file.replace(/\.json$/, "")}.promise.json`;
+  if (out === eventsLog || out === `${eventsLog}.1` || out === promisePath) {
+    fail(`--out refuses a reserved state-derived path: ${out} (${path.basename(eventsLog)} / ${path.basename(promisePath)} are written by state.mjs whether or not they exist yet); pass a .html path`);
   }
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, buildHtml({ pipeline, file, state, events, graph, warnings }), "utf8");

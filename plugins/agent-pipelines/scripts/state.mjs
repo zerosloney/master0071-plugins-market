@@ -1,23 +1,20 @@
 #!/usr/bin/env node
-// agent-pipelines 状态机辅助：init / validate / write / gate。
+// agent-pipelines 状态机辅助：init / validate / write / gate / events / root-causes / promise。
 // 提示词仍是主入口；宿主能执行 shell 时用本脚本落盘与判停，不能执行时退回 SKILL 里的手写规则。
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+// 三缝分层（2026-11-07）：持久化原语（原子写/事件日志/文件锁）在 state-persist.mjs、
+// 域逻辑（validateState/gateFor/recheckScope 等）在 state-core.mjs；本文件只留 CLI——
+// args 解析、子命令分发、init 与 git exclude 登记这类 IO 编排。行为与拆分前逐字一致。
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "./args.mjs";
+import { PIPELINES } from "./pipelines.mjs";
+import { isObject, logEvent, promiseFile, readEvents, readPromiseValue, readState, readStateSoft, withLock, writeAtomic } from "./state-persist.mjs";
+import { applyGate, diffTaskStatus, gateFor, groupTasksByRootCause, looksLikeState, validateState } from "./state-core.mjs";
 
-const PIPELINES = {
-  ralph: { maxCycles: 10, stallMax: 3 },
-  coding: { maxCycles: 8, stallMax: 2 },
-};
-const TASK_STATUS = new Set(["pending", "in_progress", "done", "blocked"]);
-const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD", "STALL", "MAX_CYCLES", "STOPPED"]);
-// 字符串上限（LLM 消费面的注入/泛洪缓解）：id/title/criteria 是执行者可写的字符串，会被原样拼进
-// gate reason、root-causes/events stdout。数据形状在写入口（validateState）定死，超限 fail-loud 拒绝；
-// 错误消息点名字段、上限、实际长度，但不回显超限值本身——错误消息也是消费面，不能成为泛洪面。
-const LIMIT_ID = 64; // task.id / root_cause_group / critical_checkpoints[].id
-const LIMIT_TITLE = 200; // task.title
-const LIMIT_CRITERION = 300; // accept_criteria 单条
+// 供测试/脚本不经 CLI 直连域逻辑（与 main() 内部用的是同一份实现，不另立拷贝）
+export { validateState, gateFor, groupTasksByRootCause } from "./state-core.mjs";
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -39,10 +36,23 @@ function stateFile(args, pipeline) {
   // 用一个更窄、无歧义的判据替代：拒绝写到文件系统根与家目录本身（那从来不是状态文件的位置）。
   if (args.file) {
     const resolved = path.resolve(String(args.file));
+    // 目录不是状态文件（2026-11-07，审计 m2）：目录对 existsSync 为真，读侧会把 EISDIR 当
+    // 「损坏 JSON」误报，写侧 writeAtomic 的 renameSync 覆盖目录未捕获崩栈。在路径解析处
+    // 单点拒绝，所有子命令同一口径：参数错误 → 一行报错 + 退出码 2。
+    let stat = null;
+    try {
+      stat = statSync(resolved);
+    } catch {
+      /* 不存在：交给各命令既有的「文件缺失」路径 */
+    }
+    if (stat && stat.isDirectory()) {
+      fail(
+        `--file must name a file, not a directory: got ${resolved}\n` +
+          `Pass e.g. ${path.join(resolved, ".loop-cli", "state", `${pipeline}-pipeline.json`)} instead.`,
+      );
+    }
     const home = process.env.HOME || process.env.USERPROFILE || "";
-    const tooBroad =
-      path.dirname(resolved) === resolved ||
-      (home && (resolved === path.resolve(home) || resolved === path.resolve(home, "")));
+    const tooBroad = path.dirname(resolved) === resolved || (home && resolved === path.resolve(home));
     if (tooBroad) {
       fail(
         `--file must name a file, not a root/home directory: got ${resolved}\n` +
@@ -88,695 +98,6 @@ function ensureStateIgnored(file) {
     );
   } catch {
     /* 只读仓库 / 权限问题：跳过登记 */
-  }
-}
-
-// 其它 pid 残留的 `${file}.*.tmp`（持有者被 kill -9，无法自我清理）会在同目录永久堆积。
-// writeAtomic 成功路径上机会性清扫：只删同目录匹配 `${file}.*.tmp` 且 mtime 超过 5 分钟的
-// tmp——正在写的 tmp mtime 是新鲜的，不会误删；锁接管产生的 `${file}.lock.*.tmp` 同模式
-// 一并被覆盖。纯卫生，任何失败静默，不挡主流程。
-const TMP_STALE_MS = 5 * 60 * 1000;
-
-function sweepStaleTmp(file) {
-  try {
-    const dir = path.dirname(file);
-    const prefix = `${path.basename(file)}.`;
-    const now = Date.now();
-    for (const name of readdirSync(dir)) {
-      if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
-      const full = path.join(dir, name);
-      let mtimeMs;
-      try {
-        mtimeMs = statSync(full).mtimeMs;
-      } catch {
-        continue; // 可能刚被别的进程清掉
-      }
-      if (now - mtimeMs > TMP_STALE_MS) {
-        try {
-          unlinkSync(full);
-        } catch {}
-      }
-    }
-  } catch {}
-}
-
-function writeAtomic(file, value) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    // 清理同 pid 的陈旧 tmp（进程被 kill -9 残留）：writeFileSync 以 w 模式覆盖，写坏也无妨
-    try {
-      unlinkSync(tmp);
-    } catch {}
-    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    renameSync(tmp, file);
-  } catch (err) {
-    try {
-      unlinkSync(tmp);
-    } catch {}
-    throw err;
-  }
-  sweepStaleTmp(file);
-}
-
-// readState 的非退出版本：gate --apply 要在锁内读状态，而锁内 process.exit 不会跑 withLock 的 finally、
-// 会把锁留在盘上，因此读取错误先带出锁外，由调用方统一 fail（错误信息与 readState 完全一致）。
-function readStateSoft(file) {
-  if (!existsSync(file)) return { error: `state file not found: ${file}` };
-  try {
-    return { state: JSON.parse(readFileSync(file, "utf8")) };
-  } catch (err) {
-    return { error: `state file is not valid JSON (${file}): ${err.message}` };
-  }
-}
-
-function readState(file) {
-  const { state, error } = readStateSoft(file);
-  if (error) fail(error);
-  return state;
-}
-
-function eventsFile(file) {
-  const base = path.basename(file).replace(/\.json$/, "");
-  return path.join(path.dirname(file), `${base}.events.jsonl`);
-}
-
-// completion_promise 早停的边车标记（2026-11-05，方案 b）：与状态文件同目录的 <状态基名>.promise.json，
-// 由 orchestrator 专属的 `promise` 子命令经 writeAtomic（tmp+rename）写入，不碰状态文件本体。
-// 路径派生与 eventsFile 同款（.json → .promise.json）；无 .json 后缀时退化为直接追加。
-function promiseFile(file) {
-  return `${file.replace(/\.json$/, "")}.promise.json`;
-}
-
-// gate 只认边车标记：存在且 value 非空（trim 后）才构成早停依据。状态体里的 completion_promise
-// 字段彻底不参与判定——状态文件是执行者可写的普通 JSON，写一行字符串就能伪造「用户显式早停」，
-// 旧机制已被伪造实测利用。标记损坏/字段缺失按「无标记」处理（继续 = 安全默认，不因垃圾早停）。
-function readPromiseValue(file) {
-  const marker = promiseFile(file);
-  if (!existsSync(marker)) return "";
-  try {
-    const parsed = JSON.parse(readFileSync(marker, "utf8"));
-    return isObject(parsed) && typeof parsed.value === "string" ? parsed.value.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-// 事件日志上限（2026-10-28 市场审查）：无人值守长跑会让 <file>.events.jsonl 无界增长，而 readEvents
-// 每次都全量读+解析。到上限即轮转：把当前文件改名为 .1（覆盖旧 .1），新行写新文件——最坏占用约
-// 2×MAX，且保留最近一段历史供 `events` 子命令回看。轮转失败一律静默（观测面不得挡住主流程）。
-const EVENTS_MAX_BYTES = 5 * 1024 * 1024;
-
-function rotateEventsIfNeeded(log) {
-  try {
-    if (!existsSync(log)) return;
-    if (statSync(log).size < EVENTS_MAX_BYTES) return;
-    renameSync(log, `${log}.1`);
-  } catch {
-    /* 权限/竞态：跳过轮转，继续追加（宁可超限也不丢事件） */
-  }
-}
-
-function logEvent(file, pipeline, event, state, extra = {}) {
-  try {
-    // 相对路径（相对 cwd）：事件日志可能随仓库分发，绝对路径会泄露本机目录结构。
-    // Windows 跨盘符时 path.relative 无法相对化、直接返回绝对路径——退化为 basename 守住承诺。
-    const relFile = path.relative(process.cwd(), file);
-    const line = JSON.stringify({
-      ts: new Date().toISOString(),
-      event,
-      pipeline,
-      file: !relFile || path.isAbsolute(relFile) ? path.basename(file) : relFile,
-      round: state && state.round,
-      stop_reason: state ? state.stop_reason ?? null : null,
-      tasks:
-        state && Array.isArray(state.tasks)
-          ? { done: state.tasks.filter((task) => task && task.status === "done").length, total: state.tasks.length }
-          : undefined,
-      pid: process.pid,
-      ...extra,
-    });
-    const log = eventsFile(file);
-    rotateEventsIfNeeded(log);
-    appendFileSync(log, `${line}\n`, "utf8");
-  } catch {}
-}
-
-function readEvents(file, tail) {
-  const log = eventsFile(file);
-  // 轮转文件（.1）在前、当前文件在后，保持时间序（.1 是较早的一段）。两者都可能不存在。
-  const parts = [];
-  for (const p of [`${log}.1`, log]) {
-    if (!existsSync(p)) continue;
-    let text;
-    try {
-      text = readFileSync(p, "utf8");
-    } catch {
-      continue; // 读失败跳过该段，不因观测面挡住 events 输出
-    }
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        parts.push(JSON.parse(line));
-      } catch {}
-    }
-  }
-  return tail > 0 ? parts.slice(-tail) : parts;
-}
-
-// 对比旧状态与新状态，输出任务状态迁移列表 [{ id, from, to }]。
-// - 已有任务：状态变化时记录 from（旧状态）→ to（新状态）。
-// - 新任务：from 为 null，表示本轮注册。
-// - 旧状态不存在、解析失败或字段缺失时返回空数组，不影响主写入流程。
-function diffTaskStatus(file, nextState) {
-  if (!existsSync(file)) return [];
-  let prev;
-  try {
-    prev = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(prev.tasks) || !Array.isArray(nextState.tasks)) return [];
-  const prevById = new Map(prev.tasks.filter(isObject).map((task) => [task.id, task]));
-  const transitions = [];
-  for (const task of nextState.tasks) {
-    if (!isObject(task) || typeof task.id !== "string") continue;
-    const prevTask = prevById.get(task.id);
-    if (!prevTask) {
-      transitions.push({ id: task.id, from: null, to: task.status });
-      continue;
-    }
-    if (prevTask.status === task.status) continue;
-    transitions.push({ id: task.id, from: prevTask.status, to: task.status });
-  }
-  return transitions;
-}
-
-// 写状态与 gate --apply 共用一把锁：同一仓库两个会话同时写时串行化，避免整份覆盖。
-// 锁内容是 `<pid> <iso时间>`：release 与陈旧接管都靠内容判归属（迟到的释放不能误删
-// 接管者的新锁；持有者已死的残留锁可以提前接管，不必等满陈旧阈值）。
-const LOCK_STALE_MS = 30000;
-const LOCK_WAIT_MS = 2000;
-
-function sleepMs(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-// 锁内容首段是持有者 pid；解析不出（垃圾内容/旧格式）返回 null，此时只按 mtime 龄判陈旧。
-function lockOwnerPid(content) {
-  const pid = Number.parseInt(String(content), 10);
-  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
-}
-
-function pidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err.code === "EPERM"; // 进程存在但无权发信号 → 仍视为存活
-  }
-}
-
-function withLock(file, fn) {
-  const lock = `${file}.lock`;
-  mkdirSync(path.dirname(file), { recursive: true });
-  const owner = `${process.pid} ${new Date().toISOString()}\n`;
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  // 只释放仍属于自己的锁：fn 持锁超过 STALE 阈值时锁可能已被后来者原子接管，迟到的 release
-  // 若无条件 unlink 会删掉新持有者的锁，第三方便可再获取，两个写者并发读-改-写。
-  const release = () => {
-    try {
-      if (readFileSync(lock, "utf8") !== owner) return;
-      unlinkSync(lock);
-    } catch {
-      /* 已被接管/清理 */
-    }
-  };
-  // 陈旧锁接管（移植 worktree-ops/mcp/core.mjs acquireConfigLock 的已验证模式）：
-  // 不用 unlink+重建——stat 判陈旧到删掉之间锁可能已被他人接管重建，无条件删会误删新
-  // 持锁者的锁、还留下「无锁窗口」让第三方插空。改为把自身 pid 写临时文件后 rename 原子
-  // 替换锁文件：要么整体换掉要么不动，不存在「误删他人新锁」的中间态。并发接管时最后
-  // 替换者的 pid 留在锁里，输家 release 的内容比对保证不误删赢家的锁。返回是否接管成功。
-  const takeOverStale = () => {
-    try {
-      const mtimeMs = statSync(lock).mtimeMs;
-      let stale = Date.now() - mtimeMs > LOCK_STALE_MS;
-      if (!stale && Date.now() > deadline) {
-        // 崩溃残留锁的 30s 阻塞：接管原本必须等锁龄超过 LOCK_STALE_MS，而 LOCK_WAIT_MS=2s
-        // 早到——残留锁出现后的头 30s 里每个操作都白等 2s 再 exit 2。锁内容带持有者 pid：
-        // 等待已超 deadline 且 pid 已死即为残留锁实锤，立即进入接管；pid 存活（正当持锁者
-        // 只是慢）绝不提前接管，互斥与超时报错语义都不变。
-        const pid = lockOwnerPid(readFileSync(lock, "utf8"));
-        stale = pid !== null && !pidAlive(pid);
-      }
-      if (!stale) return false;
-      const tmp = `${lock}.${process.pid}.${Date.now().toString(36)}.tmp`;
-      let replaced = false;
-      try {
-        writeFileSync(tmp, owner, "utf8");
-        renameSync(tmp, lock);
-        replaced = true;
-      } finally {
-        if (!replaced) {
-          try {
-            unlinkSync(tmp);
-          } catch {
-            /* 临时文件可能已被 rename 或根本没写成 */
-          }
-        }
-      }
-      return replaced;
-    } catch {
-      /* 锁刚好被释放/替换（Windows 上 rename 目标被占用等）→ 按普通竞争退避重试 */
-      return false;
-    }
-  };
-  for (;;) {
-    let acquired = false;
-    try {
-      const fd = openSync(lock, "wx");
-      // writeSync 失败也要关 fd：锁文件句柄一旦泄漏，Windows 上该文件一直被本进程占用，
-      // 后续 unlink/接管都会被拖累。
-      try {
-        writeSync(fd, owner);
-      } finally {
-        closeSync(fd);
-      }
-      acquired = true;
-    } catch (err) {
-      if (!err || err.code !== "EEXIST") throw err;
-    }
-    if (!acquired && !takeOverStale()) {
-      if (Date.now() > deadline) fail(`state file is locked by another process: ${lock}`);
-      sleepMs(25);
-      continue;
-    }
-    try {
-      return fn();
-    } finally {
-      release();
-    }
-  }
-}
-
-function isObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-// 「像状态文件」判定：有 version/prompt 才算。init 与 write 共用同一口径（见 init 分支的
-// foreignFile 注释：覆盖非状态文件是数据损失，不是管道重置/更新）。
-function looksLikeState(value) {
-  return isObject(value) && value.version === 1 && typeof value.prompt === "string";
-}
-
-function validateState(state, pipeline) {
-  const errors = [];
-  const warnings = [];
-  if (!isObject(state)) return { errors: ["state must be a JSON object"], warnings };
-  if (state.version !== 1) errors.push("version must be 1");
-  if (typeof state.prompt !== "string" || state.prompt.trim() === "") errors.push("prompt must be a non-empty string");
-  if (!Number.isInteger(state.max_iterations) || state.max_iterations < 0) errors.push("max_iterations must be an integer >= 0");
-  // 文档承诺（commands/ralph-pipeline.md、commands/coding-pipeline.md 的读取规则 2）：旧版本
-  // 状态文件缺少 max_failures / retry_on_failure 时按默认值补齐、不算损坏。此前只有文档没有
-  // 实现，这里对**缺失**（undefined）回填默认值——write / gate --apply 路径会把补齐后的对象
-  // 连带落盘；显式 null / 错误类型仍走下方校验拒绝，补齐不是放松。
-  if (state.max_failures === undefined) state.max_failures = 3;
-  if (state.retry_on_failure === undefined) state.retry_on_failure = false;
-  if (!Number.isInteger(state.max_failures) || state.max_failures < 1) errors.push("max_failures must be an integer >= 1");
-  if (typeof state.retry_on_failure !== "boolean") errors.push("retry_on_failure must be a boolean");
-  if (!(state.completion_promise === null || typeof state.completion_promise === "string")) {
-    errors.push("completion_promise must be null or a string");
-  }
-  if (!Number.isInteger(state.outer_iteration) || state.outer_iteration < 0) errors.push("outer_iteration must be an integer >= 0");
-  if (!Number.isInteger(state.consecutive_failures) || state.consecutive_failures < 0) {
-    errors.push("consecutive_failures must be an integer >= 0");
-  }
-  if (!Number.isInteger(state.stall_counter) || state.stall_counter < 0) errors.push("stall_counter must be an integer >= 0");
-  if (!Number.isInteger(state.round) || state.round < 0) errors.push("round must be an integer >= 0");
-  if (!STOP_REASONS.has(state.stop_reason ?? null)) {
-    errors.push(`stop_reason must be one of: ${[...STOP_REASONS].filter(Boolean).join(", ")} or null`);
-  }
-  if (state.budget !== undefined) {
-    if (!isObject(state.budget)) errors.push("budget must be an object when present");
-    else {
-      if (state.budget.max_tokens === undefined && state.budget.max_cost_usd === undefined) {
-        errors.push("budget requires max_tokens or max_cost_usd");
-      }
-      for (const key of ["max_tokens", "max_cost_usd", "spent_tokens", "spent_cost_usd"]) {
-        const value = state.budget[key];
-        if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
-          errors.push(`budget.${key} must be a number >= 0`);
-        }
-      }
-    }
-  }
-  if (!Array.isArray(state.fail_history)) errors.push("fail_history must be an array");
-  else if (state.fail_history.length > 10) warnings.push("fail_history has more than 10 entries; the orchestrator should keep the latest 10");
-  if (!Array.isArray(state.tasks)) errors.push("tasks must be an array");
-  else {
-    const ids = new Set();
-    for (const task of state.tasks) {
-      if (!isObject(task)) {
-        errors.push("each task must be an object");
-        continue;
-      }
-      if (typeof task.id !== "string" || task.id.trim() === "") errors.push("task.id must be a non-empty string");
-      else if (task.id.length > LIMIT_ID) {
-        errors.push(`task.id length ${task.id.length} exceeds limit ${LIMIT_ID}`);
-        continue; // 超限 id 不进后续按 id 点名的错误消息（错误消息不放大无界字符串）
-      } else if (ids.has(task.id)) errors.push(`duplicate task id: ${task.id}`);
-      else ids.add(task.id);
-      if (typeof task.title !== "string" || task.title.trim() === "") errors.push(`task ${task.id}: title must be a non-empty string`);
-      else if (task.title.length > LIMIT_TITLE) errors.push(`task ${task.id}: title length ${task.title.length} exceeds limit ${LIMIT_TITLE}`);
-      if (!TASK_STATUS.has(task.status)) errors.push(`task ${task.id}: invalid status ${JSON.stringify(task.status)}`);
-      if (!Array.isArray(task.depends_on) || task.depends_on.some((d) => typeof d !== "string")) {
-        errors.push(`task ${task.id}: depends_on must be an array of strings`);
-      }
-      if (!Array.isArray(task.accept_criteria) || task.accept_criteria.some((c) => typeof c !== "string")) {
-        errors.push(`task ${task.id}: accept_criteria must be an array of strings`);
-      } else {
-        const over = task.accept_criteria.findIndex((c) => c.length > LIMIT_CRITERION);
-        if (over >= 0) errors.push(`task ${task.id}: accept_criteria[${over}] length ${task.accept_criteria[over].length} exceeds limit ${LIMIT_CRITERION}`);
-      }
-      if (!Number.isInteger(task.failures) || task.failures < 0) errors.push(`task ${task.id}: failures must be an integer >= 0`);
-      if (task.max_attempts !== undefined && (!Number.isInteger(task.max_attempts) || task.max_attempts < 1)) {
-        errors.push(`task ${task.id}: max_attempts must be an integer >= 1 when present`);
-      }
-      // root_cause_group（2026-10-29 补）此前只存在于提示词里：reviewer / builder / orchestrator
-      // 三份 agent 文档都承诺「同一根因的多个 issue 共用同一 id，executor 一次修一组」，
-      // 而脚本从不读它——写错类型、留空串、跨任务拼写漂移都无人发现，那句承诺无法被验证。
-      // 现在至少把形状钉死：出现时必须是非空字符串。空串与纯空白是最常见的「占位符没填」。
-      if (task.root_cause_group !== undefined
-        && (typeof task.root_cause_group !== 'string' || task.root_cause_group.trim() === '')) {
-        errors.push(`task ${task.id}: root_cause_group must be a non-empty string when present`);
-      } else if (typeof task.root_cause_group === 'string' && task.root_cause_group.length > LIMIT_ID) {
-        errors.push(`task ${task.id}: root_cause_group length ${task.root_cause_group.length} exceeds limit ${LIMIT_ID}`);
-      }
-    }
-    for (const task of state.tasks) {
-      if (!isObject(task) || !Array.isArray(task.depends_on)) continue;
-      for (const dep of task.depends_on) {
-        if (!ids.has(dep)) errors.push(`task ${task.id}: depends_on references unknown task ${dep}`);
-        if (dep === task.id) errors.push(`task ${task.id}: depends_on must not reference itself`);
-      }
-      if (task.subtask_of !== undefined && !ids.has(task.subtask_of)) {
-        errors.push(`task ${task.id}: subtask_of references unknown task ${task.subtask_of}`);
-      }
-    }
-    const visiting = new Set();
-    const visited = new Set();
-    const byId = new Map(state.tasks.filter(isObject).map((t) => [t.id, t]));
-    const visit = (id) => {
-      if (visited.has(id)) return;
-      if (visiting.has(id)) {
-        errors.push(`dependency cycle detected at task ${id}`);
-        return;
-      }
-      visiting.add(id);
-      const task = byId.get(id);
-      if (task && Array.isArray(task.depends_on)) for (const dep of task.depends_on) if (byId.has(dep)) visit(dep);
-      visiting.delete(id);
-      visited.add(id);
-    };
-    for (const id of byId.keys()) visit(id);
-  }
-  if (pipeline === "coding") {
-    if (typeof state.prior_cycles_summary !== "string") errors.push("coding: prior_cycles_summary must be a string");
-    if (!Array.isArray(state.critical_checkpoints)) errors.push("coding: critical_checkpoints must be an array");
-    else {
-      for (const checkpoint of state.critical_checkpoints) {
-        if (!isObject(checkpoint) || typeof checkpoint.id !== "string" || typeof checkpoint.description !== "string" || typeof checkpoint.passed !== "boolean") {
-          errors.push("coding: each critical_checkpoint needs id, description and passed");
-        } else if (checkpoint.id.length > LIMIT_ID) {
-          errors.push(`coding: critical_checkpoints[].id length ${checkpoint.id.length} exceeds limit ${LIMIT_ID}`);
-        }
-      }
-    }
-    if (state.scope_drift !== undefined && !["PASS", "FAIL", null].includes(state.scope_drift)) {
-      errors.push("coding: scope_drift must be PASS, FAIL or null when present");
-    }
-    if (state.scope !== undefined && !isObject(state.scope)) errors.push("coding: scope must be an object when present");
-  }
-  return { errors, warnings };
-}
-
-// coding 硬门禁：scope 零容忍 + critical checkpoints 全部通过。
-// 两条规则共用一条判定链——DONE 必须同时满足，否则给出可读原因（哪个 checkpoint 没通过），不静默放行。
-// 此前 DONE 只看任务状态流转，passed=false 的硬门禁被跨过，流程提前进入收尾态。
-// scope 未判定（undefined / null）不算越界，但同样不允许 DONE：判停依据不足就继续本轮补跑 scope。
-// scope 的判据（2026-10-29 第二轮修复）：**不接受 state.scope_drift 作为 DONE 依据**。
-// 状态文件是执行者可写的普通 JSON，写 scope_drift:"PASS" 就能过——实测越界文件 dist/leak.js
-// 在场、状态自称 PASS，旧 gate 直接回 stop_reason=DONE。这与上一轮修的「预设 stop_reason」是
-// 同一类问题，只是发生在更里一层：外层不再信预设终态，内层仍在信预设的 scope 结论。
-// 现在 gate 自己按 git 现状重算：读 state.scope 的规则（hard/soft/forbidden/base）重新判定。
-//   · PASS    → 放行（scope_drift 记成什么都不影响判据）
-//   · FAIL    → 拦，reason 里指名越界文件
-//   · unknown → 拦（无规则 / 不在 git 仓库）——判停依据不足，与「未判定」同档
-// 口径必须与 scope.mjs 同宽（glob 语法、.loop-cli 排除、ignored 文件三类都算改动面），
-// 由 test/regression.mjs 的对照用例锁住。这里只做最小复算，不反向依赖 scope.mjs 的 CLI。
-function recheckScope(state, cwd) {
-  const scope = isObject(state.scope) ? state.scope : null;
-  if (!scope) return { state: "unknown", reason: "scope 未配置（DONE 需要 hard/soft/forbidden 规则）" };
-  const rulesOf = (v) => (Array.isArray(v) ? v.map((x) => String(x).replace(/\\/g, "/")) : []);
-  const hard = rulesOf(scope.hard);
-  const soft = rulesOf(scope.soft);
-  const forbidden = rulesOf(scope.forbidden);
-  if (hard.length === 0 && soft.length === 0 && forbidden.length === 0) {
-    return { state: "unknown", reason: "scope 规则为空（DONE 需要至少一条 hard/soft/forbidden）" };
-  }
-  // 排除清单与 scope.mjs 同源：`--apply` 时由 applyVerdict 把实际生效的清单落进 scope.exclude
-  // （自定义 --exclude 在此生效）；旧状态没有该字段时退回 scope.mjs 的默认排除。
-  const excludedRules = rulesOf(scope.exclude);
-  const exclude = excludedRules.length > 0 ? excludedRules : [".loop-cli/**"];
-  // 模式必须仓库根相对（与 scope.mjs 的 rootRelativePattern 同判）：绝对路径或 ../ 段在这里
-  // 永远匹配不到任何文件，静默沿用就是复算口径失真——按「无法复算」拦下，把修配置还给调用方。
-  const malformed = [hard, soft, forbidden, exclude]
-    .flat()
-    .find((p) => p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split("/").includes(".."));
-  if (malformed) {
-    return { state: "unknown", reason: `scope 模式非法（须仓库根相对路径）:${malformed}` };
-  }
-  const base = typeof scope.base === "string" && scope.base.trim() ? scope.base.trim() : "HEAD";
-  if (base.startsWith("-") || /\s/.test(base)) {
-    return { state: "unknown", reason: `scope.base 非法：${base}` };
-  }
-  const run = (args, dir = cwd) => {
-    try {
-      return execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch {
-      return null;
-    }
-  };
-  const toplevel = run(["rev-parse", "--show-toplevel"]);
-  if (toplevel === null) {
-    return { state: "unknown", reason: "不在 git 仓库内（无法复算 scope）" };
-  }
-  // 三条列清单的命令必须在**仓库根**执行，输出才与 scope 规则同基准（仓库根相对路径）。
-  // 2026-11-01 修复：此前只在 cwd 跑一条 rev-parse 判断「在不在 git 里」，取到的根没用上，
-  // 列清单仍按调用目录执行——`git ls-files --others` 只列该目录以下的未跟踪/ignored 文件，
-  // 仓库其它目录的越界改动整个消失（实测：同一状态同一 --file，仓库根跑判 FAIL/ESCALATE，
-  // 子目录跑判 DONE，forbidden 目录下未跟踪的泄漏文件对门禁不可见）。scope.mjs:232-233
-  // 修过同一个缺陷并留了注释，这份复算体当时没跟上。`git diff --name-only` 本就输出仓库根
-  // 相对路径，改到根上执行不改变其结果，只让三条命令同基准。
-  const root = toplevel || cwd;
-
-  const glob = (pattern) => {
-    let p = String(pattern).replace(/\\/g, "/").trim();
-    if (p.endsWith("/")) p += "**";
-    let src = "";
-    for (let i = 0; i < p.length; i += 1) {
-      const ch = p[i];
-      if (ch === "*") {
-        // 与 scope.mjs:globToRegExp 同判：下一个字符是单个 "*" 才算 `**`（跨段）。
-        // 2026-11-01 修复：此前写成与 "**" 比较——p[i+1] 是长度 1 的子串，与两字符常量
-        // 永不相等，`**` 分支恒不进入、退化成 `*`（单段），于是 `src/**` 匹配不到
-        // `src/auth/login.js`，而 README:61 与 SKILL:122 都写明 `**` = 跨段。后果不是放行
-        // 而是反向：自家 .loop-cli/state/ 两层深的状态文件被判 outside scope，任何改动触及
-        // ≥2 层路径的仓库 DONE 永不可达、且 reason 把排查方向带偏。
-        if (p[i + 1] === "*") { src += ".*"; i += 1; } else { src += "[^/]*"; }
-      } else if (ch === "?") src += "[^/]";
-      else if ("/.+()[]{}^$|\\".includes(ch)) src += `\\${ch}`;
-      else src += ch;
-    }
-    return new RegExp(`^${src}$`);
-  };
-  const matchAny = (file, patterns) => patterns.some((p) => glob(p).test(file));
-  const changed = new Set();
-  const add = (line) => {
-    const f = line.trim().replace(/\\/g, "/");
-    if (f && !matchAny(f, exclude)) changed.add(f);
-  };
-  const diffed = run(["diff", "--name-only", base], root);
-  if (diffed === null) return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
-  for (const line of diffed.split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--exclude-standard"], root) || "").split("\n")) add(line);
-  for (const line of (run(["ls-files", "--others", "--ignored", "--exclude-standard"], root) || "").split("\n")) add(line);
-
-  const files = [...changed].sort();
-  const forbiddenHits = files.filter((f) => matchAny(f, forbidden));
-  const outside = files.filter((f) => !matchAny(f, hard) && !matchAny(f, soft) && !matchAny(f, forbidden));
-  if (forbiddenHits.length > 0 || outside.length > 0) {
-    const detail = [
-      ...(forbiddenHits.length ? [`forbidden: ${forbiddenHits.join(", ")}`] : []),
-      ...(outside.length ? [`outside scope: ${outside.join(", ")}`] : []),
-    ].join("；");
-    return { state: "FAIL", reason: `scope 复算 FAIL（${detail}）`, files };
-  }
-  return { state: "PASS", reason: `scope 复算 PASS（base ${base}，${files.length} 个变更文件）`, files };
-}
-
-// 按 root_cause_group 把任务分桶——「一次修一组」这句承诺的可执行形态。
-// 没有分组的任务单独归到 ungrouped，不硬塞进某个组（那会凭空造出一个组）。
-function groupTasksByRootCause(tasks) {
-  const groups = new Map();
-  const ungrouped = [];
-  for (const task of Array.isArray(tasks) ? tasks : []) {
-    if (!isObject(task) || typeof task.id !== 'string') continue;
-    const key = typeof task.root_cause_group === 'string' ? task.root_cause_group.trim() : '';
-    if (!key) {
-      ungrouped.push({ id: task.id, status: task.status });
-      continue;
-    }
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ id: task.id, status: task.status });
-  }
-  const describe = (entries) => {
-    const done = entries.filter((e) => e.status === 'done').length;
-    return { tasks: entries, done, total: entries.length, complete: entries.length > 0 && done === entries.length };
-  };
-  return {
-    groups: [...groups.entries()].map(([id, entries]) => ({ id, ...describe(entries) })),
-    ungrouped: describe(ungrouped),
-  };
-}
-
-// continue 分支的「下一步」提示：还没修完的根因组按「全部完成后才能并行」的语义点名，
-// 让 orchestrator 不必自己从 tasks[] 里再算一遍该派哪一组。
-function nextRootCauseHint(state) {
-  const { groups } = groupTasksByRootCause(state.tasks);
-  const open = groups.filter((group) => !group.complete);
-  if (open.length === 0) return '';
-  const first = open[0];
-  // id 拼进 stdout 前一律 JSON.stringify 定界（引号+转义），防状态体字符串伪装分隔符/指令
-  const pending = first.tasks.filter((t) => t.status !== 'done').map((t) => `${JSON.stringify(t.id)}(${t.status})`);
-  return `next root_cause_group=${JSON.stringify(first.id)}（${first.done}/${first.total} done；未完成 ${pending.join(', ')}）`;
-}
-
-function codingGateBlockers(state, cwd) {
-  const blockers = [];
-  const checkpoints = Array.isArray(state.critical_checkpoints) ? state.critical_checkpoints : [];
-  const failed = checkpoints
-    .filter((checkpoint) => !isObject(checkpoint) || checkpoint.passed !== true)
-    .map((checkpoint) => (isObject(checkpoint) && typeof checkpoint.id === "string" ? JSON.stringify(checkpoint.id) : "(未命名)"));
-  if (failed.length > 0) blockers.push(`critical checkpoints 未通过: ${failed.join(", ")}`);
-  const actual = recheckScope(state, cwd);
-  if (actual.state === "FAIL") blockers.push(`scope_drift=FAIL（${actual.reason}）`);
-  else if (actual.state === "unknown") blockers.push(`scope 无法复算（${actual.reason}）——DONE 需要可复算的 scope`);
-  return { blockers, actual };
-}
-
-function gateFor(state, pipeline, cwd = process.cwd(), promiseValue = "") {
-  const spec = PIPELINES[pipeline];
-  const maxCycles = state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
-  const stallMax = spec.stallMax;
-  const tasks = state.tasks;
-  // coding 零容忍 + 硬门禁：DONE 要求 scope **复算**为 PASS 且 critical_checkpoints 全通过。
-  // 复算不可得（无规则 / 不在 git 仓库）同样不允许 DONE：判停依据不足就继续本轮补跑 scope。
-  const scopeGate = pipeline === "coding" ? codingGateBlockers(state, cwd) : { blockers: [], actual: null };
-  const blockers = scopeGate.blockers;
-  // 预设 stop_reason 的处置（2026-10-29 修复）。
-  // 旧实现第一句就是 `if (state.stop_reason) return { stop_reason: state.stop_reason }`：状态文件是
-  // 执行者可写的普通 JSON，写进去一个 "DONE" 就永远 DONE——实测任务仍 pending、checkpoint 未通过、
-  // scope 未判定，`validate` 说 Valid、`gate` 说 DONE、`gate --apply` 照落盘。门禁于是退化成自报。
-  // 现在的口径：
-  //   · 终态（DONE/ESCALATE/BUDGET/STALL/MAX_CYCLES/HOLD/STOPPED）一律**重算**，不采信预设值；
-  //   · STOPPED 例外：它表示「人主动叫停」，没有任何可计算依据替代，故放行；
-  //   · 重算结果与预设不一致时，在 reason 里点明「预设值未被采纳」，让调用方看得见改判。
-  // 重算后仍可能返回同一个 DONE，但那必须由 tasks/checkpoints/scope 三处真实通过支撑。
-  const presetNote =
-    state.stop_reason && state.stop_reason !== "STOPPED"
-      ? `preset stop_reason=${state.stop_reason} was NOT trusted (recomputed from state)`
-      : "";
-  const withNote = (result) => (presetNote ? { ...result, presetNote } : result);
-  if (state.stop_reason === "STOPPED") {
-    // STOPPED 是唯一被采信的预设终态（人主动叫停没有可计算依据替代），但状态文件是执行者
-    // 可写的普通 JSON，写一个 "STOPPED" 就能伪装「人主动叫停」，且没有任何机制可鉴别来源。
-    // 不做机制变更，只做与其它预设终态「未采信」注记同族的透明化：采信时在 reason 里明示
-    // 这是执行者自报值。
-    return {
-      stop_reason: "STOPPED",
-      reason: "stopped by an operator (STOPPED is not recomputable) (executor-reported preset; 未鉴别来源)",
-    };
-  }
-  // completion_promise 早停（2026-11-05 第二轮，方案 b）：只认 `state.mjs promise` 写的边车标记
-  // （<状态基名>.promise.json，orchestrator 专属命令写入），状态体的 completion_promise 字段
-  // **彻底不再参与判定**。旧机制（状态体非空即 DONE）已封死：状态文件是执行者（builder/worker）
-  // 可写的普通 JSON，被注入或出错时写一行字符串就能伪造「用户显式早停」；边车标记只在用户于
-  // 会话中显式要求早停时由 orchestrator 写入，且 init 会清掉旧标记（新一轮不继承早停）。
-  // 标记命中即 DONE，按文档绕过 verdict / scope_drift / 验证 / critical 门禁（人明确授意的早停
-  // 不是可伪造的自报终态：预设 stop_reason 仍然不采信，见上）。
-  const promise = typeof promiseValue === "string" ? promiseValue.trim() : "";
-  if (promise) {
-    const result = {
-      stop_reason: "DONE",
-      // 用户提供的自由文本拼进 stdout 前 JSON.stringify 定界（引号+转义），防分隔符/指令伪装
-      reason: `completion_promise 标记命中：${JSON.stringify(promise)}（经 promise 边车标记的用户主导早停，绕过 verdict/scope/验证/critical 门禁；状态体字段不再参与判定）`,
-    };
-    // 预设值本就等于 DONE 时不再挂「未采信」注记——这一次 DONE 是有依据的。
-    if (state.stop_reason && state.stop_reason !== "DONE" && presetNote) result.presetNote = presetNote;
-    return result;
-  }
-  if (tasks.length > 0 && tasks.every((t) => t.status === "done") && blockers.length === 0) {
-    return withNote({ stop_reason: "DONE", reason: "all tasks are done" });
-  }
-  if (state.consecutive_failures >= state.max_failures) {
-    return withNote({ stop_reason: "ESCALATE", reason: `consecutive_failures ${state.consecutive_failures} >= max_failures ${state.max_failures}` });
-  }
-  // 单任务尝试上限：任一任务的 failures 达到自身 max_attempts（或默认上限），立即 ESCALATE，避免单任务无限重试。
-  const attemptLimit = 4; // 默认单任务尝试上限
-  for (const task of tasks) {
-    if (!task || typeof task.failures !== "number") continue;
-    const limit = Number.isInteger(task.max_attempts) && task.max_attempts > 0 ? task.max_attempts : attemptLimit;
-    if (task.failures >= limit) {
-      return withNote({ stop_reason: "ESCALATE", reason: `task ${JSON.stringify(task.id)} failures ${task.failures} >= max_attempts ${limit}` });
-    }
-  }
-  if (pipeline === "coding" && scopeGate.actual && scopeGate.actual.state === "FAIL") {
-    // 越界以**复算结果**为准（state.scope_drift 只作对照）：执行者删掉或改写自报值也逃不掉。
-    return withNote({ stop_reason: "ESCALATE", reason: scopeGate.actual.reason });
-  }
-  if (state.budget) {
-    const budget = state.budget;
-    const tokensSpent = budget.spent_tokens ?? 0;
-    const costSpent = budget.spent_cost_usd ?? 0;
-    if ((budget.max_tokens !== undefined && tokensSpent >= budget.max_tokens) || (budget.max_cost_usd !== undefined && costSpent >= budget.max_cost_usd)) {
-      return withNote({ stop_reason: "BUDGET", reason: `budget exhausted (tokens ${tokensSpent}/${budget.max_tokens ?? "-"}, cost ${costSpent}/${budget.max_cost_usd ?? "-"})` });
-    }
-  }
-  if (tasks.some((t) => t.status === "blocked") && tasks.every((t) => t.status === "done" || t.status === "blocked")) {
-    return withNote({ stop_reason: "HOLD", reason: "only blocked tasks remain" });
-  }
-  if (state.stall_counter >= stallMax) {
-    return withNote({ stop_reason: "STALL", reason: `stall_counter ${state.stall_counter} >= ${stallMax}` });
-  }
-  if (state.round >= maxCycles) {
-    return withNote({ stop_reason: "MAX_CYCLES", reason: `round ${state.round} >= ${maxCycles}` });
-  }
-  // 继续本轮：把未通过的硬门禁写进 reason，调用方能直接看到卡在哪一条。
-  // root_cause_group 的「下一步该派哪一组」也在这里点名（此前该字段只有提示词在讲）。
-  const hint = pipeline === "coding" ? nextRootCauseHint(state) : "";
-  const parts = [...blockers, ...(hint ? [hint] : [])];
-  return withNote({ stop_reason: null, reason: parts.length > 0 ? parts.join("；") : "continue" });
-}
-
-// 落盘规则：只要重算结果与现值不同就更新——**包括重算为 null 的情形**。
-// 旧实现只在 `result.stop_reason` 为真时写，于是一个伪造的预设 DONE 永远清不掉：
-// 任务回退成 pending 后门禁说「继续」，文件里却仍写着 DONE，下一次调用又读到它。
-function applyGate(file, state, result) {
-  const next = result.stop_reason ?? null;
-  if (state.stop_reason !== next) {
-    state.stop_reason = next;
-    writeAtomic(file, state);
   }
 }
 
@@ -852,7 +173,8 @@ function main() {
       }
       if (!existingProgress && !foreignFile) {
         // 新一轮管线不留旧早停：删掉同路径 promise 边车标记（删不掉则中止 init——静默保留会让
-        // 新管线继承上一轮的早停）。清理与写入同锁，防止与并发 promise/gate 竞争。
+        // 新管线继承上一轮的早停）。清理与写入同锁；promise 写标记也取这把锁（2026-11-07，
+        // 审计 m5），「防止与并发 promise/gate 竞争」才是事实而非仅注释口径。
         const marker = promiseFile(file);
         if (existsSync(marker)) {
           try {
@@ -959,8 +281,13 @@ function main() {
       created_at: new Date().toISOString(),
     };
     const markerPath = promiseFile(file);
-    writeAtomic(markerPath, marker);
-    logEvent(file, pipeline, "promise_set", null);
+    // 写标记与 init 的旧标记清理同锁（2026-11-07，审计 m5）：init 在锁内删旧标记、gate --apply
+    // 在锁内读标记，promise 若锁外落盘，「init 清理后、promise 落盘前」的竞窗会让新管线继承
+    // 上一轮的早停——与 init/write/gate --apply 同一把 <state>.lock 纪律对齐。
+    withLock(file, () => {
+      writeAtomic(markerPath, marker);
+      logEvent(file, pipeline, "promise_set", null);
+    });
     if (args.json) console.log(JSON.stringify({ file: markerPath, ...marker }));
     else console.log(`Wrote ${markerPath}`);
     return;
@@ -1052,4 +379,6 @@ function main() {
   else console.log(`stop_reason=${result.stop_reason ?? "null"} (${result.reason})`);
 }
 
-main();
+// 只在直接执行本脚本时跑 CLI；被 import（直连 validateState/gateFor 等纯函数）时无副作用
+// （范式与 render.mjs 底部的 main 守卫同款）。scope.mjs 经 spawnSync 调本脚本 write 的链路不受影响。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

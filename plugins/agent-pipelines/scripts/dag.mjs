@@ -56,19 +56,38 @@ export function analyzeDependencies(tasks) {
   // 分层：层 = 最长依赖链长度；无依赖为 0 层。
   // 兜底初值必须是 -1 而不是 0：`get() ?? 0` 会让首次访问的节点因 `0 <= 0` 直接返回，
   // layer 永远为空、全部任务挤在第 0 列（分层失效，2026-10 实测踩过）。
+  // 迭代式（2026-11-07，审计 m1）：递归版沿最长依赖链一层层递归，2 万节点链式 depends_on
+  // 直接 RangeError，graph/render 调用点不接 → 崩栈 exit 1 恰是 FAIL 码，与「有环/未知依赖」
+  // 混读。显式栈帧 [id, depth, 已分流的孩子数] 与递归同序同剪枝（depth<=layer 剪枝 + visiting
+  // 环防护）；帧只在推入孩子前自增游标，回到帧首时游标必 >0，入口判定对每帧恰执行一次。
   const layer = new Map();
   const visiting = new Set();
-  const visit = (id, depth) => {
-    const current = layer.get(id) ?? -1;
-    if (depth <= current) return;
-    if (visiting.has(id)) return; // 环防护：环内节点不再沿环加深，防止无限递归
-    visiting.add(id);
-    layer.set(id, depth);
-    for (const child of next.get(id) || []) visit(child, depth + 1);
-    visiting.delete(id);
+  const walk = (root, rootDepth) => {
+    const frames = [[root, rootDepth, 0]];
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      const [id, depth] = frame;
+      if (frame[2] === 0) {
+        if (depth <= (layer.get(id) ?? -1) || visiting.has(id)) {
+          frames.pop();
+          continue;
+        }
+        visiting.add(id);
+        layer.set(id, depth);
+      }
+      const children = next.get(id) || [];
+      if (frame[2] < children.length) {
+        const child = children[frame[2]];
+        frame[2] += 1;
+        frames.push([child, depth + 1, 0]);
+      } else {
+        frames.pop();
+        visiting.delete(id);
+      }
+    }
   };
-  for (const id of ids) if (indegree.get(id) === 0) visit(id, 0);
-  for (const id of ids) if (!layer.has(id)) visit(id, 0); // 环内节点兜底
+  for (const id of ids) if (indegree.get(id) === 0) walk(id, 0);
+  for (const id of ids) if (!layer.has(id)) walk(id, 0); // 环内节点兜底
 
   // 拓扑序：用 indegree 的副本，避免污染上面的分层判定。
   const pending = new Map(indegree);
@@ -86,36 +105,58 @@ export function analyzeDependencies(tasks) {
   // （a↔b 加 c→b 时给出 [a,b,c]，render 据此打印「存在环：c」，误导排查方向），与 validateState
   // 的 DFS（只报真环成员，state.mjs）口径不一。用 Tarjan 强连通分量判定：SCC 大小 ≥2 或自环
   // 即环成员；输出仍按 ids 顺序，稳定可比对。order 维持 Kahn 原样：排不进的节点不进拓扑序。
+  // 迭代式（2026-11-07，审计 m1，同上方分层的爆栈因）：栈帧 [v, 已处理的孩子下标] 复刻递归序
+  // ——遇未访孩子就地初始化再下推；帧弹出时把 low 上传父帧（若孩子已弹出自己的 SCC，则
+  // low[w]=index[w]>index[父]≥low[父]，min 恒不生效，与递归的无条件上传等价），随后按
+  // low==index 收 SCC。
   const index = new Map();
   const low = new Map();
   const onStack = new Set();
   const stack = [];
   const inCycle = new Set();
   let counter = 0;
-  const stronglyConnected = (v) => {
-    index.set(v, counter);
-    low.set(v, counter);
+  const stronglyConnected = (root) => {
+    index.set(root, counter);
+    low.set(root, counter);
     counter += 1;
-    stack.push(v);
-    onStack.add(v);
-    for (const w of next.get(v)) {
-      if (!index.has(w)) {
-        stronglyConnected(w);
-        low.set(v, Math.min(low.get(v), low.get(w)));
-      } else if (onStack.has(w)) {
-        low.set(v, Math.min(low.get(v), index.get(w)));
-      }
-    }
-    if (low.get(v) === index.get(v)) {
-      const component = [];
-      let w;
-      do {
-        w = stack.pop();
-        onStack.delete(w);
-        component.push(w);
-      } while (w !== v);
-      if (component.length > 1 || next.get(v).includes(v)) {
-        for (const member of component) inCycle.add(member);
+    stack.push(root);
+    onStack.add(root);
+    const frames = [[root, 0]];
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      const v = frame[0];
+      const children = next.get(v);
+      if (frame[1] < children.length) {
+        const w = children[frame[1]];
+        frame[1] += 1;
+        if (!index.has(w)) {
+          index.set(w, counter);
+          low.set(w, counter);
+          counter += 1;
+          stack.push(w);
+          onStack.add(w);
+          frames.push([w, 0]);
+        } else if (onStack.has(w)) {
+          low.set(v, Math.min(low.get(v), index.get(w)));
+        }
+      } else {
+        frames.pop();
+        if (frames.length > 0) {
+          const parent = frames[frames.length - 1][0];
+          low.set(parent, Math.min(low.get(parent), low.get(v)));
+        }
+        if (low.get(v) === index.get(v)) {
+          const component = [];
+          let w;
+          do {
+            w = stack.pop();
+            onStack.delete(w);
+            component.push(w);
+          } while (w !== v);
+          if (component.length > 1 || children.includes(v)) {
+            for (const member of component) inCycle.add(member);
+          }
+        }
       }
     }
   };

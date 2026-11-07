@@ -14,6 +14,9 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./args.mjs";
+// glob 引擎与越界判定走 scope-core 单源（此前与 state.mjs 的 recheckScope 双份内联，
+// 两份各出过真 bug 且修齐时间不同步——bug 史注释见 scope-core）
+import { collectChangedFiles, rootRelativePattern, scopeVerdict } from "./scope-core.mjs";
 
 function fail(message, code = 2) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -26,41 +29,6 @@ function listOf(value) {
     .split(",")
     .map((item) => item.trim().replace(/\\/g, "/"))
     .filter(Boolean);
-}
-
-function globToRegExp(glob) {
-  let pattern = glob.replace(/\\/g, "/").trim();
-  if (pattern.endsWith("/")) pattern += "**";
-  let source = "";
-  for (let i = 0; i < pattern.length; i += 1) {
-    const char = pattern[i];
-    if (char === "*") {
-      if (pattern[i + 1] === "*") {
-        source += ".*";
-        i += 1;
-      } else {
-        source += "[^/]*";
-      }
-    } else if (char === "?") {
-      source += "[^/]";
-    } else if ("/.+()[]{}^$|\\".includes(char)) {
-      source += `\\${char}`;
-    } else {
-      source += char;
-    }
-  }
-  return new RegExp(`^${source}$`);
-}
-
-// 模式按原样缓存：matchAny 对每个文件 × 每个 pattern 调用，重复 new RegExp 是纯浪费。
-const compiledCache = new Map();
-function compiled(pattern) {
-  if (!compiledCache.has(pattern)) compiledCache.set(pattern, globToRegExp(pattern));
-  return compiledCache.get(pattern);
-}
-
-function matchAny(file, patterns) {
-  return patterns.some((pattern) => compiled(pattern).test(file));
 }
 
 function git(args, cwd) {
@@ -90,36 +58,39 @@ function gitRoot(cwd) {
   return path.resolve(out);
 }
 
-// scope 规则按仓库根相对路径解释。绝对路径先转成仓库根相对路径；越出仓库根的规则直接报错——
-// 它永远匹配不到任何变更文件，静默留着就是 fail-open（越界改动会被判成合规）。
-function rootRelativePattern(pattern, root) {
-  const normalized = pattern.replace(/\\/g, "/");
-  if (!path.isAbsolute(pattern)) {
-    if (normalized.split("/").includes("..")) {
-      fail(`scope pattern "${pattern}" escapes the repository root; scope rules are repository-root relative`);
-    }
-    return normalized;
+// scope 规则按仓库根相对路径解释（实现在 scope-core 单源）。非法规则在那里以 throw 报错，
+// 这里统一折算成 CLI 的 fail（一行干净报错 + 退出码 2），文案与单源前逐字一致。
+function rootRelative(pattern, root) {
+  try {
+    return rootRelativePattern(pattern, root);
+  } catch (err) {
+    fail(err.message);
   }
-  const rel = path.relative(root, path.resolve(pattern)).replace(/\\/g, "/");
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    fail(`scope pattern "${pattern}" is outside the repository root`);
-  }
-  return rel;
 }
 
 // 把判定结果写回状态文件：后续 state.mjs gate 读到的是真实结论，而不是执行者自报的 scope_drift。
 // 复用 state.mjs write：落盘、校验、加锁与事件日志只有一份实现，不在 scope.mjs 里再写一套原子写与锁。
 // 已知局限：读—改—写跨两个进程，中间没有跨进程锁，并发写同一状态文件的会话可能被这次写回覆盖
 // （与「同一仓库并发跑两条同类管道会互相覆盖状态」是同一条已记录的并发限制）。
-function applyVerdict(file, pipeline, verdict, state, base, exclude) {
+function applyVerdict(file, pipeline, verdict, state, base, exclude, rules = {}) {
   const stateScript = fileURLToPath(new URL("./state.mjs", import.meta.url));
   const prevScope = state && typeof state === "object" && state.scope && typeof state.scope === "object" && !Array.isArray(state.scope)
     ? state.scope
     : null;
   // 一并记下本次判定用的基线与排除清单：下次不传 --base/--exclude 时以它们为起点。
   // exclude 不落盘的话，gate 的复算只认 .loop-cli/ 前缀——自定义 --exclude 判 PASS 后
-  // 复算却把同样文件算成越界，管道永久 ESCALATE（口径必须与 scope.mjs 同宽，见 state.mjs）。
-  const scope = { ...(prevScope || {}), base, exclude };
+  // 复算却把同样文件算成越界，管道永久 ESCALATE（复算与 CLI 消费同一 scope-core 内核，见 state.mjs）。
+  // exclude 仅在 CLI 显式传入时覆盖（调用点对「未传」传 undefined）：裸跑时的生效清单可能
+  // 是回退出来的默认，整份覆盖会把已落盘的自定义清单抹掉，复算口径随之变窄。
+  const scope = { ...(prevScope || {}), base };
+  if (exclude !== undefined) scope.exclude = exclude;
+  // 规则维度（hard/soft/forbidden）同理：仅 CLI 显式传入的维度落盘（整体替换该维度既有值），
+  // 未传的维度不动状态里已有值——裸跑时的生效规则可能回退自状态文件，整份覆盖与 exclude 的
+  // 抹除缺陷同型；不落盘则 README 示例的 CLI 用法在状态里永远没有规则，gate 复算恒
+  // 「规则为空」→ 永远拦 DONE。
+  for (const kind of ["hard", "soft", "forbidden"]) {
+    if (rules[kind] !== undefined) scope[kind] = rules[kind];
+  }
   const next = { ...state, scope, scope_drift: verdict };
   const result = spawnSync(process.execPath, [stateScript, "write", "--pipeline", pipeline, "--file", file], {
     input: JSON.stringify(next),
@@ -129,25 +100,6 @@ function applyVerdict(file, pipeline, verdict, state, base, exclude) {
     const detail = String(result.stderr || "").trim().split("\n")[0];
     fail(`failed to write scope_drift=${verdict} into ${file}: ${detail || `state.mjs write exited ${result.status}`}`);
   }
-}
-
-/** 列被 gitignore 的未跟踪文件（仓库根相对路径）。
- *
- *  `git ls-files --others --ignored --exclude-standard` 默认**逐文件展开**被忽略的目录
- *  （实测：`dist/` 忽略时输出 `dist/a.js`、`dist/nested/c.js`；只有额外加 `--directory`
- *  才会折叠成一行 `dist/`）。这里要的是可匹配的文件路径，所以保持默认行为、不加该开关。
- *
- *  已知边界：只覆盖**未跟踪**的 ignored 项。已跟踪文件后来被加进 .gitignore 的情况仍会被
- *  `git diff --name-only <base>` 列出（它本来就跟踪），不会漏。 */
-function listIgnoredFiles(root) {
-  const listing = git(["ls-files", "--others", "--ignored", "--exclude-standard"], root);
-  const out = new Set();
-  if (!listing) return out;
-  for (const line of listing.split("\n")) {
-    const entry = line.trim().replace(/\\/g, "/").replace(/\/$/, "");
-    if (entry) out.add(entry);
-  }
-  return out;
 }
 
 function main() {
@@ -182,9 +134,12 @@ function main() {
   const baseSource = typeof args.base === "string" && args.base ? args.base : (typeof stateBase === "string" && stateBase ? stateBase : "HEAD");
   const base = assertSafeRev(baseSource, "--base");
 
-  let hard = listOf(args.hard);
-  let soft = listOf(args.soft);
-  let forbidden = listOf(args.forbidden);
+  // CLI 显式传入的规则先单独记下：落盘侧要区分「CLI 传入」与「状态回退」，与状态合并
+  // （下方 if (state) 块）后就分不出来了。判定语义不变：合并顺序仍是 CLI 优先。
+  const cliRules = { hard: listOf(args.hard), soft: listOf(args.soft), forbidden: listOf(args.forbidden) };
+  let hard = cliRules.hard;
+  let soft = cliRules.soft;
+  let forbidden = cliRules.forbidden;
   if (state) {
     const scope = state && typeof state === "object" ? state.scope : null;
     if (scope && typeof scope === "object" && !Array.isArray(scope)) {
@@ -200,9 +155,9 @@ function main() {
     fail("--apply writes the verdict back into the state file; pass --file <state file> too");
   }
   // scope 规则与变更清单同基准：都按仓库根相对路径解释
-  hard = hard.map((pattern) => rootRelativePattern(pattern, root));
-  soft = soft.map((pattern) => rootRelativePattern(pattern, root));
-  forbidden = forbidden.map((pattern) => rootRelativePattern(pattern, root));
+  hard = hard.map((pattern) => rootRelative(pattern, root));
+  soft = soft.map((pattern) => rootRelative(pattern, root));
+  forbidden = forbidden.map((pattern) => rootRelative(pattern, root));
   // `!` 否定不支持：globToRegExp 会把它当字面量，写进 forbidden 会静默永不匹配（fail-open）。
   // 显式报错把人引到 hard/soft/forbidden 的正确表达方式上，而不是让越界改动静默通过
   for (const [kind, patterns] of [["hard", hard], ["soft", soft], ["forbidden", forbidden]]) {
@@ -219,43 +174,43 @@ function main() {
       );
     }
   }
-  // 状态文件本身不属于业务改动；默认排除，避免 pipeline 自己把自己判成越界。
-  const exclude = (listOf(args.exclude).length > 0 ? listOf(args.exclude) : [".loop-cli/**"]).map((pattern) =>
-    rootRelativePattern(pattern, root),
+  // 状态文件本身不属于业务改动；排除清单三级回退：CLI --exclude → 状态文件 scope.exclude → 默认。
+  // 只看 CLI 的话，`--exclude "node_modules/**,.loop-cli/**" --apply` 落盘后裸跑就回退默认清单
+  // ——已落盘的自定义排除失效（上方注释承诺的「下次不传 --exclude 时以它们为起点」落空），
+  // gate 复算把排除目标算成越界，管道永久 ESCALATE。
+  const cliExclude = listOf(args.exclude);
+  const stateExclude = state && typeof state === "object" && state.scope && typeof state.scope === "object" && Array.isArray(state.scope.exclude)
+    ? state.scope.exclude.map((v) => String(v).replace(/\\/g, "/"))
+    : [];
+  const exclude = (cliExclude.length > 0 ? cliExclude : (stateExclude.length > 0 ? stateExclude : [".loop-cli/**"])).map((pattern) =>
+    rootRelative(pattern, root),
   );
 
-  const changed = new Set();
-  const addChanged = (line) => {
-    const file = line.trim().replace(/\\/g, "/");
-    if (file && !matchAny(file, exclude)) changed.add(file);
-  };
-  // 两条清单都在仓库根执行，输出才同基准（仓库根相对路径）：
-  // 在调用目录执行时 git ls-files 只列出调用目录以下的未跟踪文件，仓库其它目录的越界改动会被整个漏掉。
-  for (const line of git(["diff", "--name-only", base], root).split("\n")) addChanged(line);
-  const includeUntracked = args["no-untracked"] !== true;
-  if (includeUntracked) {
-    for (const line of git(["ls-files", "--others", "--exclude-standard"], root).split("\n")) addChanged(line);
-    // gitignored 的改动必须一并纳入（2026-10-29 修复）：`--exclude-standard` 按定义跳过被
-    // .gitignore 的路径，而构建产物、生成代码、本地配置恰好都在那里。实测：.gitignore=dist/、
-    // 只改 dist/built.js、--forbidden "dist/**" → 判 **PASS**，而 dist 正是最典型的 forbidden 目标。
-    // 只列 ignored 的**已存在**路径（--others --ignored --exclude-standard 只出未跟踪的 ignored 项），
-    // 目录本身不会展开成其下每个文件，故还需把命中的目录按其内容展开一次。
-    for (const line of listIgnoredFiles(root)) addChanged(line);
-  }
-
+  // 变更清单收集与越界判定走 scope-core 单源（git runner 注入：失败即 fail 的纪律留在本文件）
+  const changed = collectChangedFiles((args) => git(args, root), exclude, base, args["no-untracked"] !== true);
   const files = [...changed].sort();
-  const forbiddenHits = files.filter((file) => matchAny(file, forbidden));
-  const hardHits = files.filter((file) => matchAny(file, hard));
-  const softHits = files.filter((file) => matchAny(file, soft));
-  const outside = files.filter(
-    (file) => !matchAny(file, hard) && !matchAny(file, soft) && !matchAny(file, forbidden),
-  );
-  const verdict = forbiddenHits.length > 0 || outside.length > 0 ? "FAIL" : "PASS";
+  const { hardHits, softHits, forbiddenHits, outside, verdict } = scopeVerdict(files, { hard, soft, forbidden });
   const result = { verdict, base, pipeline, changed: files, hard: hardHits, soft: softHits, forbidden: forbiddenHits, outside };
 
   // 把本次 base 一并记进状态：下一次调用不传 --base 时就有确定的起点可用，
   // 而不是退回 HEAD（那样已提交的越界改动永远看不见）。
-  if (args.apply) applyVerdict(statePath, pipeline, verdict, state, base, exclude);
+  // 规则维度与 exclude 同构：仅 CLI 显式传入时落盘（此时合并后的 hard/soft/forbidden 正是
+  // CLI 传入值经 rootRelative 映射的结果），未传维度传 undefined 以保留状态里已有值。
+  if (args.apply) {
+    applyVerdict(
+      statePath,
+      pipeline,
+      verdict,
+      state,
+      base,
+      cliExclude.length > 0 ? exclude : undefined,
+      {
+        hard: cliRules.hard.length > 0 ? hard : undefined,
+        soft: cliRules.soft.length > 0 ? soft : undefined,
+        forbidden: cliRules.forbidden.length > 0 ? forbidden : undefined,
+      },
+    );
+  }
 
   if (args.json) console.log(JSON.stringify(result));
   else {

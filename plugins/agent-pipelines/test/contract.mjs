@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PIPELINES, attemptLimit } from "../scripts/pipelines.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let passed = 0;
@@ -266,6 +267,76 @@ for (const [agentRel, refRel] of [
     missingInAgent.length === 0 && missingInRef.length === 0,
     `agents 缺 ${JSON.stringify(missingInAgent)}；references 缺 ${JSON.stringify(missingInRef)}`,
   );
+}
+
+// A4 补强：角色文件正文的关键契约 token 必须双侧齐备（2026-11 一致性审计盲区）
+// 背景：上面的对账只比 `=== … ===` 注入段落标记清单，正文规则漂移检测不到——实测发生过
+// agents 版漏掉输入完整性守卫（`reason="missing_input"`）、输出字段名 `check_results` 未跟上
+// references 的 `verification`，两处都是段落清单齐全、正文单侧漂移。两份载体的措辞
+// legitimately 不同，不做全文等价；这里对账每对文件都必须共有的核心契约 token
+// （反引号标识符与 `字段="值"` 模式），集合按各角色实际正文精选、宁少勿滥。
+for (const [agentRel, refRel, tokens] of [
+  [
+    "agents/coding-builder.md",
+    "skills/coding-pipeline/references/builder-role.md",
+    // 输出 JSON 的机器可路由字段 + 范围红线
+    ["forbidden_scope", "root_cause_group", "verification", "scope_drift"],
+  ],
+  [
+    "agents/coding-reviewer.md",
+    "skills/coding-pipeline/references/reviewer-role.md",
+    // 输入完整性守卫 + 验证复核字段 + 归并规则 + 零证据禁令 + verdict 枚举
+    ['verdict="REJECT"', 'scope_drift="FAIL"', 'reason="missing_input"', "verification", "root_cause_group", "NEEDS_FIX", "scripts_gap"],
+  ],
+  [
+    "agents/ralph-worker.md",
+    "skills/ralph-pipeline/references/worker-role.md",
+    // 任务判据 + 上报协议（PASS/FAIL 原样上报）+ 输出 JSON 字段
+    ["accept_criteria", "verification: PASS", "verification: FAIL", "task_id", "verification_cmd"],
+  ],
+  [
+    "agents/ralph-reviewer.md",
+    "skills/ralph-pipeline/references/reviewer-role.md",
+    // 输入完整性守卫 + 判据复核字段 + verdict 枚举 + 证据格式
+    ['verdict="REJECT"', 'reason="missing_input"', "accept_criteria", "verification", "NEEDS_FIX", "task_id", "file:line"],
+  ],
+]) {
+  const missingInAgent = tokens.filter((t) => !read(agentRel).includes(t));
+  const missingInRef = tokens.filter((t) => !read(refRel).includes(t));
+  const missing = [
+    missingInAgent.length > 0 ? `agents 版缺 ${JSON.stringify(missingInAgent)}` : "",
+    missingInRef.length > 0 ? `references 版缺 ${JSON.stringify(missingInRef)}` : "",
+  ]
+    .filter(Boolean)
+    .join("；");
+  check(
+    `${agentRel} ↔ ${refRel} 正文关键契约 token 双侧齐备${missing ? `（${missing}）` : ""}`,
+    missingInAgent.length === 0 && missingInRef.length === 0,
+  );
+}
+
+// A5：orchestrator 的背压数值契约锚定到脚本单源（2026-11 一致性审计盲区）
+// 背景：equivalence.mjs 只锚定 commands+SKILL 文档；两个 agents/ orchestrator 文件里的
+// MAX_CYCLES / STALL_MAX / max_failures / max_attempts 是手写拷贝——前三者此前最多被本文件
+// 上方硬编码参数表（与脚本常量是两份源）间接覆盖，max_failures / max_attempts 则完全无校验。
+// 这里直接 import scripts/pipelines.mjs 的常量对账：文档数值 ↔ 脚本实际值。
+// max_failures 默认值单源在 state.mjs init，提取方式与 equivalence.mjs 相同。
+const failuresMatch = read("scripts/state.mjs").match(/max_failures:\s*(\d+)/);
+check("scripts/state.mjs init max_failures 默认存在", Boolean(failuresMatch));
+const maxFailuresDefault = failuresMatch ? Number(failuresMatch[1]) : -1;
+for (const [pipeline, rel] of Object.entries({ ralph: "agents/ralph-orchestrator.md", coding: "agents/coding-orchestrator.md" })) {
+  const spec = PIPELINES[pipeline];
+  const source = read(rel);
+  const cycles = uniqueNumbers(source, /MAX_CYCLES\s*=\s*(\d+)/g);
+  const stalls = uniqueNumbers(source, /STALL_MAX\s*=\s*(\d+)/g);
+  const factors = [...source.matchAll(/MAX_CYCLES=\d+\s*×\s*(0\.\d+)/g)].map((m) => Number(m[1]));
+  const failureDefaults = [...source.matchAll(/max_failures`?（默认\s*(\d+)）/g)].map((m) => Number(m[1]));
+  const attemptDefaults = [...source.matchAll(/max_attempts`?（默认\s*(\d+)）/g)].map((m) => Number(m[1]));
+  check(`${rel} MAX_CYCLES 与 PIPELINES.${pipeline}.maxCycles 一致 (${spec.maxCycles})`, cycles.length > 0 && cycles.every((n) => n === spec.maxCycles));
+  check(`${rel} STALL_MAX 与 PIPELINES.${pipeline}.stallMax 一致 (${spec.stallMax})`, stalls.length > 0 && stalls.every((n) => n === spec.stallMax));
+  check(`${rel} 预算折算系数与 PIPELINES.${pipeline}.factor 一致 (${spec.factor})`, factors.length > 0 && factors.every((n) => n === spec.factor));
+  check(`${rel} max_failures 默认与 state.mjs init 一致 (${maxFailuresDefault})`, failureDefaults.length > 0 && failureDefaults.every((n) => n === maxFailuresDefault));
+  check(`${rel} max_attempts 默认与 attemptLimit 一致 (${attemptLimit})`, attemptDefaults.length > 0 && attemptDefaults.every((n) => n === attemptLimit));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

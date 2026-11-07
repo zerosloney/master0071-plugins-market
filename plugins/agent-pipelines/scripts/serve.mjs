@@ -8,9 +8,17 @@ import path from "node:path";
 import { buildHtml, layoutGraph, loadEvents, loadState, pipelineOf, stateFile } from "./render.mjs";
 import { parseArgs } from "./args.mjs";
 
-const args = parseArgs(process.argv.slice(2), { boolean: ["json"], value: ["pipeline", "file", "port", "interval"] });
+const args = parseArgs(process.argv.slice(2), { value: ["pipeline", "file", "port", "interval"] });
 const pipeline = pipelineOf(args);
 const file = stateFile(args, pipeline);
+// 状态文件必须是 .json 后缀（2026-11-07，审计 m4；与 render.mjs 同款校验）：事件日志路径
+// 派生是 `.json` → `.events.jsonl`，不带后缀时 replace 不替换、eventsFile 退化成状态文件
+// 自己——watch 双注册同一文件、loadEvents 把状态 JSON 当 JSONL 逐行解析成空日志，看板
+// 「看起来正常」但事件轨迹永远为空。参数错误 → 一行报错 + 退出码 2。
+if (path.extname(file) !== ".json") {
+  console.error(`[agent-pipelines] state file should have a .json extension (got ${file}): without it, the derived events path is the state file itself`);
+  process.exit(2);
+}
 const eventsFile = file.replace(/\.json$/, ".events.jsonl");
 // --port / --interval 的取值校验（2026-11-01 修复）。旧写法 `Number(args.port) > 0 ? … : 8787`
 // 只挡下界：70000 这类越界值会一路传到 server.listen()，由 net 层**同步**抛
@@ -21,7 +29,7 @@ function positivePort(raw, label, fallback) {
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
-    console.error(`agent-pipelines live board: --${label} 需要 1-65535 的整数端口，收到「${raw}」`);
+    console.error(`[agent-pipelines] live board: --${label} 需要 1-65535 的整数端口，收到「${raw}」`);
     process.exit(2);
   }
   return n;
@@ -47,6 +55,10 @@ let lastHtml = "";
 // 文件被替换抛错时保留旧标记，下一次触发会重试。
 let renderedStateMtime = 0;
 let renderedEventsMtime = 0;
+// 上一次渲染失败的错误消息（2026-11-07，质量审计 §3.3）：渲染失败不能再完全静默——状态
+// 文件变成永久损坏 JSON 后看板会一直展示旧内容，用户无从察觉数据已停更。watch + 轮询会
+// 反复触发同一错误，按消息去重只报一次；渲染成功后清空标记，再次损坏能再报。
+let lastRenderError = "";
 
 function renderHtml() {
   const state = loadState(file);
@@ -77,9 +89,15 @@ function refresh() {
   let html;
   try {
     html = renderHtml();
-  } catch {
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    if (message !== lastRenderError) {
+      lastRenderError = message;
+      console.error(`[agent-pipelines] live board: render failed, board keeps showing the last good content: ${message}`);
+    }
     return; // 文件暂不可读（被替换的瞬间）：不动已渲染标记，等下一次触发重试
   }
+  lastRenderError = "";
   const changed = html !== lastHtml;
   lastHtml = html;
   renderedStateMtime = stateMtime;
@@ -197,7 +215,7 @@ try {
   renderedStateMtime = mtimeOf(file);
   renderedEventsMtime = mtimeOf(eventsFile);
 } catch (err) {
-  console.error(`agent-pipelines live board could not start: ${err.message}`);
+  console.error(`[agent-pipelines] live board could not start: ${err.message}`);
   console.error(`先运行 state.mjs init 创建状态文件，例如：node scripts/state.mjs init --pipeline ${pipeline} --file ${file} --prompt "<目标>"`);
   process.exit(2);
 }
@@ -205,7 +223,7 @@ try {
 const server = createServer(handleRequest);
 // 端口被占（常见于上一个看板没退干净）时给可读报错并以退出码 2 结束，而不是抛未监听的 error 事件
 server.on("error", (err) => {
-  console.error(`agent-pipelines live board could not listen on 127.0.0.1:${port}: ${err.message}`);
+  console.error(`[agent-pipelines] live board could not listen on 127.0.0.1:${port}: ${err.message}`);
   process.exit(2);
 });
 server.listen(port, "127.0.0.1", () => {

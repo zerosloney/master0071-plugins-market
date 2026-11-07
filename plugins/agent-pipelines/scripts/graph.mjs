@@ -5,11 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "./args.mjs";
 import { analyzeDependencies } from "./dag.mjs";
-
-const PIPELINES = {
-  ralph: { maxCycles: 10, factor: 0.8 },
-  coding: { maxCycles: 8, factor: 0.75 },
-};
+import { PIPELINES, effectiveMaxCycles } from "./pipelines.mjs";
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);
@@ -40,7 +36,8 @@ function main() {
   const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   // 依赖图分析（未知依赖 / 拓扑序 / 环）走 dag.mjs 单源——与 render.mjs 的看板分层共用同一份算法。
   const { order, cycles, errors } = analyzeDependencies(tasks);
-  const maxCycles = Number.isInteger(state.max_iterations) && state.max_iterations > 0 ? state.max_iterations : spec.maxCycles;
+  // max_iterations > 0 覆盖默认 maxCycles 的规则单源于 pipelines.mjs
+  const maxCycles = effectiveMaxCycles(state, pipeline);
   const limit = Math.floor(maxCycles * spec.factor);
   const budget = { limit, count: tasks.length, overflow: tasks.length > limit };
   const ok = errors.length === 0 && cycles.length === 0 && !budget.overflow;

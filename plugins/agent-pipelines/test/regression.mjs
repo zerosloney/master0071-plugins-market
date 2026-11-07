@@ -8,6 +8,8 @@
 //   5. gate 复算体的 git 工作目录仍是 cwd（1 的修复只落在 scope.mjs 原件上）；
 //   6. 复算体内联 glob 的 `**` 判定恒假，退化成单段（`**` 跨段承诺形同虚设 + DONE 不可达）；
 //   7. completion_promise 只有文档没有实现，且 --apply 反向抹除编排器写的 DONE。
+//   8. promise 写边车标记不取锁（2026-11-07 审计 m5）：init 的旧标记清理自称「与并发 promise
+//      同锁防竞争」，promise 自己却在锁外落盘——清理与写入实际不同锁（改前会红、改后必须绿）。
 // 零依赖纯 Node，与既有三个套件同风格（PASS/FAIL 逐条打印，末尾汇总，失败退出码 1）。
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -528,14 +530,14 @@ console.log("\n== 2026-10-31 第五轮：--exclude 口径与 gate 复算同宽 =
   check("exclude 未命中的越界改动照常拦截", outsideEx?.stop_reason === "ESCALATE", JSON.stringify(outsideEx));
   rmSync(path.join(exRepo.repo, "outside.js"));
 
-  // ③ scope.mjs --apply 落盘实际生效的排除清单（不传 --exclude 落默认；多值逗号分隔）。
-  // 注意退出码：node_modules/x.js 在默认清单下是越界 → 判 FAIL → exit 1，但落盘照常发生
-  //（applyVerdict 在 exit 之前写回），断言只看落盘内容。
+  // ③ scope.mjs --apply 落盘实际生效的排除清单（2026-11-07 起：裸跑沿用已落盘清单，仅显式
+  // --exclude 才覆盖；多值逗号分隔）。旧断言「不传 --exclude 落默认」编码的是抹除缺陷本体
+  //（裸跑 --apply 把已落盘清单整体覆盖回默认），随本次修复翻转。
   const appliedDefault = run("scope.mjs", ["--file", exStatePath, "--apply"], undefined, exRepo.repo);
   const persistedDefault = JSON.parse(readFileSync(exStatePath, "utf8")).scope;
   check(
-    "--apply 不传 --exclude 时落默认排除清单",
-    JSON.stringify(persistedDefault.exclude) === JSON.stringify([".loop-cli/**"]),
+    "--apply 不传 --exclude 时保留已落盘清单（不回退默认抹除）",
+    JSON.stringify(persistedDefault.exclude) === JSON.stringify(["node_modules/**", ".loop-cli/**"]),
     `exit=${appliedDefault.status} ${JSON.stringify(persistedDefault)}`,
   );
   const appliedCustom = run(
@@ -860,6 +862,32 @@ console.log("\n== 2026-11-05：锁竞态（陈旧锁接管与归属守卫） =="
   rmSync(liveLock, { force: true });
 }
 
+console.log("\n== 2026-11-07：promise 写边车标记同取 <state>.lock（审计 m5） ==");
+// init 删旧 promise 标记在锁内做（自称「清理与写入同锁，防止与并发 promise/gate 竞争」），
+// 但旧实现的 promise 子命令自己不取锁——init「新管线不继承上一轮早停」的不变量存在
+// 「promise 锁外落盘插进清理之后」的竞窗，注释口径与实现矛盾。与 init / write / gate --apply
+// 对齐：promise 的 writeAtomic + logEvent 包进同一把 withLock。确定性代理与上面的锁竞态段
+// 同款：持有者 pid 是测试进程（必然存活）的活锁挡住 promise，必须等到超时 exit 2；
+// 旧实现无视锁立即 exit 0 并落盘标记。
+{
+  const plFile = path.join(sandbox, "promise-lock.json");
+  writeFileSync(plFile, JSON.stringify(codingState()));
+  const plMarker = plFile.replace(/\.json$/, ".promise.json");
+  const plLock = `${plFile}.lock`;
+  writeFileSync(plLock, `${process.pid} ${new Date().toISOString()}\n`);
+  const plT0 = Date.now();
+  const plBlocked = run("state.mjs", ["promise", "--pipeline", "coding", "--file", plFile, "--value", "用户显式早停"]);
+  check("promise：持有者存活的锁挡住写入（等待超时 exit 2，不再无视锁）",
+    plBlocked.status === 2 && /locked/.test(plBlocked.stderr), `${plBlocked.status} ${plBlocked.stdout} ${plBlocked.stderr}`);
+  check("promise：进入了 withLock 等待窗口（耗时 ≈ LOCK_WAIT_MS，旧实现立即返回）",
+    Date.now() - plT0 >= 1500, `${Date.now() - plT0}ms`);
+  check("promise：被挡期间边车标记未落盘", !existsSync(plMarker), `marker=${existsSync(plMarker)}`);
+  rmSync(plLock, { force: true });
+  const plOk = run("state.mjs", ["promise", "--pipeline", "coding", "--file", plFile, "--value", "用户显式早停"]);
+  check("promise：锁释放后照常写入（锁纪律不破坏正常路径）",
+    plOk.status === 0 && existsSync(plMarker), `${plOk.status} ${plOk.stdout} ${plOk.stderr}`);
+}
+
 console.log("\n== 2026-11-05：文档承诺的默认值补齐（读取规则 2） ==");
 // commands/ralph-pipeline.md 与 coding-pipeline.md 的读取规则 2：「旧版本状态文件缺少
 // max_failures / retry_on_failure 时按默认值补齐，不算损坏。」此前只有文档没有实现，
@@ -896,6 +924,337 @@ console.log("\n== 2026-11-05：文档承诺的默认值补齐（读取规则 2�
     const vBad = run("state.mjs", ["validate", "--pipeline", "coding", "--file", oldFmtFile]);
     check(`显式 ${label} max_failures 仍被拒绝`, vBad.status === 1 && /max_failures/.test(vBad.stdout), `${vBad.status} ${vBad.stdout}`);
   }
+}
+
+console.log("\n== 2026-11-07：--exclude 三级回退（CLI → 状态文件 → 默认） ==");
+// 旧实现解析 exclude 只看 CLI --exclude：`--exclude "node_modules/**,.loop-cli/**" --apply`
+// 落盘后，裸跑回退默认清单（自定义排除失效判 FAIL），裸跑 --apply 再把已落盘清单抹回默认
+// ——gate 复算把排除目标算成越界，管道永久 ESCALATE。:119 注释承诺的「下次不传 --exclude
+// 时以它们为起点」与 --base 一样兑现：CLI → 状态文件 → 默认三级回退；
+// applyVerdict 仅在 CLI 显式传入 --exclude 时才覆盖 scope.exclude。
+{
+  const fbRepo = makeRepo("exclude-fallback-repo");
+  const fbStatePath = path.join(fbRepo.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(fbStatePath), { recursive: true });
+  const fbDone = () => ({
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+    scope: { base: fbRepo.base, hard: ["src/**"], soft: [], forbidden: [] },
+  });
+  const fbRun = (args) => run("scope.mjs", ["--file", fbStatePath, ...args], undefined, fbRepo.repo);
+  const fbScope = () => parseJson(readFileSync(fbStatePath, "utf8"))?.scope;
+
+  // 初态：状态里还没有 exclude 字段。显式 --exclude --apply 把清单落盘（第一级）。
+  writeFileSync(fbStatePath, JSON.stringify(fbDone()));
+  mkdirSync(path.join(fbRepo.repo, "node_modules"), { recursive: true });
+  writeFileSync(path.join(fbRepo.repo, "node_modules", "x.js"), "x\n");
+  const fbPersist = fbRun(["--exclude", "node_modules/**,.loop-cli/**", "--apply"]);
+  check(
+    "显式 --exclude --apply 把清单落盘",
+    JSON.stringify(fbScope()?.exclude) === JSON.stringify(["node_modules/**", ".loop-cli/**"]),
+    `exit=${fbPersist.status} ${JSON.stringify(fbScope())} ${fbPersist.stderr}`,
+  );
+
+  // 第二级：裸跑不传 --exclude 时回退状态里已落盘的清单（旧实现回退默认 → x.js 越界 → FAIL）
+  const fbBare = fbRun(["--json"]);
+  check(
+    "裸跑不传 --exclude 时回退已落盘清单（node_modules 在排除内判 PASS）",
+    parseJson(fbBare.stdout)?.verdict === "PASS",
+    fbBare.stdout + fbBare.stderr,
+  );
+
+  // 裸跑 --apply 不抹除：旧实现把已落盘清单整体覆盖回默认（缺陷本体）
+  const fbApply = fbRun(["--apply"]);
+  check(
+    "裸跑 --apply 不抹除已落盘清单",
+    JSON.stringify(fbScope()?.exclude) === JSON.stringify(["node_modules/**", ".loop-cli/**"]),
+    `exit=${fbApply.status} ${JSON.stringify(fbScope())}`,
+  );
+
+  // 口径不再翻转：清单在 → 复算 PASS → DONE（旧：清单被抹 → 永久 ESCALATE）
+  const fbGate = run("state.mjs", ["gate", "--pipeline", "coding", "--file", fbStatePath, "--json"], undefined, fbRepo.repo);
+  check(
+    "裸跑 --apply 后 gate 复算 DONE（排除清单未被抹除）",
+    parseJson(fbGate.stdout)?.stop_reason === "DONE",
+    fbGate.stdout,
+  );
+
+  // 显式 --exclude 仍然覆盖（替换语义不回归）
+  const fbOverwrite = fbRun(["--exclude", "node_modules/**,vendor/**", "--apply"]);
+  check(
+    "显式 --exclude --apply 仍覆盖已落盘清单",
+    JSON.stringify(fbScope()?.exclude) === JSON.stringify(["node_modules/**", "vendor/**"]),
+    `exit=${fbOverwrite.status} ${JSON.stringify(fbScope())}`,
+  );
+
+  // 第三级：状态里没有 exclude 字段时回退默认 .loop-cli/**（状态文件自身不被判越界）
+  rmSync(path.join(fbRepo.repo, "node_modules"), { recursive: true, force: true });
+  writeFileSync(fbStatePath, JSON.stringify(fbDone()));
+  const fbDefault = fbRun(["--json"]);
+  check(
+    "状态无 exclude 字段时回退默认清单（.loop-cli/ 不判越界）",
+    parseJson(fbDefault.stdout)?.verdict === "PASS",
+    fbDefault.stdout + fbDefault.stderr,
+  );
+}
+
+console.log("\n== 2026-11-07：--hard/--soft/--forbidden 随 --apply 落盘（与 exclude 对称） ==");
+// 背景：--apply 只落 base 与（显式传入时的）exclude，CLI 显式传入的 --hard/--soft/--forbidden
+// 不落盘——按 README 示例 `scope.mjs --hard "src/**" ... --apply` 用过的仓库，状态里始终没有
+// 规则，state.mjs gate 复算恒「规则为空」→ 永远拦 DONE（fail-closed，但 CLI 用法自相矛盾）。
+// 修法与 exclude 的 P0-1 同构：仅 CLI 显式传入的维度落盘（整体替换该维度既有值），未传的
+// 维度不动状态里已有值；判定本身（scopeVerdict 调用侧）零变化，只有落盘侧变。
+{
+  const rpRepo = makeRepo("rules-persist-repo");
+  const rpStatePath = path.join(rpRepo.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(rpStatePath), { recursive: true });
+  const rpDone = (scope) => ({
+    ...codingState(),
+    tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+    critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+    scope,
+  });
+  const rpRun = (args) => run("scope.mjs", ["--file", rpStatePath, ...args], undefined, rpRepo.repo);
+  const rpScope = () => parseJson(readFileSync(rpStatePath, "utf8"))?.scope;
+
+  // ① 三维度都显式传入 --apply：三维度规则原样落盘（逗号多值与 exclude 同约定）
+  writeFileSync(rpStatePath, JSON.stringify(rpDone({ base: rpRepo.base, hard: [], soft: [], forbidden: [] })));
+  const rpAll = rpRun(["--hard", "src/**,lib/**", "--soft", "docs/**", "--forbidden", "dist/**", "--apply"]);
+  const rpAllScope = rpScope();
+  check(
+    "--hard/--soft/--forbidden --apply 把三维度规则原样落盘",
+    JSON.stringify([rpAllScope?.hard, rpAllScope?.soft, rpAllScope?.forbidden])
+      === JSON.stringify([["src/**", "lib/**"], ["docs/**"], ["dist/**"]]),
+    `exit=${rpAll.status} ${JSON.stringify(rpAllScope)} ${rpAll.stderr}`,
+  );
+
+  // ② 只传 --hard --apply：hard 维度整体替换；未传的 soft/forbidden 既有值不被抹
+  writeFileSync(
+    rpStatePath,
+    JSON.stringify(rpDone({ base: rpRepo.base, hard: ["old/**"], soft: ["docs-old/**"], forbidden: ["secret.env"] })),
+  );
+  const rpHardOnly = rpRun(["--hard", "src/**", "--apply"]);
+  const rpHardScope = rpScope();
+  check(
+    "只传 --hard --apply 时 soft/forbidden 维度的既有值不被抹",
+    JSON.stringify(rpHardScope?.soft) === JSON.stringify(["docs-old/**"])
+      && JSON.stringify(rpHardScope?.forbidden) === JSON.stringify(["secret.env"]),
+    `exit=${rpHardOnly.status} ${JSON.stringify(rpHardScope)} ${rpHardOnly.stderr}`,
+  );
+  check(
+    "只传 --hard --apply 时 hard 维度整体替换为 CLI 传入值",
+    JSON.stringify(rpHardScope?.hard) === JSON.stringify(["src/**"]),
+    `exit=${rpHardOnly.status} ${JSON.stringify(rpHardScope)} ${rpHardOnly.stderr}`,
+  );
+
+  // ③ 裸 --apply（不传任何规则维度）：状态里已有规则原样保留
+  writeFileSync(
+    rpStatePath,
+    JSON.stringify(rpDone({ base: rpRepo.base, hard: ["src/**"], soft: ["docs/**"], forbidden: ["dist/**"] })),
+  );
+  const rpBare = rpRun(["--apply"]);
+  const rpBareScope = rpScope();
+  check(
+    "裸 --apply 不动状态里已有规则",
+    JSON.stringify([rpBareScope?.hard, rpBareScope?.soft, rpBareScope?.forbidden])
+      === JSON.stringify([["src/**"], ["docs/**"], ["dist/**"]]),
+    `exit=${rpBare.status} ${JSON.stringify(rpBareScope)} ${rpBare.stderr}`,
+  );
+
+  // ④ 落盘后 gate 复算用得上规则：初态状态里只有 base、没有任何规则（复算恒「规则为空」）
+  writeFileSync(rpStatePath, JSON.stringify(rpDone({ base: rpRepo.base })));
+  writeFileSync(path.join(rpRepo.repo, "src", "feature.js"), "f\n");
+  rpRun(["--hard", "src/**", "--soft", "docs/**", "--forbidden", "dist/**", "--apply"]);
+  const rpGateDone = parseJson(
+    run("state.mjs", ["gate", "--pipeline", "coding", "--file", rpStatePath, "--json"], undefined, rpRepo.repo).stdout,
+  );
+  check(
+    "CLI 规则随 --apply 落盘后 gate 复算 DONE（改前状态恒无规则 → 永远拦 DONE）",
+    rpGateDone?.stop_reason === "DONE",
+    JSON.stringify(rpGateDone),
+  );
+  // 落盘的 forbidden 维度在复算里真实生效：命中即拦，reason 点名越界文件
+  mkdirSync(path.join(rpRepo.repo, "dist"), { recursive: true });
+  writeFileSync(path.join(rpRepo.repo, "dist", "leak.js"), "l\n");
+  const rpGateBlocked = parseJson(
+    run("state.mjs", ["gate", "--pipeline", "coding", "--file", rpStatePath, "--json"], undefined, rpRepo.repo).stdout,
+  );
+  check(
+    "落盘的 forbidden 规则在 gate 复算里生效（dist/leak.js 在场拦 DONE）",
+    rpGateBlocked?.stop_reason === "ESCALATE" && /dist\/leak\.js/.test(String(rpGateBlocked?.reason)),
+    JSON.stringify(rpGateBlocked),
+  );
+}
+
+console.log("\n== 2026-11-07：`/**/` 允许零层（gitignore 语义），scope 与 gate 复算同判 ==");
+// 旧实现把 `**` 一律编译为 `.*`：docs/**/secret.env → ^docs/.*/secret\.env$，匹配不到零层的
+// docs/secret.env——forbidden 方向 fail-open（越界文件在场判 PASS、gate 判 DONE）。
+// 修法：两侧紧邻 `/` 的 `/**/` 编译为零层或多层均可（docs/(?:.*/)?secret\.env）；
+// 裸 **、前导 **/（文档化行为，警告保留）、尾部 /** 的语义一律不动。
+{
+  const gsRepo = makeRepo("globstar-repo");
+  mkdirSync(path.join(gsRepo.repo, "docs", "nested"), { recursive: true });
+  writeFileSync(path.join(gsRepo.repo, "docs", "secret.env"), "s\n");
+  writeFileSync(path.join(gsRepo.repo, "docs", "nested", "secret.env"), "d\n");
+  const gsStatePath = path.join(gsRepo.repo, ".loop-cli", "coding.json");
+  mkdirSync(path.dirname(gsStatePath), { recursive: true });
+  writeFileSync(
+    gsStatePath,
+    JSON.stringify({
+      ...codingState(),
+      tasks: [{ id: "t1", title: "a", status: "done", depends_on: [], accept_criteria: ["ok"], failures: 0 }],
+      critical_checkpoints: [{ id: "cp-ok", description: "通过", passed: true }],
+      scope: { base: gsRepo.base, hard: ["docs/**"], soft: [], forbidden: ["docs/**/secret.env"] },
+      scope_drift: "PASS",
+    }),
+  );
+
+  const gsOut = parseJson(run("scope.mjs", ["--file", gsStatePath, "--json"], undefined, gsRepo.repo).stdout);
+  check(
+    "docs/**/secret.env 同时命中零层与多层（docs/secret.env、docs/nested/secret.env 都点名）",
+    Array.isArray(gsOut?.forbidden) && gsOut.forbidden.includes("docs/secret.env") && gsOut.forbidden.includes("docs/nested/secret.env"),
+    JSON.stringify(gsOut),
+  );
+
+  // 只剩零层越界时 gate 也必须拦（旧实现：内联 glob 漏判零层 → 复算 PASS → DONE，fail-open）
+  rmSync(path.join(gsRepo.repo, "docs", "nested"), { recursive: true, force: true });
+  const gsGate = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", gsStatePath, "--json"], undefined, gsRepo.repo).stdout);
+  check(
+    "gate 复算同判：零层 forbidden 在场 → ESCALATE 不 DONE",
+    gsGate?.stop_reason === "ESCALATE",
+    JSON.stringify(gsGate),
+  );
+  check(
+    "gate reason 点名同一处越界文件",
+    /docs\/secret\.env/.test(String(gsGate?.reason)),
+    String(gsGate?.reason),
+  );
+
+  // 既有语义锚：前导 **/ 仍不匹配仓库根文件（文档化行为），警告保留
+  writeFileSync(path.join(gsRepo.repo, "root.env"), "r\n");
+  const gsLeading = run(
+    "scope.mjs",
+    ["--base", gsRepo.base, "--hard", "docs/**", "--soft", "**/root.env", "--json"],
+    undefined,
+    gsRepo.repo,
+  );
+  const gsRoot = parseJson(gsLeading.stdout);
+  check(
+    "前导 **/ 不匹配仓库根文件的行为不变（root.env 仍判越界）",
+    Array.isArray(gsRoot?.outside) && gsRoot.outside.includes("root.env"),
+    JSON.stringify(gsRoot),
+  );
+  check(
+    "前导 **/ 的运行时警告保留",
+    /leading \*\*\//.test(gsLeading.stderr),
+    gsLeading.stderr,
+  );
+}
+
+console.log("\n== 2026-11-07：陈旧锁并发接管的互斥守卫（审计 M3） ==");
+// takeOverStale 的接管判据是接管**前**的 statSync：两个进程可先后对同一把残留锁各自判陈旧、
+// 各自 renameSync 成功——rename 的原子性只保证锁内容归属最后接管者（release 的内容比对
+// 因此不误删），不保证互斥：双方都认为自己持锁并进入临界区，后提交者基于陈旧读覆盖先提交
+// 者已落盘的写入。确定性复现用 node --require preload 给两个 write 子进程做受控延迟：
+//   · 输家 A：锁 rename 在实际替换完成**之后**才返回——撑大「rename→回读」窗口，让赢家 B 的
+//     接管 rename 落进窗口内（修复后的回读守卫才能判异己；延迟在 rename 前则两个回读各自
+//     只会看到自己的内容，守卫永远不触发）。
+//   · 赢家 B：伪造锁 statSync 的 mtime 为 40s 前（绕过 A 接管 rename 造成的 mtime 刷新，仍判
+//     陈旧可接管），并延迟自身状态 tmp 的首次 writeFileSync 1500ms——B 先读后写，中间夹进
+//     A 的提交，制造「陈旧读覆盖」时间线。
+// 断言不变式：最终状态 = 串行执行的产物（后进入临界区者的写在先进入者已提交状态之上，
+// 先提交者的 scope_drift 标记不丢失），且两进程都正常退出。
+{
+  const raceFile = path.join(sandbox, "m3-lock-race.json");
+  const hookLoser = path.join(sandbox, "m3-hook-loser.cjs");
+  const hookWinner = path.join(sandbox, "m3-hook-winner.cjs");
+  writeFileSync(
+    hookLoser,
+    `const fs = require("fs");\n` +
+      `const origRename = fs.renameSync;\n` +
+      `fs.renameSync = function (from, to, ...rest) {\n` +
+      `  const r = origRename.call(fs, from, to, ...rest);\n` +
+      `  if (String(to).endsWith(".lock")) {\n` +
+      `    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);\n` +
+      `  }\n` +
+      `  return r;\n` +
+      `};\n`,
+  );
+  writeFileSync(
+    hookWinner,
+    `const fs = require("fs");\n` +
+      `const origStat = fs.statSync;\n` +
+      `fs.statSync = function (f, ...rest) {\n` +
+      `  const s = origStat.call(fs, f, ...rest);\n` +
+      `  if (String(f).endsWith(".lock") && s) return { ...s, mtimeMs: Date.now() - 40000 };\n` +
+      `  return s;\n` +
+      `};\n` +
+      `const origWrite = fs.writeFileSync;\n` +
+      `let delayed = false;\n` +
+      `fs.writeFileSync = function (f, ...rest) {\n` +
+      `  if (!delayed && /m3-lock-race\\.json\\.\\d+\\.tmp$/.test(String(f))) {\n` +
+      `    delayed = true;\n` +
+      `    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);\n` +
+      `  }\n` +
+      `  return origWrite.call(fs, f, ...rest);\n` +
+      `};\n`,
+  );
+  writeFileSync(raceFile, JSON.stringify(codingState()));
+  const raceLock = `${raceFile}.lock`;
+  writeFileSync(raceLock, "424242 2020-01-01T00:00:00.000Z\n");
+  const raceOld = new Date(Date.now() - 40000);
+  utimesSync(raceLock, raceOld, raceOld);
+  const raceChild = (hook, payload) =>
+    new Promise((resolve) => {
+      const child = spawn(
+        process.execPath,
+        [
+          "--require",
+          hook,
+          path.join(root, "scripts", "state.mjs"),
+          "write",
+          "--pipeline",
+          "coding",
+          "--file",
+          raceFile,
+        ],
+        { cwd: sandbox, stdio: ["pipe", "ignore", "pipe"] },
+      );
+      let stderr = "";
+      child.stderr.on("data", (d) => {
+        stderr += d;
+      });
+      child.stdin.end(JSON.stringify(payload));
+      child.on("close", (code) => resolve({ code, stderr }));
+    });
+  const loserPayload = { ...codingState(), round: 1, scope_drift: "PASS" }; // 先提交者带标记字段
+  const winnerPayload = (() => {
+    const p = { ...codingState(), round: 2 };
+    delete p.scope_drift; // 缺省 → 从锁内读到的盘上现值继承（串行时继承先提交者的标记）
+    delete p.scope;
+    return p;
+  })();
+  const loser = raceChild(hookLoser, loserPayload);
+  await new Promise((r) => setTimeout(r, 150)); // 输家先起跑：其 rename 先落、回读窗口先开
+  const winner = raceChild(hookWinner, winnerPayload);
+  const [rLoser, rWinner] = await Promise.all([loser, winner]);
+  const raced = parseJson(readFileSync(raceFile, "utf8"));
+  check(
+    "双进程同抢一把残留锁：两进程都正常退出（不因守卫误伤而超时 exit 2）",
+    rLoser.code === 0 && rWinner.code === 0,
+    `loser=${rLoser.code} ${rLoser.stderr} | winner=${rWinner.code} ${rWinner.stderr}`,
+  );
+  check(
+    "先提交者的标记不丢失（输家的接管被回读守卫拒绝，按普通竞争在对方提交后重跑）",
+    raced?.scope_drift === "PASS",
+    JSON.stringify({ round: raced?.round, scope_drift: raced?.scope_drift }),
+  );
+  check(
+    "最终状态是串行产物：后进入临界区者在先提交状态之上落盘（而非陈旧读整份覆盖）",
+    raced?.round === 1,
+    `round=${raced?.round}`,
+  );
 }
 
 rmSync(sandbox, { recursive: true, force: true });
