@@ -25,7 +25,7 @@ node --version
 
 版本过低时服务启动即报可读错误（而不是在半路抛出难懂的异常）。
 
-## 内置场景（15 个）
+## 内置场景（16 个）
 
 每个场景 = 3 个结构化问题，判据可通过 `params` 覆盖为实际业务选项。
 
@@ -34,6 +34,7 @@ node --version
 | `customer_service` | 客服运营 | 归属团队（choice）+ 严重程度（score）+ 是否升级值班（noul），派生 P1~P4 优先级 |
 | `content_moderation` | 内容审核 | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） |
 | `agent_routing` | 智能体路由 | 执行 Agent（choice）+ 复杂度（score）+ 是否转人工（noul），派生 S/M/L/XL |
+| `model_routing` | 模型路由 | 执行模型（choice）+ 推理档位（choice）+ 切换正当性（noul），recommendation 组出 <model>:<effort> |
 | `result_verification` | 结果校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） |
 | `software_dev` | 软件开发 | 任务类型 bugfix/feature/refactor/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul），派生 S/M/L/XL |
 | `test_failure` | 测试失败分流 | 根因 代码/环境/不稳定/数据（choice）+ 阻塞等级（score）+ 是否先重跑确认（noul），派生 不阻塞/可跟进/阻塞合并/阻塞发布 |
@@ -86,6 +87,8 @@ systemone_scenario(action: "run",
   }
 }
 ```
+
+`model_routing` 的候选模型经 `params.model.candidates` 传 id 数组（2~26 个），插件按内置能力档案自动配选项描述（档案未收录的 id 用中性描述兜底，`params.model.criteria` 显式描述优先）；`params.effort.criteria` 可按宿主实际档位词表覆盖。
 
 接入真实业务时**传入实际可选项比默认值更准**，能用就传。
 
@@ -160,7 +163,7 @@ systemone_scenario(action: "run",
 | Base URL | SystemOne 兼容端点根地址 | 用内置默认，或环境变量 `SYSTEMONE_BASE_URL` |
 | Model | 决策模型编码 | 用内置默认 `u2-decision`，或环境变量 `SYSTEMONE_MODEL` |
 | Timeout (ms) | 请求超时毫秒数 | 用内置默认 30000，或环境变量 `SYSTEMONE_TIMEOUT_MS` |
-| Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 15 个场景 |
+| Custom Scenarios (JSON) | 自定义场景 JSON 数组，同 id 覆盖内置（见上节） | 仅用内置 16 个场景 |
 | Scenarios File | 自定义场景 JSON 文件路径（便于纳入版本管理），优先级低于上面的 JSON | 不用场景文件 |
 | Decision Log (JSONL) | 审计日志文件路径，每次决策逐条追加，`action=stats` 消费 | 不记录 |
 | Hook: Requirement Precheck | 需求明确度预检开关：`on` / `off` / `first:N`（每会话仅前 N 条输入做预检），环境变量入口 `SYSTEMONE_HOOK_PRECHECK`（hook 侧经共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸 env 三级取值，见下文「hook 端点与开关共享」） | 留空按 `on` |
@@ -269,7 +272,7 @@ node test/contract.smoke.mjs
 ```
 mcp/
 ├── server.mjs     stdio JSON-RPC 主循环、配置、HTTP 调用（含本地缓存）、信任边界校验、审计日志、2 个工具定义
-├── scenarios.mjs  场景库（15 个内置 + 场景文件/设置页/环境变量自定义合并，纯数据）+ 校验与查找
+├── scenarios.mjs  场景库（16 个内置 + 场景文件/设置页/环境变量自定义合并，纯数据）+ 校验与查找
 ├── question-types.mjs 题型（choice / noul / score）知识的唯一来源：判据校验、答案归一化、判定值提取（server / scenarios / format 三方导入）
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
@@ -293,6 +296,14 @@ icon.png           界面 logo
 ```
 
 ## 版本变更
+
+**0.6.0**
+
+新增第 16 个内置场景 `model_routing`（别名 模型路由、模型选择）：三问——执行模型（choice，criteria 默认 flagship/balanced/fast 三档）+ 推理档位（choice，默认 low/medium/high/xhigh）+ 切换正当性（noul），输出 `decision = {model, effort, switch_justified}`，recommendation 组出 `<model>:<effort>`。
+
+- **`params.model.candidates` 候选机制**：传候选模型 id 数组（2~26 个），插件经内置能力档案展开为选项描述，档案未收录的 id 用中性描述兜底；`params.model.criteria` 显式描述优先。
+- **`params.effort.criteria` 可覆盖**：推理档位判据可按宿主实际档位词表整体替换。
+- **会话连续性 state 配方**：调用方把当前模型、已几轮、任务摘要写进 state 前缀【会话】块，配合 switch_justified 专问权衡切换成本；无会话历史可省略该块。
 
 **0.5.17**
 

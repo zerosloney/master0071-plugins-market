@@ -9,6 +9,7 @@
 import { appendFileSync, createReadStream, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
+import { modelProfile } from './model-profiles.mjs';
 import { findScenario, resolveScenarios } from './scenarios.mjs';
 import { writeEndpointConfig, isInsecureBaseUrl, endpointLabel, rejectDataPath } from '../endpoint-config.mjs';
 import {
@@ -33,7 +34,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.5.17' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.6.0' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -54,7 +55,7 @@ if (NODE_MAJOR < 18) {
   process.exit(1);
 }
 
-// 场景库 = 内置 15 个 + 自定义场景（场景文件 / 设置页 / 环境变量，同 id 覆盖内置，
+// 场景库 = 内置 16 个 + 自定义场景（场景文件 / 设置页 / 环境变量，同 id 覆盖内置，
 // 靠后的来源覆盖靠前的）。均在进程启动时读取，改动后需重启宿主生效；非法条目跳过并告警到 stderr。
 const scenarioSources = [];
 const scenarioLoadProblems = [];
@@ -633,7 +634,7 @@ function describeScenario(ref) {
   };
 }
 
-/** 按 params 覆盖场景问题定义：instructions / label 局部替换，criteria 整体替换，addCriteria 在 choice 上追加选项。 */
+/** 按 params 覆盖场景问题定义：instructions / label 局部替换，criteria 整体替换，candidates 把候选 id 经能力档案展开为 choice 选项，addCriteria 在 choice 上追加选项。 */
 function applyParams(scenario, params) {
   if (params === undefined || params === null) return scenario.questions;
   if (typeof params !== 'object' || Array.isArray(params)) {
@@ -677,6 +678,33 @@ function applyParams(scenario, params) {
         throw new ToolError(`params.${qid}.criteria（${question.type}）${problem}`);
       }
       next.criteria = criteria;
+    }
+    if (override.candidates !== undefined) {
+      if (!supportsAddCriteria(question.type)) {
+        throw new ToolError(`params.${qid}.candidates 仅支持 choice 问题`);
+      }
+      if (override.criteria !== undefined) {
+        throw new ToolError(`params.${qid}.candidates 与 criteria 不能同时提供`);
+      }
+      if (!Array.isArray(override.candidates) || override.candidates.length === 0 || override.candidates.some((c) => !isNonEmptyString(c))) {
+        throw new ToolError(`params.${qid}.candidates 必须是非空字符串数组`);
+      }
+      // trim 后查重：Object.fromEntries 对重复键静默取后者，重复候选会无声少一个
+      const ids = override.candidates.map((c) => c.trim());
+      const seen = new Set();
+      for (const id of ids) {
+        if (seen.has(id)) {
+          throw new ToolError(`params.${qid}.candidates 存在重复 id`);
+        }
+        seen.add(id);
+      }
+      // id → 内置能力档案描述，走与 criteria 主路径同一套 coerceOptionMap 口径（键值 String 化）；
+      // 选项数量上下限不在此预判，与 addCriteria 合并口径一致，由 executeDecision → validateQuestions 兜底
+      const { criteria: expanded, problem } = coerceOptionMap(Object.fromEntries(ids.map((id) => [id, modelProfile(id)])));
+      if (problem) {
+        throw new ToolError(`params.${qid}.candidates（${question.type}）${problem}`);
+      }
+      next.criteria = expanded;
     }
     if (override.addCriteria !== undefined) {
       if (!supportsAddCriteria(question.type)) {
@@ -917,11 +945,11 @@ const TOOLS = [
       '（最多 10 条，返回精简结果；整批预算 25s，超预算的条目会标为未执行并提示分批），' +
       'action=stats 汇总审计日志（需配置 SYSTEMONE_LOG_FILE）。' +
       '内置场景：customer_service 工单分流、content_moderation 内容审核、agent_routing 智能体路由、' +
-      'result_verification 结果校验、software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、' +
+      'model_routing 模型路由、result_verification 结果校验、software_dev 软件开发任务判定（类型/复杂度/是否先探查代码库）、' +
       'test_failure 测试失败根因分流、pr_review 代码评审合并门禁、incident_response 事故定级与回滚处置、' +
       'security_triage 安全告警真伪与遏制（默认阈值 0.8）、sales_lead 销售线索、risk_control 金融风控、' +
       'recruiting 招聘筛选、data_governance 数据打标归因、education 教育题目归类、requirements 需求优先级。' +
-      '场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项）；' +
+      '场景判据可用 params 按问题 id 覆盖（criteria 整体替换 / addCriteria 追加选项 / choice 问题可用 candidates 传候选 id 数组、经内置能力档案展开为选项判据）；' +
       '相同输入 5 分钟内命中本地缓存（cached 标记），可用 SYSTEMONE_CACHE_TTL_MS=0 关闭。' +
       '还可用 SYSTEMONE_SCENARIOS 环境变量或 SYSTEMONE_SCENARIOS_FILE 场景文件追加自定义场景，action=list 可见全部。',
     inputSchema: {
@@ -952,7 +980,7 @@ const TOOLS = [
           additionalProperties: { type: 'object' },
           description:
             '可选：按问题 id 覆盖场景问题定义。' +
-            '{instructions, label, criteria(整体替换选项，choice 传对象/score 传≥2级标签数组), addCriteria(仅 choice，追加选项)}，' +
+            '{instructions, label, criteria(整体替换选项，choice 传对象/score 传≥2级标签数组), addCriteria(仅 choice，追加选项), candidates(仅 choice，传候选 id 数组、经内置能力档案展开为选项判据)}，' +
             '如 {"department":{"criteria":{"vip":"VIP 专属通道","general":"普通通道"}}}',
         },
         keyword: { type: 'string', description: '可选：action=list 时按关键词过滤场景（匹配 id/标题/说明/别名）' },

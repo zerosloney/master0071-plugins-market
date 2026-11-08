@@ -10,6 +10,7 @@ import path from 'node:path';
 import { rejectDataPath, isInsecureBaseUrl, endpointLabel } from '../endpoint-config.mjs';
 import { renderTemplate, deriveFields } from '../mcp/format.mjs';
 import { coerceOptionMap, extractDecisionByType, renderAnswerLine, fillAnswerByType, isBorderlineAnswer } from '../mcp/question-types.mjs';
+import { MODEL_PROFILE_RULES, modelProfile } from '../mcp/model-profiles.mjs';
 import { BUILTIN_SCENARIOS, resolveScenarios, validateScenario } from '../mcp/scenarios.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +18,7 @@ const pluginRoot = path.join(here, '..');
 
 // 开发机上可能残留 SYSTEMONE_* 变量（场景、端点、超时、缓存 TTL、日志路径……）。
 // CI 环境干净所以 CI 全绿，本地开发者只要设了其中一个就会莫名红、且极难定位：
-// 例如设了 SYSTEMONE_SCENARIOS，自定义场景就顶掉了内置场景，「列出 15 个内置场景」直接失败。
+// 例如设了 SYSTEMONE_SCENARIOS，自定义场景就顶掉了内置场景，「列出 16 个内置场景」直接失败。
 // 这里统一把这组变量清空，测试自己需要的值一律显式传入（cleanEnv 的 extra 优先）。
 const POLLUTING_ENV_KEYS = [
   'PLUGIN_DATA',
@@ -480,13 +481,13 @@ const main = async () => {
     });
 
     const scenarioList = toolResult(await runScenario(client, { action: 'list' }));
-    check('action=list 列出 15 个内置场景', () => {
+    check('action=list 列出 16 个内置场景', () => {
       assert.equal(scenarioList.ok, true);
-      assert.equal(scenarioList.count, 15);
+      assert.equal(scenarioList.count, 16);
       assert.deepEqual(
         scenarioList.scenarios.map((s) => s.id),
         [
-          'customer_service', 'content_moderation', 'agent_routing', 'result_verification', 'sales_lead',
+          'customer_service', 'content_moderation', 'agent_routing', 'model_routing', 'result_verification', 'sales_lead',
           'risk_control', 'recruiting', 'data_governance', 'education', 'requirements', 'software_dev',
           'test_failure', 'pr_review', 'incident_response', 'security_triage',
         ]
@@ -837,6 +838,100 @@ const main = async () => {
       assert.equal(badQid.result.isError, true);
       assert.match(badQid.result.content[0].text, /未知问题 id "nope"/);
       assert.match(badQid.result.content[0].text, /department、severity、escalate/);
+    });
+
+    // model_routing 场景 + params.candidates 覆盖（候选 id 经内置能力档案展开为选项判据）。
+    // 默认答案由 answerFor 按题型生成：model/effort（choice）取首选项、switch_justified（noul）固定 0.87 → true。
+    const routeRun = toolResult(
+      await runScenario(client, { action: 'run', scenario: 'model_routing', state: '多文件重构任务，需要选执行模型与推理档位' })
+    );
+    check('model_routing 场景端到端（默认 run 渲染路由建议与 true 分支）', () => {
+      assert.equal(routeRun.ok, true);
+      assert.equal(routeRun.scenario, 'model_routing');
+      assert.deepEqual(routeRun.decision, { model: 'flagship', effort: 'low', switch_justified: true });
+      assert.match(routeRun.recommendation, /^路由到 flagship:low。/, `应渲染「路由到 <model id>:<effort 档位>。」：${routeRun.recommendation}`);
+      assert.ok(routeRun.recommendation.includes('切换收益大于上下文重建成本，可换模型执行'));
+    });
+
+    const routeAlias = toolResult(await runScenario(client, { action: 'run', scenario: '模型路由', state: '别名可达性探测' }));
+    check('model_routing 支持中文别名「模型路由」', () => {
+      assert.equal(routeAlias.ok, true);
+      assert.equal(routeAlias.scenario, 'model_routing');
+    });
+
+    check('model_routing 建议模板三分支渲染（true/false/未判定）', () => {
+      const tpl = BUILTIN_SCENARIOS.find((s) => s.id === 'model_routing').recommendation;
+      // {model.key} / {effort.key} 从 decision 取原始选项 key（非 label）
+      const render = (switchState) => renderTemplate(tpl, { decision: { model: 'glm-5.3', effort: 'high', switch_justified: switchState } });
+      assert.equal(render(true), '路由到 glm-5.3:high。切换收益大于上下文重建成本，可换模型执行');
+      assert.equal(render(false), '路由到 glm-5.3:high。建议沿用当前会话模型以保持连续性');
+      assert.equal(render(null), '路由到 glm-5.3:high。切换必要性未判定，请人工复核');
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'model_routing',
+      state: '候选模型展开探测',
+      params: { model: { candidates: ['glm-5.3', 'glm-4-flash', 'totally-unknown-x'] } },
+    });
+    check('params.candidates 按内置能力档案展开并整体替换选项判据', () => {
+      const last = received[received.length - 1];
+      const criteria = last.body.questions.model.criteria;
+      assert.deepEqual(Object.keys(criteria), ['glm-5.3', 'glm-4-flash', 'totally-unknown-x']);
+      assert.equal(criteria['glm-5.3'], '均衡编码档：工具调用与多步编码任务表现稳');
+      assert.equal(criteria['glm-4-flash'], '快速档：简单机械任务、批量处理；最快最省', 'flash 片段应命中快速档而非宽泛 glm 家族');
+      assert.equal(criteria['totally-unknown-x'], '未提供能力描述：按通用模型对待，无法体现该模型相对优势');
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'model_routing',
+      state: 'candidates 与 addCriteria 组合探测',
+      params: { model: { candidates: ['glm-5.3', 'kimi-k2'], addCriteria: { local: '本地部署的私有模型' } } },
+    });
+    check('candidates 与 addCriteria 可组合（addCriteria 追加在展开结果上）', () => {
+      const last = received[received.length - 1];
+      assert.deepEqual(Object.keys(last.body.questions.model.criteria), ['glm-5.3', 'kimi-k2', 'local']);
+    });
+
+    await runScenario(client, {
+      action: 'run',
+      scenario: 'model_routing',
+      state: '档位词表覆盖探测',
+      params: { effort: { criteria: { minimal: '极简档', low: '低档', medium: '中档', high: '高档' } } },
+    });
+    check('params.criteria 覆盖 model_routing 推理档位词表', () => {
+      const last = received[received.length - 1];
+      assert.deepEqual(last.body.questions.effort.criteria, { minimal: '极简档', low: '低档', medium: '中档', high: '高档' });
+    });
+
+    // candidates 错误路径：类型限定 / 与 criteria 互斥 / 形状 / 查重，风格与 addCriteria 报错一致
+    for (const [name, override, pattern] of [
+      ['candidates 用于 noul 题', { switch_justified: { candidates: ['a', 'b'] } }, /params\.switch_justified\.candidates 仅支持 choice 问题/],
+      ['candidates 与 criteria 同给', { model: { criteria: { flagship: '旗舰', fast: '快' }, candidates: ['a', 'b'] } }, /params\.model\.candidates 与 criteria 不能同时提供/],
+      ['candidates 非数组', { model: { candidates: { a: 'A' } } }, /params\.model\.candidates 必须是非空字符串数组/],
+      ['candidates 空数组', { model: { candidates: [] } }, /params\.model\.candidates 必须是非空字符串数组/],
+      ['candidates 含空串与非字符串 id', { model: { candidates: ['glm-5.3', '   ', 7] } }, /params\.model\.candidates 必须是非空字符串数组/],
+      ['candidates trim 后重复 id', { model: { candidates: ['glm-5.3', ' glm-5.3 '] } }, /params\.model\.candidates 存在重复 id/],
+    ]) {
+      const bad = await runScenario(client, { action: 'run', scenario: 'model_routing', state: 'x', params: override });
+      check(`params.candidates 错误路径：${name}`, () => {
+        assert.equal(bad.result.isError, true);
+        assert.match(bad.result.content[0].text, pattern);
+      });
+    }
+
+    // 数量上限不做本地预判（与 addCriteria 合并口径一致）：27 个候选由 executeDecision →
+    // validateQuestions 的 choice 量表上限兜底拒绝
+    const tooManyCandidates = await runScenario(client, {
+      action: 'run',
+      scenario: 'model_routing',
+      state: 'x',
+      params: { model: { candidates: Array.from({ length: 27 }, (_, i) => `model-${i}`) } },
+    });
+    check('candidates 超过 26 个由 executeDecision → validateQuestions 兜底拒绝', () => {
+      assert.equal(tooManyCandidates.result.isError, true);
+      assert.match(tooManyCandidates.result.content[0].text, /questions\.model\.criteria 选项数超过上限 26/);
     });
 
     const devRun = toolResult(
@@ -1464,7 +1559,7 @@ const main = async () => {
   try {
     const customList = toolResult(await runScenario(customClient, { action: 'list' }));
     check('自定义场景：新增生效、同 id 覆盖内置、非法条目被跳过', () => {
-      assert.equal(customList.count, 18); // 15 内置 + legal_review + tmpl_test + short_values；customer_service 原位覆盖；bad_* 跳过
+      assert.equal(customList.count, 19); // 16 内置 + legal_review + tmpl_test + short_values；customer_service 原位覆盖；bad_* 跳过
       const byId = new Map(customList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('legal_review').source, 'custom');
       assert.equal(byId.get('customer_service').source, 'custom');
@@ -1526,7 +1621,7 @@ const main = async () => {
   try {
     const brokenList = toolResult(await runScenario(brokenClient, { action: 'list' }));
     check('自定义场景 JSON 解析失败时回退内置场景库', () => {
-      assert.equal(brokenList.count, 15);
+      assert.equal(brokenList.count, 16);
       assert.equal(brokenList.scenarios.find((s) => s.id === 'customer_service').source, 'builtin');
     });
   } finally {
@@ -1652,7 +1747,7 @@ const main = async () => {
   try {
     const fileList = toolResult(await runScenario(fileClient, { action: 'list' }));
     check('场景文件加载生效，设置页同 id 覆盖文件条目', () => {
-      assert.equal(fileList.count, 16); // 15 内置 + team_gate（customer_service 原位覆盖）
+      assert.equal(fileList.count, 17); // 16 内置 + team_gate（customer_service 原位覆盖）
       const byId = new Map(fileList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('team_gate').source, 'custom');
       assert.equal(byId.get('team_gate').title, '团队发布门禁 · 设置页覆盖');
@@ -1682,7 +1777,7 @@ const main = async () => {
   try {
     const envList = toolResult(await runScenario(envFileClient, { action: 'list' }));
     check('裸 SYSTEMONE_SCENARIOS 与 SYSTEMONE_SCENARIOS_FILE 单独在场时生效', () => {
-      assert.equal(envList.count, 17); // 15 内置 + team_gate（文件）+ env_only（环境变量 JSON）
+      assert.equal(envList.count, 18); // 16 内置 + team_gate（文件）+ env_only（环境变量 JSON）
       const byId = new Map(envList.scenarios.map((s) => [s.id, s]));
       assert.equal(byId.get('env_only').source, 'custom');
       assert.equal(byId.get('env_only').title, '仅环境变量');
@@ -2013,7 +2108,7 @@ const main = async () => {
       assert.equal(renderTemplate('{a&b?双真|非双真}', { decision: { a: true } }), '');
       assert.equal(renderTemplate('{a&b?双真|非双真}', { decision: { a: false } }), '非双真', 'a 已否决就是确定的假');
     });
-    check('内置 15 个场景在答案缺失时都不输出否定结论', () => {
+    check('内置 16 个场景在答案缺失时都不输出否定结论', () => {
       for (const scenario of BUILTIN_SCENARIOS) {
         if (!scenario.recommendation) continue;
         const out = renderTemplate(scenario.recommendation, { decision: {} });
@@ -2087,7 +2182,7 @@ const main = async () => {
       });
       assert.ok(dp.some((p) => p.includes('派生') && p.includes('"value"')), `派生条目未知键应被拦：${dp.join('；')}`);
     });
-    check('15 个内置场景全部通过严格键校验（内置定义无未知键）', () => {
+    check('16 个内置场景全部通过严格键校验（内置定义无未知键）', () => {
       for (const s of BUILTIN_SCENARIOS) {
         const problems = validateScenario(s);
         assert.deepEqual(problems, [], `${s.id}：${problems.join('；')}`);
@@ -2149,6 +2244,23 @@ const main = async () => {
       assert.equal(coerceOptionMap({ 1: 'A', b: 'B' }).criteria['1'], 'A', '数字键 String 化宽容保留');
       assert.equal(coerceOptionMap({ a: 5, b: 'B' }).criteria.a, '5', '数字描述 String 化宽容保留');
       assert.ok(coerceOptionMap({ a: null, b: 'B' }).problem, 'null 描述拦截不变');
+    });
+  }
+
+  // modelProfile 规则顺序敏感性（2026-11 model_routing 配套）：规则表先具体（家族型号片段）
+  // 后宽泛（家族名），宽泛规则绝不能抢在前——否则 glm-4-flash 会被 glm 家族档案吞掉。
+  {
+    check('modelProfile 规则顺序敏感（具体片段先于宽泛家族名）', () => {
+      assert.equal(modelProfile('glm-4-flash'), '快速档：简单机械任务、批量处理；最快最省');
+      assert.equal(modelProfile('qwen-max'), '旗舰档：同家族最强能力，复杂任务首选');
+      assert.equal(modelProfile('deepseek-r1'), '深度推理档：长链推理与难题求解，延迟高');
+      assert.equal(modelProfile('gpt-4o'), '均衡档：通用编码与文本任务');
+    });
+    check('modelProfile 全未知 id 走中性兜底，规则表描述永不空串', () => {
+      assert.equal(modelProfile('totally-unknown-x'), '未提供能力描述：按通用模型对待，无法体现该模型相对优势');
+      for (const [, profile] of MODEL_PROFILE_RULES) {
+        assert.ok(profile.trim() !== '', '规则表里的档案描述不得为空串');
+      }
     });
   }
 

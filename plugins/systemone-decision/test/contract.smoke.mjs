@@ -92,6 +92,23 @@ const main = async () => {
   const baseUrl = `http://127.0.0.1:${port}/v1`;
   const client = new McpClient({ SYSTEMONE_API_KEY: 'contract-key', SYSTEMONE_BASE_URL: baseUrl });
   try {
+    // 场景库契约：工具描述与 action=list 都必须暴露 model_routing——清单漂移等于模型在
+    // 工具描述里看不到新场景入口。list 是本地操作，不发 HTTP，不影响后续 received 计数断言。
+    const tools = await client.call('tools/list', {});
+    check('systemone_scenario 工具描述包含 model_routing', () => {
+      const tool = tools.result.tools.find((t) => t.name === 'systemone_scenario');
+      assert.ok(tool, 'systemone_scenario 工具应存在');
+      assert.ok(tool.description.includes('model_routing'), '工具描述的内置场景清单应含 model_routing');
+    });
+    const listRes = await client.call('tools/call', { name: 'systemone_scenario', arguments: { action: 'list' } });
+    check('action=list 含 model_routing', () => {
+      const parsed = JSON.parse(listRes.result.content[0].text);
+      assert.ok(
+        parsed.scenarios.some((s) => s.id === 'model_routing'),
+        `list 应含 model_routing：${parsed.scenarios.map((s) => s.id).join('、')}`
+      );
+    });
+
     // MCP 侧：走公开工具入口（systemone_decide），跑的是生产路径的序列化
     const mcpRes = await client.call('tools/call', {
       name: 'systemone_decide',

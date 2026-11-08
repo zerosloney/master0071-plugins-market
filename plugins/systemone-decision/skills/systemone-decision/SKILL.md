@@ -1,6 +1,6 @@
 ---
 name: systemone-decision
-description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 15 个内置场景——工单分流、内容审核、Agent 路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
+description: SystemOne 决策模型工具集（默认 unisound u2-decision）：2 个 MCP 工具覆盖 16 个内置场景——工单分流、内容审核、Agent 路由、模型路由、结果校验、软件开发任务判定（类型/复杂度/是否先探查代码库）、测试失败分流、代码评审门禁、事故响应定级、安全告警分流、销售线索、金融风控、招聘、数据治理、教育、需求优先级，以及任意自定义问题（choice/noul/score）的结构化判定。当需要对业务文本分流归类、审核违规、路由任务、校验结果、或对任意"走哪条分支"的问题做带概率和置信度的判定时使用。Use for ticket triage, content moderation, agent routing, model routing, result verification, software-dev task classification and other structured decision scenarios with probability-backed judgments.
 license: MIT
 compatibility: Needs network access to the SystemOne endpoint, an API key in SYSTEMONE_API_KEY, and Node.js 18+ on the PATH the host uses to launch the plugin MCP server.
 ---
@@ -25,6 +25,7 @@ compatibility: Needs network access to the SystemOne endpoint, an API key in SYS
 | `customer_service` | 归属团队（choice）+ 严重程度（score）+ 升级值班（noul）→ 派生 P1~P4 | `department.criteria`（实际团队表） |
 | `content_moderation` | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） | `category.criteria`（实际违规类型表） |
 | `agent_routing` | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul）→ 派生 S/M/L/XL | `agent.criteria`（实际可用 Agent 名册） |
+| `model_routing` | 执行模型（choice）+ 推理档位（choice）+ 切换正当性（noul）→ 组出 <model>:<effort> | `params.model.candidates`（实际候选模型 id 数组）；`params.effort.criteria`（宿主实际档位） |
 | `result_verification` | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | `state` 传 `{task, result}` |
 | `software_dev` | 任务类型 bugfix/feature/…（choice）+ 改动复杂度（score）+ 是否先探查代码库（noul） | — |
 | `test_failure` | 根因 代码/环境/不稳定/数据（choice）+ 阻塞等级（score）+ 先重跑确认（noul）→ 派生阻塞结论 | — |
@@ -86,6 +87,20 @@ systemone_scenario(action: "run", scenario: "software_dev",
   state: "修复登录页在 Safari 下无法提交表单的问题")
 → decision = { task_type: "bugfix", complexity: 1, needs_context: true }，derived.effort = "M"
 ```
+
+模型路由（从候选模型选出 <model>:<effort>，并判定切换是否正当）：
+
+```
+systemone_scenario(action: "run", scenario: "model_routing",
+  state: "【会话】当前模型 glm-4.7，已 6 轮，正在重构构建器。【任务】为 pstack 生成跨平台打包脚本，需权衡 npm 与原生打包方案",
+  params: { model: { candidates: ["glm-5.3", "glm-4.7", "glm-4-flash"] } })
+→ decision = { model: "glm-5.3", effort: "high", switch_justified: true }
+→ recommendation = "路由到 glm-5.3:high。切换收益大于上下文重建成本，可换模型执行"
+```
+
+- `params.model.candidates` 传实际候选模型 id 数组，2~26 个；
+- 候选 id 经内置能力档案展开为选项描述，档案未收录的 id 用中性描述兜底，`params.model.criteria` 显式描述优先；
+- 会话连续性用 state 前缀【会话】块表达（当前模型、已几轮、任务摘要），无会话历史可省略该块。
 
 自定义决策（场景库外的临时判断）：
 

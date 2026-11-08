@@ -1,6 +1,6 @@
 # 场景目录与组题参考
 
-`systemone_scenario` 的 15 个内置场景目录、`params` 判据覆盖指南，以及场景库外用 `systemone_decide` 组题的配方。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
+`systemone_scenario` 的 16 个内置场景目录、`params` 判据覆盖指南，以及场景库外用 `systemone_decide` 组题的配方。所有判据都是示例默认值，接入真实业务时**整体替换为实际选项**——选项越贴近业务越准。
 
 ## 场景快速索引
 
@@ -9,6 +9,7 @@
 | `customer_service` | 工单分流、客服、派单 | 归属团队（choice）+ 严重程度（score）+ 升级值班（noul） | severity→P4~P1 |
 | `content_moderation` | 内容审核、审核 | 处置动作（choice）+ 违规类型（choice）+ 风险等级（score） | 一句话处置建议 |
 | `agent_routing` | 任务路由、路由 | 执行 Agent（choice）+ 复杂度（score）+ 转人工（noul） | complexity→S/M/L/XL |
+| `model_routing` | 模型路由、模型选择 | 执行模型（choice）+ 推理档位（choice）+ 切换正当性（noul） | recommendation 组出 <model>:<effort> |
 | `result_verification` | 结果校验、校验 | 是否满足要求（noul）+ 主要问题（choice）+ 质量等级（score） | 一句话质检建议 |
 | `software_dev` | 开发、编程、编码、研发 | 任务类型（choice：bugfix/feature/refactor/review/test/docs/build/perf）+ 改动复杂度（score）+ 是否先探查代码库（noul） | complexity→S/M/L/XL |
 | `test_failure` | 测试失败、ci、test | 根因（choice：code/env/flaky/data/other）+ 阻塞等级（score）+ 是否先重跑确认（noul） | blocking→不阻塞/可跟进/阻塞合并/阻塞发布 |

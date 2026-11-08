@@ -130,6 +130,41 @@ export const BUILTIN_SCENARIOS = [
     recommendation: '交给 {agent} 执行（规模 {effort}）。{needs_human?建议转人工处理|可自动执行|是否需转人工未判定，请按转人工处理}',
   },
   {
+    id: 'model_routing',
+    title: '模型路由 · 按意图/能力/连续性选模型与档位',
+    description: '从候选模型中选出执行模型与推理档位，产出 <model>:<effort> 路由建议，并评估切换模型是否值得。',
+    aliases: ['模型路由', '模型选择'],
+    questions: {
+      model: {
+        type: 'choice',
+        label: '执行模型',
+        instructions: '结合任务意图、各候选模型的能力定位、以及会话中已积累的上下文，应选用哪个模型执行？',
+        criteria: {
+          flagship: '旗舰/最强推理档：复杂架构决策、极难问题；质量最高但贵且慢',
+          balanced: '均衡档：日常编码与多步任务的主力，质量与速度兼顾',
+          fast: '快速档：简单机械任务、批量处理；最快最省',
+        },
+      },
+      effort: {
+        type: 'choice',
+        label: '推理档位',
+        instructions: '结合任务难度与所选模型的定位，应使用哪一档推理强度？',
+        criteria: {
+          low: '简单机械任务：一步可完成、低风险、无需多步推理',
+          medium: '常规任务：需要少量推理或几次工具调用',
+          high: '复杂任务：多步推理、跨文件改动、需要架构取舍',
+          xhigh: '极难任务：长链推理、跨系统调试、高风险变更',
+        },
+      },
+      switch_justified: {
+        type: 'noul',
+        label: '切换正当性',
+        instructions: '改用非当前会话模型带来的收益，是否明显大于丢失当前会话已积累上下文与缓存续接的代价？',
+      },
+    },
+    recommendation: '路由到 {model.key}:{effort.key}。{switch_justified?切换收益大于上下文重建成本，可换模型执行|建议沿用当前会话模型以保持连续性|切换必要性未判定，请人工复核}',
+  },
+  {
     id: 'result_verification',
     title: '结果校验 · 任务满足度判定',
     description: '给定原始任务与待检结果，判断是否满足要求、主要问题与质量等级。',
