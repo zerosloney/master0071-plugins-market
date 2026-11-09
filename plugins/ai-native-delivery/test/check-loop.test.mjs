@@ -748,6 +748,27 @@ SCEN(async () => {
   rmfix(T);
 });
 
+// ---- 场景 28b/29b:常驻面预算插件形态——无项目侧预算表经插件种子兜底照常执法（2026-11-09 s16-budget-seed-fallback）----
+// 缺陷背景：§16 曾要求项目侧 .agents/config/rule-budgets.txt 存在才运行，而 init-engine 装户不拷预算表
+// → 装户 §16 永久空转；预算表定位本就是 rule-budget.mjs 内部职责（索引→HEAD→工作区→插件种子兜底），
+// verify 门 rule-budget 同链路恒可跑。本场景锁修复后行为：无项目侧预算表也有 WARN；不拷 rule-budget.mjs
+// （scriptPath 回退插件内本体）——与真实装户形态一致。
+SCEN(async () => {
+  const T = mkfix();
+  // 超限样本自校准：从插件种子预算表读 AGENTS.md 上限（同场景 28 口径——种子即 config-templates/rule-budgets.txt）
+  const agLimit = Number(fs.readFileSync(path.join(CONFIG_DIR, 'rule-budgets.txt'), 'utf8').split(/\r?\n/).find((l) => l.startsWith('AGENTS.md ')).trim().split(' ').pop());
+  w(T, 'AGENTS.md', '# AGENTS 小体积 fixture\n');
+  w(T, 'workflow/intents/2026-09-22-seed-ok.md', INTENT('seed ok', '状态: approved\n级别: L1\n日期: 2026-09-22\n模块: pipeline'));
+  w(T, 'workflow/plans/2026-09-22-seed-ok.md', PLAN('seed ok', '状态: approved\n级别: L1\n日期: 2026-09-22\n模块: pipeline'));
+  let r = run(T);
+  check('常驻面预算:无项目侧预算表(种子兜底):合规 → 无超限告警且 exit 0', r.status === 0 && !outOf(r).includes('WARN 常驻面超限'), outOf(r));
+  w(T, 'AGENTS.md', 'x'.repeat(agLimit + 512));
+  r = run(T);
+  const o = outOf(r);
+  check('常驻面预算:无项目侧预算表(种子兜底):超限 → WARN(含一进一出提示) 且 exit 0', r.status === 0 && o.includes('WARN 常驻面超限') && o.includes('一进一出'), o);
+  rmfix(T);
+});
+
 // ---- 场景 30:rule-budget --staged 硬拦路径（2026-10-08 rule-budget.mjs 移植 node——恒可跑，无 SKIP 分支）----
 SCEN(async () => {
   const T = mkfix();

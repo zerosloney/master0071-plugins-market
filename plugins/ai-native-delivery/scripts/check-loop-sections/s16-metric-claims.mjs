@@ -1,7 +1,7 @@
 // check-loop-sections/s16-metric-claims.mjs — 16. 量化断言指标签名对账 [warning]（claim-exceeds-fix；登记表单源 
 // （2026-10-10 收敛系列 4b 自 check-loop.mjs 原位切出，段体逐字未改；基础设施由 kit 供给。）
 import {
-  fs, os, path, spawnSync, createHash, createRequire, fileURLToPath,
+  fs, os, spawnSync, createHash, createRequire, fileURLToPath,
   loadEnums, runCheck16, auditEnabled, loadKitPolicy, hasFreshVerifyLine, laneOfDoc, MARK_RE, approvedTraceIndex,
   SCRIPT_DIR, GIT, REV_ARG, REV, ROOT, ENUMS, inSet, stOkDoc,
   spawnGit, gitOut, linesOf, fmGet, WF, DOC_DIRS, blockers, warnings, kitPolicy, isTracked, docFiles,
@@ -26,9 +26,11 @@ runCheck16({ ROOT, ENUMS, docFiles, fmGet, inSet, isTracked, linesOf, readdirOrN
 {
   // 判定脚本定位（2026-10-27 插件化迁移改道）：原写死 <root>/.agents/scripts/rule-budget.mjs；
   // 现项目侧优先（源仓形态 / 测试夹具副本不变）、回退插件内本体（paths.mjs scriptPath）。
+  // 只查判定脚本存在、不查预算表（2026-11-09 s16-budget-seed-fallback 修复）：预算表定位是
+  // rule-budget.mjs 内部职责（索引→HEAD→工作区→插件种子兜底，verify 门同链路恒可跑）——
+  // 此前此处越权裸判项目侧表存在，init-engine 装户不拷预算表 → §16 永久空转（两执法面口径不一致）。
   const rb = scriptPath(ROOT, 'rule-budget.mjs');
-  const budgets = path.join(ROOT, '.agents', 'config', 'rule-budgets.txt');
-  if (fs.existsSync(rb) && fs.existsSync(budgets)) {
+  if (fs.existsSync(rb)) {
     const r = spawnSync(process.execPath, [rb, '--all'], { cwd: ROOT, encoding: 'utf8' });
     if (!r.error && r.status !== 0) {
       const head = `${r.stdout || ''}${r.stderr || ''}`.split('\n').slice(0, 5).map((l) => '    ' + l).join('\n');
