@@ -33,6 +33,13 @@ const real = (() => {
     return root;
   }
 })();
+
+// 诊断通道（方案 1，定位 GH-Windows 上 contracted-script 静默早退用）：仅当环境里显式
+// PSTACK_GATE_TRACE=1 才把 scriptRule 的早退原因写 stderr；生产不设该变量 = 零行为变化。
+// 定位完成后本通道可整体移除。
+const gateTrace = process.env.PSTACK_GATE_TRACE === '1'
+  ? (m) => { console.error(`[gate-trace] ${m}`); }
+  : () => {};
 const sheetPath = path.join(process.env.COPILOT_HOME ?? path.join(homedir(), '.copilot'), 'pstack-models.md');
 
 // ── strict JSON: one complete object, duplicate keys rejected ────────────────
@@ -267,7 +274,7 @@ function scriptContract(script, runner, T, first, n, w) {
 // its path operands. Prose and operation names are not filesystem paths.
 function scriptRule(P) {
   const cmd = jget(`${P}/command`);
-  if (/[;|&$`<>()\\"]/.test(cmd) || control(cmd)) return;
+  if (/[;|&$`<>()\\"]/.test(cmd) || control(cmd)) { gateTrace(`reject:charset cmd=${JSON.stringify(cmd.slice(0, 200))}`); return; }
   if (cwd === '') {
     console.error('pre-tool-use.mjs: hook input carries no cwd; the pstack script gate stays silent for this call');
     return;
@@ -276,9 +283,12 @@ function scriptRule(P) {
   // module-level mutable path state.
   const w = resolve(cwd);
   // A workspace that holds the plugin, or sits in it, could rewrite its files.
-  if (!root || !w || root === w || under(root, w) || under(w, root) || real === w || under(real, w) || under(w, real)) return;
+  if (!root || !w || root === w || under(root, w) || under(w, root) || real === w || under(real, w) || under(w, real)) {
+    gateTrace(`reject:ws-guard root=${JSON.stringify(root)} real=${JSON.stringify(real)} w=${JSON.stringify(w)} cwd=${JSON.stringify(cwd)}`);
+    return;
+  }
   const tokenized = words(cmd);
-  if (!tokenized) return;
+  if (!tokenized) { gateTrace(`reject:tokenize cmd=${JSON.stringify(cmd.slice(0, 200))}`); return; }
   const { T, Q } = tokenized;
   const n = T.length;
   let first = 0;
@@ -287,13 +297,14 @@ function scriptRule(P) {
     runner = T[0];
     first = 1;
   }
-  if (first > n - 1) return;
+  if (first > n - 1) { gateTrace(`reject:no-script n=${n}`); return; }
   const script = T[first];
   let rel;
   if (under(script, root)) rel = script.slice(root.length + 1);
   else if (under(script, real)) rel = script.slice(real.length + 1);
-  else return;
+  else { gateTrace(`reject:not-under-root script=${JSON.stringify(script)} root=${JSON.stringify(root)} real=${JSON.stringify(real)}`); return; }
   if (scriptContract(rel, runner, T, first + 1, n - 1, w)) allow();
+  else gateTrace(`reject:contract rel=${JSON.stringify(rel)} runner=${JSON.stringify(runner)} operands=${JSON.stringify(T.slice(first + 1))} w=${JSON.stringify(w)}`);
 }
 
 // Called only for path operands identified by a script contract. The absolute
