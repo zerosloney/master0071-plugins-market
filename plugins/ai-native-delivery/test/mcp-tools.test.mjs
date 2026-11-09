@@ -637,10 +637,10 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   const norm5 = (x) => { try { return fs.realpathSync(String(x)); } catch { return String(x); } };
   const t5real = norm5(target5);
   const realAppend = fs.appendFileSync;
-  fs.appendFileSync = (...a) => { const hit = norm5(a[0]) === t5real; stub5.push(`app:${hit}`); if (hit) appended5 = true; return realAppend(...a); };
+  fs.appendFileSync = (...a) => { const hit = norm5(a[0]) === t5real; stub5.push(`app:${hit}:${norm5(a[0]).slice(-46)}`); if (hit) appended5 = true; return realAppend(...a); };
   fs.statSync = (p, ...rest) => {
     const hit = norm5(p) === t5real;
-    stub5.push(`stat:${hit}:${appended5}`);
+    stub5.push(`stat:${hit}:${appended5}:${norm5(p).slice(-46)}`);
     if (hit && appended5) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
     return realStat(p, ...rest);
   };
