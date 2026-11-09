@@ -82,6 +82,9 @@ jobs:
           # check-plan.mjs 是已发布的随装随用脚本，此前唯一测试在 extras/ 的 bun 套件里
           # （CI 明写不纳入、Windows 有平台性失败）= 任何平台零守护。本条是 node:test 重写版。
           node test/check-plan.test.mjs
+      # ai-native-delivery 常驻面棘轮：sections/hard 只减不增、bytes 上限，超限即红
+      - name: ai-native-delivery ratchet
+        run: node plugins/ai-native-delivery/scripts/rule-budget.mjs --all
       - name: ai-native-delivery tests
         run: |
           cd plugins/ai-native-delivery

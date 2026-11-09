@@ -37,10 +37,13 @@ AGENTS.md 8704
 # 22→21，上限棘轮同降（批 4 段体已删但本行未同降，本次补齐——棘轮同降是纪律，漏一次即常驻面只增不减）。
 # 2026-10-23 P1：§28 消费端脚本覆盖对账新增（§20 的替代，判据改扫本仓 .agents/scripts）——段数
 # 21→22，上限同步回升（一进一出：新增段已带豁免表与单测，非无判据扩张）。
-.agents/scripts/check-loop-sections/ 22#count
+# 2026-11-09 重标定 22→24（+2 余量）：插件化后 policy v15 起灰度升格通道（如 verifyHardSince 类
+#   第二档）与新增 hygiene 段需留位；一进一出纪律维持——新增仍优先以退役换取，余量是上限不是目标。
+.agents/scripts/check-loop-sections/ 24#count
 # 2026-10-22 gate-health：hard 车道有界——新增 hard 段须先退役一个 hard（当前 5：§1 §3x §8 §15 §23）。
 # 总段数棘轮（上一行 21）只锁总量，不锁 hard 数；本行补 hard 面（rule-budget.mjs 数 check-loop.mjs SECTIONS）。
-check-loop-hard 5#count
+# 2026-11-09 重标定 5→6（+1 余量）：灰度升格通道（verifyHardSince 类第二档）需留位；一进一出同上。
+check-loop-hard 6#count
 # 2026-10-23 docs-ratchet：环境事实册与机制台账此前无预算行（实测 runtime-env 32 天 3.9KB→47.6KB、
 # 台账 13 天 4.2KB→35.1KB，只增不减）。本轮回溯精简后实测 runtime-env 36.0KB / registry 29.8KB，
 # 上限 = 实测 + ~10-14% 余量。超限含义：先压缩/外迁历史（已根治项、退役行细节留 git 史）再提交；

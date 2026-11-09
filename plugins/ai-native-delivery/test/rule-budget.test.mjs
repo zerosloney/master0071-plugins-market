@@ -111,9 +111,9 @@ root = makeFixture({
   check('T8 glob #count 只数 *.md（3 项 > 2）exit 1', r.code === 1 && r.out.includes('3 项'), JSON.stringify(r));
 }
 
-// ---- T9 hard 车道有界（gate-health 2026-10-22）：check-loop-hard 5#count ----
+// ---- T9 hard 车道有界（gate-health 2026-10-22 引入；2026-11-09 种子重标定 5→6 留余量，夹具随种子）：check-loop-hard 6#count ----
 root = makeFixture({
-  budgets: 'check-loop-hard 5#count\n',
+  budgets: 'check-loop-hard 6#count\n',
   files: {
     '.agents/scripts/check-loop.mjs': [
       'const SECTIONS = [',
@@ -126,7 +126,7 @@ root = makeFixture({
 });
 {
   const r = run(root);
-  check('T9 hard 段 2 ≤ 5 → exit 0', r.code === 0, JSON.stringify(r));
+  check('T9 hard 段 2 ≤ 6 → exit 0', r.code === 0, JSON.stringify(r));
 }
 root = makeFixture({
   budgets: 'check-loop-hard 1#count\n',
@@ -202,6 +202,23 @@ root = makeFixture({
   check(`T12 插件形态：hard 段超上限即拦（${realHard} > ${realHard - 1} → exit 1）`,
     overLimit.code === 1 && /check-loop-hard/.test(overLimit.out), JSON.stringify(overLimit));
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- T12b 种子棘轮余量（2026-11-09 重标定 +2/+1）：config-templates 种子的计数上限必须高于插件
+//      真实段数——压线（上限 = 真实值）意味着任何新增段/硬门升格立即红且无告警；余量是上限不是目标，
+//      一进一出纪律维持（新增仍优先以退役换取），禁止再把计数棘轮压到与真实值齐平。
+{
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const seed = fs.readFileSync(path.join(pluginRoot, 'config-templates', 'rule-budgets.txt'), 'utf8');
+  const seedSections = Number((seed.match(/check-loop-sections\/ (\d+)#count/) || [])[1]);
+  const seedHard = Number((seed.match(/^check-loop-hard (\d+)#count/m) || [])[1]);
+  const realSections = fs.readdirSync(path.join(pluginRoot, 'scripts', 'check-loop-sections'))
+    .filter((f) => f.endsWith('.mjs')).length;
+  const realHard = (fs.readFileSync(path.join(pluginRoot, 'scripts', 'check-loop.mjs'), 'utf8')
+    .match(/\{\s*lane:\s*'hard'/g) || []).length;
+  check(`T12b 种子棘轮余量：sections ${realSections} < ${seedSections}、hard ${realHard} < ${seedHard}（各留 ≥1 余量）`,
+    seedSections > realSections && seedHard > realHard,
+    JSON.stringify({ seedSections, seedHard, realSections, realHard }));
 }
 
 // ---- T13 暂存清单 >1MB（spawnSync 默认 maxBuffer 即 ENOBUFS 截断）：截断后的暂存清单静默缺行 →

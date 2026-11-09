@@ -179,7 +179,7 @@ initEngine(root);
 
   const ps = jsonOf(replies.get(19));
   check('policy_status policyVersion=14（初始化后项目侧）', ps && ps.policy && ps.policy.policyVersion === 14 && /项目侧/.test(ps.policy.source || ''), JSON.stringify(ps && ps.policy));
-  check('policy_status 棘轮段数 = 上限（22 段种子）', ps && ps.ratchet && ps.ratchet.entries.some((e) => e.name.includes('sections') && e.limit === e.actual), JSON.stringify(ps && ps.ratchet));
+  check('policy_status 棘轮余量 > 0（2026-11-09 种子重标定 sections 24 / hard 6，禁止再压线）', ps && ps.ratchet && ps.ratchet.entries.length >= 2 && ps.ratchet.entries.every((e) => e.limit > e.actual), JSON.stringify(ps && ps.ratchet));
 
   const ls = jsonOf(replies.get(20));
   check('ledger_stats 不变量 ok', ls && ls.invariant && ls.invariant.exitCode === 0, JSON.stringify(ls && ls.invariant));
