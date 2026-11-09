@@ -4,7 +4,7 @@
 // test/run-hook-tests.mjs (from the plugin root). Sheet-format parity with the
 // awk engine lives in test/sheet-parity.mjs.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -23,7 +23,10 @@ const ok = (name, cond) => {
   cond ? pass++ : fail++;
 };
 
-const home = mkdtempSync(path.join(tmpdir(), 'pstack-hook-test-'));
+// GH Windows Runner 的 tmpdir 是 8.3 短名（C:\Users\RUNNER~1\...）——`words()` 的严格 shell
+// 白名单不含 `~`，夹具若继承该形态，contracted-script 两案会被 gate 正确地静默拒绝（tokenize
+// 早退，2026-11-09 CI trace 钉死：reject:tokenize）。先 realpath 展开短名再建夹具；闸口语义不动。
+const home = mkdtempSync(path.join(realpathSync(tmpdir()), 'pstack-hook-test-'));
 const claudeHome = path.join(home, 'claude');
 const codexHome = path.join(home, 'codex');
 const copilotHome = path.join(home, 'copilot');
