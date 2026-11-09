@@ -3555,9 +3555,13 @@ ${outOf(r)}`);
   // 旧行为：PATH_RE 字符类含 . 与斜杠 → ../../x.cs 原样进 existsSync（../.. 落到仓库外照样「认」）；
   // /abs/x.md 在 join 语义下落回仓库内亦可「认」。修复前两形态都「认」→ 本两断言 RED。
   T = mkSpec(TABLE([
-    '| 越界证据 | ../../outside.cs | 覆盖 |',
+    '| 越界证据 | ../outside.cs | 覆盖 |',
   ]), '2026-10-12', 'L2', 11);
-  const outside = path.resolve(T, '../../outside.cs');
+  // 夹具落位仓库根**上一层**（tmpdir 内可写）：旧形态 `../../outside.cs` 在 mkdtemp 根下会落到
+  // 文件系统根 `/outside.cs`——CI ubuntu 非 root 直接 EACCES（SCEN 环境异常），Windows 恰好可写
+  // 所以本地全绿。判据语义不变：`..` 段不认与逃逸深度无关。
+  const outside = path.resolve(T, '../outside.cs');
+  fs.rmSync(outside, { force: true });
   fs.writeFileSync(outside, '// 仓库外文件\n');
   r = run(T, { git: true });
   check('检查23 ../ 段证据路径 → 不认（收敛未覆盖，不越界 existsSync）',
