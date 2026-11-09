@@ -78,10 +78,6 @@ try {
     ok(`${rel}: does not prefix subagent_type with pstack:`, !/subagent_type:\s*"pstack:/.test(qwen.body));
   }
 
-  for (const forbidden of ['panelist-glm-flash', 'panelist-minimax', 'panelist-spark', 'panelist-zai-glm', 'poteto-agent-strong', 'effort-low', 'effort-high', 'effort-max']) {
-    ok(`built package does not ship ZCode-only ${forbidden}`, !existsSync(path.join(OUT, 'agents', `${forbidden}.md`)));
-  }
-
   const hookReg = json(path.join(OUT, manifest.hooks));
   const sessionStart = hookReg?.hooks?.SessionStart?.[0];
   ok('built hook: SessionStart registration exists', Boolean(sessionStart));

@@ -270,20 +270,11 @@ const proseDoc = [
 ].join('\n');
 check('散文里出现的 Role defaults 不被当作段首', parseRoleLines(proseDoc).size === 0, JSON.stringify([...parseRoleLines(proseDoc).entries()]));
 
-// ④ zcode 映射块 ↔ agents/ frontmatter 对账（2026-11-06）
-// 背景：ZCode 分发子代理不传 per-call 模型，模型与力度全靠 agent 类型 frontmatter 的
-// model:/thoughtLevel: 钉死。models.json 顶层新增 zcode 块（singleRoles/panel/judgePool/
-// levels/note）作为 tier/level → subagent_type 的唯一映射表，agents/ 的文件就是它的落点。
-// 映射表指向不存在的文件、frontmatter name 与文件名漂移、thoughtLevel 超出宿主注册档位、
-// 力度变体文件复制粘贴后档位没改——都只在 ZCode 真实分发那一刻暴露。本节把它变成机器对账。
-console.log('\nzcode 映射块 ↔ agents/ frontmatter 对账：');
-
-const zcode = models.zcode || {};
-check(
-  'models.json 存在 zcode 块且恰含五键 singleRoles/panel/judgePool/levels/note',
-  ['singleRoles', 'panel', 'judgePool', 'levels', 'note'].every((k) => k in zcode) && Object.keys(zcode).length === 5,
-  `实际键：${JSON.stringify(Object.keys(zcode))}`,
-);
+// ④ agents/ frontmatter 档位校验（2026-11-06 引入；2026-11-09 收窄为剩余 4 个上游 agent）
+// 两个 thermo 子智能体把模型钉为 GLM-5.3@max。家族档位表硬编码自宿主模型清单
+// （ZCode 注册表，2026-11-06 实测）：GLM-5.3 只有 low/high/max 三档。模型家族不在
+// 表内、或档位超出家族注册档，都只在真实分发那一刻暴露。本节把它变成机器对账。
+console.log('\nagents/ frontmatter 档位校验：');
 
 // frontmatter 解析刻意从简：文件头 --- 块内逐行取 `key: value`，值去引号。这些文件的
 // frontmatter 只有扁平标量键，不值得为此引 YAML 库。
@@ -298,105 +289,24 @@ const parseFrontmatter = (text) => {
   return fm;
 };
 
-// `pstack:<stem>` → stem；其余形态（含 undefined）返回 null
-const stemOf = (t) => (typeof t === 'string' && t.startsWith('pstack:') ? t.slice(7) : null);
-
-// 引用落点校验（断言 2）：zcode 里每个类型引用都要落到真实文件且 name 一致、含 description。
-// 返回问题清单（空 = 通过）；exists 由调用方注入，合成自检不碰真实文件。
-const refIssues = (stem, fm, exists) => {
-  if (!exists) return [`agents/${stem}.md 不存在`];
-  const issues = [];
-  if (fm.name !== stem) issues.push(`frontmatter name=${JSON.stringify(fm.name ?? null)} ≠ 文件名 ${stem}`);
-  if (!fm.description) issues.push('缺 description');
-  return issues;
-};
-
-// singleRoles 的 tier 键必须是 models.json available 的子集
-const singleRoles = zcode.singleRoles || {};
-const availableSet = new Set(models.available || []);
-const tierKeys = Object.keys(singleRoles);
-check(
-  'singleRoles 每个 tier 键 ⊆ available（opus/fable/sonnet/haiku）',
-  tierKeys.length > 0 && tierKeys.every((k) => availableSet.has(k)),
-  `tier 键：${JSON.stringify(tierKeys)}；available：${JSON.stringify([...availableSet])}`,
-);
-
-// singleRoles 值 + panel + judgePool 里每个 pstack:<stem> 都要有落点
-const refs = [
-  ...tierKeys.map((tier) => ({ from: `singleRoles.${tier}`, stem: stemOf(singleRoles[tier]) })),
-  ...(zcode.panel || []).map((t) => ({ from: 'panel', stem: stemOf(t) })),
-  ...(zcode.judgePool || []).map((t) => ({ from: 'judgePool', stem: stemOf(t) })),
-];
-const badRefs = [];
-for (const { from, stem } of refs) {
-  if (stem === null) { badRefs.push(`${from}：引用不是 pstack:<stem> 形态`); continue; }
-  const p = path.join(PLUGIN, 'agents', `${stem}.md`);
-  const exists = fs.existsSync(p);
-  const fm = exists ? parseFrontmatter(fs.readFileSync(p, 'utf8')) : {};
-  for (const issue of refIssues(stem, fm, exists)) badRefs.push(`${from} → ${stem}：${issue}`);
-}
-check(
-  `zcode 引用的 ${refs.length} 个类型都落在 agents/ 且 name 一致、含 description`,
-  refs.length > 0 && badRefs.length === 0,
-  badRefs.join('\n      '),
-);
-
-// judgePool 必须是 panel 的子集（评委从面板里出，两处单独漂移即漏改）
-const panelSet = new Set(zcode.panel || []);
-const judgePool = zcode.judgePool || [];
-const outsidePool = judgePool.filter((t) => !panelSet.has(t));
-check(
-  'judgePool ⊆ panel',
-  judgePool.length > 0 && outsidePool.length === 0,
-  outsidePool.length ? `panel 之外：${outsidePool.join(', ')}` : `judgePool 为空（panel=${(zcode.panel || []).length}）`,
-);
-
-// levels 把上游五档折叠到宿主注册的变体档：键集恰为五档、值集是 ZCode 认的三档
-const levels = zcode.levels || {};
-const UPSTREAM_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
-const REGISTERED_LEVELS = new Set(['low', 'high', 'max']);
-const levelKeys = Object.keys(levels);
-check(
-  'levels 键恰为上游五档 low/medium/high/xhigh/max',
-  levelKeys.length === UPSTREAM_LEVELS.length && UPSTREAM_LEVELS.every((k) => k in levels),
-  `实际键：${JSON.stringify(levelKeys)}`,
-);
-check(
-  'levels 值 ∈ {low, high, max}（ZCode 注册的变体档）',
-  levelKeys.length === UPSTREAM_LEVELS.length && Object.values(levels).every((v) => REGISTERED_LEVELS.has(v)),
-  `实际值：${JSON.stringify(levels)}`,
-);
-
-// 逐文件 frontmatter 档位校验。家族表硬编码自宿主模型清单（ZCode 注册表，2026-11-06
-// 实测）各模型的 reasoningLevels：GLM-5.3 / GLM-5.3-Flash / zai 路线 GLM-5.3-Flash
-// 只有 low/high/max 三档，minimax-m3.1-flash 与 spark-x2.6 只有 enabled/disabled
-// 两态——两态家族无数值档，其文件不允许出现 thoughtLevel。无 model 的文件（模型跟随
-// 会话）若声明档位，必须落在宿主注册的力度变体档 {low, high, max}。
+// 两个 thermo 子智能体把模型钉为 GLM-5.3@max。宿主注册表里 GLM-5.3 只有 low/high/max
+// 三档；模型家族不在表内或档位超出注册档，都只在真实分发那一刻暴露，这里提前拦住。
 const FAMILY_LEVELS = {
   'GLM-5.3': ['low', 'high', 'max'],
-  'GLM-5.3-Flash': ['low', 'high', 'max'],
-  'zai_glm-5.3-flash': ['low', 'high', 'max'],
-  'minimax-m3.1-flash': [],
-  'spark-x2.6': [],
 };
-const VARIANT_LEVELS = new Set(['low', 'high', 'max']);
 
 // 单文件档位校验：返回问题清单（空 = 通过）。
-const levelIssues = (stem, fm) => {
+const levelIssues = (fm) => {
   const issues = [];
   const tl = fm.thoughtLevel;
   if (fm.model === undefined) {
-    if (tl !== undefined && !VARIANT_LEVELS.has(tl)) issues.push(`无 model 却声明 thoughtLevel=${tl}，∉ 变体档 {low, high, max}`);
+    if (tl !== undefined) issues.push(`无 model 却声明 thoughtLevel=${tl}；本移植不注册力度变体`);
   } else {
     const family = fm.model.split('/').pop();
     const allowed = FAMILY_LEVELS[family];
     if (allowed === undefined) issues.push(`模型家族 ${family} 不在家族表，表需补录`);
-    else if (allowed.length === 0 && tl !== undefined) issues.push(`${family} 仅 enabled/disabled 两态，不允许 thoughtLevel=${tl}`);
-    else if (allowed.length > 0 && tl !== undefined && !allowed.includes(tl)) issues.push(`thoughtLevel=${tl} ∉ ${family} 注册档 {${allowed.join(', ')}}`);
+    else if (tl !== undefined && !allowed.includes(tl)) issues.push(`thoughtLevel=${tl} ∉ ${family} 注册档 {${allowed.join(', ')}}`);
   }
-  // 力度变体：stem 的 -low/-high/-max 后缀必须与 thoughtLevel 一致（防复制粘贴漂移）
-  const suffix = stem.match(/-(low|high|max)$/);
-  if (suffix && fm.thoughtLevel !== suffix[1]) issues.push(`力度变体 ${stem}：thoughtLevel=${fm.thoughtLevel ?? '（缺）'} ≠ 后缀 ${suffix[1]}`);
   return issues;
 };
 
@@ -405,7 +315,7 @@ const agentFiles = fs.existsSync(agentDir) ? fs.readdirSync(agentDir).filter((f)
 const fileIssues = [];
 for (const f of agentFiles) {
   const fm = parseFrontmatter(fs.readFileSync(path.join(agentDir, f), 'utf8'));
-  for (const issue of levelIssues(f.replace(/\.md$/, ''), fm)) fileIssues.push(`${f}：${issue}`);
+  for (const issue of levelIssues(fm)) fileIssues.push(`${f}：${issue}`);
 }
 check(
   `agents/ 全部 ${agentFiles.length} 个 .md 过 frontmatter 档位校验`,
@@ -414,23 +324,19 @@ check(
 );
 
 // 自检（沿用上文「解析器自检」做法）：上层断言只在真漂移时才红，校验器本身认不认得
-// 漂移也要有人验——喂假 stem 与假档位，断言问题清单非空（上层会红）。
+// 漂移也要有人验——喂假家族与假档位，断言问题清单非空（上层会红）。
 console.log('\nfrontmatter 校验自检（合成数据，不碰真实文件）：');
 check(
-  '自检：假 stem（agents/ 无此文件）被抓出',
-  refIssues('ghost-agent', {}, false).length === 1 && refIssues('ghost-agent', {}, false)[0].includes('不存在'),
+  '自检：未知模型家族被抓出',
+  levelIssues({ model: 'new-provider/custom/unknown-1', thoughtLevel: 'low' }).some((s) => s.includes('不在家族表')),
 );
 check(
-  '自检：frontmatter name 与 stem 漂移被抓出',
-  refIssues('poteto-agent', { name: 'poteto-agentx', description: 'x' }, true).some((s) => s.includes('name')),
+  '自检：档位超出家族注册档被抓出',
+  levelIssues({ model: 'account/x/GLM-5.3', thoughtLevel: 'medium' }).some((s) => s.includes('∉ GLM-5.3 注册档')),
 );
 check(
-  '自检：两态家族（spark）文件带数值档 thoughtLevel 被抓出',
-  levelIssues('panelist-spark', { model: 'new-provider/custom/spark-x2.6', thoughtLevel: 'low' }).some((s) => s.includes('enabled/disabled')),
-);
-check(
-  '自检：力度变体复制粘贴漂移（-high 文件写 max）被抓出',
-  levelIssues('poteto-agent-high', { thoughtLevel: 'max' }).some((s) => s.includes('≠ 后缀 high')),
+  '自检：无 model 却声明 thoughtLevel 被抓出',
+  levelIssues({ thoughtLevel: 'high' }).some((s) => s.includes('不注册力度变体')),
 );
 
 console.log(`\n${fail.length ? `${fail.length} 项失败：${fail.join('；')}` : '全部通过'}：${pass} 断言`);

@@ -11,7 +11,7 @@ Qwen Code prefixes extension **skills** with the extension name, but extension *
 - Read prose that says "the **architect** skill" or "`/architect`" as `pstack:architect`. The `pstack:` prefix is added at load time, not written into each `SKILL.md`.
 - Dispatch a subagent with its authored name: `subagent_type: "poteto-agent"`. Do **not** prefix it with `pstack:`. A pstack skill that says `subagent_type: "pstack:poteto-agent"` (correct on Claude Code and Copilot) must be sent as `"poteto-agent"` on Qwen. Qwen's extension-agent lookup compares the authored `name:` and has no `pstack:` alias.
 
-The Qwen port registers `poteto-agent`, `comment-sicko`, `thermo-nuclear-review-subagent`, and `thermo-nuclear-code-quality-review-subagent`. The ZCode-only `panelist-*`, `poteto-agent-strong`, and `effort-*` agents are **not** part of the Qwen extension: ZCode needed those agent types because its subagent call has no model parameter, while Qwen selects a model per `agent` call. Run every arena, interrogate, or panel seat as `poteto-agent` with a different `model` grade instead of using a `panelist-*` type.
+The Qwen port registers `poteto-agent`, `comment-sicko`, `thermo-nuclear-review-subagent`, and `thermo-nuclear-code-quality-review-subagent` — the same set as the plugin's `agents/`. Qwen selects a model per `agent` call, so run every arena, interrogate, or panel seat as `poteto-agent` with a different `model` grade.
 
 ## Tool actions
 
@@ -60,7 +60,7 @@ Each grade value uses the same selector as subagent `model` frontmatter: `fast`,
 
 - A role value of `auto` or `inherit-parent` means the parent model: omit `model` on the `agent` call.
 - With no grades configured, omit `model` and run on the parent model. If Qwen rejects a grade, use pstack's existing fallback: run the seat on the role's default or the parent model and say so.
-- Qwen has no per-subagent `effort` / `thoughtLevel` field. A sheet value such as `opus @xhigh` changes nothing on Qwen: strip the suffix, omit `model` only when the value is `auto`, and pick the grade or a stronger model instead. Do not dispatch `effort-*` agent types; they are not registered here.
+- Qwen has no per-subagent `effort` / `thoughtLevel` field. A sheet value such as `opus @xhigh` changes nothing on Qwen: strip the suffix, omit `model` only when the value is `auto`, and pick the grade or a stronger model instead. Do not dispatch `effort-*` agent types; this port registers none.
 - The Qwen agent files under `qwen/agents/` deliberately omit `model`, so the grade passed to the `agent` call decides the model.
 
 The `setup-pstack` skill writes the sheet and can add the grades. Its Qwen instructions are in [setup-pstack/qwen.md](../../setup-pstack/qwen.md).

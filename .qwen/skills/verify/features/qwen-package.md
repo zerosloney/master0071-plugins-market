@@ -39,5 +39,5 @@ This isolated recipe was proven on 2026-11-07 (Windows, Qwen CLI 0.26.8): the in
 
 - Never install `plugins/pstack` directly: Qwen 0.26 sees the standard `plugin.json` and loads it as an Agent Plugin, which drops the agents and hooks. Always build into `dist/` first.
 - `dist/` is gitignored and never committed. A stale `dist/qwen-pstack` still installs and still passes its own parity test — rebuild after any skill, agent or hook change, or the proof covers old sources.
-- The Qwen port keeps the four base subagents only. `panelist-*`, `poteto-agent-strong`, and the `effort-*` variants stay out of the package; multi-model seats are run as `poteto-agent` with a different model grade.
+- The package ships the same four subagents as `agents/` (`poteto-agent`, `comment-sicko`, both thermo audit subagents). Multi-model seats run as `poteto-agent` with a different model grade.
 - Model grades live in `settings.json` under `agents.modelGrades` and apply only after a session restart; the extension's hook is unaffected by missing grades.

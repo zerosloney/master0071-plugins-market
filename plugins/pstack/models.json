@@ -25,23 +25,5 @@
     { "role": "swarm workers", "models": "default", "skill": "swarm" },
     { "role": "architect runners", "models": "panel", "skill": "architect" },
     { "role": "interrogate reviewers", "models": "panel", "skill": "interrogate" }
-  ],
-  "zcode": {
-    "singleRoles": {
-      "opus": "pstack:poteto-agent",
-      "fable": "pstack:poteto-agent-strong",
-      "sonnet": "pstack:panelist-minimax",
-      "haiku": "pstack:panelist-glm-flash"
-    },
-    "panel": ["pstack:panelist-minimax", "pstack:panelist-spark", "pstack:panelist-zai-glm", "pstack:panelist-glm-flash"],
-    "judgePool": ["pstack:panelist-minimax", "pstack:panelist-spark"],
-    "levels": {
-      "low": "low",
-      "medium": "high",
-      "high": "high",
-      "xhigh": "max",
-      "max": "max"
-    },
-    "note": "ZCode dispatch passes no model; tier and level resolve through this table to a subagent_type whose frontmatter pins the model and thought level. Seats pin model IDs from the host current model list; a pin that leaves the list silently falls back to the session model, so re-pin seats when providers change."
-  }
+  ]
 }

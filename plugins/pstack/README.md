@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 15 个注册子智能体（`agents/`：4 个基础、`poteto-agent-strong`、4 个 `panelist-*` 多模型席位、6 个 effort 力度变体；`extras/effort-agents/` 另存 10 个五档全集作上游参考）+ 1 条会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包（`dist/qwen-pstack`）：共享 66 个 skill，注册 4 个基础子智能体与 Qwen 专属 SessionStart hook；ZCode 的 `panelist-*` / effort 变体不进入 Qwen 树，因为 Qwen 的 `agent` 调用支持逐次选模型。**不能直接装 `plugins/pstack`**：Qwen 会先认 Agent Plugins 的 `plugin.json`，只加载 skill、忽略 agents/hooks。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 4 个子智能体（`agents/`，名单与上游一致）+ 1 条会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包（`dist/qwen-pstack`）：共享 66 个 skill，注册同一组 4 个子智能体与 Qwen 专属 SessionStart hook。**不能直接装 `plugins/pstack`**：Qwen 会先认 Agent Plugins 的 `plugin.json`，只加载 skill、忽略 agents/hooks。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -45,7 +45,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 66 个 skill，无需 prompts 垫片 |
 | `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
 | `qwen/agents/`、`QWEN.md`、`hooks/hooks.qwen.json`、`scripts/build-qwen-extension.mjs` | **Qwen Code 适配源 + 生成器**：生成器把共享 `skills/`、Qwen 专属 4 个基础子智能体、Qwen hook 注册与 `QWEN.md` 组装成 `dist/qwen-pstack`（自包含、无根 `plugin.json`）。不提供根 `qwen-extension.json`——它会被 Agent Plugins 的 `plugin.json` 抢先，导致 Qwen 只加载 skill |
-| `agents/` | **客户端约定**；Claude / ZCode 侧 15 个全部注册：4 个基础子智能体、`poteto-agent-strong`（强判断档，钉 GLM-5.3@max）、4 个 `panelist-*` 多模型席位（多模型面板在 ZCode 上的载体，模型按宿主模型清单实测钉定，见 `NOTICE-PORT.md` 第 10 条）、`{effort,poteto-agent}-{low,high,max}` 六个力度变体（上游五档折映射：medium→high、xhigh→max）。`extras/effort-agents/` 另存 10 个五档全集作上游参考，不注册。Qwen 生成包只包含 `qwen/agents/` 的 4 个基础档（复制到包内 `agents/`）：Qwen 的 `agent` 调用可逐次传 model grade，不需要靠 agent 类型挑模型 |
+| `agents/` | **客户端约定**；Claude / ZCode / Qwen 生成包都注册 4 个上游基础子智能体（`poteto-agent`、`comment-sicko`、两个 thermo 审计子代理），本移植不新增面板席位、模型钉定或力度变体。ZCode 的 `Agent` 调用无 per-call 模型与力度参数，各角色统一跑 `poteto-agent`，模型与档位跟随会话；Qwen 的 `agent` 调用可逐次传 model grade，多模型面板用同一 `poteto-agent` 配不同 grade |
 | `hooks/` | **客户端约定**，Claude 式 hook 宿主生效；Codex 走垫片里内联的那一份；ZCode 按约定路径注册同一份 `hooks/hooks.json`（node 入口）；Qwen 生成包把 `hooks/hooks.qwen.json` 复制为 `hooks/hooks.json`，以 `qwen` 运行时调用同一脚本，stdout 输出裸文本（Qwen 会把它加入 SessionStart 上下文）。`hooks/copilot-hooks.json` **未被任何清单引用**，Copilot 上需手工登记，见下 |
 | `models.json` | skill 内多处引用它说明模型分工的出处；改它需要同步更新各 skill 的 Models 列表（各文件已注明，本移植未附带生成脚本） |
 
@@ -63,7 +63,7 @@ Qwen Code 侧把不兼容点显式落到文件：`scripts/build-qwen-extension.m
 
 ## extras/（按需启用的非核心组件）
 
-bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）、`effort-agents/` 与 `upstream-reference/` 已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 4 个零依赖 node 脚本（`check-plan` / `check-playbooks` / `resume` / `worktree-audit`），随装随用。
+bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）与上游 hook 参考已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 4 个零依赖 node 脚本（`check-plan` / `check-playbooks` / `resume` / `worktree-audit`），随装随用。
 
 **bun 套件的 Windows 平台性失败（2026-10-29 市场审查根因批注）**：`bun test` 在 Windows 实测 253 例，起始 217 pass / 36 fail。根因分五类，已修掉三类：
 
@@ -122,6 +122,10 @@ node scripts/release.mjs pstack <新版本>
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
 
 ## 版本变更
+
+**0.1.25**
+
+- **子智能体列表回归上游**：删除 0.1.22 引入的移植新增 agent——`poteto-agent-strong`、4 个 `panelist-*` 席位与 `{effort,poteto-agent}-{low,high,max}` 六个力度变体，连同 `extras/effort-agents/` 的 10 个五档参考一并移除；`agents/` 只剩 4 个上游基础子智能体。`models.json` 删除 `zcode` 映射块；ZCode 上模型与力度跟随会话（`Agent` 调用没有 per-call 参数），`@level` 后缀只记录、不改变派发。同步更新 `zcode-tools.md`、7 项 skill 的 Reasoning effort 段、`setup-pstack`、Qwen 映射文档、README 与 `test/role-table-parity.mjs` / `test/qwen-extension-parity.mjs`；`manifest-lint` 去掉 extras 力度参考的计数面。
 
 **0.1.24**
 

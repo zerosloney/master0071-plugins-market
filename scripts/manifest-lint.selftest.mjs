@@ -71,10 +71,11 @@ put('test/committed.mjs', '// ok\n');
 put('test/ghost.mjs', '// 磁盘有、索引无\n');
 put('.github/workflows/ci.yml', ['name: ci', 'on: push', 'jobs:', '  t:', '    steps:', '      - run: |',
   '          node test/committed.mjs', '          node test/ghost.mjs', ''].join('\n'));
-// .zcodeignore 排除范围的夹具（2026-10-29）：pstack extras 下三棵子树，其中两棵是「跑不了的产物」
-// 必须被排除、effort-agents 应留在索引里。基线写成合法形态，破坏形态由下面的 cases 逐条制造。
-for (const d of ['plugins/pstack/extras/poteto-mode-scripts', 'plugins/pstack/extras/upstream-reference',
-  'plugins/pstack/extras/effort-agents']) fs.mkdirSync(path.join(REPO, d), { recursive: true });
+// .zcodeignore 排除范围的夹具（2026-10-29）：pstack extras 下两棵子树都是「跑不了的产物」，
+// 必须被排除。基线写成合法形态，破坏形态由下面的 cases 逐条制造。
+for (const d of ['plugins/pstack/extras/poteto-mode-scripts', 'plugins/pstack/extras/upstream-reference']) {
+  fs.mkdirSync(path.join(REPO, d), { recursive: true });
+}
 const ZCODEIGNORE_OK = [
   'node_modules/',
   '# ----- ↑ 以上为 ZCode 默认排除规则 -----',
