@@ -629,19 +629,23 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   const target5 = path.join(root, 'workflow', 'receipt-stat.md');
   fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节
   let appended5 = false;
+  const stub5 = []; // 仪器：CI-only 现象定位用（命中态逐调用出账，进 check 详情）
   const realAppend = fs.appendFileSync;
-  fs.appendFileSync = (...a) => { if (String(a[0]) === target5) appended5 = true; return realAppend(...a); };
+  fs.appendFileSync = (...a) => { const hit = String(a[0]) === target5; stub5.push(`app:${hit}`); if (hit) appended5 = true; return realAppend(...a); };
   fs.statSync = (p, ...rest) => {
-    if (String(p) === target5 && appended5) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
+    const hit = String(p) === target5;
+    stub5.push(`stat:${hit}:${appended5}`);
+    if (hit && appended5) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
     return realStat(p, ...rest);
   };
   let r5 = null;
   let receiptErr = null;
   try { r5 = payloadOf(core.toolUpdateLedger({ root, file: 'workflow/receipt-stat.md', content: '- line', mode: 'append' })); } catch (e) { receiptErr = e; }
   fs.statSync = realStat;
+  fs.appendFileSync = realAppend;
   check('append 成功后回执 stat 失败 → 仍 written:true（bytesUnknown，大小未知），不报错',
     receiptErr === null && r5 && r5.written === true && r5.bytesUnknown === true,
-    JSON.stringify({ r5, err: receiptErr && receiptErr.message.slice(0, 120) }));
+    JSON.stringify({ r5, err: receiptErr && receiptErr.message.slice(0, 120), stub: stub5.slice(0, 10), t5: target5, r0: root }));
   check('append 成功后回执 stat 失败 → 数据确实落盘', fs.readFileSync(target5, 'utf8').includes('- line'), fs.readFileSync(target5, 'utf8'));
 }
 
