@@ -623,12 +623,16 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
     JSON.stringify(enoentR));
 
   // ⑤ 追加**成功后**的回执 stat 失败 → 回执降级「已追加（大小未知）」而非 isError：数据已落盘，
-  // 报错等于回执与磁盘状态相反。桩按调用计数：第 1 次（探测步）放行、第 2 次（回执步）抛 EACCES。
+  // 报错等于回执与磁盘状态相反。桩按**状态**不按调用计数（2026-11-09 CI 收口：计数桩随 node
+  // 版本漂移——CI node 18/20/22 上探测步不 stat，回执成了第 1 次调用直接漏触桩，bytes:7 假绿
+  // 语义）：append 一旦发生，对该目标的后续 stat 必抛 EACCES，此前各步照常放行。
   const target5 = path.join(root, 'workflow', 'receipt-stat.md');
-  fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节，stat 恰好只在回执处二次触桩
-  let statCalls = 0;
+  fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节
+  let appended5 = false;
+  const realAppend = fs.appendFileSync;
+  fs.appendFileSync = (...a) => { if (String(a[0]) === target5) appended5 = true; return realAppend(...a); };
   fs.statSync = (p, ...rest) => {
-    if (String(p) === target5 && ++statCalls >= 2) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
+    if (String(p) === target5 && appended5) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
     return realStat(p, ...rest);
   };
   let r5 = null;
