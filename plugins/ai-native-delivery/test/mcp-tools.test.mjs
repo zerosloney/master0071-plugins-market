@@ -630,11 +630,12 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节
   let appended5 = false;
   const stub5 = []; // 仪器：CI-only 现象定位用（命中态逐调用出账，进 check 详情）
-  // 路径比对两侧先 realpath 归一（2026-11-09 CI 收口）：生产经 resolveLedgerTarget 的
-  // realpathSync（M2 悬挂 symlink 修复）把 GH Windows 的 8.3 短名 TEMP（RUNNER~1）展开成
-  // 长名再写；测试若用 path.join 的短名字符串全等比较，桩永不调中 → 回执正常落 bytes:7 的
-  // 静默假绿（开发机无短名两形态相同，只在 CI 暴露）。realpath 两侧归一后与形态无关。
-  const norm5 = (x) => { try { return fs.realpathSync(String(x)); } catch { return String(x); } };
+  // 路径比对两侧先 realpath 归一（2026-11-09 CI 收口·终）：生产经 requireRoot 的
+  // realpathSync.native（core.mjs:57，各 node 版本都展开 8.3）把 GH Windows 短名 TEMP
+  // （RUNNER~1）解成长名；测试的 path.join 是短名。非 native 的 fs.realpathSync 在 CI 的
+  // node 18/20/22 上**不**展开 8.3（第五轮 trace 实证 t5r==t5），归一必须用 .native 同款
+  // 并剥 \\?\ 前缀，两侧才与生产同基。开发机无短名、ubuntu 无 8.3，均两形态相同。
+  const norm5 = (x) => { try { return fs.realpathSync.native(String(x)).replace(/^\\\\\?\\/, ''); } catch { return String(x); } };
   const t5real = norm5(target5);
   const realAppend = fs.appendFileSync;
   fs.appendFileSync = (...a) => { const hit = norm5(a[0]) === t5real; stub5.push(`app:${hit}:${norm5(a[0]).slice(-46)}`); if (hit) appended5 = true; return realAppend(...a); };
