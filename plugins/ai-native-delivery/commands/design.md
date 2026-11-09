@@ -65,7 +65,7 @@ next: commands/build.md
 |---|---|---|
 | 路由认定入口 | → 整轮返工 | 必须提供文件+行号的实测证据 |
 | 自行推定交互 | → UI 与需求不符 | 必须由用户确认形态 |
-| L3 自查冒充 | `.agents/skills/workflow-closeout/SKILL.md` §0.3 HALT。check-loop 对缺复核上下文只 WARN | 必须由 `independent-reviewer` 执行 |
+| L3 自查冒充 | `.agents/skills/workflow-closeout/SKILL.md` §0.3 HALT（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。check-loop 对缺复核上下文只 WARN | 必须由 `independent-reviewer` 执行 |
 | 带着「待澄清」走确认门 | `confirm-doc` 拒（歧义未清，exit 2，不落盘不记账）；缺维 / 依据为空同样拒 | 先问用户拿判定再落态 |
 | 把可实验项问用户 | 多一轮确认税，且答案本就跑得出来 | 先查库 / 跑 eval / 原型，依据写实验结论 |
 | 「已定」不写依据 | `confirm-doc` 拒（等于没想过） | 依据须可指认（节号 / 代码路径 / 查库结果） |

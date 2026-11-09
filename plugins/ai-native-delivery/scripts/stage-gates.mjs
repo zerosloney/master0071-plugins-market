@@ -489,7 +489,7 @@ export function confirmGateFor(root, docRel) {
 // 背景：stage-gate-machine 关单后检查 14 报「确认态缺失」×2——approved→done 期间从未提交、首次提交即
 // done 态（先 done 后提交），git 历史无 approved 中间态；检查 14 是事后审计（发现即定局），本族把
 // 校验收口到 confirm-doc 的「→done」跳转——「approved 态还在工作区」的最后一刻，即唯一可拦截窗口。
-import { gitOut as coreGitOut, spawnGit as coreSpawnGit } from './git-core.mjs';
+import { gitOut as coreGitOut, spawnGit as coreSpawnGit, GIT_TIMEOUT_MS } from './git-core.mjs';
 
 // 命中判据单源：approvedTraceHit（逐文档，本模块 doneGateFor 与 confirm-doc 用）与
 // approvedTraceIndex（批量索引，check-loop 检查 14 循环用）共用 APPROVED_TRACE_ARGS 常量
@@ -554,14 +554,21 @@ export function approvedTraceIndex(root, scope = 'workflow') {
   return idx;
 }
 
+// 存量确认态豁免声明锚（2026-11 市场审查 M8 收口，单源常量）：与 s08-acceptance 豁免锚同款行首形态
+//（s08 对「存量对账豁免」用 `/^\s*(?:>\s*)*\*{0,2}存量对账豁免（/`，此处按本标记措辞适配）——
+// 行首允空白 / 引用块「>」/ 加粗装饰；正文句中含该串（任务描述引用、说明文字）不再构成整档豁免。
+// 旧判定 `l.includes('存量确认态豁免（')` 会让任何提及该字样的文档整档跳过 done 门（检查 14 同款同修）。
+export const LEGACY_DECLARED_RE = /^\s*(?:>\s*)*\*{0,2}存量确认态豁免（/;
+
 // doneGateFor：confirm-doc「→done」前置门（三件套 intent/spec/plan 均适用；incidents 的 fixed/closed 不在本门）。
-// 豁免与顺序：① 行首 `流程: legacy` ② 行含「存量确认态豁免（」声明（与检查 14 同标记，显式逃生口）
+// 豁免与顺序：① 行首 `流程: legacy` ② 行首「存量确认态豁免（」声明（LEGACY_DECLARED_RE，与检查 14
+// 同标记单源，显式逃生口）
 // ③ 非 git 环境 ④ git 调用失败 → 均跳过（不误拦）。未豁免且未命中 → 拒绝（调用方负责非零退出 +
 // 零落账 + 零写盘 + 回退指引）。
 export function doneGateFor(root, abs, rel) {
   const body = readBody(abs);
   if (body.split(/\r?\n/).some((l) => /^流程: legacy/.test(l))) return { ok: true, skipped: 'legacy' };
-  if (body.split(/\r?\n/).some((l) => l.includes('存量确认态豁免（'))) return { ok: true, skipped: 'declared' };
+  if (body.split(/\r?\n/).some((l) => LEGACY_DECLARED_RE.test(l))) return { ok: true, skipped: 'declared' };
   if (!gitReady(root)) return { ok: true, skipped: 'no-git' };
   const hit = approvedTraceHit(root, rel);
   if (hit === null) return { ok: true, skipped: 'git-error' };
@@ -582,12 +589,12 @@ export function doneGateFor(root, abs, rel) {
 //      （同行或块内续行，evRe=/证据[：:]/ 同 s08）；存在 [ ] 未勾项即拒（s08「验收未对账」同源）。
 //      isNew 判据（git 首加 author date ≥ 2026-09-12，s08 accCutoff 同源）才执法；存量与不可判定放行。
 //   ② L2/L3 spec：「## 验收判据」节须存在且表有数据行（s23 SEC_RE 同源；无数据行=收敛对账无机器输入）。
-//   豁免沿 doneGateFor 同款三逃生口：流程: legacy / 存量确认态豁免（ / 非 git。
+//   豁免沿 doneGateFor 同款三逃生口：流程: legacy / 行首存量确认态豁免声明（LEGACY_DECLARED_RE）/ 非 git。
 export function acceptanceEvidenceGate(root, abs, rel) {
   const body = readBody(abs);
   const bodyLines = body.split(/\r?\n/);
   if (bodyLines.some((l) => /^流程: legacy/.test(l))) return { ok: true, skipped: 'legacy' };
-  if (bodyLines.some((l) => l.includes('存量确认态豁免（'))) return { ok: true, skipped: 'declared' };
+  if (bodyLines.some((l) => LEGACY_DECLARED_RE.test(l))) return { ok: true, skipped: 'declared' };
   if (!gitReady(root)) return { ok: true, skipped: 'no-git' };
   const type = (/(?:^|[\\/])workflow[\\/](intents|specs|plans|incidents)[\\/]/.exec(rel) || [])[1] || '';
   if (!['intents', 'specs', 'plans'].includes(type)) return { ok: true, skipped: 'type' };
@@ -612,7 +619,7 @@ export function acceptanceEvidenceGate(root, abs, rel) {
   // intent / 独立 L1 plan：isNew 执法
   let added = '';
   try {
-    added = spawnSync('git', ['log', '--diff-filter=A', '--format=%aI', '-1', '--', rel], { cwd: root, encoding: 'utf8' }).stdout.trim();
+    added = spawnSync('git', ['log', '--diff-filter=A', '--format=%aI', '-1', '--', rel], { cwd: root, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).stdout.trim();
   } catch { added = ''; }
   if (!/^\d{4}-/.test(added)) return { ok: true, skipped: 'no-date' };
   if (added < '2026-09-12') return { ok: true, skipped: 'legacy-era' };

@@ -14,7 +14,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/ai-native-delivery/plugin.json 同步，由 `node scripts/release.mjs ai-native-delivery <x.y.z>` 统一改
-const SERVER_INFO = { name: 'ai-native-delivery', version: '0.1.13' };
+const SERVER_INFO = { name: 'ai-native-delivery', version: '0.1.15' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 
@@ -45,11 +45,12 @@ async function handle(message) {
   // 协议层 id 闸（2026-11-05 市场审查修复；server.mjs 循环已闸一道，这里兜协议契约本身）：
   //   无 id = 通知：一律不回包——回包没有 id 宿主无法配对，等于向对端塞垃圾帧；副作用工具
   //     （tools/call）更不能被通知触发（通知语义不触发工具）；
-  //   id 非字符串/数字（对象/数组/布尔）：无法回写合法响应，拒收。
+  //   id 非字符串/数字（对象/数组/布尔）或非有限数字（1e999→Infinity 序列化即 null 无法配对，
+  //     2026-11-09 与 server.mjs id 闸同步收口）：无法回写合法响应，拒收。
   if (!message || typeof message !== "object" || typeof message.method !== "string") return undefined;
   const { id, method, params } = message;
   if (id === undefined || id === null) return undefined;
-  if (typeof id !== "string" && typeof id !== "number") return undefined;
+  if (typeof id !== "string" && !(typeof id === "number" && Number.isFinite(id))) return undefined;
   switch (method) {
     case "initialize":
       return reply(id, {

@@ -117,8 +117,15 @@ export function run() {
  continue;
  }
  const missed = [];
+ const manualNoDate = [];
  for (const [crit, ev, stat] of rows.map((c) => [c[0], c[1], (c[2] || '').trim()])) {
- if (stat === '人工' && isPlaceholder(ev)) continue; // 人工走查判据：空证据合法
+ // 人工走查判据需机器可对质的最小形态（2026-11-09 审查收口）：旧口径「人工+空证据」整行合法，
+ // 叠加本门「状态列自报不作数」的立意，全表「人工」可把 hard 档塌缩成自我声明。带走查日期
+ // （20YY-MM-DD）才免计；空/无日期的人工行进 WARN（advisory 面，不新增阻断语义）。
+ if (stat === '人工') {
+   if (!/20\d{2}-\d{2}-\d{2}/.test(ev)) manualNoDate.push(JSON.stringify(crit));
+   continue;
+ }
  let ok = false;
  if (!isPlaceholder(ev)) {
  if (hard && CMD_RE.test(ev)) ok = commandCovered(ev, d, greenDates);
@@ -131,6 +138,7 @@ export function run() {
  }
  if (!ok) missed.push(`${JSON.stringify(crit)}→${ev ? JSON.stringify(ev) : '（空）'}`);
  }
+ if (manualNoDate.length) warnings.push(`- [WARN 人工无凭据] ${JSON.stringify(base)} ${manualNoDate.length} 条「人工」判据缺走查日期（${manualNoDate.join('; ')}）——补「人工 YYYY-MM-DD 复核人/上下文」形态使机器可对质（检查 23）`);
  if (missed.length) {
  const detail = `${JSON.stringify(base)} ${rows.length} 条判据中 ${missed.length} 条证据无效（${missed.join('; ')}）`;
  if (hard) blockers.push(`- [收敛未覆盖] ${detail}——状态列自报不作数；命令须是全量门（npm test / dotnet test / dotnet build / npm run build / verify.mjs）且 workflow/verify-evidence.md 有不早于本 spec 日期的全绿行；本项目的全量门命令可在 .agents/config/engine.json 的 convergenceCommands 数组里声明扩展；路径只认存在（检查 23，含 .vue 与中文目录）。若本 spec 已标 done：先标后补会与本门互为前提（verify 门序含 check-loop）——解锁序：改正文 → 状态改回 approved（勿改 draft，L3 必须 approved/done）→ confirm-doc 重录指纹 → 再标 done。中间态不要提交`);

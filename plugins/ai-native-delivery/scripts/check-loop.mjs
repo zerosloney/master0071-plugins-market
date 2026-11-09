@@ -17,7 +17,7 @@
 //   因前缀写法不同被拆成两条 rule，污染 per-rule 计数与「连续 6 月 = 0」退役候选判据（实证 s27 的
 //   「NOTE 回归清单临时脚本缺失」以带前缀的全名落账 114 次，与无前缀写法分裂）。
 // 2026-10-22 门禁收敛批 2「信噪比」：advisory 告警（WARN/NOTE）按标签折叠输出（同类多行折为
-//   「×N 条同类」单行，明细落 tmp/check-loop-warn.log）——**BLOCK 一律不折**；无标签条目逐条输出。
+//   「×N 条同类」单行，明细落 .agents/tmp/check-loop-warn.log）——**BLOCK 一律不折**；无标签条目逐条输出。
 //   折叠只改呈现不改判据；实现见 warn-format.mjs + warn-format.test.mjs（S1-S7 锁住折叠规则）。
 // 现状（2026-10-23）：22 段 = hard 5（§1 §3x §8 §15 §23）+ hygiene 17（§28 脚本覆盖对账为 P1 新增）；
 //   段数棘轮见 .agents/config/rule-budgets.txt（check-loop-sections 计数上限 22，退役一段同降一）。
@@ -103,7 +103,7 @@ recordRun({ root: ROOT, mode: kit.LOOP_MODE, blockers, warnings });
 // 告警聚合（2026-10-22 门禁收敛批 2「信噪比」）：**折 advisory（WARN / NOTE），一律不折 BLOCK**。
 // 动机（实测）：一次 --all 跑出 17 条 WARN + 19 条 NOTE，其中同类多行 + 多行告警把 actionable 项淹掉——
 // 告警不精确比告警多更伤，输出一旦不可读，门禁即退化形式。折叠后逐条明细仍完整落
-// tmp/check-loop-warn.log（供排障与事后对质），不丢信息、不降判据。
+// .agents/tmp/check-loop-warn.log（供排障与事后对质），不丢信息、不降判据。
 // 开关口径：只在「真引擎自跑」时折叠——判据取**本项目实际会跑的**引擎脚本本体是否存在：
 //   scriptPath(ROOT, 'check-loop.mjs') 项目侧副本优先、回退插件内本体（paths.mjs 单源）。
 //   此前判据写死 ROOT/.agents/scripts/check-loop.mjs → 插件形态下该路径恒不存在 → 恒 false →
@@ -111,7 +111,7 @@ recordRun({ root: ROOT, mode: kit.LOOP_MODE, blockers, warnings });
 //   CHECK_LOOP_VERBOSE=1 强制逐条（排障用；测试夹具也用它把告警保持在逐条形态，断言不依赖折叠）。
 // 实现落位：warn-format.mjs——本文件无 isMain 守卫（被 import 即全量执行并 exit），
 // 聚合逻辑不可在此直接单测；抽成无副作用模块后由 warn-format.test.mjs 锁住折叠规则（S1-S7）。
-const WARN_LOG = path.join(ROOT, 'tmp', 'check-loop-warn.log');
+const WARN_LOG = path.join(ROOT, '.agents', 'tmp', 'check-loop-warn.log');
 const selfRun = fs.existsSync(scriptPath(ROOT, 'check-loop.mjs'));
 const compactOn = selfRun && process.env.CHECK_LOOP_VERBOSE !== '1';
 const renderWarnings = (list) => formatWarnings(list, { enabled: compactOn, logPath: WARN_LOG, logNote: WARN_LOG_REL });

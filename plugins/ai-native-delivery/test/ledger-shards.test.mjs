@@ -576,5 +576,174 @@ const wf = (root, ...p) => path.join(root, 'workflow', ...p);
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- S28 锁判活收紧（2026-11-08 M7 回归）：锁龄超 15s 只算「可疑」，不构成接管理由——
+// 活持有者临界区超 15s（MB 级归并 / 慢盘）即被夺锁会造成双写者互踩。接管须另证：
+// 持有 pid 已死（kill(pid,0) ESRCH，残留锁实锤）或锁内容读不出 pid（旧格式锁，无从判活）。
+// 活 pid 一律不接管，等 deadline 超时响亮报错（fail-loud 语义不变）。----
+{
+  const root = mkroot();
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const target = wf(root, 'papercuts.md');
+  fs.writeFileSync(target, '# 台账\n', 'utf8');
+  const lockPath = `${target}.lock`;
+  const old = new Date(Date.now() - 20_000); // 锁龄 20s > SHARD_LOCK_STALE_MS(15s)
+
+  // ① 锁龄 > 15s 且锁内 pid 存活（活持有者只是慢）→ 不接管，等待超时响亮报错；锁原样保留
+  const liveChild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+  let liveReady = false;
+  for (let i = 0; i < 200 && !liveReady; i++) {
+    try { process.kill(liveChild.pid, 0); liveReady = true; } catch { sleepSync(10); }
+  }
+  check('S28 前置：活持有者进程就位', liveReady);
+  fs.writeFileSync(lockPath, `${liveChild.pid}:slow-live-holder`, 'utf8');
+  fs.utimesSync(lockPath, old, old);
+  let liveErr = null;
+  const t0 = Date.now();
+  try { await withLedgerLock(target, () => {}); } catch (e) { liveErr = e; }
+  check('S28a 锁龄>15s 且持有 pid 存活 → 不接管、等待超时响亮报错（旧实现无条件夺锁）',
+    liveErr !== null && /写锁等待超时/.test(liveErr.message) && Date.now() - t0 < 15_000,
+    liveErr ? liveErr.message : '未抛错——锁被夺走（活持有者被夺锁）');
+  check('S28b 活持有者的锁原样保留（内容未被替换）',
+    fs.existsSync(lockPath) && fs.readFileSync(lockPath, 'utf8') === `${liveChild.pid}:slow-live-holder`,
+    fs.existsSync(lockPath) ? fs.readFileSync(lockPath, 'utf8') : 'lock gone');
+  liveChild.kill();
+
+  // ② 死 pid + 锁龄 > 15s → 接管成功（S27a「死 pid 残留锁可接管」行为保持不变）
+  const deadChild = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  await new Promise((res) => deadChild.on('exit', res));
+  fs.writeFileSync(lockPath, `${deadChild.pid}:dead-stale`, 'utf8');
+  fs.utimesSync(lockPath, old, old);
+  let deadOk = false;
+  let deadErr = null;
+  try { await withLedgerLock(target, () => { deadOk = true; }); } catch (e) { deadErr = e; }
+  check('S28c 死 pid + 锁龄>15s → 接管成功（既有行为保持）', deadOk, deadErr && deadErr.message);
+  check('S28d 接管释放后锁清理', !fs.existsSync(lockPath));
+
+  // ③ 旧格式锁（内容读不出 pid）+ 锁龄 > 15s → 接管（无从判活，按陈旧残留处理）
+  fs.writeFileSync(lockPath, 'legacy-lock-without-pid', 'utf8');
+  fs.utimesSync(lockPath, old, old);
+  let legacyOk = false;
+  let legacyErr = null;
+  try { await withLedgerLock(target, () => { legacyOk = true; }); } catch (e) { legacyErr = e; }
+  check('S28e 旧格式锁（无 pid）+ 陈旧 → 接管', legacyOk, legacyErr && legacyErr.message);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S29 分片独占创建的 flag:'wx'（2026-11-08 修复回归）：此前 wx 写成了 writeFileSync 第 4 参
+// 被 Node 忽略，实际 flag='w'——existsSync 判「分片不存在」到写入之间他人抢先建好分片时，
+// 本方会把对方刚写的内容整个截断重写（EEXIST 回退分支永不可达）。用 existsSync 桩制造该窗口：
+// 分片实际已在（有种子行），existsSync 谎报 false。修复后 'wx' 生效 → EEXIST → 按现状回退追加。----
+{
+  const root = mkroot();
+  const shard = shardPathFor(root, 'papercuts', '2026-11');
+  fs.mkdirSync(path.dirname(shard), { recursive: true });
+  fs.writeFileSync(shard, '| 2026-11-01 | 种子行 | s | f |\n', 'utf8');
+  const realExists = fs.existsSync.bind(fs);
+  let lied = false;
+  fs.existsSync = (pp, ...rest) => {
+    if (!lied && String(pp) === shard) { lied = true; return false; } // 只谎报一次（writeShard 开头的判定）
+    return realExists(pp, ...rest);
+  };
+  let r = null;
+  let err = null;
+  try { r = appendRows(root, 'papercuts', ['| 2026-11-02 | 后到行 | s | f |']); } catch (e) { err = e; } finally { fs.existsSync = realExists; }
+  check('S29a 抢建窗口 → 走 EEXIST 回退追加而非整写覆盖（不抛错）', err === null, err && err.message);
+  const after = fs.readFileSync(shard, 'utf8');
+  check('S29b 种子行未被截断丢失（旧实现 flag 实为 w，直接截断重写）', after.includes('种子行'), after);
+  check('S29c 新行以回退路径追加落盘', r && r.appended === 1 && after.includes('后到行'), JSON.stringify(r));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S30 appendRows 分片整写原子化（2026-11-08 M5 回归）：分片是已迁行唯一副本，直接
+// writeFileSync 先截断后写，进程中途崩溃即丢整片。改为同目录 tmp + rename：任一步失败，
+// 原分片逐字节原样（可安全重跑）。崩溃模拟：桩拦截 writeFileSync，对旧路径「截断后抛」、
+// 对新路径（tmp）「写前抛」——两种都代表整写中途崩溃。----
+{
+  const root = mkroot();
+  const shard = shardPathFor(root, 'delegations', '2026-11');
+  fs.mkdirSync(path.dirname(shard), { recursive: true });
+  const secHead = '## 委派结果\n\n| 日期 | 被委派方(模型) | 任务一句话 | 结果 | 备注 | 返工原因 |\n|------|----------------|------------|------|------|----------|\n';
+  const seed = `${secHead}| 2026-11-01 | 种子A | t | 一次通过 |  | |\n| 2026-11-01 | 种子B | t | 一次通过 |  | |\n`;
+  fs.writeFileSync(shard, seed, 'utf8');
+  const realWrite = fs.writeFileSync.bind(fs);
+  fs.writeFileSync = (pp, data, ...rest) => {
+    if (String(pp) === shard) { realWrite(shard, 'X', 'utf8'); throw new Error('模拟整写截断后崩溃'); }
+    if (String(pp) === `${shard}.tmp`) throw new Error('模拟 tmp 写入中途崩溃');
+    return realWrite(pp, data, ...rest);
+  };
+  let err = null;
+  try { appendRows(root, 'delegations', ['| 2026-11-02 | 新行 | t | 一次通过 |  | |'], { section: '委派结果' }); } catch (e) { err = e; }
+  fs.writeFileSync = realWrite;
+  check('S30a 崩溃模拟 → appendRows 响亮抛错（fail-loud，不谎报成功）', err !== null, err && err.message);
+  check('S30b 分片逐字节原样（旧实现先截断，崩溃即丢分片唯一副本）',
+    fs.readFileSync(shard, 'utf8') === seed, fs.readFileSync(shard, 'utf8').slice(0, 60));
+  check('S30c 无 .tmp 残留', !fs.existsSync(`${shard}.tmp`));
+  // 行为回归兜底：撤销崩溃模拟后重试，追加成功且内容正确（tmp+rename 不改变正常路径行为）
+  const r = appendRows(root, 'delegations', ['| 2026-11-02 | 新行 | t | 一次通过 |  | |'], { section: '委派结果' });
+  const after = fs.readFileSync(shard, 'utf8');
+  check('S30d 重试追加成功', r.appended === 1, JSON.stringify(r));
+  check('S30e 种子行保留、新行插入委派表之下',
+    after.includes('种子A') && after.includes('种子B') && after.includes('新行')
+    && after.indexOf('新行') > after.indexOf('被委派方') && after.indexOf('新行') > after.indexOf('| 2026-11-01 | 种子B'),
+    after.slice(0, 300));
+  check('S30f 无 .tmp/.lock 残留', !fs.existsSync(`${shard}.tmp`) && !fs.existsSync(`${shard}.lock`));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S31 splitMain 主台账整写持锁 + 原子写（2026-11-08 M4 回归）：主台账分支持裸
+// writeFileSync 有两面——①与主台账 append 者（MCP update_ledger append 可直写 workflow/ 主文件）
+// 无互斥，无锁整写抹掉并发追加；②先截断后写，中途崩溃丢主台账非数据行（说明/表头）。
+// 修复后整写持 withLedgerLock(mainP)（与追加者同一把锁）且同目录 tmp + rename。----
+{
+  const root = mkroot();
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+  const cli = fileURLToPath(new URL('../scripts/ledger-shards.mjs', import.meta.url));
+  const mainP = wf(root, 'papercuts.md');
+  const seedMain = '| 日期 | 位置 | 症状 | 拟修 |\n|------|------|------|------|\n| 2026-11-01 | 待迁行 | s | f |\n';
+  fs.writeFileSync(mainP, seedMain, 'utf8');
+
+  // ① 主台账锁被持（追加者的同把锁）→ --split 在主台账整写步响亮失败，主台账逐字节原样。
+  //    注：分片迁移步在此前已完成（分片锁无竞争）——失败只发生在主台账写步，主台账未重写，
+  //    数据行留守，锁释放后重跑幂等（分片按行去重）。
+  const child = spawn(process.execPath, [
+    '-e',
+    `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+    mainP,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let locked = false;
+  for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(mainP + '.lock'); if (!locked) sleepSync(25); }
+  check('S31 前置：子进程已持住主台账锁', locked);
+  if (locked) {
+    const p = spawnSync(process.execPath, [cli, '--split', 'papercuts'], { cwd: root, encoding: 'utf8' });
+    check('S31a 主台账锁被持 → --split 响亮失败（exit 非 0，旧实现无锁整写成功）', p.status !== 0, `status=${p.status} out=${p.stdout} err=${p.stderr}`);
+    check('S31b 失败报「写锁等待超时」', /写锁等待超时/.test(p.stderr || ''), p.stderr);
+    check('S31c 主台账逐字节原样（未被无锁整写）', fs.readFileSync(mainP, 'utf8') === seedMain, fs.readFileSync(mainP, 'utf8'));
+  }
+  for (let i = 0; i < 800 && fs.existsSync(mainP + '.lock'); i++) sleepSync(25);
+  child.kill();
+
+  // ② 崩溃模拟：主台账整写中途崩溃 → 主台账原样（tmp+rename），不丢说明/表头
+  const realWrite = fs.writeFileSync.bind(fs);
+  fs.writeFileSync = (pp, data, ...rest) => {
+    if (String(pp) === mainP) { realWrite(mainP, 'X', 'utf8'); throw new Error('模拟整写截断后崩溃'); }
+    if (String(pp) === `${mainP}.tmp`) throw new Error('模拟 tmp 写入中途崩溃');
+    return realWrite(pp, data, ...rest);
+  };
+  let crashErr = null;
+  try { splitMain(root, 'papercuts'); } catch (e) { crashErr = e; }
+  fs.writeFileSync = realWrite;
+  check('S31d 崩溃模拟 → splitMain 抛错且主台账原样（旧实现截断即丢全文）',
+    crashErr !== null && fs.readFileSync(mainP, 'utf8') === seedMain,
+    `thrown=${crashErr ? crashErr.message : 'no'} main=${fs.readFileSync(mainP, 'utf8').slice(0, 60)}`);
+  check('S31e 无 .tmp 残留', !fs.existsSync(`${mainP}.tmp`));
+
+  // ③ 行为回归兜底：正常迁移成功 + 无 .tmp/.lock 残留
+  const r = splitMain(root, 'papercuts');
+  check('S31f 正常迁移照常成功', r.moved['2026-11'] === 1, JSON.stringify(r.moved));
+  check('S31g 迁移后无 .tmp/.lock 残留', !fs.existsSync(`${mainP}.tmp`) && !fs.existsSync(`${mainP}.lock`));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

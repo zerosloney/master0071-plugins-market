@@ -7,6 +7,8 @@
 //   覆盖 = 任一 features/*.md 提到该路由（#/route 或 /route）。
 //   生成只写骨架（四段 H2 + TODO），不编造驱动步骤；填完再用于实测。
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT, GIT_TIMEOUT_MS } from '../../../scripts/git-core.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 // 路径收口（2026-10-27 插件化迁移）：插件内种子 features 目录经 PLUGIN_ROOT 定位（paths.mjs 单源）。
@@ -21,7 +23,7 @@ const asJson = argv.includes('--json');
 const check = argv.includes('--check');
 const routeArg = argOf('--route');
 
-const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+const root = spawnSync(GIT, ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
 if (root.status !== 0 || !root.stdout.trim()) {
   console.error('gen-verify-feature: 不在 git 仓库');
   process.exit(2);

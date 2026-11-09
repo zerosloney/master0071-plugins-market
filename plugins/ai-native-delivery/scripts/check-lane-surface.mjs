@@ -54,6 +54,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 import { pathToFileURL } from 'node:url';
 import { laneOfDoc } from './stage-gates.mjs';
 import { loadKitPolicy } from './policy.mjs';
@@ -92,7 +94,7 @@ const argOf = (k) => {
 // 一律 fail-closed；git 正常报告的业务失败（非 git 目录、对象不存在）维持既有 ok=false 语义。
 const GIT_MAXBUF = 64 * 1024 * 1024;
 const gitRun = (cwd, gitArgs) => {
-  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd, encoding: 'utf8', maxBuffer: GIT_MAXBUF });
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAXBUF });
   if (r.error) {
     console.error(`泳道完整性— BLOCK:\n  [git 输出超限/失败] ${r.error.code || r.error.message}——git 输出超限/失败，门不放行（fail-closed）\n`);
     process.exit(1);
@@ -304,7 +306,8 @@ if (CI) {
       if (parents.length >= 3) {
         base = 'HEAD^1';
         baseWhy = 'HEAD 为合并提交 → 对第一父基准（云端 PR 检出 / PR 完成推送形态）';
-      } else if (process.env.TF_BUILD && /main$/.test(process.env.BUILD_SOURCEBRANCH || '')) {
+      } else if (process.env.TF_BUILD && /(^|\/)main$/.test(process.env.BUILD_SOURCEBRANCH || '')) {
+        // 2026-11-09 审查收口：/main$/ 会误吞 dev-main 等以 main 结尾的分支名——末段恰为 main 才走 CI_PUSH_BEFORE
         const before = (process.env.CI_PUSH_BEFORE || '').trim();
         const beforeOk = /^[0-9a-f]{40}$/i.test(before)
           && gitRun(ROOT, ['diff', '--name-only', `${before}..HEAD`]).ok;

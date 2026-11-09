@@ -177,6 +177,24 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 ## 版本变更
 
+**0.1.15**
+
+审查 25 条 Minor 全量收口（行为改动均补/改写测试钉住）。
+
+- **门禁判据根治**：s01 红线判低由「措辞枚举」改「结构判据」——触达红线节内勾选任一选项即触达（模板文本单源），旧措辞正则降为第二信号；「同义改写即逃逸」的 workaround 面消失。grade-task `\bauth` 收紧不再吞 author；check-lane-surface `/main$/` 锚定路径段；check-pr-size 拒全匹配 freePatterns 自我禁用；s23「人工」判据需走查日期（缺则 WARN「人工无凭据」，advisory 不阻断——存量空「人工」行会新增此告警）。
+- **MCP/协议**：坏 JSON 行回 -32700（此前静默吞帧）；id 有限性双闸（server+protocol 同族两处，`1e999`→Infinity 不再回包成 null）；子进程信号杀归 `not-executed`（三态语义收口）。
+- **风险闸降噪**：findProjectRoot=null 的降级出声；BashOutput/KillShell 等宿主辅助工具静默放行（每次转 ask 的弹窗噪音消除）。
+- **台账/数据**：confirm-doc 活文档门 fail-closed（检查器崩溃不再放行关单）；TEST_NOW 双条件；JSONL 读点 BOM 剥除×4；read-context 坏行计数出声；锁释放 claim-rename 原子化；rewrite-file 台账面持锁+写前指纹；`__proto__` 空原型；退役月锚统一 UTC。
+- **健壮/安装**：spawn 超时族 12 文件接线 GIT_TIMEOUT_MS（gitleaks 独立 120s）；gitignore 种子补确认账锁；warn 明细迁 `.agents/tmp/`；commands/agents skills 指针加插件形态回退；mechanism-registry 补「」规则名；裸 `'git'`×3 归 GIT 常量。
+
+**0.1.14**
+
+2026-11-08 专项审查收口：4 Critical + 14 Major 全修，全程 TDD、真实 hook 探针端到端验证。
+
+- **deny 地板补全同族变体**（C1/C2）：长选项无歧义缩写（`git reset --har`、`--no-veri`）经 tokenHit 双向前缀归一拦截；反斜杠/caret 转义（`git push \-f`、`^-^f`）在 unquote 层剥除——0.1.10/0.1.12 两轮修复后仅存的两张绕过脸收口，探针矩阵 20/20。
+- **台账主写面锁族**（C3/C4+M2-M7）：loader 主路径与 MCP confirm 追加共持 `<confirmations.jsonl>.lock`、compact 整写入锁；splitMain/分片/agg --write 改 tmp+rename；锁接管须持有者已死；悬挂 symlink 逐段 lstat 拒；create 分支入锁。
+- **凭据与锚定**（M8-M14）：豁免标记行首锚定（stage-gates/s14，堵 s08 同族）；gitleaks 缺装记入 envSkips 失去全量锚；项目侧桩替换凭证同失全量锚资格（pluginStubSkips）；check-local-gates/gen-workflow-metrics 三处 ROOT 锚定；init-engine 陈旧钩子刷新改锚插件名（版本化缓存布局下 basename 是版本号）；mechanism-registry 执法点口径按实改写。标量 JSON stdin 转 ask（M1）。
+
 **0.1.13**
 
 审查 Minor 批量收口：六单元 ~35 项，另 4 项评估不修（回归证据宽匹配与 quote 8 字锚属已声明设计上限、workflows-check 深栈属病态输入、check-schema-residue 口令 argv 属源项目向脚本）。

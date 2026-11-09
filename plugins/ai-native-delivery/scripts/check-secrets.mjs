@@ -47,6 +47,10 @@ function resolveBin() {
 
 const bin = resolveBin();
 if (!bin) {
+  // 机器可读跳过标记（2026-11 市场审查 M9）：verify 编排层此前把本门的 exit 0 记成「已通过门」，
+  // 全绿凭证冒充全量锚——补一行 stdout 标记供编排层识别并记入 envSkips 面（凭证行失去全量锚资格）。
+  // exit 0 契约与 stderr 人读提示不变（CI 与钩子依赖该退出码语义）。
+  console.log('GATE_SKIPPED:no-gitleaks');
   console.error('[check-secrets] ⏭️ gitleaks 未安装——密钥门本轮未执法（loud-skip，跳过可见）。装机：见 .agents/notes/runtime-env.md §6.3 gitleaks 条（官方 zip 解压 .agents/tools/ 或装进 PATH）');
   process.exit(0);
 }
@@ -57,9 +61,10 @@ if (!STAGED && !fs.existsSync(BASELINE)) {
 const args = STAGED
   ? ['protect', '--staged', '--redact', '--no-banner']
   : ['detect', '--source', '.', '--baseline-path', BASELINE, '--redact', '--no-banner'];
+// gitleaks 挂起不挂死门禁（2026-11-09 审查收口）：120s 上界（verify 侧另有 300s 门级看门狗）
 const r = bin.node
-  ? spawnSync(process.execPath, [bin.node, ...args], { stdio: 'inherit' })
-  : spawnSync(bin.raw, args, { stdio: 'inherit' });
+  ? spawnSync(process.execPath, [bin.node, ...args], { stdio: 'inherit', timeout: 120_000 })
+  : spawnSync(bin.raw, args, { stdio: 'inherit', timeout: 120_000 });
 if (r.status !== 0) {
   console.error(`[check-secrets] ❌ ${STAGED ? '暂存内容' : '历史（基线外）'}发现密钥泄漏（gitleaks exit ${r.status}）——上方为 redacted 明细；新泄漏修法：删除该密钥或作废轮换，禁改基线豁免`);
   process.exit(r.status ?? 1);

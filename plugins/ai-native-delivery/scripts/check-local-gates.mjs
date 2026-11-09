@@ -9,13 +9,15 @@
 // 退出码：0 全过 / 1 有缺。零工作区副作用（只读 git config + 文件存在性检测）。
 
 import { execFileSync, execSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { deploymentMode, gitHooksDir, projectRoot, scriptPath } from './paths.mjs';
 
 const fix = process.argv.includes('--fix');
 const git = (args) => {
-  try { return execFileSync('git', args, { encoding: 'utf8' }).trim(); } catch { return ''; }
+  try { return execFileSync('git', args, { encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).trim(); } catch { return ''; }
 };
 
 const results = [];
@@ -82,7 +84,9 @@ if (MODE === 'source-repo') {
 // 契约覆盖（2026-11 Minor 扩展）：jsonl-union 须同时盖住 .agents/*.jsonl 与 workflow/gate-metrics.d/*.jsonl
 // ——gate-metrics 月分片跨机合并若走默认策略，同月分片按文本冲突/取我方，会**静默丢掉别机的月快照**
 // （退役判据燃料缺损，且无任何报错）。
-const gaText = fs.existsSync('.gitattributes') ? fs.readFileSync('.gitattributes', 'utf8').replace(/\r/g, '') : '';
+// 三处文件读均锚 ROOT（2026-11 市场审查 M11）：此前 cwd 相对读，子目录调用时读到的是
+// 子目录视角的相对路径——仓库根的声明/钩子/登记一律「缺失」，与 ①-② 的仓库根判据自相矛盾。
+const gaText = fs.existsSync(path.join(ROOT, '.gitattributes')) ? fs.readFileSync(path.join(ROOT, '.gitattributes'), 'utf8').replace(/\r/g, '') : '';
 const gaOursOk = /appsettings\.json\s+merge=ours$/m.test(gaText);
 const gaJsonlOk = /^\.agents\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
 const gaGateMetricsOk = /^workflow\/gate-metrics\.d\/\*\.jsonl\s+merge=jsonl-union$/m.test(gaText);
@@ -99,7 +103,7 @@ if (MODE === 'source-repo') {
 // ④ 钩子文件在位（防「配了但文件缺」的假上岗）——源仓形态判 .githooks/ 五钩子；插件形态已在 ① 判过
 if (MODE === 'source-repo') {
   const hooks = ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit'];
-  const missing = hooks.filter((h) => !fs.existsSync(path.join('.githooks', h)));
+  const missing = hooks.filter((h) => !fs.existsSync(path.join(ROOT, '.githooks', h)));
   check(missing.length === 0, `.githooks/ 五钩子文件在位（${hooks.join(' / ')}）`,
     missing.length ? `缺失: ${missing.join('、')} —— git checkout -- .githooks 恢复后重跑` : '', null);
 }
@@ -110,7 +114,7 @@ if (MODE === 'source-repo') {
 // 旧文案写 ≥22 并以「CI 验证锚」为由——该依据已过期：CI 矩阵自 2026-10 起跑 20 与 22，
 // 在 Node 20 的开发机上装插件会被自己的上岗自检判红，与 CI 声明支持的事实相反。
 // 故 18 为硬下限（低于即拦），<20 只代表未经 CI 验证，仍允许本地开发。无法自动安装，不代修。
-const nodeVer = (() => { try { return execFileSync('node', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })();
+const nodeVer = (() => { try { return execFileSync('node', ['--version'], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).trim(); } catch { return ''; } })();
 const nodeMajor = Number((/^v(\d+)/.exec(nodeVer) || [])[1]);
 check(nodeMajor >= 18, 'Node.js 在位且主版本 ≥ 18（代码下限；CI 验证锚 20 / 22）',
   nodeVer ? `当前: ${nodeVer}（低于 18，请升级）` : '未找到 node（六门中除 commit-msg 外全依赖 node）',
@@ -128,7 +132,7 @@ const dotnetMarkers = (() => {
 const dotnetNeeded = dotnetMarkers.length > 0;
 const localTool = (name) => {
   try {
-    const md = fs.readFileSync('.agents/notes/runtime-env.local.md', 'utf8');
+    const md = fs.readFileSync(path.join(ROOT, '.agents/notes/runtime-env.local.md'), 'utf8');
     const row = md.split(/\r?\n/).find((l) => new RegExp(`^\\|\\s*${name}\\s*\\|`).test(l));
     if (!row) return null;
     const m = /^\|\s*[^|]+?\s*\|\s*([^|]+?)\s*\|/.exec(row);
@@ -144,10 +148,10 @@ const dotnetPath = resolveOnDisk('dotnet', ['C:/Program Files/dotnet/dotnet.exe'
 // 标准位置与登记均无时再试 PATH：Linux 发行版与 CI 镜像普遍只经 PATH 暴露 dotnet
 //（探测序不变，env/登记 优先，PATH 仅作最后一级，登记了错路径的机器仍按登记如实报错）。
 const dotnetOnPath = dotnetPath === null
-  ? (() => { try { return execFileSync('dotnet', ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })()
+  ? (() => { try { return execFileSync('dotnet', ['--version'], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).trim(); } catch { return ''; } })()
   : '';
 const dotnetVer = dotnetPath
-  ? (() => { try { return execFileSync(dotnetPath, ['--version'], { encoding: 'utf8' }).trim(); } catch { return ''; } })()
+  ? (() => { try { return execFileSync(dotnetPath, ['--version'], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).trim(); } catch { return ''; } })()
   : dotnetOnPath;
 if (dotnetNeeded) {
   check(dotnetVer !== '', `dotnet 在位且可执行（检出 ${dotnetMarkers.join('、')}，静态门 build/test 依赖；标准位置无则登记 runtime-env.local.md）`,

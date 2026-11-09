@@ -190,6 +190,25 @@ export function readDelegationsText(root, file = null) {
   try { return readLedgerText(root, 'delegations'); } catch { return ''; }
 }
 
+// writeFileAtomic(p, text)：同目录 tmp + rename 原子整写（2026-11-08 M4/M5）。
+// 直接 writeFileSync 是「先截断后写」——分片是已迁行唯一副本、主台账存着说明/表头等非数据行，
+// 进程中途崩溃（或磁盘满）留下的就是半截文件。改走 tmp+rename：任一步失败时原文件逐字节原样、
+// 可安全重跑。写法沿用仓内既有惯例（compact-ledgers 的 tmpMain / core.mjs writeAtomic）；
+// 调用方都在 withLedgerLock 临界区内（同月分片/主台账各一把锁串行化），固定 .tmp 名不互撞。
+function writeFileAtomic(p, text) {
+  const tmp = `${p}.tmp`;
+  let renamed = false;
+  try {
+    fs.writeFileSync(tmp, text, 'utf8');
+    fs.renameSync(tmp, p);
+    renamed = true;
+  } finally {
+    if (!renamed) {
+      try { fs.unlinkSync(tmp); } catch { /* tmp 可能尚未写成或已被清理 */ }
+    }
+  }
+}
+
 // splitMain(root, name, { dryRun })：把主台账里的数据行按月迁入分片（幂等：已迁走的行不再出现）。
 // 返回 { moved: {month: count}, kept: 主台账保留行数 }。主台账保留非数据行（说明/规则/表头/生成区）。
 // 写分片全程持 `<分片>.lock`（2026-11-05，与 appendRows/MCP 同一把锁）——锁等待超时抛错（fail-loud），
@@ -223,7 +242,10 @@ export function splitMain(root, name, { dryRun = false } = {}) {
   // 2026-11-05 并发修复：每个分片的「重读现状→追加→整写」全程持 `<分片>.lock`（withLedgerLock，
   // 与 appendRows/MCP 同一把锁）。此前无锁整写：--split 与 --append/MCP 并发同月分片时，split 拿
   // 陈旧分片快照整写，把并发追加的行整个抹掉。逐分片持锁（而非全持）：追加者只写自己那一个月的
-  // 分片，跨月互不相干；主台账重写不触分片（追加者从不写主台账），无锁也无不变量风险。
+  // 分片，跨月互不相干。
+  // 2026-11-08 注释修正：旧注说「追加者从不写主台账，主台账重写无锁也无风险」——已不成立：
+  // MCP update_ledger 的 append 可直写 workflow/ 下的主台账文件（与分片同把锁来源）。所以主台账
+  // 重写同样持 `<主台账>.lock`（见下方写点），与主台账追加者互斥；两把锁各管各的面。
   for (const [month, rows] of byMonth) {
     const p = shardPathFor(root, name, month);
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -235,12 +257,16 @@ export function splitMain(root, name, { dryRun = false } = {}) {
       const next = existing
         ? `${existing.replace(/\s*$/, '')}${eol}${fresh.map((r) => r.line).join(eol)}${eol}`
         : renderShard(name, fresh, eol);
-      fs.writeFileSync(p, next, 'utf8');
+      writeFileAtomic(p, next); // 分片是已迁行唯一副本，整写必须原子（截断即丢数据）
     });
   }
-  // 主台账：保留行 + 尾部空行规整
+  // 主台账：保留行 + 尾部空行规整。持锁整写（2026-11-08 M4）：分片迁移完成后这里会**整写**主台账，
+  // 与主台账追加者（MCP update_ledger append / loader 主分支）持同一把锁互斥——否则并发追加落在
+  // 本函数 read 与整写之间会被抹掉。整写走 tmp+rename（先截断后写，中途崩溃丢说明/表头）。
   const out = kept.join(eol).replace(/(\r?\n)+$/, '') + eol;
-  fs.writeFileSync(mainP, out, 'utf8');
+  withLedgerLock(mainP, () => {
+    writeFileAtomic(mainP, out);
+  });
   return { moved, kept: kept.length };
 }
 
@@ -334,11 +360,19 @@ export function withLedgerLock(target, fn) {
   const takeOverStale = () => {
     try {
       const mtimeMs = fs.statSync(lockPath).mtimeMs;
-      let stale = Date.now() - mtimeMs > SHARD_LOCK_STALE_MS;
-      if (!stale && Date.now() > deadline) {
+      let stale = false;
+      if (Date.now() - mtimeMs > SHARD_LOCK_STALE_MS) {
+        // 锁龄超限只把锁列为「可疑」（2026-11-08 M7 收紧）：此前陈旧即无条件接管——活持有者
+        // 临界区超 15s（MB 级归并 / 慢盘）就被夺锁，两个写者同时进场互踩。接管还须另证：
+        // 持有 pid 已死（kill(pid,0) ESRCH，残留锁实锤）或锁内容读不出 pid（旧格式锁，无从判活）；
+        // 活 pid 一律不接管，等 deadline 超时响亮报错（fail-loud 语义不变）。
+        const pid = lockOwnerPid(fs.readFileSync(lockPath, 'utf8'));
+        stale = pid === null || !pidAlive(pid);
+      } else if (Date.now() > deadline) {
         // 崩溃残留锁早接管（移植 state.mjs）：锁龄未满 15s 但等待已超 deadline 且持有者 pid
         // 已死 → 残留锁实锤，立即进入接管；pid 存活（正当持锁者只是慢——慢盘大分片临界区）
-        // 绝不提前接管，不会造出双写者，超时报错语义照旧。
+        // 绝不提前接管，不会造出双写者，超时报错语义照旧。读不出 pid（旧格式锁）不满足
+        // 「死亡实锤」，不提前接管。
         const pid = lockOwnerPid(fs.readFileSync(lockPath, 'utf8'));
         stale = pid !== null && !pidAlive(pid);
       }
@@ -391,8 +425,19 @@ export function withLedgerLock(target, fn) {
       return fn();
     } finally {
       try {
-        // 只释放仍属于自己的锁：被陈旧判定接管后，迟到的释放不能删掉新持锁者的锁
-        if (fs.readFileSync(lockPath, 'utf8') === owner) fs.unlinkSync(lockPath);
+        // 只释放仍属于自己的锁（2026-11-09 审查收口：TOCTOU 收口）：旧「读内容→unlink」在比对与
+        // 删除之间被接管者 rename 替换时会误删新持锁者的锁。改为 claim 式——先把锁 rename 到自身
+        // 临时名（原子占位），读回确认 owner 才删；不是自己的放回原位（仅当位空），绝不盲删。
+        const trash = `${lockPath}.rel.${process.pid}.${Math.random().toString(36).slice(2)}`;
+        try {
+          fs.renameSync(lockPath, trash);
+          let mine = false;
+          try { mine = fs.readFileSync(trash, 'utf8') === owner; } catch { /* 读不到按非己锁 */ }
+          if (mine) fs.unlinkSync(trash);
+          else { try { fs.renameSync(trash, lockPath); } catch { /* 已有更新持锁者：不覆盖 */ } }
+        } catch {
+          /* 锁已被清理 */
+        }
       } catch {
         /* 已被清理或已被接管 */
       }
@@ -480,7 +525,11 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
 
     if (!existing) {
       try {
-        fs.writeFileSync(p, renderShard(name, fresh, '\n'), 'utf8', { flag: 'wx' });
+        // flag:'wx' 必须进 options 对象（2026-11-08 修复）：旧写法把 { flag: 'wx' } 放在第 4 参——
+        // writeFileSync(file, data, options) 只收 3 参，第 4 参被静默忽略，实际 flag='w'。后果：
+        // existsSync 判「分片不存在」到写入之间他人抢先建好分片时，本方会把对方刚写的内容整个
+        // 截断重写，EEXIST 回退分支永不可达。修正后 'wx' 生效 → 撞 EEXIST → 走下方按现状追加。
+        fs.writeFileSync(p, renderShard(name, fresh, '\n'), { encoding: 'utf8', flag: 'wx' });
         return fresh.length;
       } catch (e) {
         if (e.code !== 'EEXIST') throw e;
@@ -511,7 +560,9 @@ export function appendRows(root, name, rows, { month, section = '' } = {}) {
       if (tail.length) text = `${text.replace(/\s*$/, '')}\n${tail.map((r) => r.line).join('\n')}\n`;
       const next = text.endsWith('\n') ? text : `${text}\n`;
       if (fingerprintOf(p) === before) {
-        fs.writeFileSync(p, next, 'utf8');
+        // 分片整写原子化（2026-11-08 M5）：分片是已迁行唯一副本，直接 writeFileSync 先截断后写，
+        // 进程中途崩溃即丢整片。tmp+rename 任一步失败原分片逐字节原样，可安全重跑（fail-loud）。
+        writeFileAtomic(p, next);
         done = true;
         break;
       }

@@ -27,7 +27,7 @@ export const L3_PATTERNS = [
   ['schema 变更', /\bschema\b|数据库结构|表结构|数据结构变更/i],
   ['迁移 SQL', /迁移\s*(?:sql|脚本)|\bmigrations?\b|\.sql\b|alter\s+table|create\s+table|drop\s+(?:table|column|database)|add\s+column/i],
   ['DI 管线', /\bDI\b|依赖注入|dependency\s+injection|容器注册|服务注册/i],
-  ['认证管线', /认证|鉴权|授权管线|\bauth(?:\s*(?:管线|流程|中间件))?|中间件|middleware/i],
+  ['认证管线', /认证|鉴权|授权管线|\bauth(?:entication|orization|orized|orizing)?\b|中间件|middleware/i], // \b 收紧（2026-11-09 审查收口）：裸 \bauth 前缀吞 author/authoring——「作者信息」误判 L3 出假依据；auth 独立成词（含认证类后缀）才命中
 ];
 
 // ---- L2 闭集四类通用关键词（两问第②问：契约或共享口径，§2.2）----

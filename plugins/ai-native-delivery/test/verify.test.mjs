@@ -674,6 +674,28 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     parsed.length === 1 && parsed[0].headShort === 'bbb2222', JSON.stringify(parsed));
   fs.rmSync(root, { recursive: true, force: true });
 }
+// ---- 场景 12g：门 stdout 带 GATE_SKIPPED 标记 → 记入 envSkips（2026-11 市场审查 M9）----
+// 形态：check-secrets 缺 gitleaks 时 loud-skip exit 0 + stdout 标记（⑤b 锁 wrapper 侧）；编排侧若
+// 不识别该标记，全绿凭证会把「没跑」记成「已通过门」且冒充全量锚。夹具用 --stub-gate 走生产尾段，
+// 假门 exit 0 但输出 GATE_SKIPPED:no-gitleaks——绿行须带 envSkips=[stub:no-gitleaks]
+//（基线候选判据 envSkips 非空禁作锚，同场景 12f，锚资格面不再重测）。
+{
+  const root = mkfix();
+  const r = run(['--stub-gate', `node ${mkCmd(0, 'GATE_SKIPPED:no-gitleaks\n')}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const green = lines.find((l) => l.exitCode === 0 && l.suite === 'all-gates') || null;
+  check('场景 12g：门 exit 0 但带 GATE_SKIPPED 标记 → 绿行 envSkips 记 <门id>:<原因>（失去全量锚资格）',
+    r.status === 0 && green !== null && Array.isArray(green.envSkips) && green.envSkips.includes('stub:no-gitleaks'),
+    `exit=${r.status} line=${JSON.stringify(green)}\n${r.stderr}`);
+  const clean = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+  const lines2 = fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const green2 = lines2[lines2.length - 1];
+  check('场景 12g：同形对照——无标记的正常绿行不挂 envSkips（正反两面钉住，防判据空转）',
+    clean.status === 0 && green2.exitCode === 0 && !Array.isArray(green2.envSkips),
+    `exit=${clean.status} line=${JSON.stringify(green2)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
 // ---- 场景 13：分层跑（2026-10-23）——diff 档 engine-tests 用 --fast，全量档不用 ----
 {
   const root = mkfix();
@@ -853,6 +875,34 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     `src=${ss && gateSrc(ss, root)}`);
   check('场景 16e：无脚本门（engine-tests npm 原生命）→ src=null（诚实缺省）',
     gateSrc(et, root) === null, `src=${et && gateSrc(et, root)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 16f：插件模式桩越界判据（2026-11 市场审查 M10，软收紧）----
+// scriptPath 项目侧优先的桩替换是引擎明示的信任边界（不硬禁、src 照记可对质），但插件形态下
+// src 落点越出 PLUGIN_ROOT 的门 = 项目侧桩在执法——全绿凭证此前照样冒充全量锚。判据单源
+// pluginStubSkips（导出锁语义，同 16e gateSrc 先例）：越界门 → skip 面 `stub:<门id>`，
+// envSkips 非空 → 失去全量锚资格（12f/12g 已锁的面，不重测）。源仓形态不适用（项目侧脚本
+// 副本即正主——deploymentMode=source-repo 判据整体关闭）。
+{
+  const { pluginStubSkips, GATES } = await import('../scripts/verify.mjs');
+  const cl = GATES.find((g) => g.id === 'check-loop');
+  const rb = GATES.find((g) => g.id === 'rule-budget');
+  const root = mkfix(); // 无 .agents/scripts/check-loop.mjs → deploymentMode=plugin
+  check('场景 16f：插件模式无桩 → 无 skip 条目（src 恒落插件内）',
+    JSON.stringify(pluginStubSkips([cl, rb], root)) === '[]',
+    JSON.stringify(pluginStubSkips([cl, rb], root)));
+  // 项目侧桩 rule-budget（不落 check-loop.mjs，deploymentMode 保持 plugin）→ 仅该门记 skip
+  fs.mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'scripts', 'rule-budget.mjs'), '// 项目侧桩\n', 'utf8');
+  check('场景 16f：插件模式项目侧桩 → 该门记 stub:<id>（同场无桩门不受累）',
+    JSON.stringify(pluginStubSkips([cl, rb], root)) === JSON.stringify(['stub:rule-budget']),
+    JSON.stringify(pluginStubSkips([cl, rb], root)));
+  // 源仓形态（项目侧 check-loop.mjs 副本在场 = source-repo）→ 判据整体关闭，桩不再越界
+  fs.writeFileSync(path.join(root, '.agents', 'scripts', 'check-loop.mjs'), '// 项目侧副本\n', 'utf8');
+  check('场景 16f：源仓形态 → 判据关闭（项目侧脚本副本即正主，无 skip 条目）',
+    JSON.stringify(pluginStubSkips([cl, rb], root)) === '[]',
+    JSON.stringify(pluginStubSkips([cl, rb], root)));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

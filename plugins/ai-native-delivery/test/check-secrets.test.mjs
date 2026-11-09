@@ -89,6 +89,10 @@ const readStubArgs = (root) => JSON.parse(fs.readFileSync(outPath(root), 'utf8')
   const f = mkfix();
   const r = run(f.root, [], { GITLEAKS_BIN: path.join(f.root, 'no-such-gitleaks.exe'), STUB_OUT: outPath(f.root) });
   check('⑤ 缺二进制 → exit 0 且响亮跳过（文案含「未安装」）', r.status === 0 && /未安装/.test(r.stderr), `exit=${r.status} ${r.stderr}`);
+  // ⑤b（2026-11 市场审查 M9）：stdout 机器可读跳过标记——verify 编排层据此把本门记入 envSkips
+  //（否则全绿凭证把「没跑」记成「已通过门」，凭证行冒充全量锚）。exit 0 契约与 stderr 提示不变。
+  check('⑤b 缺二进制 → stdout 带机器可读标记 GATE_SKIPPED:no-gitleaks（独立一行）',
+    /^GATE_SKIPPED:no-gitleaks\s*$/m.test(r.stdout), `stdout=${JSON.stringify(r.stdout)}`);
   fs.rmSync(f.root, { recursive: true, force: true });
 }
 

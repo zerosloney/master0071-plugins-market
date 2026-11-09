@@ -399,5 +399,73 @@ const mkRepo = () => {
   check('stderr 无 EPIPE 崩栈痕迹', !/EPIPE|Unhandled/i.test(out.stderrTxt), out.stderrTxt.slice(0, 200));
 }
 
+// ---- ⑮ 长选项缩写与 shell 转义字符不得绕过 deny 地板（2026-11-08 市场审查 C1/C2）----
+// C1：git 接受长选项的无歧义唯一前缀缩写（`--har` ≡ `--hard`、`--no-veri` ≡ `--no-verify`），
+//     旧词元判据只做精确等值，缩写形态实测静默放行。
+// C2：反斜杠转义由 shell 消化（`printf '%s\n' \-f` 输出 `-f`），git 收到的就是完整选项；
+//     cmd.exe 宿主（hooks.json matcher 覆盖）另有 `^` 转义符。`\` 在 JS 字符串与 JSON 两个
+//     层面都要转义正确：JS 源里写 `\\`，经 JSON.stringify 注入 stdin 后 hook 读回恰为一个 `\`。
+// 反向锚：普通命令不受归一化影响，仍静默放行。
+{
+  const denyCases = [
+    'git reset --har HEAD~1',          // C1 长选项缩写
+    'git commit --no-veri -m x',       // C1 长选项缩写
+    'git push --no-verif origin main', // C1 长选项缩写
+    'git push \\-f origin main',       // C2 反斜杠转义（shell 消化后即 git push -f）
+    'git reset \\--hard',              // C2 反斜杠转义
+    'git commit \\-n',                 // C2 反斜杠转义
+    'git push -\\f',                   // C2 反斜杠转义（剥后成 -f，走短簇形态）
+    'git push ^-^f origin main',       // C2 cmd.exe 转义符
+  ];
+  for (const command of denyCases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, process.cwd());
+    check(`缩写/转义变体仍被 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+  const okCases = ['git status', 'git push origin main', 'git commit -m "fix: typo"', 'git log --oneline -5'];
+  for (const command of okCases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, process.cwd());
+    check(`控制组不受影响（静默放行）：${command}`, r.status === 0 && r.stdout.trim() === '', `stdout=${r.stdout}`);
+  }
+  // 裸 `--` 分隔符控制组（2026-11-08 设计调整）：前缀模糊要求命令侧词元与规则词长度均 > 3——
+  // 否则裸 `--`（len 2）会被 `--hard`.startsWith(`--`) 拉进前缀命中，`git reset -- file.txt`
+  // 这类日常命令被误拦（实测）。本组锁修复前基线：前者静默放行（原不命中任何清单）、
+  // 后者 ASK（原命中 ask 清单 `git checkout`），不得因前缀调整漂移。
+  const rSep = run({ tool_name: 'Bash', tool_input: { command: 'git reset -- file.txt' } }, process.cwd());
+  check('裸 -- 分隔符不参与前缀匹配：git reset -- file.txt 静默放行（不误拦日常命令）',
+    rSep.status === 0 && rSep.stdout.trim() === '', `stdout=${rSep.stdout}`);
+  const rSepAsk = run({ tool_name: 'Bash', tool_input: { command: 'git checkout -- src/a.js' } }, process.cwd());
+  check('裸 -- 分隔符不抬升 ask 基线：git checkout -- src/a.js 仍 ASK（锁修复前行为）',
+    decisionOf(rSepAsk)?.permissionDecision === 'ask', `stdout=${rSepAsk.stdout}`);
+}
+
+// ---- ⑯ 合法 JSON 但非对象（标量/数组）→ fail-closed 转 ask（2026-11-08 市场审查 M1）----
+// stdin 喂 `123` / `[1]` / `"x"` 这类**合法 JSON 但非对象**的输入时 tool_name 读不出 → 判
+// 「非 shell 工具」静默放行（实测 stdin `123` → 空输出 exit 0）；null 则经 TypeError 顶层 catch
+// 才转 ask——与坏 JSON/截断/空输入的 fail-closed 方向三向不一致。修复后并入同一不可信分支，
+// ask 理由点明「不是合法的工具调用对象」。null 修复前已 ASK（路径不同、理由不同），只锁决策形态。
+{
+  for (const [label, raw] of [['数字标量', '123'], ['数组', '[1]'], ['字符串标量', '"x"']]) {
+    const r = spawnSync(process.execPath, [HOOK], { input: raw, encoding: 'utf8', cwd: process.cwd(), env: { ...process.env } });
+    const d = decisionOf(r);
+    check(`非对象 JSON（${label}）→ exit 0（宿主协议）`, r.status === 0, `exit=${r.status} stderr=${r.stderr}`);
+    check(`非对象 JSON（${label}）→ fail-closed 转 ask（不再静默放行）`, d && d.permissionDecision === 'ask', r.stdout);
+    check(`非对象 JSON（${label}）→ 理由点明非工具调用对象`,
+      d && /不是合法的工具调用对象/.test(d.permissionDecisionReason || ''), d && d.permissionDecisionReason);
+  }
+  const rNull = spawnSync(process.execPath, [HOOK], { input: 'null', encoding: 'utf8', cwd: process.cwd(), env: { ...process.env } });
+  check('非对象 JSON（null）→ 仍 fail-closed 转 ask（锁定修复前决策形态）',
+    rNull.status === 0 && decisionOf(rNull)?.permissionDecision === 'ask', rNull.stdout);
+}
+
+// ---- ⑰ 宿主 shell 辅助工具不误伤（2026-11-09 审查收口）----
+{
+  // BashOutput/KillShell 不携带 command：按非管辖静默放行（旧实现每次读输出都转 ask）
+  for (const name of ['BashOutput', 'KillShell', 'bash_output', 'kill shell']) {
+    const r = run({ tool_name: name, tool_input: { shell_id: 'abc' } }, process.cwd());
+    check(`宿主辅助工具 ${name} → 静默放行（ask 弹窗噪音消除）`,
+      r.status === 0 && String(r.stdout).trim() === '', `stdout=${JSON.stringify(r.stdout)}`);
+  }
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

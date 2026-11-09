@@ -5,6 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 
 // 基线与增量（2026-10-10 收敛系列 6）：版本表改「基线 + 显式差异」声明式构造——每版本只写
 // 相对基线变化的锚，消除「全量手抄日期键、漏抄即静默改语义」的脆弱点（原 v2 注释自警）。
@@ -227,7 +229,7 @@ export function auditEnabled(policy) {
 const headAncestorOk = (head, ctx) => {
   const cwd = ctx && typeof ctx.cwd === 'string' ? ctx.cwd : null;
   if (!cwd) return false;
-  const r = spawnSync('git', ['merge-base', '--is-ancestor', String(head), 'HEAD'], { cwd, encoding: 'utf8' });
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', String(head), 'HEAD'], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
   return r.status === 0;
 };
 export function hasFreshVerifyLine(lines, now = Date.now(), ctx = null) {

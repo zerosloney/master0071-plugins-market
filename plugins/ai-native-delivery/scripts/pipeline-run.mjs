@@ -19,7 +19,7 @@
 //   node <插件根>/scripts/pipeline-run.mjs status [--run <id>] [--adopt] [--json]
 //   node <插件根>/scripts/pipeline-run.mjs watch [--run <id>] [--interval 2]
 //   node <插件根>/scripts/pipeline-run.mjs abort --run <id> [--to superseded|cancelled] [--delegated "<原话>"]
-// 测试：node templates/_agents/scripts/pipeline-run.test.mjs（夹具假门 + 假 git，不触真实仓库）
+// 测试：node <插件根>/test/pipeline-run.test.mjs（夹具假门 + 假 git，不触真实仓库）
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';

@@ -57,6 +57,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { computeDiffScope, parseEvidenceGreens, EVIDENCE_REL } from './verify-scope.mjs';
@@ -64,7 +66,7 @@ import { classifyFailure } from './failure-attribution.mjs';
 // 路径收口（2026-10-27 插件化迁移）：SCRIPT_DIR 落插件内（paths.mjs 单源）；项目根仍 git root 锚定
 //（CHECK_LOOP_ROOT fixture 注入原样保留）。锚点根（脚本定位/配置读取）非 git 环境回退插件根本身
 //（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；**账本根不回退**——见 LEDGER 与 paths.mjs ledgerRoot。
-import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir } from './paths.mjs';
+import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir, deploymentMode } from './paths.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 const LEDGER = ledgerRoot({ fixture: process.env.CHECK_LOOP_ROOT });
@@ -77,7 +79,7 @@ const eng = (name) => `node "${scriptPath(ROOT, name)}"`;
 // 无 HEAD（非 git 环境 / 空仓）返回 null——凭证行显式写 null，不伪造、不省键；
 // 消费侧（policy.mjs）对含 head 行做 merge-base --is-ancestor 祖先校验。
 const headSha = () => {
-  const r = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: ROOT });
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS });
   const sha = r.status === 0 ? String(r.stdout || '').trim() : '';
   return sha || null;
 };
@@ -92,6 +94,20 @@ const gateSrc = (gate, root = ROOT) => {
   return name ? scriptPath(root, name) : null;
 };
 export { gateSrc };
+
+// 插件模式桩越界判据（2026-11 市场审查 M10，软收紧）：scriptPath 项目侧优先的桩替换是引擎明示的
+// 信任边界（不硬禁、src 照记可对质），但插件形态下 src 落点越出 PLUGIN_ROOT 的门 = 项目侧桩在执法
+// ——此前全绿凭证照样冒充全量锚（增量担保建立在桩脚本的执法上）。判据单源（导出锁语义，同 gateSrc
+// 先例）：越界门 → skip 面条目 `stub:<门id>`，与 envSkips 同面（非空 → 失去全量锚资格），src 仍照记
+// 保留事后对质。源仓形态不适用——项目侧脚本副本即正主，deploymentMode=source-repo 时判据整体关闭。
+const pluginStubSkips = (gates, root = ROOT) => {
+  if (deploymentMode(root) !== 'plugin') return [];
+  return gates
+    .map((g) => ({ g, src: gateSrc(g, root) }))
+    .filter(({ g, src }) => src && !src.startsWith(PLUGIN_ROOT))
+    .map(({ g }) => `stub:${g.id}`);
+};
+export { pluginStubSkips };
 
 // --- 门禁定义 ---
 // 引擎段在前（2026-10-10）：语法与引擎测试仍最先；编排/预算/生效规则/闭环硬门/泳道接在其后。
@@ -393,7 +409,7 @@ async function run() {
       .filter((c) => c.sha && Number.isFinite(Date.parse(c.ts)))
       .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
       .filter((c) => (seen.has(c.sha) ? false : (seen.add(c.sha), true)));
-    const isAncestor = (sha) => spawnSync('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { encoding: 'utf8', cwd: ROOT }).status === 0;
+    const isAncestor = (sha) => spawnSync('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS }).status === 0;
     const chosen = ordered.find((c) => isAncestor(c.sha)) || null;
     const lastFullTs = chosen ? chosen.ts : null;
     if (chosen) { ledgerBase = chosen.sha; baseSourceHint = chosen.source; }
@@ -412,7 +428,7 @@ async function run() {
     }
   }
   if (scopeMode) {
-    const git = (args) => spawnSync('git', args, { encoding: 'utf8', cwd: ROOT });
+    const git = (args) => spawnSync('git', args, { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS });
     try {
       scope = computeDiffScope(git, ledgerBase, baseSourceHint);
     } catch (e) {
@@ -463,10 +479,22 @@ async function run() {
   const localLedgerSkip = !testCmd && !stubCmd && !process.env.TF_BUILD
     && !!scope && !scope.ledgerTouched;
   const envSkipIds = localLedgerSkip ? CI_ONLY_GATE_IDS : new Set();
+  // 运行期环境跳过（2026-11 市场审查 M9）：门以 exit 0 结束但 stdout 带 GATE_SKIPPED:<原因> 标记
+  //（check-secrets 缺 gitleaks 的 loud-skip，⑤b 测试锁 wrapper 侧）——「跑了但没执法」。不识别的话
+  // 全绿凭证把它记成已通过门并冒充全量锚（增量担保建立在密钥门没跑的树上）。记入既有 envSkips 面
+  //（与 CI-only loud-skip 同面：基线候选 envSkips 非空禁作锚、摘要渲染 skip-env=），条目格式
+  // <门id>:<原因> 自解释。
+  const runtimeEnvSkips = [];
   const gates = testCmd ? fixtureGates(testCmd)
     : stubCmd ? [{ id: 'stub', cohort: 'engine', name: '夹具单门', cmd: stubCmd, folder: '.', type: 'shell' }]
     : engineOnly ? GATES.filter((g) => g.cohort === 'engine')
     : GATES.filter((g) => !skipSet.has(g.id));
+  // 插件模式桩越界（2026-11 市场审查 M10，判据单源 pluginStubSkips）：越界门记入 envSkips 面
+  //（条目 stub:<门id>），src 仍照记可对质；envSkips 非空 → 绿行失去全量锚资格（同 CI-only 面）。
+  const stubSkips = pluginStubSkips(gates, ROOT);
+  if (stubSkips.length) {
+    console.log(`[verify] ⚠️ 插件模式：${stubSkips.length} 门 src 落在插件外（项目侧桩）——记入 envSkips，本凭证不作全量锚`);
+  }
   // deps 完整性断言（复核 P2）：依赖门被裁剪/表形态破坏时，worker 会把依赖孤儿静默 continue——
   // 门从绿跑里无声消失、绿凭证残缺。此处 fail-loud，不带病跑（--no-build 放大此陷阱的后果）。
   {
@@ -667,6 +695,13 @@ async function run() {
       return true;
     }
     outputs[gate.id] = r.stdout || '';
+    // GATE_SKIPPED 标记识别（M9，见 runtimeEnvSkips 注）：独立一行 `GATE_SKIPPED:<原因>`（m 锚行首，
+    // 门输出里其他行含同串不误判）。exit 0 裁决不变（loud-skip 契约），只补审计面与锚资格面。
+    const skipMark = /^GATE_SKIPPED:(\S+)\s*$/m.exec(r.stdout || '');
+    if (skipMark) {
+      console.log(`[verify] ⚠️ ${gate.name}：exit 0 但门自报未执法（${skipMark[1]}）——记入 envSkips，本凭证不作全量锚`);
+      runtimeEnvSkips.push(`${gate.id}:${skipMark[1]}`);
+    }
     if (r.flakyRetry) {
       console.log(`[verify] ⚠️ ${gate.name} 首跑红（exit ${r.firstStatus}）→ 重跑绿：判 flaky（已记入绿行 flaky 字段）`);
       if (r.firstTail) console.log(`[verify]   首跑尾部：\n${r.firstTail}`);
@@ -768,7 +803,7 @@ async function run() {
       entry.head = headSha();
       // HEAD 短 SHA 钉进绿行本体（2026-10-09 AI-Native 架构审查修复收尾）：确定性证据此前只存在于测试
       // 夹具、绿行无 SHA 可锚定验证对象；非 git 环境（fixture 根在 os.tmpdir）解析失败则省略该键，不伪造。
-      const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', cwd: ROOT });
+      const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS });
       if (rev.status === 0 && rev.stdout) entry.headShort = rev.stdout.trim();
       const counts = parseCounts(outputs['engine-tests'] || outputs['test'] || '');
       if (counts) Object.assign(entry, counts);
@@ -782,8 +817,10 @@ async function run() {
       // flaky 重跑绿（gate-health 2026-10-22）：绿行记录哪些门是「首跑红、重跑绿」——审计可对质，
       // 不把偶发洗成无痕。hasFreshVerifyLine 仍认其为关单凭证（门最终绿了）。
       if (flakyGates.length) entry.flaky = flakyGates;
-      // CI-only 本地跳过（verify-diet 二批 P0-2）：绿行记录跳过事实——审计面可对质「该行没跑哪些门、为何」。
-      if (envSkipIds.size) entry.envSkips = [...envSkipIds];
+      // CI-only 本地跳过（verify-diet 二批 P0-2）+ 运行期环境跳过（M9 GATE_SKIPPED 标记）
+      // + 插件模式桩越界（M10 stub:<门id>）：绿行记录跳过事实——审计面可对质「该行没跑哪些门、为何」；
+      // envSkips 非空 → 失去全量锚资格。
+      if (envSkipIds.size || runtimeEnvSkips.length || stubSkips.length) entry.envSkips = [...envSkipIds, ...runtimeEnvSkips, ...stubSkips];
       // scope 增量凭证标记（verify-diet ②）：gen-verify-evidence 渲染进摘要行，审计面可对质
       // 「该绿行跑了哪些门、基于哪个基线」；hasFreshVerifyLine 认其为合法关单凭证（口径见 verify-scope.mjs）。
       // **只在真裁掉门时打标记**（verify-scope-default 2026-10-22 修复）：变截面全触及 → 20 门照跑全量，

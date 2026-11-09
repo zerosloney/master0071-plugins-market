@@ -172,5 +172,51 @@ try {
   fs.rmSync(tmp5, { recursive: true, force: true });
 }
 
+// S8 子目录调用一致性（2026-11 市场审查 M11）：③.gitattributes / ④.githooks / ⑥runtime-env.local.md
+// 此前是 cwd 相对读——子目录调用时读到「仓库根文件全缺失」，与 ①-② 的仓库根判据自相矛盾
+//（同一次调用一半看仓库根、一半看调用者所在子目录）。修复后三处锚 ROOT（paths.mjs 单源），
+// 子目录调用与根目录裁决一致。源仓形态夹具覆盖最严：三处读点在该形态下全部进执法面
+//（插件形态 .gitattributes 只出提示、.githooks 不判，夹不住回归）。
+const tmp6 = mkRepo();
+try {
+  fs.mkdirSync(path.join(tmp6, '.githooks'), { recursive: true });
+  for (const h of ['pre-commit', 'pre-merge-commit', 'commit-msg', 'pre-push', 'post-commit']) {
+    fs.writeFileSync(path.join(tmp6, '.githooks', h), '', 'utf8');
+  }
+  fs.mkdirSync(path.join(tmp6, '.agents', 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(tmp6, '.agents', 'scripts', 'check-loop.mjs'), '// fixture\n');
+  fs.writeFileSync(path.join(tmp6, '.gitattributes'), [
+    'backend/shared/App.Api/appsettings.json merge=ours',
+    '.agents/*.jsonl merge=jsonl-union',
+    'workflow/gate-metrics.d/*.jsonl merge=jsonl-union',
+    '',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(tmp6, 'App.sln'), 'fixture\n', 'utf8');
+  // 登记打桩：dotnet → node 本体（fs.existsSync 恒真，--version 有输出）——⑥ 的登记读点是否
+  // 锚仓库根，看子目录调用时这条回显是否还在（cwd 相对读会读空 → 回显降级为「未登记」）。
+  fs.mkdirSync(path.join(tmp6, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(path.join(tmp6, '.agents', 'notes', 'runtime-env.local.md'),
+    `| 工具 | 路径 |\n| --- | --- |\n| dotnet | ${process.execPath} |\n`, 'utf8');
+  git(tmp6, ['config', 'core.hooksPath', '.githooks']);
+  git(tmp6, ['config', 'merge.ours.driver', 'true']);
+  git(tmp6, ['config', 'merge.jsonl-union.driver', jsonlDriver]);
+
+  const rootRun = run(tmp6);
+  check('S8 根目录调用 → exit 0 且 PASS（夹具自证齐全）',
+    rootRun.status === 0 && /\[PASS\]/.test(rootRun.stdout), rootRun.stdout.slice(-300));
+  const sub = path.join(tmp6, 'sub', 'deeper');
+  fs.mkdirSync(sub, { recursive: true });
+  const subRun = run(sub);
+  const echoLine = (out) => (/^\s*\[echo\] dotnet → (.*)$/m.exec(out) || [])[1] || '';
+  check('S8 子目录调用 → 与根目录裁决一致（exit 0 且 PASS，无任何 [缺失]）',
+    subRun.status === 0 && /\[PASS\]/.test(subRun.stdout) && !/\[缺失\]/.test(subRun.stdout),
+    subRun.stdout.slice(-300));
+  check('S8 子目录调用 → runtime-env.local.md 登记仍生效（dotnet 回显同根目录）',
+    subRun.status === 0 && echoLine(subRun.stdout) !== '' && echoLine(subRun.stdout) === echoLine(rootRun.stdout),
+    `root=[${echoLine(rootRun.stdout)}] sub=[${echoLine(subRun.stdout)}]`);
+} finally {
+  fs.rmSync(tmp6, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

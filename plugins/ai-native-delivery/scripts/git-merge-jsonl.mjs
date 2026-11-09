@@ -24,7 +24,7 @@
 import fs from 'node:fs';
 
 export function mergeJsonlLines(currentContent, otherContent) {
-  const splitLines = (str) => String(str || '').replace(/\r\n/g, '\n').split('\n');
+  const splitLines = (str) => String(str || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n');
   // 末尾不完整 JSON 行 = 崩溃残迹：最后一个非空行解析失败 → 丢弃并 stderr 计数（1 行/输入）。
   // 行中坏行维持现状（不判不删——那不是崩溃形态，属台账内容问题，由行级校验管）。
   const dropTrailingCrumb = (lines) => {

@@ -13,15 +13,27 @@ import {
 } from '../check-loop-kit.mjs';
 
 // 红线判低：非 high 勾了「→ 级别 / 级别至少 L2|L3」即 hard。L1 plan 即入口后，plan 正文同样扫描。
-// （2026-11 市场审查修复两处逃逸：① 行首允许可选缩进——嵌套列表形态「  - [x] …」此前被 /^- \[x\]/
-//   漏判；② 措辞正则补「升级至/升至/升到/升 L2|L3」类变体——「级别升级至 L2」「→ 升 L2」此前
-//   不中判定即放行。既有标准形态（「→ 级别」「级别至少 L2/L3」）逐字节保留，零回归。）
+// （2026-11-09 审查收口：措辞枚举 → 结构判据。旧实现逐条追加同义措辞（行首缩进、「升级至/升至/升到/升」）
+//   属 workaround 面——任何集外改写（「级别 ≥ L2」「改判 L2」「至少 L2」）即逃逸。红线本是「触达红线」
+//   节下的固定勾选清单（模板单源 fill-intent 红线选项 + _TEMPLATE）：勾任一选项即触达，与升级声明的
+//   措辞无关。旧措辞正则保留为第二信号（正文任意勾选行声明升级仍计），方向只增不减。）
+const REDLINE_SECTION_RE = /^#{2,3}\s*.*触达红线/;
+const REDLINE_CHECKED_RE = /^\s*- \[[xX]\]/;
+const REDLINE_ESCALATE_RE = /(\$\\rightarrow\$|→)\s*级别|级别至少\s*L[23]|(?:升级至|升至|升到|升)\s*L[23]/;
+function redlineTouched(file) {
+  let inSection = false;
+  for (const l of linesOf(file) || []) {
+    if (/^#{1,3}\s/.test(l)) { inSection = REDLINE_SECTION_RE.test(l); continue; }
+    if (REDLINE_CHECKED_RE.test(l)) {
+      if (inSection) return true;
+      if (REDLINE_ESCALATE_RE.test(l)) return true;
+    }
+  }
+  return false;
+}
 function pushRedline(file, base, lvl) {
   if (laneOfDoc(lvl) === 'high') return;
-  const redlineTouched = (linesOf(file) || [])
-    .some((l) => /^\s*- \[x\]/.test(l)
-      && /(\$\\rightarrow\$|→)\s*级别|级别至少\s*L[23]|(?:升级至|升至|升到|升)\s*L[23]/.test(l));
-  if (redlineTouched) {
+  if (redlineTouched(file)) {
     blockers.push(`- [红线判低] ${base} 级别为 ${lvl || '缺失'} 但触达红线已勾选（规则/契约或 schema/结构面）——协作道不受理 STOP 级改动：就高不就低，把「级别」升至 L2/L3 并补同名 spec`);
   }
 }

@@ -74,18 +74,26 @@ function recentConfirmations(root, n = CONFIRM_TAIL, degraded = []) {
   }
   for (const file of files) {
     let text = '';
+    let bad = 0;
     try {
       text = fs.readFileSync(file, 'utf8');
     } catch (e) {
       degraded.push(`${path.basename(file)} 读不出（${(e && e.code) || (e && e.message) || '未知错误'}）——该账未计入最近确认行`);
       continue;
     }
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of String(text).replace(/^\uFEFF/, '').split(/\r?\n/)) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
         if (obj && typeof obj === 'object') rows.push({ ...obj, _file: path.basename(file) });
-      } catch { /* 坏行容忍（与门禁读取侧同口径） */ }
+      } catch { bad++; }
+    }
+    // 坏行出声（2026-11-09 审查收口，对齐 ledger-loader「跳过但必须计数」口径）：旧实现整段静默，
+    // 台账破损时跨会话恢复摘要只表现为「最近确认行变少」，无任何破损信号。
+    if (bad) {
+      const msg = `${path.basename(file)} 有 ${bad} 行 JSON 解析失败（坏行已跳过，该账最近确认行数已打折扣）`;
+      degraded.push(msg);
+      console.error(`[read-context] ⚠️  ${msg}`);
     }
   }
   rows.sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));

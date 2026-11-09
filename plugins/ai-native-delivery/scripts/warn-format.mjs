@@ -11,7 +11,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // 明细落盘的相对路径（对外只报相对路径，避免把绝对路径写进门禁输出）
-export const WARN_LOG_REL = 'tmp/check-loop-warn.log';
+// 落位 .agents/tmp/（2026-11-09 审查收口）：引擎运行时目录单源，根级 tmp/ 不在 gitignore 种子、
+// 每次带 WARN 的运行都会留未跟踪文件污染项目 git status。
+export const WARN_LOG_REL = '.agents/tmp/check-loop-warn.log';
 
 // formatWarnings(list, opts) → 折叠后的告警文本
 //   list：advisory 告警行数组（每行形如 "- [WARN 标签] 内容"）

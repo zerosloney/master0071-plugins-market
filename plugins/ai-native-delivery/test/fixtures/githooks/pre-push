@@ -160,13 +160,13 @@ try {
         // check-loop 的判定走 stderr、且无 --json 摘要格式——只记退出码与告警条数。
         // 计数口径（2026-10-22 批 2 配套修正）：真引擎自跑时 stderr 是**折叠后**的分组行
         // （「- [标签] ×N 条同类」），直接数行数得到的是「组数」不是「条数」——记进日检台账会
-        // 让「hygiene 告警 N」随折叠规则漂移。故优先读折叠明细 tmp/check-loop-warn.log 数原始条数，
+        // 让「hygiene 告警 N」随折叠规则漂移。故优先读折叠明细 .agents/tmp/check-loop-warn.log 数原始条数，
         // 读不到（未折叠/无告警/落盘失败）再回退 stderr 行数，并分别记 warns / warnGroups。
         const stderrLines = String(r.stderr || '').split('\n').filter((l) => /^\s*-\s*\[/.test(l));
         let warns = stderrLines.length;
         let warnGroups = stderrLines.length;
         try {
-          const logPath = 'tmp/check-loop-warn.log';
+          const logPath = '.agents/tmp/check-loop-warn.log';
           if (fs.existsSync(logPath)) {
             const raw = fs.readFileSync(logPath, 'utf8').split('\n').filter((l) => /^\s*-\s*\[/.test(l));
             if (raw.length) { warns = raw.length; warnGroups = stderrLines.length; }

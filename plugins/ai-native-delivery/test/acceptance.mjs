@@ -379,8 +379,9 @@ console.log(`acceptance — 设计文档 §10 验收黑盒（${TODAY}）\n`);
 
   // 本插件全部测试文件逐个可跑通（循环）。acceptance.mjs（本脚本）与 e2e-fixture.mjs（独立端到端）
   // 不入循环——前者是本条断言的载体（自递归），后者由 CI 单独接线；其余全部覆盖。
+  // 点文件（临时丢进 test/ 的 .tmp-*.mjs 等）一律排除，避免临时脚本被当测试执行。
   const testDir = path.join(PLUGIN_ROOT, 'test');
-  const files = fs.readdirSync(testDir).filter((f) => f.endsWith('.mjs') && f !== 'acceptance.mjs' && f !== 'e2e-fixture.mjs')
+  const files = fs.readdirSync(testDir).filter((f) => !f.startsWith('.') && f.endsWith('.mjs') && f !== 'acceptance.mjs' && f !== 'e2e-fixture.mjs')
     .map((f) => path.join(testDir, f));
   for (const skill of ['session-resume/scripts/worktree-audit.test.mjs', 'verify-ui/scripts/gen-verify-feature.test.mjs', 'decision-log/scripts/decision-log.test.mjs']) {
     files.push(path.join(PLUGIN_ROOT, 'skills', skill));

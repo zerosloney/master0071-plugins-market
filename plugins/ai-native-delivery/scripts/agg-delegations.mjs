@@ -20,7 +20,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { findProjectRoot, projectRoot } from './paths.mjs';
-import { readLedger as readLedgerShards } from './ledger-shards.mjs';
+import { readLedger as readLedgerShards, withLedgerLock } from './ledger-shards.mjs';
 
 // ROOT 解析（2026-10-28 收口）：项目 git 根（findProjectRoot）→ cwd（projectRoot 的回退）。
 // 此前回退是旧锚 <script>/../..：插件形态下它解析到市场仓的 plugins/，台账读错目录却不报错；
@@ -413,23 +413,42 @@ function main() {
     const row = snapshotRows.find((r) => r.startsWith(`| ${target} `));
     if (!row) fail(`--write：${target} 无台账数据，未写入（落表须有当月数据）`);
     const docPath = path.join(ROOT, 'workflow', 'delegations.md');
-    let text;
+    // 持锁读-改-写（2026-11-08 市场审查 M6）：delegations.md 与 update_ledger 追加共用同一把
+    // `<文件>.lock`——GENERATED 区整写若不持锁，「读快照→整写」之间他人追加的行会被本次写入
+    // 抹掉（与 C4/M3 同根因的丢行族）。口径同 compact-ledgers 主台账归并：读→改→tmp+rename
+    // 全程在锁内；拿不到锁抛错（fail-loud），退回无锁写等于把丢行修复作废。
+    // 锁内只 throw 不 fail()：fail 是 process.exit，会跳过 withLedgerLock 的 finally 留下残锁。
     try {
-      text = fs.readFileSync(docPath, 'utf8');
+      withLedgerLock(docPath, () => {
+        let text;
+        try {
+          text = fs.readFileSync(docPath, 'utf8');
+        } catch (err) {
+          throw new Error(`读台账失败：${err.message}`);
+        }
+        let next;
+        try {
+          next = upsertSnapshotRow(text, target, row);
+        } catch (err) {
+          throw new Error(err.message);
+        }
+        if (next === text) {
+          console.log(`✅ ${target} 行与 GENERATED 区一致，未改动`);
+          return;
+        }
+        // 同目录 tmp+rename：直接 writeFileSync 先截断后写，进程中途崩溃将损坏台账（口径同 compact-ledgers）。
+        const tmp = `${docPath}.tmp`;
+        try {
+          fs.writeFileSync(tmp, next, 'utf8');
+          fs.renameSync(tmp, docPath);
+        } catch (err) {
+          try { fs.unlinkSync(tmp); } catch { /* tmp 可能尚未创建或删除失败 */ }
+          throw new Error(`写台账失败：${err.message}（原文件应保持原样）`);
+        }
+        console.log(`✅ 已写入 workflow/delegations.md §月度聚合快照（${target} 行 GENERATED 区；他月行未触碰）`);
+      });
     } catch (err) {
-      fail(`--write 读台账失败：${err.message}`);
-    }
-    let next;
-    try {
-      next = upsertSnapshotRow(text, target, row);
-    } catch (err) {
-      fail(err.message);
-    }
-    if (next === text) {
-      console.log(`✅ ${target} 行与 GENERATED 区一致，未改动`);
-    } else {
-      fs.writeFileSync(docPath, next, 'utf8');
-      console.log(`✅ 已写入 workflow/delegations.md §月度聚合快照（${target} 行 GENERATED 区；他月行未触碰）`);
+      fail(`--write ${err.message}`);
     }
   }
 }

@@ -43,16 +43,21 @@ process.stdin.on("data", (chunk) => {
     try {
       message = JSON.parse(line);
     } catch {
+      // 坏行出声（2026-11-09 审查收口）：与超长行同口径回 -32700——此前 catch 静默丢弃，
+      // 宿主对坏帧只能挂到自身超时；JSON-RPC 规范要求 Parse error 回包。
+      replyError(null, -32700, "该行不是合法 JSON，已拒收该行");
       continue;
     }
     // 四道闸（2026-11-05 市场审查修复，照 plugins/systemone-decision/mcp/server.mjs 同款）：
     //   形状闸：非对象 / 缺 method 的消息不是 JSON-RPC，丢弃；
     //   版本闸：jsonrpc 白名单外拒收——回包等于对任意版本都声称兼容；
-    //   id 闸：id 非字符串/数字（对象/数组/布尔）时无法回写合法响应，拒收不回显；
+    //   id 闸：id 非字符串/数字（对象/数组/布尔）或非有限数字（1e999→Infinity 序列化即 null，
+    //     回包无法配对，2026-11-09 审查收口）时无法回写合法响应，拒收不回显；
     //   通知闸：无 id 一律不回包、不分发——副作用工具（tools/call）不得被通知触发。
     if (!message || typeof message !== "object" || typeof message.method !== "string") continue;
     if (message.jsonrpc !== "2.0") continue;
-    if (message.id !== undefined && message.id !== null && typeof message.id !== "string" && typeof message.id !== "number") continue;
+    if (message.id !== undefined && message.id !== null && typeof message.id !== "string"
+      && !(typeof message.id === "number" && Number.isFinite(message.id))) continue;
     if (message.id === undefined || message.id === null) continue;
     Promise.resolve(handle(message)).catch((err) => {
       if (message && message.id !== undefined) {

@@ -26,7 +26,7 @@ export function loadAllConfirmationsDetailed(root = projectRoot()) {
   let badLines = 0;
 
   const parseLines = (text) => {
-    for (const line of String(text).split(/\r?\n/)) {
+    for (const line of String(text).replace(/^\uFEFF/, '').split(/\r?\n/)) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);
@@ -101,7 +101,14 @@ export function writeConfirmation(root = projectRoot(), entry, { shard = false }
   } else {
     targetFile = path.join(root, '.agents', 'confirmations.jsonl');
     fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-    fs.appendFileSync(targetFile, JSON.stringify(entry) + '\n', 'utf8');
+    // 2026-11-08 并发修复（C3）：主台账分支同样持锁。此前裸 appendFileSync——compact-ledgers
+    // 持 `<主台账>.lock` 做「读主→合并→tmp+rename 整写」，落在其 read 与 rename 之间的确认行
+    // 会被 rename 整体抹掉（分片分支 2026-11-05 已修，主分支漏收）。与 compact / MCP confirm /
+    // 分片分支共用同一把锁（withLedgerLock 单源）：锁被他人持有时等待，超时响亮抛错（fail-loud），
+    // 绝不无锁写。
+    withLedgerLock(targetFile, () => {
+      fs.appendFileSync(targetFile, JSON.stringify(entry) + '\n', 'utf8');
+    });
   }
   return targetFile;
 }

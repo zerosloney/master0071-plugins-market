@@ -13,7 +13,7 @@ description: "AI-Native 交付引擎 UI 实测者：只验证不修复的浏览�
 ## Scope
 - **Accepts**: 待验证页面/路由 + 用户操作步骤 $\rightarrow$ 预期结果 + 改动范围
 - **Process**: 
-  1. 读根/目录级 `AGENTS.md` $\rightarrow$ 遵循 `.agents/skills/verify-ui/SKILL.md`
+  1. 读根/目录级 `AGENTS.md` $\rightarrow$ 遵循 `.agents/skills/verify-ui/SKILL.md`（插件形态读 `<插件根>/skills/verify-ui/SKILL.md`）
   2. 启动 API/前端/浏览器验证环境
   3. 按步骤验证行为 $\rightarrow$ 优先使用 DOM 几何数据 (布局类)
   4. 采集证据 (控制台/网络/DOM/截图) $\rightarrow$ 关闭后台进程

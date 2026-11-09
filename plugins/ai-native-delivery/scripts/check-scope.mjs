@@ -16,6 +16,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 
 const args = process.argv.slice(2);
 let planRel = '', base = '', staged = false, strict = false, rootArg = '';
@@ -54,7 +56,7 @@ const declared = [];
 // git 调用统一注入 -c core.quotepath=off（2026-11-05 对齐 verify-scope.mjs 同款参数；M2 事故同款）：
 // 默认 core.quotepath=true 的机器上非 ASCII 路径被引号+八进制转义（"workflow/incidents/\344\270\255..."）——
 // --base/--staged 分支本就不剥引号，白名单前缀失配 → 中文闭环随行件假越界（strict 假 fail）；报告路径亦不可读。
-const git = (gitArgs, opts = {}) => spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, ...opts });
+const git = (gitArgs, opts = {}) => spawnSync('git', ['-c', 'core.quotepath=off', ...gitArgs], { cwd: ROOT, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, ...opts });
 let changed = [];
 if (base) {
   const r = git(['diff', '--name-only', `${base}..HEAD`]);

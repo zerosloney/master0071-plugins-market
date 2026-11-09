@@ -52,7 +52,7 @@ L1 快速道在 `commands/new-task.md` §L1 快速道。本文件留给 L2/L3、
 ## 3. UI 实测 (UI Verification)
 **Trigger**: 涉及前端改动 $\text{AND}$ 静态门已通过
 **Process**:
-1. **调用技能**: 使用 `.agents/skills/verify-ui/SKILL.md` 执行实测。
+1. **调用技能**: 使用 `.agents/skills/verify-ui/SKILL.md` 执行实测（插件形态读 `<插件根>/skills/verify-ui/SKILL.md`）。
 2. **环境配置**: 详情见 `.agents/notes/runtime-env.md` §4 与 §6.3
 **Output**: UI 验证报告 (截图/DOM 证据)
 
@@ -67,7 +67,7 @@ L1 快速道在 `commands/new-task.md` §L1 快速道。本文件留给 L2/L3、
 ## 5. 确认后关单 (Closure)
 L1 关单在 `commands/new-task.md` 快速道第 6 步与关单技能。本节从 L2/L3 新需求和修复类起。
 **Process**:
-1. **验证与关单**: 按 `.agents/skills/workflow-closeout/SKILL.md`。
+1. **验证与关单**: 按 `.agents/skills/workflow-closeout/SKILL.md`（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。
 2. **验收勾验**:
    - **L2/L3 新需求**: 逐条勾验 intent「验收标准」 $\rightarrow$ 补证据 $\rightarrow$ intent $\text{approved} \rightarrow \text{done}$
    - **修复类**: 验证防复发落地 $\rightarrow$ incident $\text{open} \rightarrow \text{fixed} \rightarrow \text{closed}$

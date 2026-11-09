@@ -180,6 +180,21 @@ export function resolveLedgerTarget(root, file) {
     probe = path.dirname(probe);
   }
   const realTarget = path.join(fs.realpathSync(probe), ...tail);
+  // 尾段 symlink 检查（2026-11-08 市场审查 M2）：尾段是**悬挂** symlink 时 existsSync（跟随判定）
+  // 为假，上面的「最深现存祖先」探测停在它之前——尾段被原样接回，白名单按字面路径放行，写侧
+  // 却在内核层解引用落树外。对尾段逐段 lstat（不跟随，悬挂链接也看得到）累积检查：任一段是
+  // symlink 即 fail-closed 拒绝（悬挂链接的落点无从判界）。指向已存在目标的链接不受影响——
+  // 那些形态在祖先段已被 realpath 解引用并重走 containment 判定。
+  let tailProbe = fs.realpathSync(probe);
+  for (const seg of tail) {
+    tailProbe = path.join(tailProbe, seg);
+    let lst = null;
+    try { lst = fs.lstatSync(tailProbe); } catch { continue; } // 段不存在（或中间目录缺失）→ 无链接面
+    if (lst.isSymbolicLink()) {
+      throw new ToolError(`台账路径不能经符号链接写入：\`${file}\` 的路径段 \`${seg}\` 是符号链接`
+        + `（且目标不可解析，落点无从判界）——fail-closed 拒绝。`);
+    }
+  }
   const realRel = path.relative(realRoot, realTarget);
   if (!realRel || realRel.startsWith('..') || path.isAbsolute(realRel)) {
     throw new ToolError(`路径逃逸被拒（符号链接解引用后）：\`${file}\` 实际指向项目根之外（${realTarget}）。`);
@@ -238,12 +253,22 @@ export function toolUpdateLedger(args) {
   }
 
   if (mode === 'create') {
-    if (fs.existsSync(target)) {
-      return ok({ written: false, file: relPosix, mode, reason: `文件已存在：${relPosix}——create 拒绝覆盖；要追加行请用 mode:"append"。` });
-    }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    writeAtomic(target, content.endsWith('\n') ? content : `${content}\n`);
-    return ok({ written: true, file: relPosix, mode, bytes: fs.statSync(target).size });
+    // 持锁 create（2026-11-08 市场审查 M3）：create 是「existsSync 检查 + 整写」的检查-写序列，
+    // 与 append 分支共用同一把 `<文件>.lock`——检查与写入不持锁时，锁内他人的整写/建文件会与本笔
+    // 互踩（实测：锁被持期间文件提前落盘，解锁后 create 反拿「文件已存在」回执）。仅 workflow/
+    // 树下加锁（同 append 分支口径：那是会被 ledger-shards 整文件重写的面）；拿不到锁抛错
+    // （fail-loud），退回无锁写等于把修复作废。
+    const createOnce = () => {
+      if (fs.existsSync(target)) {
+        return { written: false, file: relPosix, mode, reason: `文件已存在：${relPosix}——create 拒绝覆盖；要追加行请用 mode:"append"。` };
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      writeAtomic(target, content.endsWith('\n') ? content : `${content}\n`);
+      return { written: true, file: relPosix, mode, bytes: fs.statSync(target).size };
+    };
+    return ok((relPosix === 'workflow' || relPosix.startsWith('workflow/'))
+      ? withLedgerLock(target, createOnce)
+      : createOnce());
   }
   // append：用 appendFileSync（O_APPEND）而不是 read→concat→writeAtomic（2026-10-29 市场审查修复）。
   // 旧实现是读-改-写且无锁：8 进程 × 20 次并发实测 3 轮分别丢 6/7/19 行，且**返回 written:true**——
@@ -375,7 +400,12 @@ export function toolConfirm(args) {
   // 保持 appendFileSync（O_APPEND 原子追加），不改成 update_ledger 那种 read→concat→writeAtomic：
   // 对 append-only 台账，read-modify-write 的并发窗口会让后写者整体覆盖先写者而**丢行**，而丢行比
   // 半行更隐蔽（半行会被解析器当坏行跳过并出账）。append 语义在此更安全。
-  fs.appendFileSync(ledger, `${JSON.stringify(entry)}\n`, 'utf8');
+  // 持锁追加（2026-11-08 市场审查 C4）：主台账还有整写者——compact-ledgers 归并持 `<主台账>.lock`
+  // 做「读主→rename」整写，confirm 若无锁追加，追加落在读与 rename 之间会被整体抹掉。与 CLI 共用
+  // ledger-shards.withLedgerLock（同一把锁）；拿不到锁抛错（fail-loud），退回无锁写等于把修复作废。
+  withLedgerLock(ledger, () => {
+    fs.appendFileSync(ledger, `${JSON.stringify(entry)}\n`, 'utf8');
+  });
   const hint = docRel
     ? (grounding.ok ? '' : `⚠️ evidence 未在 ${docRel} 及其同名家族接地（记 quoteGrounding=ungrounded 供事后对质）；收硬请用 strict_quote:true`)
     : '提示：本次未带 doc，确认行只记 quoteGrounding=unanchored——绑定台账文档（doc 参数）才有可对质的引文接地面。';
@@ -433,7 +463,9 @@ export function toolVerifyGate(args) {
     lane,
     script,
     exitCode: r.status === null ? 2 : r.status,
-    status: r.status === 0 ? 'passed' : 'failed',
+    // 信号杀死（status===null 且无 error，2026-11-09 审查收口）= 没跑完 → not-executed，与超时/
+    // spawn 失败同态；旧实现归 failed——把「被终止」误报成「跑过且有违例」，违反三态语义。
+    status: r.status === 0 ? 'passed' : r.status === null ? 'not-executed' : 'failed',
     timedOut: false,
     stdout: clip(r.stdout),
     stderr: clip(r.stderr),

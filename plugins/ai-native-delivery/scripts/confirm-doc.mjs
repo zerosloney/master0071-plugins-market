@@ -63,7 +63,9 @@ import { groundQuote, resolveFamilyTexts, GROUND_ANCHOR_MIN } from './quote-grou
 // 因为下游有按 ts 排序与比日的读法，不能突然变成 10 字符。不可解析则回退真实当日（不制造假时钟）。
 function nowIso() {
   const pinned = String(process.env.CONFIRM_DOC_TEST_NOW || '').trim();
-  if (!pinned) return new Date().toISOString();
+  // 双条件收口（2026-11-09 审查收口，同 CONFIRM_DOC_TEST_TTY / LEDGER_CLI_TEST_ANYROOT 惯例）：
+  // 该变量直写台账 ts（归档月派生与排序消费端），生产误设即伪造时钟——非 NODE_ENV=test 一律忽略。
+  if (!pinned || process.env.NODE_ENV !== 'test') return new Date().toISOString();
   if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return `${pinned}T12:00:00.000Z`;
   const t = Date.parse(pinned);
   return Number.isNaN(t) ? new Date().toISOString() : new Date(t).toISOString();
@@ -591,7 +593,11 @@ if (isMain) {
           continue;
         }
       } catch (err) {
-        console.error(`⚠️  ${doc} 活文档一致性检查执行失败（${err.message}）——不拦截（fail-open），但须人工确认清单无残留`);
+        // 检查器自身故障按拒绝处理（2026-11-09 审查收口）：关单硬门在 infra 故障时不得静默放行
+        // （对齐 paths.mjs:30 同款批判）——判据不可用即拒，修复检查器或人工核验后重试。
+        console.error(`❌ ${doc} 活文档一致性检查执行失败（${err.message}）——判据不可用按拒绝处理（fail-closed），本份未落账、未写盘`);
+        refused++;
+        continue;
       }
     }
     const fp = computeFingerprint(text);

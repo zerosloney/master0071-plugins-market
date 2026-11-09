@@ -64,7 +64,7 @@ const check = (desc, cond, detail = '') => {
 // ---- S5 明细落盘含全部原始行 ----
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'warn-format-'));
-  const logPath = path.join(dir, 'tmp', 'check-loop-warn.log');
+  const logPath = path.join(dir, '.agents', 'tmp', 'check-loop-warn.log');
   const list = ['- [WARN A] 1', '- [WARN A] 2', '- [WARN B] 3'];
   formatWarnings(list, { enabled: true, logPath });
   const logged = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
@@ -85,7 +85,7 @@ const check = (desc, cond, detail = '') => {
 
 // ---- S7 明细位置常量 ----
 {
-  check('S7 明细相对路径常量为 tmp/check-loop-warn.log', WARN_LOG_REL === 'tmp/check-loop-warn.log', WARN_LOG_REL);
+  check('S7 明细相对路径常量为 .agents/tmp/check-loop-warn.log', WARN_LOG_REL === '.agents/tmp/check-loop-warn.log', WARN_LOG_REL);
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

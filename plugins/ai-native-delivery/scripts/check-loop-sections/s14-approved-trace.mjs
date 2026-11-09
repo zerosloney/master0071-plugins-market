@@ -9,6 +9,10 @@ import {
   addedDateOf, warnEvidenceExempt, VERIFY_GREEN_RE, verifyEvidenceTruth,
   delegationResultRows, versionGreater, fmStatus, bindingSha256, readdirOrNull, isDirectoryOrNull,
 } from '../check-loop-kit.mjs';
+// 豁免锚单源直引（2026-11 市场审查 M8 收口）：LEGACY_DECLARED_RE 判据落 stage-gates.mjs（doneGateFor /
+// acceptanceEvidenceGate 同用），本段原 `l.includes('存量确认态豁免（')` 会让正文句中提及该字样的 done
+// 文档整档逃过检查 14——改行首锚后与两写侧门同口径。不走 check-loop-kit 中转（本任务不改 kit 文件）。
+import { LEGACY_DECLARED_RE } from '../stage-gates.mjs';
 
 export function run() {
 // --- 14. 新 done 的 spec/plan 须在 git 历史里出现过 `状态: approved`（v7 锚后 [hard-block] / 锚前 [warning]；非 git 跳过）---
@@ -35,7 +39,7 @@ if (gitOut(['rev-parse', '--git-dir']) !== null && gitOut(['rev-parse', '-q', '-
       const anchor14 = kitPolicy.check14HardSince || kitPolicy.confirmDocsEffective || kitPolicy.check14Since;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < anchor14) continue;
       const lines = linesOf(doc) || [];
-      if (lines.some((l) => l.includes('存量确认态豁免（'))) continue;
+      if (lines.some((l) => LEGACY_DECLARED_RE.test(l))) continue;
       const rel = path.relative(ROOT, doc).split(path.sep).join('/');
       // 命中判据单源（stage-gates，confirm-gate-approved-history；2026-10-10 起段内走
       // 批量索引 approvedTraceIndex，等价口径见 stage-gates.mjs 注释）：

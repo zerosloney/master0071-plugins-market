@@ -232,11 +232,11 @@ const { metrics, gateMonth, expansionVerdict, readLedger, causeSummary, taskKey,
   ];
   const m = metrics(rows);
   const g = gateMonth(m);
-  check('场景 17：实现面一次通过率 =（15 一次通过 + 5 复核采纳）/25 = 80% ❌ 门 2；混合 60% 仅测量',
+  check('场景 18：实现面一次通过率 =（15 一次通过 + 5 复核采纳）/25 = 80% ❌ 门 2；混合 60% 仅测量',
     m.implPassRate === 0.8 && m.adoptedRows === 5 && m.passRate === 0.6 && g.items.find((i) => i.no === 2).ok === false,
     JSON.stringify({ implPassRate: m.implPassRate, passRate: m.passRate, items: g.items }));
   const i7 = g.items.find((i) => i.no === 7);
-  check('场景 17：门 7 评审 P2 密度为观察项（ok=null 不挡门，报出复核采纳行数 5）',
+  check('场景 18：门 7 评审 P2 密度为观察项（ok=null 不挡门，报出复核采纳行数 5）',
     i7 && i7.ok === null && i7.desc.includes('5') && i7.kind === '观察' && g.monthOk === false,
     JSON.stringify(i7));
   const clean = metrics([
@@ -244,7 +244,7 @@ const { metrics, gateMonth, expansionVerdict, readLedger, causeSummary, taskKey,
     ...Array.from({ length: 5 }, () => ({ scope: '委派', result: '返工×1', cause: '复核采纳' })),
   ]);
   const gc = gateMonth(clean);
-  check('场景 17：复核采纳抬实现面到 100% 而非拉低（混合 80% 不再误伤实现面达标月）→ 门 2 ✅',
+  check('场景 18：复核采纳抬实现面到 100% 而非拉低（混合 80% 不再误伤实现面达标月）→ 门 2 ✅',
     clean.implPassRate === 1 && gc.items.find((i) => i.no === 2).ok === true,
     JSON.stringify({ implPassRate: clean.implPassRate, items: gc.items }));
 }
@@ -504,6 +504,50 @@ const GEN_END = '<!-- GENERATED:END -->';
   const c = countIncidents(root);
   check('场景 16：活跃 + 归档合并计数（2026-10 共 2 起）', c['2026-10'] === 2, JSON.stringify(c));
   check('场景 16：归档件按文件名月份入账（2026-09 共 1 起）', c['2026-09'] === 1, JSON.stringify(c));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// 场景 18：--write 与 delegations.md 写者持锁互斥（2026-11-08 M6 回归）
+// MCP append（update_ledger append 持 `<delegations.md>.lock`）与 --write 的「读→改→整写」
+// 不互斥时，append 落在 --write 读与写之间的行会被整写抹掉。修复后 --write 全程持同一把锁
+//（withLedgerLock，与 MCP/CLI 同源）且 tmp+rename 原子落盘：锁被他人持有时响亮失败
+//（exit 1、文件逐字节原样），锁释放后重跑成功。
+{
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const { spawn } = await import('node:child_process');
+  const ledger = [
+    '# 台账 fixture',
+    '',
+    '| 日期 | 被委派方(模型) | 任务一句话 | 结果 | 备注 |',
+    '|------|----------------|------------|------|------|',
+    ...Array.from({ length: 20 }, (_, i) => `| 2026-10-${String(i + 1).padStart(2, '0')} | executor | 任务${i} 2026-10-01-z.md | 一次通过 | f |`),
+  ].join('\n');
+  const root = mkfix(ledger + '\n\n## 月度聚合快照\n\n' + [GEN_BEGIN, '', GEN_END].join('\n') + '\n');
+  const docPath = path.join(root, 'workflow', 'delegations.md');
+  const beforeText = fs.readFileSync(docPath, 'utf8');
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+  const child = spawn(process.execPath, [
+    '-e',
+    `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+    docPath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+  for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(docPath + '.lock'); if (!locked) sleepSync(25); }
+  check('场景 18：前置——子进程已持住 delegations.md 锁', locked);
+  if (locked) {
+    const r = runAgg(root, ['--month=2026-10', '--write']);
+    check('场景 18：doc 锁被持 → --write exit 1（fail-loud，旧实现无锁整写成功）', r.status === 1, `exit=${r.status}\n${r.stdout}${r.stderr}`);
+    check('场景 18：报「写锁等待超时」而非静默', (r.stderr || '').includes('写锁等待超时'), r.stderr);
+    check('场景 18：delegations.md 逐字节原样（未被无锁整写）', fs.readFileSync(docPath, 'utf8') === beforeText);
+  }
+  // 等锁释放（最长 20s）后重跑 → 成功落表（互斥不钉死落表）
+  for (let i = 0; i < 800 && fs.existsSync(docPath + '.lock'); i++) sleepSync(25);
+  child.kill();
+  const r2 = runAgg(root, ['--month=2026-10', '--write']);
+  const afterText = fs.readFileSync(docPath, 'utf8');
+  check('场景 18：锁释放后重跑 → exit 0 且目标月行落表',
+    r2.status === 0 && /\| 2026-10 \| 20 \|/.test(afterText), `exit=${r2.status}\n${r2.stdout}${r2.stderr}`);
+  check('场景 18：落表后无 .tmp/.lock 残留', !fs.existsSync(docPath + '.tmp') && !fs.existsSync(docPath + '.lock'));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

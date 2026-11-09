@@ -5,6 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT, GIT_TIMEOUT_MS } from './git-core.mjs';
 
 // 闭环漏斗「协议前」占比阈值（单源，2026-10-23 P2）：s26 动作阈值与 gen-workflow-metrics 的
 // legacy 占比告警共用；此前两处各写 0.30 字面量，靠测试钉同值。
@@ -32,10 +34,10 @@ export function calendarMonthsBetween(from, to = Date.now()) {
 export function loadFirstAdded(cwd = process.cwd()) {
   let r;
   try {
-    r = spawnSync('git', [
+    r = spawnSync(GIT, [
       'log', '--reverse', '--diff-filter=A', '--format=%cI', '--name-only', '--',
       'workflow/intents', 'workflow/specs', 'workflow/plans', 'workflow/incidents', 'workflow/archive',
-    ], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    ], { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
   } catch {
     return null;
   }

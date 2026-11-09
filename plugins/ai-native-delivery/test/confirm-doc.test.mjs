@@ -609,6 +609,27 @@ const gitHead = (root) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// S29x：句中提及「存量确认态豁免（」≠ 声明（2026-11 市场审查 M8 收口）：豁免判定改 s08 同款
+// 行首锚正则——正文任意行含该串（任务描述引用 / 说明文字）不再整档跳过。夹具补齐关单格式门
+//（验收判据表）与委派在场门（台账行），使 done 前置门成为唯一裁决点：档从未以行首
+// 「状态: approved」入库 → 拒绝且点名「未过 done 前置门」（旧行为 includes 全文匹配会误豁免放行）。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-dh6-'));
+  fs.mkdirSync(path.join(root, 'workflow', 'specs'), { recursive: true });
+  const p = path.join(root, 'workflow', 'specs', '2026-09-30-d6.md');
+  fs.writeFileSync(p, '---\n状态: approved\n级别: L2\n日期: 2026-09-30\n---\n# S\n\n本件系对账说明，正文引用了「存量确认态豁免（历史口径）」字样，但该行不在行首、不构成声明。\n\n## 验收判据\n\n| 判据 | 证据 |\n|---|---|\n| 构建绿 | verify.mjs |\n');
+  // 委派台账在场门夹具：日期回落 frontmatter（2026-09-30）→ 委派门适用，须有台账行
+  fs.writeFileSync(path.join(root, 'workflow', 'delegations.md'),
+    '## 自做任务结果\n| 日期 | 任务一句话 | 结果 | 备注 | 返工原因 |\n|------|------------|------|------|----------|\n| 2026-09-30 | 自做 2026-09-30-d6 关单 | 一次通过 | S29x 夹具 |  |\n');
+  gitHead(root);
+  const r = spawnSync(process.execPath, [CLI, 'workflow/specs/2026-09-30-d6.md', '--delegated', '关单'], { cwd: root, encoding: 'utf8' });
+  const after = fs.readFileSync(p, 'utf8');
+  check('S29x done 门：句中含豁免字样 ≠ 声明——未留痕 approved → done 前置门拒绝（不再整档跳过）',
+    r.status === 2 && /未过 done 前置门/.test(String(r.stderr)) && !after.includes('状态: done'),
+    JSON.stringify({ status: r.status, stderr: String(r.stderr).slice(0, 240) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // ---- S29b–S29d【委派台账在场门】delegation-presence（2026-10-25 优化4）----
 // 判据与检查 18 事后对账一致（单源 delegation-presence.rowCovers）：L2/L3 新需求族 →done 须有
 // 日期 ≥ 文档日期且含文件名的台账行；修复族（同名 incident 在场）豁免；锚前/缺日期/L1 跳过。

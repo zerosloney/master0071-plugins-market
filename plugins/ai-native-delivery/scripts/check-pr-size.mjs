@@ -10,6 +10,8 @@
 // 用法：node <插件根>/scripts/check-pr-size.mjs [--base <ref>] [--head <ref>] [--json]
 // 测试：node <插件根>/test/check-pr-size.test.mjs（临时 git 仓，不触真实分支）
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT_TIMEOUT_MS } from './git-core.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -31,7 +33,7 @@ if (looksLikeOption(base) || looksLikeOption(head)) {
   process.exit(2);
 }
 
-const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
 if (root.status !== 0 || !root.stdout.trim()) {
   console.error('check-pr-size: 不在 git 仓库');
   process.exit(2);
@@ -40,7 +42,7 @@ process.chdir(root.stdout.trim());
 
 // maxBuffer 64MB（2026-11 市场审查修复，对齐 git-core/metrics-core 先例）：默认 1MB 在大 diff 下
 // ENOBUFS——spawn 层故障与业务失败分流出账，均不放行（exit 2 方向不变，不误诊为「基准不可解」）
-const git = (args) => spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const git = (args) => spawnSync('git', args, { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
 const verify = (ref) => git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]);
 if (verify(base).status !== 0) {
   console.error(`check-pr-size: 基线 ${base} 不存在（先 git fetch origin，或用 --base 指定）`);
@@ -62,7 +64,14 @@ const DEFAULT_FREE = [
 ];
 const maxFiles = Number(process.env.PR_MAX_FILES || cfg.maxFiles || 20);
 const maxLines = Number(process.env.PR_MAX_LINES || cfg.maxLines || 800);
-const freePatterns = Array.isArray(cfg.freePatterns) ? cfg.freePatterns : DEFAULT_FREE;
+// 免费名单语义下限（2026-11-09 审查收口）：只含 * / ? 的纯通配 pattern（`**` 之类）使 globMatch
+// 对一切为真 → 体积门自我禁用。此类条目剔除并响亮 WARN；全被剔则回退默认免费名单。
+const CATCH_ALL = /^[\s/*?]+$/;
+const cfgFree = Array.isArray(cfg.freePatterns) ? cfg.freePatterns : DEFAULT_FREE;
+const badFree = cfgFree.filter((p) => CATCH_ALL.test(String(p)));
+if (badFree.length) console.error(`[check-pr-size] ⚠️ pr-budget.json freePatterns 含全匹配 pattern（${badFree.map((p) => JSON.stringify(p)).join(', ')}）——会使体积门自我禁用，已剔除`);
+const keptFree = cfgFree.filter((p) => !CATCH_ALL.test(String(p)));
+const freePatterns = keptFree.length ? keptFree : DEFAULT_FREE;
 
 // .gitattributes 的 linguist-generated / linguist-vendored 也算免费（pstack 同口径）。
 const linguist = (() => {

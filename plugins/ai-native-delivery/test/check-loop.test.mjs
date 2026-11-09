@@ -99,7 +99,7 @@ ${refs ? '     - 是 → ../intents/2026-09-12-ghost.md\n' : ' - 否 → 理由:
 // opts.env 增量覆盖子进程 env（CHECK_LOOP_GIT 替身注入用，2026-10-05-gitout-fail-open）
 // 夹具跑法：告警保持**逐条**形态。插件形态下引擎脚本在插件内（scriptPath 回退），折叠开关随之生效
 // （2026-10-28 修复：判据写死 ROOT/.agents/scripts 时插件形态恒 false → 折叠对插件用户永不触发）。
-// 折叠会把同类告警并成「×N 条同类」单行、细节移进 tmp/check-loop-warn.log——本套件的断言按告警原文匹配，
+// 折叠会把同类告警并成「×N 条同类」单行、细节移进 .agents/tmp/check-loop-warn.log——本套件的断言按告警原文匹配，
 // 故显式用引擎自带的逐条出口 CHECK_LOOP_VERBOSE=1（同一开关也供排障用）。折叠规则本身由
 // warn-format.test.mjs（S1-S7）单测锁住，端到端折叠形态另由 test/warn-fold-plugin.test.mjs 锁住。
 const FIXTURE_ENV = { CHECK_LOOP_VERBOSE: '1' };
@@ -2765,6 +2765,18 @@ SCEN(async () => {
   rmfix(T);
 });
 
+SCEN(async () => {
+  // 结构判据（2026-11-09 审查收口）：红线节内勾选即触达——「数据迁移」选项不带升级措辞也必须拦。
+  // 旧措辞正则的逃逸面（「改判 L2」「级别 ≥ L2」等集外改写）由模板节结构取代。
+  const T = mkfix();
+  w(T, 'workflow/intents/2026-11-08-rs.md', INTENT('rs', '状态: approved\n级别: L1\nrisk_level: L1\n日期: 2026-11-08',
+    '\n## 触达红线（对照 AGENTS.md）\n- [x] 数据迁移（Schema、表结构）\n'));
+  const r = run(T);
+  check('结构判据：红线节勾选无升级措辞 → hard 红线判低',
+    r.status === 1 && outOf(r).includes('红线判低'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+
 // ---- 风险泳道（2026-09-30 hybrid-governance-risk-lanes）：红线判低 ----
 // （2026-10-10 L0 退役：原「L0 配对豁免」场景随级别退役删除。存量 intent 仍须 plan；L1 plan 可独立成入口。）
 SCEN(async () => {
@@ -3344,14 +3356,26 @@ SCEN(async () => {
   check('检查23 表仅占位行 → WARN「收敛无判据」',
     r.status === 0 && outOf(r).includes('收敛无判据'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
-  // ⑤ 人工判据空证据合法 + 其余覆盖 → 无告警
+  // ⑤ 人工判据缺走查日期 → WARN「人工无凭据」（2026-11-09 审查收口：空「人工」不再整行合法；
+  //    advisory 面不阻断，但全表「人工」自我声明把 hard 档塌缩的路径必须出账可见）
   T = mkSpec(TABLE([
     '| 视觉布局走查 |  | 人工 |',
     '| 全量套件绿 | npm test | 覆盖 |',
   ]));
   r = run(T, { git: true });
-  check('检查23 人工判据（空证据）+ 覆盖 → 无告警',
-    r.status === 0 && !outOf(r).includes('收敛'), `exit=${r.status}\n${outOf(r)}`);
+  check('检查23 人工判据缺日期 → WARN「人工无凭据」（不阻断）',
+    r.status === 0 && outOf(r).includes('人工无凭据'), `exit=${r.status}
+${outOf(r)}`);
+  rmfix(T);
+  // ⑤b 人工判据带走查日期 → 免计（机器可对质的最小形态达标）
+  T = mkSpec(TABLE([
+    '| 视觉布局走查 | 人工 2026-10-27 主会话复核 | 人工 |',
+    '| 全量套件绿 | npm test | 覆盖 |',
+  ]));
+  r = run(T, { git: true });
+  check('检查23 人工判据带日期 → 无「人工无凭据」告警',
+    r.status === 0 && !outOf(r).includes('人工无凭据'), `exit=${r.status}
+${outOf(r)}`);
   rmfix(T);
   // ⑥ 锚前存量（日期 < convergenceSince）→ 豁免
   T = mkSpec('## 风险评估\n\n- 暂无\n', '2026-10-10');

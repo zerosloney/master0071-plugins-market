@@ -6,14 +6,14 @@
 > 列序固定（检查 22 按此解析）：机制 | 门禁位置 | 触发统计口径 | 退役阈值 | 最近触发 | 状态 | 处置期限。
 > 卫生段在「门禁位置」写 `--hygiene`，不进 pre-push / verify。段编号永不重编号（承重引用）。
 > 车道：hard = §1 §3x §8 §15 §23；hygiene 17 段（含 §28 脚本覆盖对账）。advisory 告警按标签折叠（`CHECK_LOOP_VERBOSE=1` 逐条，明细 tmp/check-loop-warn.log，BLOCK 一律不折）。
-> 分片（gate-metrics-shard）：判定流水月度分片 `workflow/gate-metrics.d/<YYYY-MM>.jsonl`（每月一行、多机并集），读侧本地 ∪ 分片取 max；pre-push 月检自动生成、随提交入库。
+> 分片（gate-metrics-shard）：判定流水月度分片 `workflow/gate-metrics.d/<YYYY-MM>.jsonl`（每月一行、多机并集），读侧本地 ∪ 分片取 max；月检（mechanism-retire-watch / `agg-judgments --emit-month`）为人工/项目自定期运行（不挂 git 钩子），分片随提交入库。
 > **现状（2026-10-25）**：本表 44 行全现役；已退役 10 行已清理（历史查 git；2026-10-22 实测 504 次运行中 10 个零命中机制均属健康静默型，零命中 ≠ 失效）。
 > **per-rule 计数口径**：judgments.jsonl 的 rule 名为剥 WARN/NOTE 前缀的归一名，级别以落账来源数组为准——判读与判定分离，标签只命名规则不改判定。
 > **机制类型标记**：状态列值后追加 —— `[检出型]` 0 命中即失效，适用零命中退役；`[健康静默]` 0 命中 = 当前无问题，不适用零命中退役（退役须由覆盖面失效或被取代触发）；`[不退役主干]` 机器判据/安全/状态机主干，永不退役；`[数据面]` 非门禁遥测，按「有数据月」对账。标记在第 6 列原样书写，解析层单点：`mechanism-retire-watch.mjs` 的 `statusOf()` 唯一剥离（导出 status/statusRaw/tag），检查 22 与 gen-engine-map 消费该结果，不自带第二套解析。
 
 | 机制 | 门禁位置 | 触发统计口径 | 退役阈值 | 最近触发 | 状态 | 处置期限 |
 |---|---|---|---|---|---|---|
-| 三件套同名配对 | check-loop §1（**advisory**，2026-10-21 降档：自查已接线 closeout §0；红线判低与 L3 状态仍 hard） | 配对断裂 WARN 计数（月）；链内状态倒挂 WARN 计数（月） | 连续 6 月 = 0 → 评估退役 | 2026-10-11 建倒挂检测；2026-10-19 降 advisory；2026-10-21 撤出 pre-commit、hard→WARN、下沉 closeout §0 | 现役 [检出型] | 复评 2027-01-21 |
+| 三件套同名配对 | check-loop §1（**advisory**，2026-10-21 降档：自查已接线 closeout §0；红线判低与 L3 状态仍 hard） | WARN「配对断裂」计数（月）；WARN「链内倒挂」计数（月）——2026-11-09 补「」名使退役判定可抽 | 连续 6 月 = 0 → 评估退役 | 2026-10-11 建倒挂检测；2026-10-19 降 advisory；2026-10-21 撤出 pre-commit、hard→WARN、下沉 closeout §0 | 现役 [检出型] | 复评 2027-01-21 |
 | 模板占位符残留 | check-loop --hygiene §2 | WARN「模板未填」计数（月） | 连续 6 月 = 0 → 评估退役 | 2026-10 在用 | 现役 [检出型] | — |
 | incident 复盘三件套 | check-loop --hygiene §3（**advisory**，2026-10-21 降档：书写单源 maintain.md §2、关单自核接线 closeout §0；回归证据 hard 在 §3x） | WARN 计数（月） | 连续 6 月 = 0 → 评估退役 | 2026-10 在用；2026-10-21 hard→WARN（owner 拍板）；2026-10-22 下沉 hygiene（427 次 hard 运行 0 阻断） | 现役 [检出型] | 复评 2027-01-21 |
 | 引用有效性 | check-loop --hygiene §4 | WARN「引用断档」计数（月） | 不适用零命中退役（健康静默型）；退役须由覆盖面失效或被取代触发 | 2026-10-09 实证 | 现役 [健康静默] | — |
@@ -34,7 +34,7 @@
 | 触达面判低门 | check-lane-surface（verify.mjs lane-surface-ci 关单/CI 硬拦；2026-10-21 撤出 pre-commit） | hard「触达面判低/产品契约面」计数（--ci diff 面执法，done 亦算） | 不退役（级别闭环主干） | 2026-10-10 产品面分段；2026-10-19 gate-diet：pre-commit 实例降 advisory；2026-10-21 提交钩子不再起该进程，硬拦仍在 lane-surface-ci | 现役 [不退役主干] | — |
 | 密钥扫描门（gitleaks） | verify.mjs 安全段 `secrets-scan`（detect+基线；关单 + CI main 全量 + CI develop 最小面） | 基线外新泄漏拦截计数（月）+ 缺装机 loud-skip 次数（月） | 不退役（安全主干）；基线随存量处置收缩，清零后即纯增量门 | 2026-10-14 建门（存量 1221 处豁免，用户拍板）；10-15 基线扩 1227；10-21 本地腿退役（owner「本地不扫」）；10-25 develop 最小面恢复；10-27 登记 appsettings 开发库凭据/JWT Secret 经 owner 判定非风险，不入扫描面（默认规则本不命中该形态，登记属口径声明） | 现役 [不退役主干] | 复评 2027-01-21 |
 | 门禁耗时埋点 | verify.mjs 逐门计时 → verifications.jsonl `durations` + `totalMs`（各门之和）+ `wallMs`（墙钟，2026-10-16 并行编排起落；metrics 门禁成本表取 wallMs 优先、旧行回退 totalMs） | 门禁成本/迭代 月均（metrics.md 门禁成本表消费） | G10 影响面裁剪判定出结果且连续两月无判读需求 → 评估退役（数据源性质，非门禁不拦提交） | 2026-10-14 建门（G8 门禁计时）；2026-10-16 加墙钟键（verify-parallel，串行编排下 totalMs 已不等于一次迭代的等待成本） | 现役 [健康静默] | — |
-| 常驻面体积预算 | rule-budget（pre-commit 硬拦·gate-diet 2026-10-19 降档后同日恢复；CI --all） | hard「常驻面超限」计数 | 不退役（膨胀防线——保障 token 在预算内，用户裁定属硬拦主干） | 2026-10-19 gate-diet 降 advisory 后同日恢复硬拦（用户裁定：体积预算保障 token 预算） | 现役 [不退役主干] | — |
+| 常驻面体积预算 | rule-budget（插件形态：check-loop §16 WARN（--all/hygiene），未挂 pre-commit；项目 CI 自接线可硬拦） | WARN「常驻面超限」计数（月） | 不退役（膨胀防线——保障 token 在预算内，用户裁定属硬拦主干） | 2026-10-19 gate-diet 降 advisory 后同日恢复硬拦（用户裁定：体积预算保障 token 预算）；2026-11 市场审查按插件形态事实改口径（钩子只跑 check-loop，rule-budget 仅 §16 WARN） | 现役 [不退役主干] | — |
 | 级别 vs 迁移 SQL 判低 | check-loop --hygiene §10 | WARN 计数（月） | 不适用零命中退役（健康静默型）；退役须由覆盖面失效或被取代触发 | 2026-10 在用 | 现役 [健康静默] | — |
 | frontmatter 模块词表 | check-loop --hygiene §9 内 §12 体（2026-10-16 并入） | WARN「模块」计数（月） | 不适用零命中退役（健康静默型）；退役须由覆盖面失效或被取代触发 | 2026-10 在用 | 现役 [健康静默] | — |
 | 指标签名对账 | check-loop --hygiene §16 内 §13 体（2026-10-16 并入；check-metric-claims 单源） | WARN「指标形态/超额」计数（月） | 不适用零命中退役（健康静默型）；退役须由覆盖面失效或被取代触发 | 2026-09-28 建门 | 现役 [健康静默] | — |
@@ -52,7 +52,7 @@
 | 告警聚合（输出降噪） | check-loop 输出层（`<插件根>/scripts/warn-format.mjs`；折叠开关 `CHECK_LOOP_VERBOSE=1` 可关；实现为 2026-10-22 门禁收敛批 2「信噪比」） | 折叠后 stderr 分组行数 vs 明细行数（`tmp/check-loop-warn.log`）；组数小于条数即折叠生效 | 不按零命中判退役（输出层机制、非规则型，机器零命中判据不适用）；退役判据 = 折叠致信息不可读或误并条目，owner 拍板 | 2026-10-22 建（实测一次 --all 跑出 17 WARN + 19 NOTE，同类多行淹没 actionable 项；单测 warn-format.test.mjs S1-S7 锁折叠规则） | 现役 [健康静默] | — |
 | 门禁判定月度分片 | `agg-judgments --emit-month` / pre-push 月检（数据面，非门禁） | 分片月数 / 规则数（月）；`workflow/gate-metrics.d/<YYYY-MM>.jsonl`（每月一行，多机并集） | 连续 6 个有数据月零新增分片 → 评估退役（数据面非门禁） | 2026-10-22 建账（judgments.jsonl 本地台账换机/换树即归零，退役判据无燃料；读侧本地 ∪ 分片取 max） | 现役 [数据面] | — |
 | flaky 隔离重跑 | verify.mjs 门执行层（`.agents/config/gate-budgets.json` 的 `flakyRetry` / `flakyRetryGates`） | 绿行 `flaky` 字段计数（月）；首跑红→重跑绿次数 | 连续 6 月 flaky 重跑 = 0 → 评估退役（无争用即无需重跑）；重跑绿后真回归 ≥1 次 → 立即复评 | 2026-10-22 建（共享 dev 库 1205 / rm syscall 争用；只对 backend-test / engine-tests + flaky 签名，重跑红照常红） | 现役 [检出型] | 复评 2027-01-22 |
-| PR 体积预算 | `<插件根>/scripts/check-pr-size.mjs`（pre-push advisory；`PR_SIZE_STRICT=1` 阻断） | 超限 PR 计数（月）；文件数 / 新增行（`origin/main...HEAD`） | 连续 6 月 0 超限 → 评估退役（或按信号升 hard） | 2026-10-22 建（pstack 借鉴：20 文件 / 800 行；删除行/二进制/lockfile/生成物免费；先 advisory 校准本仓） | 现役 [检出型] | 复评 2027-01-22 |
+| PR 体积预算 | `<插件根>/scripts/check-pr-size.mjs`（插件形态：未挂任何钩子，项目 CI/手动自接线；`PR_SIZE_STRICT=1` 阻断） | 超限 PR 计数（月）；文件数 / 新增行（`origin/main...HEAD`） | 连续 6 月 0 超限 → 评估退役（或按信号升 hard） | 2026-10-22 建（pstack 借鉴：20 文件 / 800 行；删除行/二进制/lockfile/生成物免费；先 advisory 校准本仓）；2026-11 市场审查按插件形态事实改口径（全仓无调用方） | 现役 [检出型] | 复评 2027-01-22 |
 | 脚本测试覆盖对账（消费端） | check-loop --hygiene §28（判据单源 `check-script-coverage.mjs`；豁免表 `.agents/config/scripts-test-exempt.txt`） | WARN「脚本无直接/间接测试」+ 豁免表非法计数（月，judgments.jsonl） | 连续 6 月 = 0 → 评估退役 | 2026-10-23 建（P1）：复活 2026-10-22 退役的包源版 §20——原挂载条件 `templates/_agents/scripts` 在本仓恒不触发，退役的是错误判据面，覆盖需求仍在；本版扫引擎脚本真实面（源仓形态落项目侧脚本目录、插件形态落插件内 `scripts/`；首跑 68 脚本 = 直接 57 / 间接 5 / 豁免 6 / 缺口 0）。增量理由：§20 无消费端替代，缺口语义是「无看门狗」 | 现役 [检出型] | — |
 | 本地门禁挂载自检（WARN 档） | verify.mjs 引擎段 `local-gate-config`（check-local-gate-config.mjs；判据与 check-local-gates ①-④ 对齐；CI/非 git loud-skip；--strict 升格开关） | WARN 缺配计数（月）+ --strict 阻断计数 | 连续 6 月 = 0 → 评估退役；升格 --strict 后由上岗自检入口吸收 | 2026-10-25 建门（优化1）。增量理由：core.hooksPath 不随 clone 传播、漏配即全部门禁静默失效（2026-09-16 事故实证），此前唯一防线是「人记得跑 check-local-gates.mjs」的软执法——本门补每次 verify 自动对质 | 现役 [检出型] | — |
 | 发布观察台账 | deploy.md §5 落账 → `workflow/deploy-observations.d/`（生而分片）→ gen-workflow-metrics.mjs 月度聚合 | metrics.md「发布观察」表行数 / 异常行计数（月）；「有 release 无行」即挂债 | 连续 6 个有数据月零行 → 评估退役（数据面非门禁） | 2026-10-25 建账（优化5）。增量理由：deploy 24h 观察期此前只是流程内一句话，无结构化留痕——闭环漏斗止于关单，部署后一段不可见 | 现役 [数据面] | — |

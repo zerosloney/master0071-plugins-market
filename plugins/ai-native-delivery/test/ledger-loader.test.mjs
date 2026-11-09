@@ -263,6 +263,44 @@ try {
     }
   }
 
+  // 12. writeConfirmation 主台账分支持锁（2026-11-08 C3 并发修复回归）
+  // 旧实现主分支裸 appendFileSync——compact-ledgers 持 `<主台账>.lock` 做「读主→合并→tmp+rename
+  // 整写」，落在其 read 与 rename 之间的确认行会被 rename 整体抹掉。修复后主分支与分片分支
+  // 同持 `<主台账>.lock`（withLedgerLock 单源）：锁被他人持有时等待，超时响亮抛错——绝不无锁写。
+  {
+    const tmp9 = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-loader-test-'));
+    const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+    try {
+      fs.mkdirSync(path.join(tmp9, '.agents'), { recursive: true });
+      const main9 = path.join(tmp9, '.agents', 'confirmations.jsonl');
+      fs.writeFileSync(main9, '{"seed":9}\n', 'utf8');
+      // 子进程持主台账锁 6s（> withLedgerLock 等待上限 3s、< 陈旧接管线 15s）——确定性不靠时序运气
+      const child = spawn(process.execPath, [
+        '-e',
+        `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+        main9,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+      for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(main9 + '.lock'); if (!locked) sleepSync(25); }
+      check('S12a 前置：子进程已持住主台账锁', locked);
+      let threw = null;
+      if (locked) {
+        try { writeConfirmation(tmp9, { doc: 'workflow/intents/main-held.md', stage: 'approved', fingerprint: 'fp12' }, { shard: false }); } catch (e) { threw = e; }
+        check('S12b 主台账锁被持 → 响亮抛错（不无锁追加）', threw !== null && /写锁等待超时/.test(threw.message), threw && threw.message);
+        check('S12c 等待期间主台账原样（无半行写入）', fs.readFileSync(main9, 'utf8') === '{"seed":9}\n', fs.readFileSync(main9, 'utf8'));
+      }
+      // 等锁释放（最长 20s）后重写 → 成功且锁文件已清理（互斥不钉死写入）
+      for (let i = 0; i < 800 && fs.existsSync(main9 + '.lock'); i++) sleepSync(25);
+      child.kill();
+      writeConfirmation(tmp9, { doc: 'workflow/intents/main-held.md', stage: 'approved', fingerprint: 'fp12' }, { shard: false });
+      check('S12d 锁释放后主分支写入成功', fs.readFileSync(main9, 'utf8').includes('fp12'), fs.readFileSync(main9, 'utf8'));
+      check('S12e 写完锁文件已释放', !fs.existsSync(main9 + '.lock'));
+    } finally {
+      fs.rmSync(tmp9, { recursive: true, force: true });
+    }
+  }
+
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

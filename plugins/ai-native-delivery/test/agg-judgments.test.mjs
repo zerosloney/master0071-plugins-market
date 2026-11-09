@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { aggFromRows, retireCandidates, mergeJudgmentRows, readAllJudgments, emitMonth, shardPath, RETIRE_STALE_MONTHS } from '../scripts/agg-judgments.mjs';
+import { aggFromRows, retireCandidates, mergeJudgmentRows, readAllJudgments, emitMonth, shardPath, RETIRE_STALE_MONTHS, nowYmOf } from '../scripts/agg-judgments.mjs';
 import { evaluate as evaluateRegistry } from '../scripts/mechanism-retire-watch.mjs'; // S12 两侧对账断言
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -230,6 +230,21 @@ check('S3 null 入参不 throw', Object.keys(aggFromRows(null).byMonth).length =
   check('S12 对账：窗口一致（动作明细含同窗起止 2026-04..2026-06）',
     ev.actions.every((a) => a.detail.includes(rc.windowFrom) && a.detail.includes(rc.windowTo)),
     JSON.stringify(ev.actions));
+}
+
+// 信任边界收口（2026-11-09 审查收口）
+{
+  // ① rule 名为 __proto__ 的台账行（可来自跨机 merge=jsonl-union 提交）不得污染 Object.prototype
+  const before = Object.prototype.WARN;
+  const agg = aggFromRows([{ ts: '2026-01-15T00:00:00.000Z', rules: [{ rule: '__proto__', level: 'WARN', count: 3 }] }]);
+  check('__proto__ 规则名不污染 Object.prototype', Object.prototype.WARN === before && ({}).WARN === undefined);
+  const b = agg.byMonth['2026-01'];
+  check('__proto__ 仍作自有键入账（计数不静默丢失）',
+    Object.hasOwn(b.rules, '__proto__') && b.rules.__proto__.WARN === 3, JSON.stringify(Object.keys(b.rules)));
+  // ② 月锚统一 UTC：东八区月初 0-8 点锚月与数据月（UTC ts 派生）不再错位 1
+  check('nowYmOf 取 UTC 月（与 judgment-ledger 的 ISO ts 同基）',
+    nowYmOf(new Date('2026-11-01T02:00:00+08:00')) === '2026-10' && nowYmOf(new Date('2026-10-31T23:00:00Z')) === '2026-10',
+    nowYmOf(new Date('2026-11-01T02:00:00+08:00')));
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

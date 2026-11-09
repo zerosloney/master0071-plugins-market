@@ -16,6 +16,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+// 挂起的 git/工具探测不再挂死门禁（2026-11-09 审查收口，对齐 git-core 超时先例）
+import { GIT, GIT_TIMEOUT_MS } from './git-core.mjs';
 import { loadEnums } from './workflow-enums.mjs';
 import { loadAllConfirmations } from './ledger-loader.mjs';
 import { readLedger } from './ledger-shards.mjs';
@@ -212,7 +214,7 @@ function engineCommitRatio() {
   const enginePaths = ['.agents/', '.githooks/', 'azure-pipelines.yml'];
   const run1 = (args) => {
     try {
-      return spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      return spawnSync(GIT, args, { cwd: ROOT, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
     } catch {
       return null;
     }
@@ -241,8 +243,10 @@ function scanSurface() {
     let sum = 0;
     let max = 0;
     let label = pat;
+    // 预算路径（AGENTS.md / .agents/commands/ 等常驻面条目）按项目根解析（2026-11 市场审查 M13）：
+    // 此前按 cwd 解析，子目录运行时条目一律「不存在」被跳过——常驻面静默缩水成空表。
     if (pat.endsWith('/')) {
-      const dir = pat.slice(0, -1);
+      const dir = path.join(ROOT, pat.slice(0, -1));
       if (!fs.existsSync(dir)) { console.error(`⚠️ 预算目录不存在，跳过该条：${pat}`); continue; }
       for (const f of fs.readdirSync(dir)) sum += fs.statSync(path.join(dir, f)).size;
       max = sum;
@@ -258,7 +262,7 @@ function scanSurface() {
         console.error(`⚠️ 预算表 glob 仅支持基名内单个 *（<前缀>*<后缀>），跳过该条：${pat}`);
         continue;
       }
-      const dir = lastSlash >= 0 ? pat.slice(0, lastSlash + 1) : '.';
+      const dir = path.join(ROOT, lastSlash >= 0 ? pat.slice(0, lastSlash + 1) : '.');
       const basePrefix = pat.slice(lastSlash + 1, starIdx);
       const baseSuffix = pat.slice(starIdx + 1);
       if (!fs.existsSync(dir)) { console.error(`⚠️ 预算目录不存在，跳过该条：${pat}`); continue; }
@@ -270,8 +274,9 @@ function scanSurface() {
       }
       label = `${pat}（单篇最大）`;
     } else {
-      if (!fs.existsSync(pat)) { console.error(`⚠️ 预算文件不存在，跳过该条：${pat}`); continue; }
-      sum = max = fs.statSync(pat).size;
+      const fp = path.join(ROOT, pat);
+      if (!fs.existsSync(fp)) { console.error(`⚠️ 预算文件不存在，跳过该条：${pat}`); continue; }
+      sum = max = fs.statSync(fp).size;
     }
     entries.push({ pat, label, sum, max, lim, pct: (max / lim) * 100, isDir: pat.endsWith('/') });
   }
@@ -331,7 +336,9 @@ const attrRow = `| ${month} | ${a.total} | ${attrCell(a, SRC_KEYS) || '—'} | $
 
 // ---- 门禁成本/迭代（G8）：all-gates 绿行逐门耗时按月聚合 ----
 function scanGateCosts() {
-  const file = path.join('.agents', 'verifications.jsonl');
+  // 锚项目根（2026-11 市场审查 M13，与 scanSurface 同修）：verifications.jsonl 恒落仓库根
+  //（ledgerRoot 单源），cwd 相对读会让子目录运行时绿行全丢——门禁成本表静默归零。
+  const file = path.join(ROOT, '.agents', 'verifications.jsonl');
   const byMonth = {};
   if (!fs.existsSync(file)) return byMonth;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {

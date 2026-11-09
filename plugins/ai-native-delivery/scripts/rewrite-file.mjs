@@ -20,6 +20,7 @@
 // 沿革：2026-10-12 立档（优先级 3：把「静默无操作」改成响亮失败）
 import fs from 'node:fs';
 import path from 'node:path';
+import { withLedgerLock } from './ledger-shards.mjs';
 
 const argv = process.argv.slice(2);
 const argOf = (k) => {
@@ -116,11 +117,22 @@ if (DRY) {
   process.exit(0);
 }
 
-// ---- 原子写 ----
+// ---- 原子写（2026-11-09 审查收口：台账面持锁 + 写前指纹）----
+// workflow/ 与 .agents/ 是会被 MCP update_ledger append（同持 withLedgerLock）与 ledger-shards
+// 整写的面：旧实现「读→内存改→写」全程无锁，两个改写者各自回读自洽、后写者静默覆盖先写者——
+// 正是本工具立档要堵的「假落账」。持锁后锁内重读比对，现场被他人改动即响亮失败（绝不覆盖）。
 const tmp = `${abs}.rewrite-tmp`;
-try {
+const segs = abs.split(/[\\/]+/).map((s) => s.toLowerCase());
+const ledgerFace = segs.includes('workflow') || segs.includes('.agents');
+const doWrite = () => {
+  if (ledgerFace && fs.readFileSync(abs, 'utf8') !== raw) {
+    throw new Error('写入前指纹不符：读→写窗口内文件已被他人改动——放弃覆盖，请重跑以基于最新内容替换');
+  }
   fs.writeFileSync(tmp, out, 'utf8');
   fs.renameSync(tmp, abs);
+};
+try {
+  if (ledgerFace) withLedgerLock(abs, doWrite); else doWrite();
 } catch (err) {
   try { fs.unlinkSync(tmp); } catch { /* tmp 可能尚未创建 */ }
   die(`写入失败：${file}（${err.message}）——原文件应保持原样，请核对后重试`);

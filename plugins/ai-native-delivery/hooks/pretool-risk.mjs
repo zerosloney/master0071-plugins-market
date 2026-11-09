@@ -11,7 +11,8 @@
 //     **按内置 deny 地板继续执法**（2026-10-28 收紧：此前整体 fail-open 放行，等于「把配置文件
 //     写坏」就能解除风险闸）；ask 回退内置默认；
 //   输入截断 / 坏 JSON / 空 stdin → fail-closed：转 ask（命令不可信，尾巴里可藏破坏性命令；
-//     空 stdin 2026-11-05 收尾批：读不到任何输入同样按不可信处理，与非 JSON 同向 fail-closed）；
+//     空 stdin 2026-11-05 收尾批：读不到任何输入同样按不可信处理，与非 JSON 同向 fail-closed；
+//     非对象 JSON 2026-11-08 补：合法 JSON 但非 {tool_name,...} 对象形态，同向 fail-closed）；
 //   任何异常 → stderr 告警 + 转 ask（2026-10-31 收紧：静默 exit 0 会凭 hook 自身故障放行
 //     本该命中 deny 的命令；ask 只加确认、不硬阻塞工具调用）。
 // 清单来源：项目侧 .agents/settings.json（permissions.deny / ask，§5.2）→ 插件种子
@@ -111,13 +112,16 @@ const BUILTIN = {
 const EXE_SUFFIX = /\.(exe|bat|cmd)(?=[\s;&|()]|$)/g;
 const norm = (s) => String(s).toLowerCase().replace(EXE_SUFFIX, '').replace(/\s+/g, ' ').trim();
 
-// 引号归一（2026-10-29 市场审查修复）：`git push "--force"` / `git push '--force'` 切出来的
-// 词元带引号，与规则里的 `--force` 对不上，于是 deny 地板被一条引号变体整个绕过（实测三种写法
-// 全部静默放行）。这里在判据前把所有引号字符去掉——shell 本身就会剥引号，判据看的是「命令实际
-// 长什么样」，保留引号等于让判据看一个不存在的命令。
-// 只剥引号、不做其他转义解释：`\--force` 这类反斜杠写法仍不在判据内，但那是 shell 里非法的
-// 选项写法（git 会拒绝），不存在「被绕过」的执行路径。
-const UNQUOTE = /["'`]/g;
+// 引号与 shell 转义字符归一（2026-10-29 引号；2026-11-08 转义字符补，市场审查 C2）：引号变体
+// `git push "--force"` 切出来的词元带引号，与规则里的 `--force` 对不上，deny 地板被整条绕过
+// （实测三种写法全部静默放行）。shell 本身就会剥引号，判据看的是「命令实际长什么样」，保留引号
+// 等于让判据看一个不存在的命令。同层再剥 `\` 与 `^`：反斜杠转义由 shell 消化（`printf '%s\n' \-f`
+// 输出 `-f`），git 收到的就是完整选项——此前注释称「`\--force` 是 shell 里非法的选项写法、git 会
+// 拒绝」是错的，`git push \-f` 旧判据实测整条静默放行；cmd.exe 宿主（hooks.json matcher 覆盖）
+// 另有 `^` 转义符，`git push ^-^f` 同样绕过。剥除放在 unquote 同层：子串与词元两条判据共用这一
+// 入口，命令与规则两侧同时看到干净形态（`-\f` 剥后成 `-f`，短簇展开逻辑可正常处理）。
+// 方向 fail-safe：归一化只会让判据更容易命中（已拦的不会漏网），不会少拦。
+const UNQUOTE = /["'`^\\]/g;
 const unquote = (s) => String(s).replace(UNQUOTE, '');
 
 // 短选项簇展开（2026-11-01 市场审查修复）：git 的短选项可以合写，`-uf` 等价 `-u -f`、
@@ -142,6 +146,26 @@ const expandCluster = (tok) => {
 // 再切——否则 `"--force"` 会带着引号成为一个独立词元）。
 const tokensOf = (s) => norm(unquote(s)).split(/[\s;&|()]+/).filter(Boolean).flatMap(expandCluster);
 
+// 长选项唯一前缀缩写命中（2026-11-08 市场审查补，C1）：git 接受长选项的**无歧义唯一前缀缩写**——
+// `git reset --har HEAD~1` 与 `--hard` 等价、`--no-veri` ≡ `--no-verify`。旧词元判据只做精确
+// 等值，缩写形态把 deny 地板整体绕过（实测多种写法静默放行）。双向前缀：
+//   - 命令侧用缩写（`--har` 对规则词 `--hard`）→ w.startsWith(t)；
+//   - 命令侧带更长后缀（`--force-with-lease` 对规则词 `--force`）→ t.startsWith(w)，
+//     与既有子串判据 c.includes(r) 的 fail-safe 方向一致。
+// 前缀模糊对两侧都设长度下限（2026-11-08 设计调整）：规则词 w 与命令侧词元 t 都要求「-- 开头且
+// 长度 > 3」——裸 `--` 分隔符（len 2）与 `--x`（len 3）不参与，否则 `git reset -- file.txt` 这类
+// 日常命令会被 `--hard`.startsWith(`--`) 拉进前缀命中而误拦（实测不可接受）；git 对超短长选项
+// 缩写几乎必然判歧义拒绝，由此留下的漏拦面可忽略，子串判据不受影响。
+// 方向 fail-safe：相对旧判据（纯精确等值），命中只会更多不会更少——已拦的不会漏网。
+const tokenHit = (tokens, w) => {
+  if (tokens.has(w)) return true;
+  if (!w.startsWith('--') || w.length <= 3) return false;
+  for (const t of tokens) {
+    if (t.startsWith('--') && t.length > 3 && (t.startsWith(w) || w.startsWith(t))) return true;
+  }
+  return false;
+};
+
 // 规则命中：子串命中，或（规则 ≥2 个词且每个词都作为词元出现）。
 // 后者补「选项位置」差异——`git push --force` 是子串，`git push origin main --force` 不是；
 // 而后者正是最常见的 force 写法。词元判据不求相邻/顺序：代价是极少数跨语句组合会多拦一次
@@ -154,7 +178,7 @@ function matchList(command, rules) {
     if (!r) continue;
     if (c.includes(r)) return rule;
     const words = tokensOf(rule);
-    if (words.length >= 2 && words.every((w) => tokens.has(w))) return rule;
+    if (words.length >= 2 && words.every((w) => tokenHit(tokens, w))) return rule;
   }
   return null;
 }
@@ -307,17 +331,28 @@ async function main() {
     //   转 ask 的 fail-closed 方向相反：宿主喂入非 JSON 时高风险 shell 命令可直接放行且无任何痕迹。
     try { input = JSON.parse(raw); } catch { input = {}; jsonBroken = true; }
   }
-  const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
-  const command = commandOf(input.tool_input);
+  // 合法 JSON 但非对象（2026-11-08 市场审查 M1 补）：`123` / `[1]` / `"x"` 这类标量/数组形态
+  // 同样读不出 tool_name——此前落进「非 shell 工具」静默放行（实测 stdin `123` → 空输出 exit 0），
+  // null 则经 TypeError 顶层 catch 才转 ask——与坏 JSON/截断/空输入的 fail-closed 方向三向不一致。
+  // 并入同一不可信分支（null 读取属性即抛 TypeError，本判定必须先于 tool_name 读取）：宿主协议
+  // 下 PreToolUse 输入必须是 {tool_name, tool_input} 对象，其余形态与「读不出命令」同向不可信。
+  const notAnObject = input === null || typeof input !== 'object' || Array.isArray(input);
   // 管辖外（非 shell 工具）与输入不可信的走向：
-  //   输入不可信（截断 / 坏 JSON / 空 stdin）→ fail-closed 转 ask，**先于非 shell 判定**——
+  //   输入不可信（截断 / 坏 JSON / 空 stdin / 非对象 JSON）→ fail-closed 转 ask，**先于非 shell 判定**——
   //     宿主已用 matcher 把本 hook 限定在 shell 工具上，输入不可信时连 tool_name 都读不出，
   //     不能拿「读不出名字」当「非 shell 工具」静默放行；
   //   非 shell 工具 → 静默放行；shell 工具但缺 command 字段 → fail-closed 转 ask。
-  if (truncated || jsonBroken || emptyInput) {
+  if (truncated || jsonBroken || emptyInput || notAnObject) {
     const why = truncated ? '输入截断' : emptyInput ? 'hook 输入为空' : 'hook 输入不是合法 JSON';
-    return askDecision(`[ai-native-delivery 风险闸] hook 输入不完整（${why}），无法做清单匹配——请向用户展示命令并确认后再执行。`);
+    return askDecision(`[ai-native-delivery 风险闸] ${notAnObject ? 'hook 输入不是合法的工具调用对象' : `hook 输入不完整（${why}）`}，无法做清单匹配——请向用户展示命令并确认后再执行。`);
   }
+  const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
+  const command = commandOf(input.tool_input);
+  // 宿主 shell 辅助工具（2026-11-09 审查收口）：BashOutput / KillShell 这类「读既有会话输出 /
+  // 终止会话」的工具不携带 command，旧流程里词族命中 applies → 缺 command → 每次转 ask——
+  // 它们本身不执行命令，风险面在启动该 shell 的那次调用上已判过；按非管辖静默放行，免每次
+  // 读输出弹确认（fail-safe 方向不变：真正执行命令的 shell 工具仍带 command 走清单判据）。
+  if (/^(?:bash[_ ]?output|kill[_ ]?shell)$/i.test(toolName)) return null;
   if (!applies(toolName)) {
     // 兜底信号（2026-11-05 市场审查修复，移植 systemone risk-gate assess 同款）：matcher 是子串
     // 正则、比内核宽。名字含 shell 词族但内核不认的形态（如 shellfish——shell 在词中间，词尾
@@ -342,6 +377,11 @@ async function main() {
   }
 
   const root = findProjectRoot();
+  // root 判不出时不静默（2026-11-09 审查收口）：仅用插件模板清单执法，项目侧追加项不生效——
+  // 方向 fail-safe（内置地板恒在），但降级必须可见（其余降级路径均有 WARN，此前独此一处无声）。
+  if (root === null) {
+    process.stderr.write('[ai-native-delivery hook] 未解析到项目根（非 git 仓库或 git 不可用），仅用插件模板清单执法——项目侧追加清单不生效\n');
+  }
   const lists = loadLists(root);
   if (lists.warn) process.stderr.write(`[ai-native-delivery hook] ${lists.warn}\n`);
 

@@ -367,6 +367,30 @@ const mkfixLedger = (lines) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 8c：子目录运行绿行/常驻面不丢（2026-11 市场审查 M13 回归）----
+// scanGateCosts 的 verifications.jsonl 与 scanSurface 的预算条目（AGENTS.md / .agents/commands/）
+// 此前按 cwd 解析——子目录运行时绿行全丢（成本表归零）、常驻面条目全部「不存在」被跳过（空表）。
+// 修复后锚 ROOT（projectRoot 单源 → git root）：夹具 git init，从深层子目录跑，两表须与根目录运行一致。
+{
+  const root = mkfix();
+  spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });
+  fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'verifications.jsonl'),
+    JSON.stringify({ ts: '2026-09-05T00:00:00.000Z', exitCode: 0, suite: 'all-gates', gates: 16, totalMs: 90000, durations: { 'engine-tests': 80000, 'backend-build': 10000 } }) + '\n', 'utf8');
+  const sub = path.join(root, 'sub', 'deep');
+  fs.mkdirSync(sub, { recursive: true });
+  const r = run(sub, ['--month', '2026-09']); // cwd = 子目录，ROOT 锚 git root
+  const md = readMetrics(root);
+  check('场景 8c：子目录运行 → all-gates 绿行仍聚合（1 行 · 90.0s，不归零）',
+    r.status === 0 && /\| 2026-09 \| 1 \| 90\.0 \| engine-tests 80\.0s · backend-build 10\.0s \|/.test(md),
+    `exit=${r.status}\n${r.stdout}${r.stderr}${md}`);
+  check('场景 8c：子目录运行 → 常驻面不缩水（AGENTS.md 120B 峰值 120.0% 在表）',
+    r.status === 0 && /峰值 120\.0% AGENTS\.md/.test(md), md);
+  check('场景 8c：子目录运行 → 预算目录/glob 条目不丢（commands 合计计入 0.1 KB）',
+    r.status === 0 && /0\.1 KB（峰值/.test(md) && !/预算目录不存在/.test(r.stderr), `${r.stderr}${md}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // ---- 场景组「复核效果台账」（2026-10-16）：workflow/reviews.d/ 意见级处置分片 → 第五表 ----
 // mkfixReviews：在 mkfix 基础上写复核效果台账分片（shards: { 分片文件名: [数据行...] }，含表头）
 const mkfixReviews = (shards) => {

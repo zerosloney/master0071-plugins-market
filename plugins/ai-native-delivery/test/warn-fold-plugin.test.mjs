@@ -9,7 +9,7 @@
 // 即一条空承诺。这里把它兑现：规则正确 + 开关生效，缺一即红。
 //
 // 判据：① 插件形态夹具（项目侧无引擎副本）默认跑 → 同标签多条折成「×N 条同类」单行，
-//         逐条明细完整落 tmp/check-loop-warn.log（折叠不得吞信息）；
+//         逐条明细完整落 .agents/tmp/check-loop-warn.log（折叠不得吞信息）；
 //       ② 同夹具带 CHECK_LOOP_VERBOSE=1 → 不折叠，逐条行数与落盘行数一致；
 //       ③ 夹具必须**真的**没有项目侧引擎副本（否则测的就不是插件形态，① 会假通过）。
 // 零依赖，Node ≥ 18 直接运行：node test/warn-fold-plugin.test.mjs
@@ -57,15 +57,15 @@ try {
   const projectCopy = path.join(root, '.agents', 'scripts', 'check-loop.mjs');
   check('夹具确为插件形态（项目侧无 check-loop.mjs 副本）', !fs.existsSync(projectCopy), projectCopy);
 
-  fs.rmSync(path.join(root, 'tmp', 'check-loop-warn.log'), { force: true });
+  fs.rmSync(path.join(root, '.agents', 'tmp', 'check-loop-warn.log'), { force: true });
   const folded = runLoop(root);
   const foldLines = bulletLines(folded.stderr).filter((l) => /条同类/.test(l));
   check('默认档在插件形态下确实折叠（旧判据下这里恒 0 条——即修复本体）',
     folded.status === 0 && foldLines.length >= 1, `exit=${folded.status} 折叠行=${foldLines.length}`);
   check('折叠行给出明细位置（读者能找回逐条）',
-    foldLines.length > 0 && foldLines.every((l) => /tmp\/check-loop-warn\.log/.test(l)), foldLines.join('\n'));
+    foldLines.length > 0 && foldLines.every((l) => /\.agents\/tmp\/check-loop-warn\.log/.test(l)), foldLines.join('\n'));
 
-  const logFile = path.join(root, 'tmp', 'check-loop-warn.log');
+  const logFile = path.join(root, '.agents', 'tmp', 'check-loop-warn.log');
   check('逐条明细完整落盘（折叠不吞信息）', fs.existsSync(logFile), logFile);
   const detail = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').split(/\r?\n/).filter(Boolean) : [];
   check('落盘行数 ≥ 折叠后的可见行数（说明合并掉的都是明细而非丢弃）',

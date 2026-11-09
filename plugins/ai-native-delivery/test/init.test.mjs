@@ -13,6 +13,11 @@ import { fileURLToPath } from 'node:url';
 import { initEngine, GITIGNORE_BEGIN, GITIGNORE_END } from '../scripts/init-engine.mjs';
 import { PLUGIN_ROOT } from '../scripts/paths.mjs';
 
+// 插件名（2026-11 市场审查 M12）：与实现同单源（plugin.json name）。自装判据锚插件名路径段，
+// 不锚 basename(PLUGIN_ROOT)——宿主版本化缓存布局（<cache>/<市场>/<插件名>/<版本>/）下后者
+// 是版本号，升版后旧钩子 baked 的旧版本目录按版本号切段永不命中，误判第三方。
+const PLUGIN_NAME = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'plugin.json'), 'utf8')).name;
+
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
 const GIT = process.platform === 'win32' ? 'git.exe' : 'git';
@@ -137,26 +142,39 @@ const snapDiff = (a, b) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-// ---- ④b 本插件旧装钩子指向已失效的引擎脚本 → 覆盖刷新（2026-11-01；2026-11-05 改真实迁移形态）----
-// 插件安装目录随宿主缓存**整体迁移**：钩子里 baked 的是旧安装根的绝对路径——不在当前 PLUGIN_ROOT
-// 下，但路径含本插件目录名的独立路径段。此时 commit 崩在 MODULE_NOT_FOUND，而钩子给出的修复指引
-// 正是"重跑 init-engine"——"已存在即跳过"让该指引变成 no-op。自装判据若用当前根前缀
-//（startsWith(PLUGIN_ROOT)），迁移后前缀恒 false → 判为第三方钩子 skip，正是本用例锁定的死态。
+// ---- ④b 本插件旧装钩子指向已失效的引擎脚本 → 覆盖刷新（2026-11-01；2026-11-05 改真实迁移形态；
+//       2026-11 市场审查 M12 拆两形：自装判据锚 plugin.json 插件名路径段，不再锚 basename(PLUGIN_ROOT)）----
+// 插件安装目录随宿主缓存**整体迁移/升版**：钩子里 baked 的是旧安装根的绝对路径——不在当前
+// PLUGIN_ROOT 下，但路径含**插件名**的独立路径段。此时 commit 崩在 MODULE_NOT_FOUND，而钩子给出的
+// 修复指引正是"重跑 init-engine"——"已存在即跳过"让该指引变成 no-op。自装判据若用当前根前缀
+//（startsWith(PLUGIN_ROOT)），迁移后前缀恒 false → 判为第三方钩子 skip，正是本组用例锁定的死态；
+// 若用 basename(PLUGIN_ROOT)，版本化缓存布局下它是当前版本号，升版后对旧版本目录恒不命中，同死态。
 {
   const root = mkRepo();
   const pre = path.join(root, '.git', 'hooks', 'pre-commit');
   initEngine(root);
   const before = fs.readFileSync(pre, 'utf8');
   check('④b 前置：首装钩子里 baked 的是现存引擎脚本', before.includes('check-loop.mjs') && fs.existsSync(PLUGIN_ROOT), before.slice(0, 160));
-  // 真实迁移形态：旧安装根含本插件目录名的独立路径段，但不在当前 PLUGIN_ROOT 下且已不存在
-  const stale = path.join(root, 'old-plugin-cache', path.basename(PLUGIN_ROOT), '0.1.10', 'scripts', 'check-loop.mjs');
+  // 形态一「插件名路径段命中」：旧安装根含插件名的独立路径段（无版本段），不在当前 PLUGIN_ROOT 下且已不存在
+  const stale = path.join(root, 'old-plugin-cache', PLUGIN_NAME, 'scripts', 'check-loop.mjs');
   const patched = before.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(stale)}`);
   fs.writeFileSync(pre, patched, 'utf8');
   const r = initEngine(root);
   const after = fs.readFileSync(pre, 'utf8');
-  check('④b 迁移形态：陈旧自装钩子被刷新（不再跳过）', r.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks));
-  check('④b 刷新后 baked 路径回到现存脚本', !after.includes('old-plugin-cache') && after.includes('check-loop.mjs'), after.slice(0, 200));
-  check('④b 刷新原因写进 skipped（可审计）', r.hooks.skipped.some((s) => s.includes('覆盖刷新')), JSON.stringify(r.hooks.skipped));
+  check('④b 插件名路径段命中：陈旧自装钩子被刷新（不再跳过）', r.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks));
+  check('④b 插件名路径段命中：刷新后 baked 路径回到现存脚本', !after.includes('old-plugin-cache') && after.includes('check-loop.mjs'), after.slice(0, 200));
+  check('④b 插件名路径段命中：刷新原因写进 skipped（可审计）', r.hooks.skipped.some((s) => s.includes('覆盖刷新')), JSON.stringify(r.hooks.skipped));
+  // 形态二「版本目录布局（旧版本号目录）升版形态」：宿主缓存 <cache>/<市场>/<插件名>/<版本>/，
+  // 升版后旧钩子 baked 的是旧版本目录——判据须靠插件名段命中，而不是比对当前版本号
+  const staleVer = path.join(root, 'host-cache', 'market', PLUGIN_NAME, '0.1.10', 'scripts', 'check-loop.mjs');
+  const patchedVer = after.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(staleVer)}`);
+  fs.writeFileSync(pre, patchedVer, 'utf8');
+  const r2 = initEngine(root);
+  const after2 = fs.readFileSync(pre, 'utf8');
+  check('④b 版本目录布局升版形态：旧版本目录钩子被刷新（basename 版本号判据的死态）',
+    r2.hooks.installed.some((s) => s.includes('pre-commit')), JSON.stringify(r2.hooks));
+  check('④b 版本目录布局升版形态：刷新后 baked 路径回到现存脚本',
+    !after2.includes('host-cache') && after2.includes('check-loop.mjs'), after2.slice(0, 200));
   fs.rmSync(root, { recursive: true, force: true });
 }
 
@@ -168,7 +186,7 @@ const snapDiff = (a, b) => {
   const pre = path.join(root, '.git', 'hooks', 'pre-commit');
   initEngine(root);
   const before = fs.readFileSync(pre, 'utf8');
-  const staleOld = path.join(root, 'old-plugin-cache', `${path.basename(PLUGIN_ROOT)}-old`, '0.1.10', 'scripts', 'check-loop.mjs');
+  const staleOld = path.join(root, 'old-plugin-cache', `${PLUGIN_NAME}-old`, '0.1.10', 'scripts', 'check-loop.mjs');
   const patched = before.replace(/(const\s+ENGINE_SCRIPT\s*=\s*)"(?:[^"\\]|\\.)*"/, `$1${JSON.stringify(staleOld)}`);
   fs.writeFileSync(pre, patched, 'utf8');
   const r = initEngine(root);

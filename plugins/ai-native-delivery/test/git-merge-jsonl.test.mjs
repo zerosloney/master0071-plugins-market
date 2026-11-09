@@ -128,5 +128,18 @@ const cliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 's
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+// BOM 剥除（2026-11-09 审查收口）：Windows 编辑器另存引入的 BOM 不再把首行记录吞成坏行
+{
+  const out = mergeJsonlLines('\uFEFF{"doc":"a","stage":"draft","ts":"2026-01-01"}\n', '{"doc":"a","stage":"approved","ts":"2026-02-01"}\n{"doc":"b","ts":"2026-03-01"}\n');
+  const rows = out.split('\n').filter((l) => l.trim());
+  let bad = 0;
+  const parsed = [];
+  for (const l of rows) { try { parsed.push(JSON.parse(l)); } catch { bad++; } }
+  check('BOM 首行不再解析失败（0 坏行）', bad === 0 && !out.startsWith('\uFEFF'), `bad=${bad} out=${JSON.stringify(out)}`);
+  check('BOM 后各行照常并入（BOM 不吞首行、不产冲突标记）',
+    parsed.length === 3 && parsed.some((p) => p.doc === 'a' && p.stage === 'approved') && parsed.some((p) => p.doc === 'b'),
+    JSON.stringify(parsed));
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

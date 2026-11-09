@@ -194,5 +194,136 @@ try {
   fs.rmSync(nongit, { recursive: true, force: true });
 }
 
+// 场景G：主台账写者持锁（<主台账>.lock）→ 拒绝收缩（2026-11-08 主台账锁嵌套回归）
+// 分片锁只挡分片追加者；主台账追加者（ledger-loader.writeConfirmation 主分支 / MCP confirm）
+// 持的是 `<主台账>.lock`，与分片锁无互斥——compact「读主→合并→rename 整写」不持主台账锁时，
+// 落在 read 与 rename 之间的主台账追加会被 rename 整体抹掉。修复后该段在 withLedgerLock
+//（主台账锁）临界区内执行，分片锁外层、主台账锁内层，仅此一处嵌套（追加者只持单把锁，无死锁环）。
+// 确定性：子进程持住主台账锁并空转 > withLedgerLock 等待上限（3s）、< 陈旧接管线（15s）——
+//   修复前：compact 照常「合并→unlink」成功（exit 0），主台账被整写（RED）；
+//   修复后：主台账锁等待超时 → 响亮非零退出，主台账逐字节原样、分片不删；锁释放后重跑成功。
+{
+  const tmp6 = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-test-'));
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  try {
+    const mainLedger6 = path.join(tmp6, '.agents', 'confirmations.jsonl');
+    const shardDir6 = path.join(tmp6, '.agents', 'confirmations.d');
+    fs.mkdirSync(shardDir6, { recursive: true });
+    const mainBefore6 = '{"id":50}\n';
+    fs.writeFileSync(mainLedger6, mainBefore6);
+    const shardG = path.join(shardDir6, 'shard-mainheld.jsonl');
+    fs.writeFileSync(shardG, '{"id":51}\n');
+
+    const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+    const child = spawn(process.execPath, [
+      '-e',
+      `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + 6000; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+      mainLedger6,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let locked = false; // 同步轮询等锁就位（等不到就红，不假绿）
+    for (let i = 0; i < 800 && !locked; i++) { locked = fs.existsSync(mainLedger6 + '.lock'); if (!locked) sleepSync(25); }
+    check('S21 前置：子进程已持住主台账锁', locked);
+    if (locked) {
+      const proc6 = spawnSync(process.execPath, [cliPath], { cwd: tmp6, encoding: 'utf8' });
+      check('S22 主台账锁被持期间收缩 → CLI exit 非 0（拒绝无锁整写主台账）', proc6.status !== 0, `status=${proc6.status} stderr=${proc6.stderr}`);
+      check('S23 报「写锁等待超时」而非静默', /写锁等待超时/.test(proc6.stderr || ''), proc6.stderr);
+      check('S24 主台账逐字节原样（未被无锁整写）', fs.readFileSync(mainLedger6, 'utf8') === mainBefore6, fs.readFileSync(mainLedger6, 'utf8'));
+      check('S25 分片未被 unlink', fs.existsSync(shardG), 'shard gone');
+    }
+    // 等子进程释放锁（最长 20s）后重跑 → 成功且内容正确（互斥不钉死收缩）
+    for (let i = 0; i < 800 && fs.existsSync(mainLedger6 + '.lock'); i++) sleepSync(25);
+    child.kill();
+    const proc7 = spawnSync(process.execPath, [cliPath], { cwd: tmp6, encoding: 'utf8' });
+    check('S26 锁释放后重跑收缩 → exit 0', proc7.status === 0, proc7.stderr);
+    check('S27 重跑后主台账含合并行', fs.readFileSync(mainLedger6, 'utf8') === '{"id":50}\n{"id":51}\n', fs.readFileSync(mainLedger6, 'utf8'));
+    check('S27b 重跑后分片已清理', !fs.existsSync(shardG));
+  } finally {
+    fs.rmSync(tmp6, { recursive: true, force: true });
+  }
+}
+
+// 场景H：主台账追加（loader 主路径）与 compact-ledgers 并发不丢行（2026-11-08 C3+主台账锁嵌套回归）
+// 修复前：追加者对主台账裸 appendFileSync（无锁）+ compact 只持分片锁整写主台账——追加落在
+// compact readMain 与 rename 之间即被 rename 抹掉，且追加者自称成功。修复后追加与收缩各持
+// `<主台账>.lock`，任何交错都不丢行。断言口径：每个追加进程「自称成功」的每一行都必须出现在
+// 收缩后的主台账里，且主台账总行数 = 主台账种子 + 分片种子 + 成功追加数（不多不少）。
+// 分片撑到 ~0.9MB 拉长 compact 临界区窗口（同 S23 思路：小文件下旧实现也能侥幸全落）；
+// 追加进程 3 路、行间 3ms 节流（保证 compact 能在 3s 等待线内拿到锁，不靠运气）。
+{
+  const tmp8 = fs.mkdtempSync(path.join(os.tmpdir(), 'compact-race-'));
+  const loaderUrl = new URL('../scripts/ledger-loader.mjs', import.meta.url).href;
+  try {
+    const mainLedger8 = path.join(tmp8, '.agents', 'confirmations.jsonl');
+    const shardDir8 = path.join(tmp8, '.agents', 'confirmations.d');
+    fs.mkdirSync(shardDir8, { recursive: true });
+    fs.writeFileSync(mainLedger8, '{"seed":"main"}\n', 'utf8');
+    const shardRows = Array.from({ length: 40000 }, (_, i) => `{"seed":"shard-${i}"}`);
+    fs.writeFileSync(path.join(shardDir8, 'race-shard.jsonl'), `${shardRows.join('\n')}\n`, 'utf8');
+    check('S28 前置：分片已撑到可复现规模', fs.statSync(path.join(shardDir8, 'race-shard.jsonl')).size > 500_000);
+
+    const goEpoch = Date.now() + 2500; // 统一进场时刻（同 S23 绝对时刻栅栏）
+    const APPENDERS = 3;
+    const kids = [];
+    for (let w = 0; w < APPENDERS; w++) {
+      const ackFile = path.join(tmp8, `ack-${w}.json`);
+      kids.push(spawn(process.execPath, [
+        '-e',
+        `import(${JSON.stringify(loaderUrl)}).then((m) => {
+  const g = Number(process.argv[3]);
+  const end = g + 5000;
+  const acked = [];
+  let i = 0;
+  let timeouts = 0;
+  const nap = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  while (Date.now() < g) {}
+  while (Date.now() < end) {
+    const fp = 'race-' + process.argv[2] + '-' + (i++);
+    try {
+      m.writeConfirmation(process.argv[1], { doc: 'workflow/intents/race.md', stage: 'approved', fingerprint: fp }, { shard: false });
+      acked.push(fp);
+    } catch (e) {
+      if (/写锁等待超时/.test(String(e && e.message))) { timeouts++; i--; } // 等待线内竞争：原行重试（不记永久失败）
+      else { console.error(String(e && e.message || e)); process.exit(1); }
+    }
+    nap(3); // 节流：让 compact 能在等待上限内拿到主台账锁
+  }
+  require('fs').writeFileSync(process.argv[4], JSON.stringify({ acked, timeouts }));
+        }).catch((e) => { console.error(String(e && e.message || e)); process.exit(1); })`,
+        tmp8, String(w), String(goEpoch), ackFile,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] }));
+    }
+    // 追加者就位后启动 compact（阻塞至其退出）
+    while (Date.now() < goEpoch) {}
+    const compactProc = spawnSync(process.execPath, [cliPath], { cwd: tmp8, encoding: 'utf8' });
+    await Promise.all(kids.map((c) => (c.exitCode !== null ? Promise.resolve() : new Promise((res) => c.on('exit', res)))));
+
+    let ackedAll = [];
+    for (let w = 0; w < APPENDERS; w++) {
+      const o = JSON.parse(fs.readFileSync(path.join(tmp8, `ack-${w}.json`), 'utf8'));
+      ackedAll = ackedAll.concat(o.acked);
+    }
+    const kidCodes = kids.map((c) => c.exitCode);
+    const finalText = fs.readFileSync(mainLedger8, 'utf8');
+    const lines = finalText.split(/\r?\n/).filter((l) => l.trim());
+    // 逐行 JSON 解析后按 fingerprint 精确比对（子串 includes 会把 race-0-1 误配进 race-0-12）
+    const seenFps = new Set();
+    for (const l of lines) {
+      try { const o = JSON.parse(l); if (o && typeof o.fingerprint === 'string') seenFps.add(o.fingerprint); } catch { /* 坏行不计 */ }
+    }
+    const missing = ackedAll.filter((fp) => !seenFps.has(fp));
+    check('S29 compact 与追加并发下照常完成（exit 0，追加者无崩溃）',
+      compactProc.status === 0 && kidCodes.every((c) => c === 0),
+      `compact=${compactProc.status} kids=${JSON.stringify(kidCodes)} err=${compactProc.stderr.slice(0, 200)}`);
+    check(`S30 自称成功的 ${ackedAll.length} 行在收缩后主台账一行不丢（旧实现被 rename 抹掉）`,
+      ackedAll.length > 0 && missing.length === 0, `missing=${missing.length}/${ackedAll.length}`);
+    check('S31 主台账总行数 = 主种子 + 分片种子 + 成功追加（不多不少）',
+      lines.length === 1 + shardRows.length + ackedAll.length,
+      `实得 ${lines.length}，期望 ${1 + shardRows.length + ackedAll.length}（追加成功 ${ackedAll.length}）`);
+    check('S32 分片已并入并清理', !fs.existsSync(path.join(shardDir8, 'race-shard.jsonl')));
+  } finally {
+    fs.rmSync(tmp8, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

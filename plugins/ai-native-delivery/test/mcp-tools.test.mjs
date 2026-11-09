@@ -344,6 +344,119 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   }
 }
 
+// ---- resolveLedgerTarget 尾段悬挂 symlink（2026-11-08 M2）----
+// 旧实现只对「最深现存祖先」realpath，未存在尾段原样接回——尾段是**悬挂** symlink 时
+// existsSync（跟随判定）为假，白名单按字面路径放行、写侧在内核层解引用落树外。
+// 修复后对尾段逐段 lstat（不跟随，悬挂链接也看得到），任一段是 symlink 即 fail-closed 拒绝。
+// Windows 无文件 symlink 特权时该形态跳过（junction 悬挂形态不需要特权，通常可达）。
+{
+  const { resolveLedgerTarget, ToolError } = await import('../mcp/core.mjs');
+  const droot = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-dangling-'));
+  fs.mkdirSync(path.join(droot, 'workflow'), { recursive: true });
+  const throws = (fn) => {
+    try { fn(); return null; } catch (e) { return e; }
+  };
+  try {
+    let made = 0;
+    try {
+      // 悬挂文件 symlink（目标不存在）→ 拒绝
+      fs.symlinkSync(path.join(droot, 'outside', 'never.md'), path.join(droot, 'workflow', 'ghost.md'), 'file');
+      made++;
+      const e1 = throws(() => resolveLedgerTarget(droot, 'workflow/ghost.md'));
+      check('M2 尾段悬挂文件 symlink → 拒绝（fail-closed，旧实现按字面放行）',
+        e1 instanceof ToolError && /符号链接/.test(String(e1 && e1.message)), String(e1 && e1.message));
+    } catch (e) {
+      if (!(e && (e.code === 'EPERM' || e.code === 'EACCES'))) throw e;
+      console.log('SKIP  M2 悬挂文件 symlink（本机无创建权限）');
+    }
+    try {
+      // 悬挂目录链接（junction 目标目录不存在）→ 拒绝（junction 创建不需要特权）
+      fs.symlinkSync(path.join(droot, 'no-such-dir'), path.join(droot, 'workflow', 'ghostdir'), 'junction');
+      made++;
+      const e2 = throws(() => resolveLedgerTarget(droot, 'workflow/ghostdir/x.md'));
+      check('M2 尾段悬挂目录链接 → 拒绝（多段尾段逐段查）',
+        e2 instanceof ToolError && /符号链接/.test(String(e2 && e2.message)), String(e2 && e2.message));
+    } catch (e) {
+      if (!(e && (e.code === 'EPERM' || e.code === 'EACCES'))) throw e;
+      console.log('SKIP  M2 悬挂目录链接（本机无创建权限）');
+    }
+    check('M2 前置：至少一种悬挂链接形态建成', made >= 1);
+    // 反向锚：普通未存在尾段（非链接）不受影响
+    const plain = throws(() => resolveLedgerTarget(droot, 'workflow/normal-tail-new.md'));
+    check('M2 反向锚：普通未存在尾段仍放行', plain === null, String(plain && plain.message));
+  } finally {
+    fs.rmSync(droot, { recursive: true, force: true });
+  }
+}
+
+// ---- 主台账写面持锁（2026-11-08 C4/M3 回归）----
+// C4：confirm 落 .agents/confirmations.jsonl——主台账锁（compact-ledgers / loader 持的同一把
+// `<主台账>.lock`）被他人持有时必须响亮失败，不得无锁追加（追加落在 compact「读主→rename」
+// 之间会被整体抹掉）。M3：create 与 append 共用同一把 `<文件>.lock`——目标锁被持有时 create
+// 必须响亮失败，不得无锁整写。
+{
+  const { toolConfirm, toolUpdateLedger } = await import('../mcp/core.mjs');
+  const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const { spawn } = await import('node:child_process');
+  const modUrl = new URL('../scripts/ledger-shards.mjs', import.meta.url).href;
+  const holdLock = (target, ms) => spawn(process.execPath, [
+    '-e',
+    `import(${JSON.stringify(modUrl)}).then(m => m.withLedgerLock(process.argv[1], () => { console.log('LOCKED'); const g = Date.now() + ${ms}; while (Date.now() < g) {} })).catch(e => { console.error(String(e && e.message || e)); process.exit(1); })`,
+    target,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const waitLock = async (lockPath) => {
+    for (let i = 0; i < 800; i++) {
+      if (fs.existsSync(lockPath)) return true;
+      sleepSync(25);
+    }
+    return false;
+  };
+  const releaseAndWait = async (lockPath, child) => {
+    for (let i = 0; i < 900 && fs.existsSync(lockPath); i++) sleepSync(25);
+    child.kill();
+  };
+  const payloadOf = (r) => { try { return JSON.parse(r.content[0].text); } catch { return null; } };
+
+  // C4：confirm 主台账锁被持 → 响亮抛错（不无锁追加）；锁释放后照常落账
+  {
+    const mainLedger = path.join(root, '.agents', 'confirmations.jsonl');
+    const child = holdLock(mainLedger, 8000);
+    const locked = await waitLock(mainLedger + '.lock');
+    check('C4 前置：子进程已持住主台账锁', locked);
+    const before = fs.existsSync(mainLedger) ? fs.readFileSync(mainLedger, 'utf8') : '';
+    let cErr = null;
+    if (locked) {
+      try { toolConfirm({ root, task: 'c4-lock-race', decision: 'd', evidence: 'evidence-for-lock-race' }); } catch (e) { cErr = e; }
+      check('C4 confirm 主台账锁被持 → 响亮抛错（不无锁追加）',
+        cErr !== null && /写锁等待超时/.test(cErr.message), cErr && cErr.message);
+      check('C4 等待期间主台账无半行写入', (fs.existsSync(mainLedger) ? fs.readFileSync(mainLedger, 'utf8') : '') === before);
+    }
+    await releaseAndWait(mainLedger + '.lock', child);
+    const okC = payloadOf(toolConfirm({ root, task: 'c4-lock-race', decision: 'd', evidence: 'evidence-for-lock-race' }));
+    check('C4 锁释放后 confirm 照常落账', okC && okC.written === true, JSON.stringify(okC));
+    check('C4 落账行在主台账且锁已清理',
+      fs.readFileSync(mainLedger, 'utf8').includes('c4-lock-race') && !fs.existsSync(mainLedger + '.lock'));
+  }
+  // M3：create 目标锁被持 → 响亮抛错（不无锁整写）；锁释放后照常建文件
+  {
+    const target = path.join(root, 'workflow', 'create-lock-race.md');
+    const child = holdLock(target, 8000);
+    const locked = await waitLock(target + '.lock');
+    check('M3 前置：子进程已持住目标文件锁', locked);
+    let mErr = null;
+    if (locked) {
+      try { toolUpdateLedger({ root, file: 'workflow/create-lock-race.md', content: '# create-lock-race\n', mode: 'create' }); } catch (e) { mErr = e; }
+      check('M3 create 目标锁被持 → 响亮抛错（不无锁整写）',
+        mErr !== null && /写锁等待超时/.test(mErr.message), mErr && mErr.message);
+      check('M3 等待期间目标未落盘', !fs.existsSync(target));
+    }
+    await releaseAndWait(target + '.lock', child);
+    const okM = payloadOf(toolUpdateLedger({ root, file: 'workflow/create-lock-race.md', content: '# create-lock-race\n', mode: 'create' }));
+    check('M3 锁释放后 create 照常建文件', okM && okM.written === true && fs.existsSync(target), JSON.stringify(okM));
+    check('M3 建文件后锁已清理', !fs.existsSync(target + '.lock'));
+  }
+}
+
 // ---- 协议层闸门：无 id / 非法 id / 版本外（2026-11-05 市场审查）----
 // 此前：无 id 通知被回包（且回包缺 id 字段，宿主无法配对）、无 id tools/call 照样执行副作用
 // 工具、非法对象 id 原样回显。修复后（照 systemone server.mjs 四道闸）：无 id 一律不回包且
@@ -554,6 +667,28 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   ]);
   check('fullMs 合规 → 无封顶告警', !/超过封顶/.test(okProc.stderr || ''), (okProc.stderr || '').slice(-200));
   fs.rmSync(capRoot, { recursive: true, force: true });
+}
+
+// ---- 协议出声收口（2026-11-09 审查收口）----
+{
+  // 坏 JSON 行与超长行同口径回 -32700（此前 catch 静默丢弃，宿主只能挂到自身超时）
+  const initReq = JSON.stringify({ jsonrpc: '2.0', id: 91, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } });
+  const r = spawnSync(process.execPath, [SERVER], { input: `}oops\n${initReq}\n`, encoding: 'utf8', cwd: root, maxBuffer: 32 * 1024 * 1024 });
+  const lines = String(r.stdout || '').split('\n').filter((l) => l.trim());
+  let parseErr = null; let initOk = false;
+  for (const l of lines) {
+    let m; try { m = JSON.parse(l); } catch { continue; }
+    if (m && m.error && m.error.code === -32700) parseErr = m;
+    if (m && m.id === 91 && m.result) initOk = true;
+  }
+  check('坏 JSON 行回 -32700（不再静默吞帧）', Boolean(parseErr) && parseErr.id === null, r.stdout);
+  check('坏行不影响后续合法请求（服务照常）', initOk, r.stdout);
+}
+{
+  // id=1e999 → Infinity：有限性闸拒收（旧实现过闸后序列化回包 id 变 null，无法配对）
+  const raw = `{"jsonrpc":"2.0","id":1e999,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}\n`;
+  const r = spawnSync(process.execPath, [SERVER], { input: raw, encoding: 'utf8', cwd: root, maxBuffer: 32 * 1024 * 1024 });
+  check('非有限数字 id 拒收不回包（Infinity→null 配对黑洞）', String(r.stdout || '').trim() === '', JSON.stringify(r.stdout));
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

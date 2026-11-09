@@ -65,6 +65,7 @@
 //
 // 用法：
 //   node scripts/release.mjs <plugin> <x.y.z>    设置某插件的新版本（semver 校验）
+//   node scripts/release.mjs --repair <plugin>   漂移修复：以该插件 plugin.json 版本为基准同步全部版本位
 //   node scripts/release.mjs --check             校验所有插件各处版本一致
 // 零依赖，Node ≥ 18。
 
@@ -119,12 +120,15 @@ const PLUGINS = {
 
 const arg = process.argv[2];
 const checkOnly = arg === '--check';
+const repairMode = arg === '--repair';
+// --repair <插件> 的插件名在 argv[3]；发布模式的插件名就是 argv[2]
+const name = repairMode ? process.argv[3] : arg;
 
-if (!checkOnly && !(arg in PLUGINS)) {
-  console.error(`用法: node scripts/release.mjs <${Object.keys(PLUGINS).join('|')}> <x.y.z[-pre]> | --check`);
+if (!checkOnly && !(name in PLUGINS)) {
+  console.error(`用法: node scripts/release.mjs <${Object.keys(PLUGINS).join('|')}> <x.y.z[-pre]> | --repair <插件> | --check`);
   process.exit(1);
 }
-if (!checkOnly && !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(process.argv[3] ?? '')) {
+if (!checkOnly && !repairMode && !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(process.argv[3] ?? '')) {
   console.error('✗ 版本号需为 semver（x.y.z 或 x.y.z-pre）');
   process.exit(1);
 }
@@ -186,7 +190,6 @@ if (checkOnly) {
 
 // ── 写入 ─────────────────────────────────────────────────────────────────────
 
-const name = arg;
 const next = process.argv[3];
 const { current, spots } = collect(name);
 
@@ -194,6 +197,50 @@ if (spots.some(([, v]) => !v)) {
   console.error(`✗ [${name}] 有版本位缺失，请先运行 --check 人工排查`);
   process.exit(1);
 }
+
+if (repairMode) {
+  // 漂移修复：以 plugin.json 基准版本同步全部版本位；只改不一致的位，各 spot 用其实际旧值做替换源
+  // （spots 与下方写入目标同序：markets → jsonFiles → SERVER_INFO → README）
+  const cfg = PLUGINS[name];
+  let fixed = 0;
+  let i = 0;
+  try {
+    for (const f of cfg.markets) {
+      const from = spots[i++][1];
+      if (from !== current) {
+        writeMarketEntry(f, name, from, current);
+        fixed++;
+      }
+    }
+    for (const f of cfg.jsonFiles) {
+      const from = spots[i++][1];
+      if (from !== current) {
+        writeJsonRoot(f, from, current);
+        fixed++;
+      }
+    }
+    if (cfg.serverInfo) {
+      const from = spots[i++][1];
+      if (from !== current) {
+        writeServerInfo(cfg.serverInfo, name, from, current);
+        fixed++;
+      }
+    }
+    const from = spots[i][1];
+    if (from !== current) {
+      writeReadmeEntry(name, from, current);
+      fixed++;
+    }
+  } catch (err) {
+    console.error(`✗ ${err.message}`);
+    process.exit(1);
+  }
+  console.log(fixed > 0
+    ? `\n完成。[${name}] ${fixed} 处版本位已对齐基准 v${current}，运行 --check 复核。`
+    : `\n[${name}] 全部版本位已一致（v${current}），无需修复。`);
+  process.exit(0);
+}
+
 if (next === current) {
   console.error(`✗ [${name}] 新版本与当前相同（${current}），无需发布`);
   process.exit(1);
@@ -237,18 +284,21 @@ function writeReadmeEntry(pluginName, from, to) {
   console.log(`✓ README.md 插件表 [${pluginName}]: ${from} → ${to}`);
 }
 
+// mcp 服务端身份的 SERVER_INFO.version：按插件名锚定（from 仅用于日志展示，替换匹配任意旧值）
+function writeServerInfo(file, pluginName, from, to) {
+  const src = readFileSync(at(file), 'utf8');
+  const re = new RegExp(`(const SERVER_INFO = \\{ name: '${esc(pluginName)}', version: ')[^']+(' \\})`);
+  if (!re.test(src)) throw new Error(`${file} 中未找到 SERVER_INFO 版本行`);
+  writeFileSync(at(file), src.replace(re, `$1${to}$2`));
+  console.log(`✓ ${file} SERVER_INFO: ${from} → ${to}`);
+}
+
 const cfg = PLUGINS[name];
 try {
   for (const f of cfg.markets) writeMarketEntry(f, name, current, next);
   for (const f of cfg.jsonFiles) writeJsonRoot(f, current, next);
   writeReadmeEntry(name, current, next);
-  if (cfg.serverInfo) {
-    const src = readFileSync(at(cfg.serverInfo), 'utf8');
-    const re = new RegExp(`(const SERVER_INFO = \\{ name: '${esc(name)}', version: ')[^']+(' \\})`);
-    if (!re.test(src)) throw new Error(`${cfg.serverInfo} 中未找到 SERVER_INFO 版本行`);
-    writeFileSync(at(cfg.serverInfo), src.replace(re, `$1${next}$2`));
-    console.log(`✓ ${cfg.serverInfo} SERVER_INFO: ${current} → ${next}`);
-  }
+  if (cfg.serverInfo) writeServerInfo(cfg.serverInfo, name, current, next);
 } catch (err) {
   console.error(`✗ ${err.message}`);
   process.exit(1);

@@ -29,6 +29,17 @@ import { findProjectRoot, engineDir, ledgerDir, PLUGIN_ROOT, PLUGIN_CONFIG_TEMPL
 
 export const GITIGNORE_BEGIN = '# BEGIN ai-native-delivery engine';
 export const GITIGNORE_END = '# END ai-native-delivery engine';
+// 插件名（2026-11 市场审查 M12）：陈旧自装钩子的「自装」判据锚。宿主版本化缓存布局
+// <cache>/<市场>/<插件名>/<版本>/ 下 path.basename(PLUGIN_ROOT) 是**版本号**——升版后旧钩子
+// baked 的是旧版本目录路径，按当前版本号切路径段永不命中 → 旧钩子被误判第三方，"重跑
+// init-engine" 的修复指引沦为 no-op。改从 plugin.json 的 name 读（单源）；读不出回退目录名
+//（源仓开发形态目录名即插件名，两者同值）。
+const PLUGIN_NAME = (() => {
+  try {
+    const name = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'plugin.json'), 'utf8')).name;
+    return typeof name === 'string' && name ? name : path.basename(PLUGIN_ROOT);
+  } catch { return path.basename(PLUGIN_ROOT); }
+})();
 // 本机不入库项（§5.2 入库口径表：判定/验证流水与缓存是本机机器事实；本机环境与个人模型映射不入库）
 export const GITIGNORE_ENTRIES = [
   '.agents/cache/',
@@ -41,6 +52,10 @@ export const GITIGNORE_ENTRIES = [
   // `<分片>.md.lock` 做读-改-写临界区。正常路径写完即删；进程被 kill 时残留物最多留 15s
   // 就会被接管，但那一瞬间不该污染项目的 git status。
   'workflow/**/*.lock',
+  // 确认分片与主台账写锁残留（2026-11-09 审查收口）：confirmations.d/ 分片锁与主账
+  // confirmations.jsonl.lock 同属「进程被 kill 可短暂残留」的临时锁，不该污染 git status。
+  '.agents/confirmations.d/*.lock',
+  '.agents/confirmations.jsonl.lock',
 ];
 
 const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];
@@ -149,11 +164,13 @@ function installHooks(root, report) {
       //（实测：重跑打印 skip、commit 仍 exit 1），真修法只剩手工删钩子。
       // 只刷新「本插件装的、且 baked 的引擎脚本已不存在」的那一类；不是本插件装的钩子
       // 保持"不覆盖用户钩子"的语义不变。
-      // 自装判据（2026-11-05 迁移修复）：首版用 p.startsWith(PLUGIN_ROOT) 判自装——那是拿
-      // **当前**插件根当锚，宿主缓存整体搬家后 baked 的是旧安装根路径，前缀恒 false → 旧钩子
-      // 被误判成第三方 skip，"重跑 init-engine"仍是 no-op。改判「路径形态属于本插件」：resolve
-      // 后含本插件目录名的**独立路径段**（按分隔符切分后整段相等，`…-old` 后缀目录不误命中）
-      // 且 baked 的引擎脚本已不存在 → 刷新；当前根前缀命中是其子集，一并保留。
+      // 自装判据（2026-11-05 迁移修复；2026-11 市场审查 M12 收紧）：首版用 p.startsWith(PLUGIN_ROOT)
+      // 判自装——那是拿**当前**插件根当锚，宿主缓存整体搬家后 baked 的是旧安装根路径，前缀恒
+      // false → 旧钩子被误判成第三方 skip，"重跑 init-engine"仍是 no-op。改判「路径形态属于本
+      // 插件」：resolve 后含**插件名**（PLUGIN_NAME，plugin.json 单源——版本化缓存布局下目录名
+      // 是版本号，basename 判据升版即失效，见 PLUGIN_NAME 头注）的**独立路径段**（按分隔符切分
+      // 后整段相等，`…-old` 后缀目录不误命中）且 baked 的引擎脚本已不存在 → 刷新；当前根前缀
+      // 命中是其子集，一并保留。
       let staleOwn = false;
       try {
         const cur = fs.readFileSync(target, 'utf8');
@@ -162,7 +179,7 @@ function installHooks(root, report) {
           const p = JSON.parse(baked[1]);
           staleOwn = typeof p === 'string'
             && !fs.existsSync(p)
-            && (p.startsWith(PLUGIN_ROOT) || path.resolve(p).split(/[\\/]/).includes(path.basename(PLUGIN_ROOT)));
+            && (p.startsWith(PLUGIN_ROOT) || path.resolve(p).split(/[\\/]/).includes(PLUGIN_NAME));
         }
       } catch {
         staleOwn = false; // 读不出/解析不出 → 当作别人的钩子，不动

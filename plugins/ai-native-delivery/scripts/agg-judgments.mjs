@@ -46,7 +46,7 @@ export function aggFromRows(rows, month = null) {
     if (typeof row.ts !== 'string' || !/^\d{4}-\d{2}/.test(row.ts)) continue;
     const ym = row.ts.slice(0, 7);
     if (month && ym !== month) continue;
-    const b = (byMonth[ym] ||= { runs: 0, rules: {} });
+    const b = (byMonth[ym] ||= { runs: 0, rules: Object.create(null) });
     b.runs++;
     for (const r of Array.isArray(row.rules) ? row.rules : []) {
       if (!r || typeof r.rule !== 'string') continue;
@@ -63,7 +63,7 @@ function readRowsAt(root) {
   if (!fs.existsSync(p)) return null;
   const rows = [];
   let bad = 0;
-  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
+  for (const line of fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       rows.push(JSON.parse(line));
@@ -140,7 +140,8 @@ export function mergeJudgmentRows(localRows, shardRows) {
   const months = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
   const out = [];
   for (const ym of months) {
-    const rules = {};
+    // 空原型（2026-11-09 审查收口）：规则名来自台账行，__proto__ 落普通对象即污染 Object.prototype
+    const rules = Object.create(null);
     for (const src of [a[ym], b[ym]]) {
       if (!src) continue;
       for (const [rule, cell] of Object.entries(src.rules)) {
@@ -219,11 +220,12 @@ export function monthDistance(fromYm, toYm) {
   return (y2 - y1) * 12 + (m2 - m1);
 }
 
-// nowYmOf(d)：本地日历月 YYYY-MM。退役新鲜度用本地月——与 mechanism-retire-watch.localDay 的
-// 本地日口径一致（用户感知的「这个月」是本地月），不用 UTC 月。
+// nowYmOf(d)：日历月 YYYY-MM，**UTC 基**（2026-11-09 审查收口）。数据侧 judgment-ledger.recordRun
+// 落的是 UTC ISO ts（月键 = ts.slice(0,7)），旧实现取本地月——东区月初 0-8 点时锚月与数据月错位 1，
+// 新鲜度守卫与命中归属整体偏移。两侧同基后此偏差消失。
 export function nowYmOf(d = new Date()) {
   const dt = d instanceof Date ? d : new Date(d);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  return dt.toISOString().slice(0, 7);
 }
 
 // RETIRE_STALE_MONTHS：退役判定的新鲜度半径（日历月）。锚月（最近一个有数据的月）距今超过该
