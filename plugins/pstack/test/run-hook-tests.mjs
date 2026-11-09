@@ -23,10 +23,20 @@ const ok = (name, cond) => {
   cond ? pass++ : fail++;
 };
 
-// GH Windows Runner 的 tmpdir 是 8.3 短名（C:\Users\RUNNER~1\...）——`words()` 的严格 shell
-// 白名单不含 `~`，夹具若继承该形态，contracted-script 两案会被 gate 正确地静默拒绝（tokenize
-// 早退，2026-11-09 CI trace 钉死：reject:tokenize）。先 realpath 展开短名再建夹具；闸口语义不动。
-const home = mkdtempSync(path.join(realpathSync(tmpdir()), 'pstack-hook-test-'));
+// GH Windows Runner 的 TMP 是 8.3 短名（C:\Users\RUNNER~1\...）——`words()` 的严格 shell
+// 白名单不含 `~`，夹具继承该形态会被 gate 正确地静默拒绝（2026-11-09 CI trace 钉死：
+// reject:tokenize）。基座逐级兜底：先 realpath 展开；CI 矩阵（node 18/20/22）实测仍不展开时
+// 退回仓库目录（无 `~`；套件末尾 rmSync 清理）。闸口语义不动。
+const tmpBase = (() => {
+  let b;
+  try {
+    b = realpathSync(tmpdir());
+  } catch {
+    b = tmpdir();
+  }
+  return b.includes('~') ? process.cwd() : b;
+})();
+const home = mkdtempSync(path.join(tmpBase, 'pstack-hook-test-'));
 const claudeHome = path.join(home, 'claude');
 const codexHome = path.join(home, 'codex');
 const copilotHome = path.join(home, 'copilot');
