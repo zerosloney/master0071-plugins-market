@@ -166,10 +166,10 @@ r = ptu(payload({ tool_name: 'Task', tool_input: { agent_type: 'pstack:poteto-ag
 ok('task without model: silent', r.out === '');
 
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }));
-ok('bash contracted script: allow', r.out.trim() === ALLOW);
+ok(`bash contracted script: allow${r.out.trim() === ALLOW ? '' : ` [got code=${r.code} out=${JSON.stringify(r.out.trim())} err=${JSON.stringify(String(r.err || '').slice(0, 300))}]`}`, r.out.trim() === ALLOW);
 writeFileSync(path.join(ws, 'plan.md'), '# plan\n');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }));
-ok('bash operand is an existing file in cwd: allow (resolve climbs to the parent)', r.out.trim() === ALLOW);
+ok(`bash operand is an existing file in cwd: allow (resolve climbs to the parent)${r.out.trim() === ALLOW ? '' : ` [got code=${r.code} out=${JSON.stringify(r.out.trim())} err=${JSON.stringify(String(r.err || '').slice(0, 300))}]`}`, r.out.trim() === ALLOW);
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/a; rm x` }, cwd: wsPosix }));
 ok('bash metacharacter: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/extras/poteto-mode-scripts/orch/orch.ts ${wsPosix}/x` }, cwd: wsPosix }));
