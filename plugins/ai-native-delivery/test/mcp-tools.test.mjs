@@ -630,10 +630,16 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   fs.writeFileSync(target5, '', 'utf8'); // 空文件：探测步不读末字节
   let appended5 = false;
   const stub5 = []; // 仪器：CI-only 现象定位用（命中态逐调用出账，进 check 详情）
+  // 路径比对两侧先 realpath 归一（2026-11-09 CI 收口）：生产经 resolveLedgerTarget 的
+  // realpathSync（M2 悬挂 symlink 修复）把 GH Windows 的 8.3 短名 TEMP（RUNNER~1）展开成
+  // 长名再写；测试若用 path.join 的短名字符串全等比较，桩永不调中 → 回执正常落 bytes:7 的
+  // 静默假绿（开发机无短名两形态相同，只在 CI 暴露）。realpath 两侧归一后与形态无关。
+  const norm5 = (x) => { try { return fs.realpathSync(String(x)); } catch { return String(x); } };
+  const t5real = norm5(target5);
   const realAppend = fs.appendFileSync;
-  fs.appendFileSync = (...a) => { const hit = String(a[0]) === target5; stub5.push(`app:${hit}`); if (hit) appended5 = true; return realAppend(...a); };
+  fs.appendFileSync = (...a) => { const hit = norm5(a[0]) === t5real; stub5.push(`app:${hit}`); if (hit) appended5 = true; return realAppend(...a); };
   fs.statSync = (p, ...rest) => {
-    const hit = String(p) === target5;
+    const hit = norm5(p) === t5real;
     stub5.push(`stat:${hit}:${appended5}`);
     if (hit && appended5) { const e = new Error('EACCES after append (test stub: compact/archive moved it)'); e.code = 'EACCES'; throw e; }
     return realStat(p, ...rest);
@@ -645,7 +651,7 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   fs.appendFileSync = realAppend;
   check('append 成功后回执 stat 失败 → 仍 written:true（bytesUnknown，大小未知），不报错',
     receiptErr === null && r5 && r5.written === true && r5.bytesUnknown === true,
-    JSON.stringify({ r5, err: receiptErr && receiptErr.message.slice(0, 120), stub: stub5.slice(0, 10), t5: target5, r0: root }));
+    JSON.stringify({ r5, err: receiptErr && receiptErr.message.slice(0, 120), stub: stub5.slice(0, 10), t5: target5, t5r: t5real }));
   check('append 成功后回执 stat 失败 → 数据确实落盘', fs.readFileSync(target5, 'utf8').includes('- line'), fs.readFileSync(target5, 'utf8'));
 }
 
