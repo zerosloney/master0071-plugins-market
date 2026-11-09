@@ -61,11 +61,21 @@ try {
   check('--json 可解析', parsed !== null, j.stdout);
   if (parsed) {
     check('--json 含 3 个 worktree', parsed.worktrees.length === 3, JSON.stringify(parsed.worktrees.map((w) => w.kind)));
-    const byPath = Object.fromEntries(parsed.worktrees.map((w) => [w.path.replace(/\\/g, '/'), w]));
-    const cleanRow = byPath[clean.replace(/\\/g, '/')];
-    const dirtyRow = byPath[dirty.replace(/\\/g, '/')];
+    // 路径两侧 realpathSync.native 归一（2026-11-09 CI 收口）：git worktree list 报的是真实
+    // （长名）路径，GH Windows 的 8.3 短名 TEMP（RUNNER~1）下测试变量是短名——直拼 key 查表
+    // 必 miss（detail `{}`）。native 版各 node 版本都展开 8.3，与 git 报路径同基；剥 \\?\ 前缀。
+    const norm = (x) => {
+      try {
+        return fs.realpathSync.native(String(x)).replace(/^\\\\\?\\/, '').replace(/\\/g, '/');
+      } catch {
+        return String(x).replace(/\\/g, '/');
+      }
+    };
+    const byPath = Object.fromEntries(parsed.worktrees.map((w) => [norm(w.path), w]));
+    const cleanRow = byPath[norm(clean)];
+    const dirtyRow = byPath[norm(dirty)];
     check('--json 分类正确', cleanRow && cleanRow.kind === '可清理' && dirtyRow && dirtyRow.kind === '活跃(未提交)',
-      JSON.stringify({ clean: cleanRow && cleanRow.kind, dirty: dirtyRow && dirtyRow.kind }));
+      JSON.stringify({ clean: cleanRow && cleanRow.kind, dirty: dirtyRow && dirtyRow.kind, keys: Object.keys(byPath) }));
   }
 
   // --execute：只删可清理，活跃/主区不动
