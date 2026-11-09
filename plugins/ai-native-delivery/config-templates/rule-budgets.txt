@@ -1,4 +1,4 @@
-# 常驻面体积预算（单源：check-loop.mjs 检查 16（--all，WARN；§13 体 2026-10-16 并入 §16，编号留疤）、.githooks/pre-commit（--staged，硬拦）与 CI workflow（--all）共读；判定脚本 rule-budget.mjs，2026-10-08 自 .sh 移植 node）
+# 常驻面体积预算（单源：判定脚本 rule-budget.mjs，2026-10-08 自 .sh 移植 node。执法面分形态：源仓接线为 .githooks/pre-commit（--staged，硬拦）与 CI workflow（--all）共读；插件形态钩子只跑 check-loop 不读本表，棘轮执法经 check-loop.mjs 检查 16（--all，WARN；§13 体 2026-10-16 并入 §16，编号留疤））
 # 格式：<路径或 glob> <上限字节>；路径以 / 结尾表示目录合计。上限 = 瘦身后实测 + 余量。
 # 条目数预算（2026-10-15 减重手段②）：<目录> <N>#count = 匹配文件**条数**上限（规则面一进一出：
 #   新增一条须先退役一条，退役判定 node .agents/scripts/agg-judgments.mjs --retire-candidates）。

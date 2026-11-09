@@ -19,5 +19,5 @@
     "workflow/metrics.md",
     ".agents/notes/engine-map.md"
   ],
-  "note": "一个 PR 装得下一次评审。默认 20 文件 / 800 新增行（pstack 借鉴）；删除行、二进制、lockfile、生成物免费。先 advisory 校准本仓，再按 PR_SIZE_STRICT=1 收紧。"
+  "note": "一个 PR 装得下一次评审。默认 20 文件 / 800 新增行（pstack 借鉴）；删除行、二进制、lockfile、生成物免费。先 advisory 校准本仓；超限逃生口为 PR_SIZE_OK=1（覆盖后 exit 0，须在 PR body 的 Tradeoffs 写理由）。"
 }
