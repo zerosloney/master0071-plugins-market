@@ -554,12 +554,18 @@ async function run() {
   const MAX_GATE_OUTPUT = 32 * 1024 * 1024;
   // 树杀（fail-fast 中止在跑门）：Windows 下 shell:true 起的是 cmd.exe，kill 只杀壳不杀孙进程
   // （npm→node、dotnet→vstest 会成孤儿并占住 bin 锁）——故走 taskkill /T /F 整树。
+  // POSIX 同族第二张脸（2026-11-09 CI 收口）：shell:true 起的是 sh，孤孙（sleep/挂起工具）持住
+  // stdout/stderr 管道 → 门的 'close' 永不触发 → verify 挂死到外层看门狗击杀（场景 18 在 ubuntu
+  // 的 EACCES 修复后首次暴露此形态）。故门进程 POSIX 侧 detached 起组（见 spawn 处），这里杀**整组**
+  // SIGKILL——组杀直达壳与全部孙进程，close 照常落。
   const killTree = (child) => {
     try {
       if (process.platform === 'win32' && child.pid) {
         spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      } else if (child.pid) {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       } else {
-        child.kill('SIGTERM');
+        child.kill('SIGKILL');
       }
     } catch { /* best-effort：杀不动不改变裁决 */ }
   };
@@ -610,7 +616,8 @@ async function run() {
     }
     console.log(`[verify] ▶ ${i + 1}/${gates.length} ${gate.name}...`);
     const t0 = performance.now();
-    const child = spawn(gate.cmd, { shell: true, cwd: path.join(ROOT, gate.folder) });
+    // POSIX detached：门自成进程组，killTree 的组杀才能连壳带孙一并收掉（孤孙持管道会吊死 'close'）。
+    const child = spawn(gate.cmd, { shell: true, cwd: path.join(ROOT, gate.folder), detached: process.platform !== 'win32' });
     running.set(i, child);
     // 门超时看门狗（2026-11-05，fail-closed）：到点整树杀；裁决按门红出账（finishGate 的 timedOut 分支）
     let timedOut = false;
