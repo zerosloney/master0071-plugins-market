@@ -467,5 +467,38 @@ const mkRepo = () => {
   }
 }
 
+// ---- ⑱ git force 安全变体不误拦（2026-11-09 市场审查）----
+// `--force-with-lease`（含 `=ref[:expect]` 带值形态）/ `--force-if-includes`（含 `=n`）是覆盖推送的
+// **带保护**形态（租约校验远端引用未被他人更新才推），deny 地板（git push --force）防的是
+// 「无保护覆盖他人提交」，安全变体不具该风险面——旧判据按子串前缀 / 词元前缀把它们一并拦下，
+// 属过严门禁。修复后安全变体放行（不 deny 也不 ask）；裸 --force / -f 组合形态与其余地板行为不变。
+// 值段不被吞：`--force-with-lease=main;git reset --hard` 中和后 `git reset --hard` 子串仍命中地板。
+{
+  const repo = mkRepo();
+  const safeCases = [
+    'git push --force-with-lease',
+    'git push --force-with-lease=main:abc123 origin main',
+    'git push --force-if-includes origin main',
+  ];
+  for (const command of safeCases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, repo);
+    check(`force 安全变体放行（非 deny）：${command}`,
+      decisionOf(r)?.permissionDecision !== 'deny', `stdout=${r.stdout}`);
+  }
+  const denyCases = [
+    'git push --force --force-with-lease',               // 中和后剩裸 --force → 地板仍拦
+    'git push -f origin main',
+    'git push origin main --force',
+    'git reset --hard HEAD~1',
+    'git commit --no-verify -m x',
+    'git push --force-with-lease=main;git reset --hard', // 值段不吞后续语句
+  ];
+  for (const command of denyCases) {
+    const r = run({ tool_name: 'Bash', tool_input: { command } }, repo);
+    check(`裸 force/组合形态仍被 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+  }
+  fs.rmSync(repo, { recursive: true, force: true });
+}
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

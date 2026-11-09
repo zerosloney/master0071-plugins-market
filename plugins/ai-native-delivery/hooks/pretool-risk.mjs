@@ -150,8 +150,12 @@ const tokensOf = (s) => norm(unquote(s)).split(/[\s;&|()]+/).filter(Boolean).fla
 // `git reset --har HEAD~1` 与 `--hard` 等价、`--no-veri` ≡ `--no-verify`。旧词元判据只做精确
 // 等值，缩写形态把 deny 地板整体绕过（实测多种写法静默放行）。双向前缀：
 //   - 命令侧用缩写（`--har` 对规则词 `--hard`）→ w.startsWith(t)；
-//   - 命令侧带更长后缀（`--force-with-lease` 对规则词 `--force`）→ t.startsWith(w)，
+//   - 命令侧带更长后缀（`--hard-x` 对规则词 `--hard`）→ t.startsWith(w)，
 //     与既有子串判据 c.includes(r) 的 fail-safe 方向一致。
+//     （2026-11-09 市场审查修订：此处曾以「`--force-with-lease` 命中规则词 `--force`」为该方向
+//     的例证，但 git force 安全变体已显式豁免——deny 地板防的是**无保护覆盖他人提交**，
+//     force-with-lease 自带租约保护、不具该风险面，`--force-with-lease` / `--force-if-includes`
+//     在 matchList 入口先被中和，不再经此前缀路径命中，见下方 SAFE_FORCE_RE。）
 // 前缀模糊对两侧都设长度下限（2026-11-08 设计调整）：规则词 w 与命令侧词元 t 都要求「-- 开头且
 // 长度 > 3」——裸 `--` 分隔符（len 2）与 `--x`（len 3）不参与，否则 `git reset -- file.txt` 这类
 // 日常命令会被 `--hard`.startsWith(`--`) 拉进前缀命中而误拦（实测不可接受）；git 对超短长选项
@@ -166,13 +170,25 @@ const tokenHit = (tokens, w) => {
   return false;
 };
 
+// git force 安全变体中和（2026-11-09 市场审查）：`--force-with-lease` / `--force-if-includes`
+// 是覆盖推送的**带保护**形态（租约校验远端引用未被他人更新才推），deny 地板（git push --force）
+// 防的是「无保护覆盖他人提交」，安全变体不具该风险面，显式豁免（不 deny 也不 ask）。中和只做在
+// matchList 的两条判据入口（tokensOf 本身不动——规则词解析也走它）：
+//   - 子串判据先把安全变体（含 `=值` 段）从归一化命令里剥掉；值段字符类排除空白与 `;&|()`，
+//     后续语句不被吞——`git push --force-with-lease=main;git reset --hard` 中和后仍以
+//     `git reset --hard` 命中地板；
+//   - 词元判据过滤掉安全变体形态的词元（否则 tokenHit 的 t.startsWith(w) 把 `--force-with-lease`
+//     当 `--force` 的更长前缀命中）。
+// 组合形态仍拦：`git push --force --force-with-lease` 中和后剩裸 `--force` → deny 不变。
+const SAFE_FORCE_RE = /--force-(?:with-lease|if-includes)(?:=[^\s;&|()]*)?/gi;
+const SAFE_FORCE_TOKEN = /^--force-(?:with-lease|if-includes)(?:=|$)/;
 // 规则命中：子串命中，或（规则 ≥2 个词且每个词都作为词元出现）。
 // 后者补「选项位置」差异——`git push --force` 是子串，`git push origin main --force` 不是；
 // 而后者正是最常见的 force 写法。词元判据不求相邻/顺序：代价是极少数跨语句组合会多拦一次
 // （如 `git push a; rm --force x`），方向是 fail-safe（多问一次/多拦一次），可接受。
 function matchList(command, rules) {
-  const c = norm(unquote(command));
-  const tokens = new Set(tokensOf(command));
+  const c = norm(unquote(command)).replace(SAFE_FORCE_RE, '');
+  const tokens = new Set(tokensOf(command).filter((t) => !SAFE_FORCE_TOKEN.test(t)));
   for (const rule of rules || []) {
     const r = norm(unquote(rule));
     if (!r) continue;
