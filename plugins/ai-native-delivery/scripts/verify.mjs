@@ -67,6 +67,13 @@ import { classifyFailure } from './failure-attribution.mjs';
 //（CHECK_LOOP_ROOT fixture 注入原样保留）。锚点根（脚本定位/配置读取）非 git 环境回退插件根本身
 //（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；**账本根不回退**——见 LEDGER 与 paths.mjs ledgerRoot。
 import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath, configDir, deploymentMode } from './paths.mjs';
+// 机制退役摘要数据源（retire-summary 2026-11-09，设计稿 ai-native-retire-universe 步骤 C）：
+// 判定口径零重实现——registry 定位（含种子回退链）与解析、动作评估复用 mechanism-retire-watch
+// 导出的 readRegistryText / parseRegistry / evaluate；judgments 读侧用 agg-judgments.readAllJudgments
+// （本地台账 ∪ 月度分片，即 retire-watch 内部 readJudgments 的底层单源——该包装函数未导出，
+// 故直接消费其数据源，口径一致）。
+import { evaluate as retireEvaluate, parseRegistry, readRegistryText } from './mechanism-retire-watch.mjs';
+import { readAllJudgments } from './agg-judgments.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 const LEDGER = ledgerRoot({ fixture: process.env.CHECK_LOOP_ROOT });
@@ -272,6 +279,42 @@ const readGateConfig = (root) => {
 const readGateBudget = (root, key) => {
   const v = Number(readGateConfig(root)[key]);
   return Number.isFinite(v) && v > 0 ? v : null;
+};
+
+// ---- 机制退役摘要（retire-summary 2026-11-09，设计稿 ai-native-retire-universe 步骤 C）----
+// 月度跑 verify 的项目自动看到机制级退役动作项（无需记得独立跑 mechanism-retire-watch）。
+// 纯提示语义：数据不可得 / 无动作 → 静默不出段；不红门、不 WARN、不改退出码与门判定。
+
+// retireActions(root, now)：动作项数组；registry「项目侧 → 插件种子」回退链两端皆缺（readRegistryText
+// 返 null，设计稿步骤 A 同款链）或读取/评估抛错 → null（静默信号）。导出供 verify.test 锁语义（同 gateSrc 先例）。
+export const retireActions = (root, now = new Date()) => {
+  try {
+    const reg = readRegistryText(root);
+    if (!reg) return null;
+    const registryRows = parseRegistry(reg.text);
+    return retireEvaluate(registryRows, readAllJudgments(root).rows, now).actions || [];
+  } catch { return null; } // 治理提示不是门——数据面任何破损不出段、不拦关单
+};
+
+// retireSummaryLines(actions)：动作项 → 摘要行数组（≤5 行降噪；无动作 → 无任何行）。
+// 展开白名单 = retire-watch 已知动作 kind（overdue > no-deadline > threshold > revisit/revisit-model），
+// 排序后最多 4 条、超出以「…另 N 条」收尾；名单外 kind（no-fuel 及未来新增）防御性兼容——
+// 不逐条展开，只聚合计数一行（设计稿开放问题 1「聚合降噪」落地）。导出供单测锁语义。
+const RETIRE_KIND_ORDER = ['overdue', 'no-deadline', 'threshold', 'revisit', 'revisit-model'];
+export const retireSummaryLines = (actions) => {
+  const list = Array.isArray(actions) ? actions : [];
+  if (!list.length) return [];
+  const known = list.filter((a) => a && RETIRE_KIND_ORDER.includes(a.kind))
+    .sort((a, b) => RETIRE_KIND_ORDER.indexOf(a.kind) - RETIRE_KIND_ORDER.indexOf(b.kind)); // 稳定排序：同 kind 保持 evaluate 原序
+  const lines = [`🪦 机制退役摘要（动作项 ${list.length} 条——处置人放行；详单 node <插件根>/scripts/mechanism-retire-watch.mjs）`];
+  const shown = known.slice(0, 4);
+  shown.forEach((a, i) => {
+    const cut = i === shown.length - 1 && known.length > 4 ? `（…另 ${known.length - 4} 条）` : '';
+    lines.push(`- [${a.kind}] ${a.name}${cut}`);
+  });
+  const other = list.length - known.length;
+  if (other > 0) lines.push(`另 no-fuel 判据无燃料 ${other} 条：node <插件根>/scripts/mechanism-retire-watch.mjs 详查`);
+  return lines;
 };
 
 const recordFailure = (step, exitInfo, note, attribution) => {
@@ -876,6 +919,9 @@ async function run() {
       }
     }
   }
+  // 机制退役摘要（retire-summary 2026-11-09 步骤 C）：纯提示附在输出尾部——workflow-metrics 所在
+  // 门段的执行尾；数据不可得 / 无动作 → 无行（静默）。不改变裁决与退出码。
+  for (const line of retireSummaryLines(retireActions(ROOT))) console.log(`[verify] ${line}`);
   if (engineOnly) {
     console.log(`\n[verify] ✅ 引擎段 ${passedCount} 门全绿——增量门通过（非 20 门关单凭证，不落 all-gates 台账与摘要）`);
   } else {

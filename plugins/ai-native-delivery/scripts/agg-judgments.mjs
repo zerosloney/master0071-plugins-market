@@ -12,6 +12,9 @@
 //     --retire-candidates 读「本地台账 ∪ 分片」——换机/换树不再归零，退役判据才有燃料。
 // 消费：mechanism-registry 月度对账（「触发统计口径」列的 WARN/BLOCK 计数）与 advisory→hard
 //     升格 / 退役判定的直接查账面——替代原「人工 grep check-loop 输出」。
+// 双筛分工（2026-11-09 设计稿 ai-native-retire-universe 步骤 D 成文）：本脚本的退役筛是**规则级**
+//     （universe = judgments 账内出现过的规则）；**机制级**筛（universe = 登记表全部现役行、含零命中
+//     机制）在 mechanism-retire-watch——两筛窗口口径同款（日历窗 + 双守卫，注释互指如上）。
 // --retire-candidates（2026-10-15 减重手段①，规则的死亡机制）：列出「连续 N 个日历月零命中
 //     （WARN+BLOCK 全为 0）」的规则作为退役候选——月度对账时按 mechanism-registry「退役判据」列
 //     逐条裁决（安全主干/级别闭环主干等「不退役」行除外；「且 X 停滞」类附加条件由人判）。
@@ -21,6 +24,9 @@
 //     观测史守卫（首数据月晚于窗口起点 = 年轻遥测不满窗，数据不充分不产候选）。
 //     此前本侧取「末 N 个有数据的月」、retire-watch 取「日历窗+缺月拒判」，同一句「连续 N 月 = 0」
 //     同数据两种结论（双口径漂移），本次统一为日历窗口语义。
+//     universe 口径（2026-11-09 步骤 D 成文）：本筛是**规则级**筛——universe = judgments 账内出现过的
+//     规则（零命中规则不入账、不入 universe）；登记表全集（含零命中机制）的**机制级**筛用
+//     mechanism-retire-watch——勿把本筛当全集来源再误判盲区。
 // 测试：node <插件根>/test/agg-judgments.test.mjs（纯函数 aggFromRows / retireCandidates 进程内断言）
 import fs from 'node:fs';
 import path from 'node:path';

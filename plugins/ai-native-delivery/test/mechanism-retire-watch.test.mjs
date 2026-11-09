@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 // mechanism-retire-watch.test.mjs — 1b 机制退役催办纯函数套件（2026-10-14 L5 自举接线 1b）
 // parseRegistry / ruleNamesOf / zeroMonthsOf / evaluate 进程内断言。
-import { parseRegistry, ruleNamesOf, zeroMonthsOf, evaluate, statusOf, tagOf, STATUSES } from '../scripts/mechanism-retire-watch.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { parseRegistry, ruleNamesOf, zeroMonthsOf, evaluate, statusOf, tagOf, STATUSES, registryCandidates, readRegistryText, srcOf } from '../scripts/mechanism-retire-watch.mjs';
 import { mergeJudgmentRows, retireCandidates } from '../scripts/agg-judgments.mjs'; // S16 两侧对账断言
+
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CLI = path.join(TEST_DIR, '..', 'scripts', 'mechanism-retire-watch.mjs');
 
 let pass = 0;
 let fail = 0;
@@ -249,6 +257,77 @@ check('S8 null judgments 不 throw', evaluate([], null, new Date()).actions.leng
   check('S16 对账：evaluate 触达（threshold）且 agg 判候选——两侧同结论',
     r.actions.length === 1 && r.actions[0].kind === 'threshold' && rc.sufficient === true && rc.candidates.some((c) => c.rule === '规则甲'),
     JSON.stringify({ actions: r.actions, rc: { from: rc.windowFrom, to: rc.windowTo, candidates: rc.candidates } }));
+}
+
+// ---- S17b CLI 端到端（2026-11 F4 步骤 A 种子兜底）：无项目侧表 → 读插件种子出报告 ----
+// 修复前只认项目侧 .agents/config/mechanism-registry.md 硬路径：插件仓/未初始化装户实跑
+// 直接 [ERROR] 台账不存在（exit 0 假绿），机制级退役筛静默失效。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'retire-watch-cli-'));
+  const r = spawnSync(process.execPath, [CLI, '--json', '--root', tmp], { encoding: 'utf8' });
+  let j = null;
+  try { j = JSON.parse(r.stdout); } catch { /* 解析失败保持 null，走 FAIL 分支 */ }
+  check('S17b 无项目侧表 → CLI 不再 registry-missing（读种子出全量报告）',
+    r.status === 0 && j !== null && !j.error && j.registryRows > 0,
+    `exit=${r.status} stdout=${(r.stdout || '').slice(0, 200)} stderr=${(r.stderr || '').slice(0, 200)}`);
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// ---- S17 registry 回退链 helper（2026-11 F4 步骤 A）：候选序 + 项目侧自治优先 ----
+// s22-registry.mjs（检查 22）同样消费 registryCandidates 单源定位——本节是两侧共用的定位正证。
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'retire-watch-reg-'));
+  const cands = registryCandidates(tmp);
+  check('S17 候选链序：项目侧在前、插件种子在后',
+    cands.length === 2 && !/config-templates/.test(cands[0]) && /config-templates/.test(cands[1]),
+    JSON.stringify(cands));
+  // 无项目侧表 → 种子兜底（from=seed）
+  const fb = readRegistryText(tmp);
+  check('S17 项目侧缺表 → 读插件种子（from=seed，可解析出数据行）',
+    fb !== null && fb.from === 'seed' && parseRegistry(fb.text).length > 0,
+    JSON.stringify(fb && { from: fb.from, rows: parseRegistry(fb.text).length }));
+  // 项目侧在场 → 项目侧自治（init 首拷后装户改行不受种子升版侵蚀；设计稿开放问题 2 的自治语义）
+  fs.mkdirSync(path.join(tmp, '.agents', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, '.agents', 'config', 'mechanism-registry.md'),
+    '| 甲门 | check-loop §1 | 「甲规则」计数 | 连续 2 月 = 0 | 2026-10 | 现役 | — |\n');
+  const proj = readRegistryText(tmp);
+  check('S17 项目侧在场 → 项目侧优先（from=project，不读种子）',
+    proj !== null && proj.from === 'project' && parseRegistry(proj.text).length === 1,
+    JSON.stringify(proj && { from: proj.from, rows: parseRegistry(proj.text).length }));
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// ---- S18 口径列证据源声明（2026-11 F4 步骤 B @src 语法）----
+// 无 @src 尾缀 = judgments（既有行为零变化，S1–S17 全量回归钉住）；仅实现 @src:none；
+// 其余已声明源（gate-metrics/verify）读取器未实现 → notAuto 写明理由，防静默当 judgments 处理。
+{
+  const now = new Date('2026-10-14T00:00:00Z');
+  // @src:none → 专属 no-fuel 动作（不查 judgments、不进 notAuto 桶；kind 可过滤——B3 降噪契约：
+  // verify 摘要侧只按 kind 计数不展开，本侧保证 actions[].kind === 'no-fuel' 可筛）
+  const none = evaluate(
+    [{ name: 'PR 体积预算', criterion: '超限 PR 计数（月） @src:none', threshold: '连续 6 月 0 超限 → 评估退役', status: '现役', deadline: '—' }],
+    [], now);
+  check('S18 @src:none → 专属 no-fuel 动作（judgments 为空也产，不查遥测）',
+    none.actions.length === 1 && none.actions[0].kind === 'no-fuel' && none.actions[0].name === 'PR 体积预算',
+    JSON.stringify(none.actions));
+  check('S18 no-fuel detail 固定文案（接遥测或 owner 复评改判据 + @src:none 声明标注）',
+    none.actions.length === 1 && /判据无遥测燃料/.test(none.actions[0].detail) && /@src:none/.test(none.actions[0].detail),
+    none.actions[0] && none.actions[0].detail);
+  check('S18 no-fuel 与 notAuto 分桶（不再「未列规则名/数据不足」糊一桶）',
+    none.actions.length === 1 && none.notAuto.length === 0, JSON.stringify(none.notAuto));
+  // 已声明未实现的读取器 → notAuto 带理由（不产动作、不当 judgments 判）
+  const unimpl = evaluate(
+    [{ name: '乙门', criterion: 'WARN「乙规则」计数 @src:gate-metrics', threshold: '连续 2 月 = 0', status: '现役', deadline: '—' }],
+    [], now);
+  check('S18 @src:gate-metrics → notAuto「读取器未实现」（零动作，防静默当 judgments）',
+    unimpl.actions.length === 0 && unimpl.notAuto.some((x) => x.name === '乙门' && /@src:gate-metrics/.test(x.reason) && /读取器未实现/.test(x.reason)),
+    JSON.stringify(unimpl));
+  // srcOf 单元：默认 judgments；尾缀解析并剥离（body 供后续规则名抽取不带声明尾缀）
+  check('S18 srcOf 无尾缀 → judgments（默认零变化）', srcOf('WARN「甲规则」计数（月）').src === 'judgments');
+  check('S18 srcOf 尾缀解析并剥离 body', (() => {
+    const r = srcOf('超限 PR 计数（月） @src:none');
+    return r.src === 'none' && r.body === '超限 PR 计数（月）';
+  })());
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

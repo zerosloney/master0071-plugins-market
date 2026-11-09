@@ -70,6 +70,14 @@ const snapDiff = (a, b) => {
   const r1 = initEngine(root);
   check('首跑有新建项', r1.created.length > 0, JSON.stringify(r1.created));
   check('首跑种子 .agents/config/engine.json', r1.created.some((c) => c === '.agents/config/engine.json'), JSON.stringify(r1.created));
+  // 机制台账首拷（2026-11 F4 步骤 A3）：mechanism-registry.md 随 config-templates 全量种子落
+  // .agents/config/——init 首拷一次、之后项目自治（改行不受种子升版侵蚀），retire-watch / 检查 22
+  // 的种子回退链（registryCandidates）只在装户未跑 init 时兜底。
+  check('首跑种子 .agents/config/mechanism-registry.md（机制台账首拷）',
+    r1.created.includes('.agents/config/mechanism-registry.md'), JSON.stringify(r1.created));
+  check('首拷内容 = 插件种子原文（装户侧从种子起步）',
+    fs.readFileSync(path.join(root, '.agents', 'config', 'mechanism-registry.md'), 'utf8')
+      === fs.readFileSync(path.join(PLUGIN_ROOT, 'config-templates', 'mechanism-registry.md'), 'utf8'));
   check('首跑种子 .agents/settings.json', r1.created.includes('.agents/settings.json'));
   check('首跑建确认主账与分片目录', r1.created.includes('.agents/confirmations.jsonl') && r1.created.includes('.agents/confirmations.d/'));
   check('首跑建 workflow 八子目录与 INDEX', r1.created.includes('workflow/INDEX.md') && r1.created.includes('workflow/archive/'));
@@ -85,6 +93,9 @@ const snapDiff = (a, b) => {
   const r2 = initEngine(root);
   const snap2 = snapshot(root);
   check('二跑零新建', r2.created.length === 0, JSON.stringify(r2.created));
+  check('二跑 mechanism-registry.md 零新建（首拷幂等）',
+    !r2.created.some((c) => c.includes('mechanism-registry')) && r2.skipped.some((c) => c.includes('mechanism-registry')),
+    JSON.stringify({ created: r2.created, skipped: r2.skipped.filter((c) => c.includes('mechanism-registry')) }));
   const diffs = snapDiff(snap1, snap2);
   check('二跑目录快照零改动（幂等）', diffs.length === 0, diffs.join(', '));
   fs.rmSync(root, { recursive: true, force: true });
@@ -278,6 +289,20 @@ const snapDiff = (a, b) => {
   const r = spawnSync(process.execPath, [pre], { encoding: 'utf8' });
   check('⑨ 钩子 fail-closed：exit 1 + 指引在 stderr', r.status === 1 && /无法启动闭环扫描/.test(r.stderr), `status=${r.status} stderr=${(r.stderr || '').slice(0, 200)}`);
   check('⑨ stderr 无 MODULE_NOT_FOUND 栈噪音', !/MODULE_NOT_FOUND|Cannot find module/.test(r.stderr || ''), (r.stderr || '').slice(0, 200));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑩ 机制台账项目自治（2026-11 F4 步骤 A3）：项目侧已存在 registry → 不覆盖（与 engine.json 同口径）----
+// init 只首拷一次；装户在种子上改的行（状态/最近触发/处置期限）不受插件升版侵蚀——这正是
+// retire-watch / 检查 22 回退链「项目侧优先、种子仅兜底」的自治语义（设计稿开放问题 2 推荐语义）。
+{
+  const root = mkRepo();
+  fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+  const custom = path.join(root, '.agents', 'config', 'mechanism-registry.md');
+  fs.writeFileSync(custom, '# 项目自治台账（不覆盖实证）\n', 'utf8');
+  const r = initEngine(root);
+  check('⑩ 项目侧已存在 mechanism-registry.md 不覆盖', fs.readFileSync(custom, 'utf8').includes('项目自治台账'));
+  check('⑩ 已存在 registry 列入 skipped 清单', r.skipped.some((s) => s.includes('mechanism-registry')), JSON.stringify(r.skipped));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

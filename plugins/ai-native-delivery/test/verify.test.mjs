@@ -951,6 +951,94 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   try { fs.rmSync(slowDir, { recursive: true, force: true }); } catch { /* 同上 */ }
 }
 
+// ---- 场景 19：机制退役摘要（retire-summary 2026-11-09，设计稿 ai-native-retire-universe 步骤 C）----
+// verify 尾部附 mechanism-retire-watch 动作项摘要（纯提示——不改裁决、不改退出码）：
+//   ① 夹具登记表行（.agents/config/mechanism-registry.md）+ judgments 数据月使 evaluate 产
+//      threshold 动作 → 输出含摘要标题与该行动作行；
+//   ② 登记表在场但 judgments 无数据月（无动作）→ 不出段（治理提示不是门，静默）。
+// 月份相对运行时刻构造（锚 = 上月）：新鲜度守卫（锚距今 ≤ 2 月）与观测史守卫（首数据月早于
+// 窗口起点）恒满足，断言不随日历漂移；命中月由 warm 规则制造，cold 规则窗口内恒零命中。
+{
+  const ymShift = (base, k) => {
+    const [y, m] = base.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + k, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const nowYm = new Date().toISOString().slice(0, 7);
+  const anchor = ymShift(nowYm, -1);   // 末数据月（锚）
+  const first = ymShift(anchor, -3);   // 首数据月——早于 3 月窗起点（anchor-2），观测史守卫不触发
+  const registry = [
+    '| 机制 | 门禁位置 | 触发统计口径 | 退役阈值 | 最近触发 | 状态 | 处置期限 |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    '| e2e冷机制 | verify | 「retire-e2e-cold」 | 连续 3 月 = 0 | — | 现役 | — |',
+  ].join('\n');
+  const jline = (ym) => JSON.stringify({ ts: `${ym}-01T00:00:00.000Z`, mode: 'monthly', rules: [{ rule: 'retire-e2e-warm', level: 'WARN', count: 1 }] });
+
+  const root = mkfix();
+  fs.writeFileSync(path.join(root, '.agents', 'config', 'mechanism-registry.md'), registry, 'utf8');
+  fs.writeFileSync(path.join(root, '.agents', 'judgments.jsonl'), `${jline(first)}\n${jline(anchor)}\n`, 'utf8');
+  const r = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  check('场景 19：threshold 动作 → 尾部出摘要标题且 exit 0 不变（纯提示不改裁决）',
+    r.status === 0 && r.stdout.includes('机制退役摘要'), `exit=${r.status}\n${r.stdout}\n${r.stderr}`);
+  check('场景 19：摘要含该机制的动作行（[threshold] + 机制名）',
+    r.stdout.includes('- [threshold] e2e冷机制'), r.stdout.split('机制退役摘要')[1] || '');
+  fs.rmSync(root, { recursive: true, force: true });
+
+  const root2 = mkfix();
+  fs.writeFileSync(path.join(root2, '.agents', 'config', 'mechanism-registry.md'), registry, 'utf8');
+  const r2 = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root2 } });
+  check('场景 19：登记表在场但 judgments 无数据月（无动作）→ 不出摘要段',
+    r2.status === 0 && !r2.stdout.includes('机制退役摘要'), `exit=${r2.status}\n${r2.stdout}\n${r2.stderr}`);
+  fs.rmSync(root2, { recursive: true, force: true });
+
+  // ③ no-fuel（@src:none，kind 由另一单元 F4 步骤 B 落地）→ 只聚合计数一行，不逐条展开（开放问题 1 落地）。
+  const root3 = mkfix();
+  fs.writeFileSync(path.join(root3, '.agents', 'config', 'mechanism-registry.md'), [
+    '| 机制 | 门禁位置 | 触发统计口径 | 退役阈值 | 最近触发 | 状态 | 处置期限 |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    '| e2e无燃料机制 | verify | 超限计数（月） @src:none | 连续 3 月 = 0 | — | 现役 | — |',
+  ].join('\n'), 'utf8');
+  const r3 = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root3 } });
+  check('场景 19：no-fuel（@src:none）→ 摘要只计一行数、机制名不逐条展开',
+    r3.status === 0 && r3.stdout.includes('机制退役摘要') && r3.stdout.includes('另 no-fuel 判据无燃料 1 条')
+      && !r3.stdout.includes('- [no-fuel] e2e无燃料机制'),
+    `exit=${r3.status}\n${r3.stdout.split('机制退役摘要')[1] || ''}\n${r3.stderr}`);
+  fs.rmSync(root3, { recursive: true, force: true });
+}
+
+// ---- 场景 20：retireSummaryLines 纯函数（优先级排序 / 截断 / 未知 kind 聚合 / 空不出行）----
+// no-fuel 动作 kind 由另一单元（mechanism-retire-watch 种子回退批）落地；此处以同名 kind 的假动作
+// 锁「名单外 kind 不逐条展开、只聚合计数一行」的防御面（设计稿开放问题 1「聚合降噪」的落地）。
+{
+  const { retireSummaryLines } = await import('../scripts/verify.mjs');
+  const prio = [
+    { kind: 'revisit', name: 'R1', detail: '' },
+    { kind: 'threshold', name: 'T1', detail: '' },
+    { kind: 'overdue', name: 'O1', detail: '' },
+    { kind: 'no-deadline', name: 'N1', detail: '' },
+  ];
+  const lines = retireSummaryLines(prio);
+  check('场景 20：优先级排序 overdue > no-deadline > threshold > revisit',
+    lines[1].includes('[overdue] O1') && lines[2].includes('[no-deadline] N1')
+    && lines[3].includes('[threshold] T1') && lines[4].includes('[revisit] R1'),
+    JSON.stringify(lines));
+  const many = ['A', 'B', 'C', 'D', 'E', 'F'].map((n) => ({ kind: 'revisit', name: n, detail: '' }));
+  const trunc = retireSummaryLines(many);
+  check('场景 20：最多 4 条动作行，超出以「…另 N 条」收尾',
+    trunc.length === 5 && trunc[4].includes('[revisit] D') && trunc[4].includes('…另 2 条'),
+    JSON.stringify(trunc));
+  const nf = retireSummaryLines([{ kind: 'threshold', name: 'T1', detail: '' }, { kind: 'no-fuel', name: 'F1' }, { kind: 'no-fuel', name: 'F2' }]);
+  check('场景 20：no-fuel（名单外 kind）只聚合计数一行、不逐条展开',
+    nf.length === 3 && nf[1].includes('[threshold] T1') && nf[2].includes('另 no-fuel 判据无燃料 2 条'),
+    JSON.stringify(nf));
+  check('场景 20：纯 no-fuel（无白名单动作）→ 标题 + 计数行',
+    retireSummaryLines([{ kind: 'no-fuel', name: 'F1' }]).some((l) => l.includes('机制退役摘要'))
+      && retireSummaryLines([{ kind: 'no-fuel', name: 'F1' }]).some((l) => l.includes('另 no-fuel 判据无燃料 1 条')),
+    JSON.stringify(retireSummaryLines([{ kind: 'no-fuel', name: 'F1' }])));
+  check('场景 20：空 / 非数组 actions → 无任何行（不出段）',
+    retireSummaryLines([]).length === 0 && retireSummaryLines(null).length === 0);
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

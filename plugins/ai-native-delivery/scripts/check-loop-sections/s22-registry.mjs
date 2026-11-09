@@ -1,7 +1,7 @@
 // check-loop-sections/s22-registry.mjs — 22. 机制使用量台账（mechanism-registry；复杂度棘轮的出口）---
 // （2026-10-10 收敛系列 4b 自 check-loop.mjs 原位切出，段体逐字未改；基础设施由 kit 供给。）
 import {
-  fs, os, path, spawnSync, createHash, createRequire, fileURLToPath,
+  fs, os, spawnSync, createHash, createRequire, fileURLToPath,
   loadEnums, runCheck16, auditEnabled, loadKitPolicy, hasFreshVerifyLine, laneOfDoc, MARK_RE, approvedTraceIndex,
   SCRIPT_DIR, GIT, REV_ARG, REV, ROOT, ENUMS, inSet, stOkDoc,
   spawnGit, gitOut, linesOf, fmGet, WF, DOC_DIRS, blockers, warnings, kitPolicy, isTracked, docFiles,
@@ -12,7 +12,8 @@ import {
 //   标记不参与状态判定。此前本段自带一套内联解析、与 gen-engine-map / mechanism-retire-watch
 //   各自按精确字符串比对状态列——标记一上线三处同时失配（本段产出 35 条纯噪声）。现统一
 //   消费 mechanism-retire-watch 的 statusOf + STATUSES，结构上消除第二套解析。
-import { STATUSES, statusOf } from '../mechanism-retire-watch.mjs';
+// registry 定位同样单源（2026-11 F4 步骤 A）：registryCandidates 回退链见 mechanism-retire-watch.mjs。
+import { STATUSES, statusOf, registryCandidates } from '../mechanism-retire-watch.mjs';
 
 export function run() {
 // --- 22. 机制使用量台账（mechanism-registry；复杂度棘轮的出口）---
@@ -26,8 +27,12 @@ export function run() {
 // 体量（2026-10-23 棘轮）：单行 > 800B WARN——流水账全塞「最近触发」列会把台账撑成史书，细节留 git 史；
 // 总量另由 rule-budgets.txt 的预算行硬拦（超限须先压缩/外迁再提交）。
 {
-  const regPath = path.join(ROOT, '.agents', 'config', 'mechanism-registry.md');
-  if (fs.existsSync(regPath)) {
+  // registry 定位回退链（2026-11 F4 步骤 A，单源 mechanism-retire-watch.registryCandidates——模式同
+  // rule-budget.mjs readBudgets「项目侧 → 插件种子」）：项目侧 .agents/config/mechanism-registry.md
+  // 在场优先（装户自治）；缺表回退插件种子（种子 49 行格式干净 → 零告警，不制造一次性噪声）。
+  // 修复前缺失即整体跳过——检查 22 对未初始化装户恒静默，台账格式防线形同虚设。
+  const regPath = registryCandidates(ROOT).find((p) => fs.existsSync(p));
+  if (regPath) {
     const dataRows = (linesOf(regPath) || [])
       .filter((l) => /^\|/.test(l))
       .filter((l) => !/^\|[\s:|-]+\|?\s*$/.test(l))          // 分隔行

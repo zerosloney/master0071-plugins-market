@@ -3318,6 +3318,17 @@ SCEN(async () => {
     r.status === 0 && outOf(r).includes('单行') && outOf(r).includes('> 800B') && !outOf(r).includes('正常机制'),
     outOf(r));
   rmfix(T6);
+
+  // 种子兜底（2026-11 F4 步骤 A，定位回退链同款 mechanism-retire-watch S17）：项目侧缺表 →
+  // 检查 22 回退链走插件种子 config-templates/mechanism-registry.md（种子 49 行格式干净 →
+  // 零告警：不报缺失、不因兜底制造一次性噪声）。「确实读到了种子」的正证由
+  // mechanism-retire-watch.test.mjs S17/S17b（helper 单源 + CLI 端到端）锁——端到端输出对
+  // 「跳过 vs 读干净种子」不变，故本夹具断言的是该不变式（种子兜底零噪声）。
+  const T7 = mkfix(); // 不写 .agents/config/mechanism-registry.md
+  r = run(T7);
+  check('检查22 项目侧缺表 → 种子兜底执法零噪声（种子格式干净，装户无感）',
+    r.status === 0 && !outOf(r).includes('机制台账'), outOf(r));
+  rmfix(T7);
 });
 
 // ---- 检查 23：判据级收敛对账（2026-10-11 convergence-audit；锚 convergenceSince）----

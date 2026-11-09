@@ -4,7 +4,8 @@
 //   自动化的是**感知/排序**（谁触达了阈值），处置仍人放行（改状态/删代码走人 + 一进一出）。
 // 口径单源：.agents/config/mechanism-registry.md 列序（机制|门禁位置|触发统计口径|退役阈值|最近触发|状态|处置期限）
 //   与判定流水（本地 .agents/judgments.jsonl ∪ 入库分片 workflow/gate-metrics.d/*.jsonl，
-//   gate-metrics-shard 2026-10-22——换机/换 worktree 不再归零）。
+//   gate-metrics-shard 2026-10-22——换机/换 worktree 不再归零）。registry 读取带回退链（2026-11
+//   F4 步骤 A）：项目侧 → 插件种子 config-templates/mechanism-registry.md（见 registryCandidates）。
 // 判定（确定性，无 LLM）：
 //   ① 现役行 + 阈值形态「连续 N 月 = 0」+ 口径列含「规则名」→ 以有数据的末月为**锚**取 N 个日历月
 //     窗口（含无数据月按零命中计——2026-11 与 agg-judgments.retireCandidates 统一口径，注释互指：
@@ -15,6 +16,11 @@
 //   ③ 其余阈值形态（不退役主干 / 使用率型 / 数据源型）→ 非自动可判，仅计数，交人工月判。
 //   ④ 现役行 + 处置期限列含「复评 YYYY-MM-DD」且已过 → 动作项（owner-fiat 复评到期，2026-10-21 W5 惯例：
 //     owner 裁决型退役/降档自带回头看闹钟——到期重评现口径，维持/恢复/调整由 owner 一句话定）。
+//   ⑤ 现役行 + 口径列尾缀「@src:none」（2026-11 F4 步骤 B 证据源声明语法）→ 不查 judgments，产
+//     kind:no-fuel 动作（判据无遥测燃料——接遥测或 owner 复评改判据），与 notAuto「无法自动判」分桶：
+//     notAuto 是「判不了交人工」，no-fuel 是「明确没燃料，月度对账显式催办」。降噪取舍（设计稿开放
+//     问题 1）：evaluate 全量返回、本 CLI 全量打印（月度对账低频），verify 摘要侧只按 kind 计数不展开。
+//     其余已声明源（@src:gate-metrics / @src:verify）读取器未实现 → notAuto 写明理由，不静默当 judgments。
 // 退出码恒 0（催办报告不该阻断调度器；测量失败打 [ERROR] 行）。
 // 用法：node <插件根>/scripts/mechanism-retire-watch.mjs [--json] [--root <仓库根>] [--now <ISO 日期>]
 // 测试：node <插件根>/test/mechanism-retire-watch.test.mjs（纯函数 evaluate 进程内断言）
@@ -22,7 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { aggFromRows, readAllJudgments, calendarWindow, monthDistance, nowYmOf, RETIRE_STALE_MONTHS } from './agg-judgments.mjs';
-import { findProjectRoot, projectRoot } from './paths.mjs';
+import { findProjectRoot, projectRoot, PLUGIN_ROOT, PLUGIN_CONFIG_TEMPLATES_DIR } from './paths.mjs';
 
 // calendarWindow（2026-11 退役口径统一迁至 agg-judgments.mjs 单源，两侧共用同一窗口构造）；
 // 此处转出维持既有导出面（历史消费者 / 测试可能经本模块引用）。
@@ -59,6 +65,27 @@ export const MODEL_AGE_GROUP = {
 };
 
 const REGISTRY_REL = path.join('.agents', 'config', 'mechanism-registry.md');
+
+// registry 读取回退链（2026-11 F4 步骤 A 种子兜底；模式复用 rule-budget.mjs readBudgets 的
+// 「项目侧 → 插件种子」两段与注释风格）：项目侧 .agents/config/mechanism-registry.md（init 首拷后
+// 装户自治——改行不受种子升版侵蚀）→ 插件种子 config-templates/mechanism-registry.md（装户未
+// 初始化/未手工落表时兜底）。修复前只认项目侧硬路径：插件仓实跑直接 [ERROR] 台账不存在
+//（exit 0 假绿），机制级退役筛静默失效。两级都缺 readRegistryText 返 null（调用方 fail-loud 保留）。
+export function registryCandidates(root) {
+  return [
+    path.join(root, REGISTRY_REL),
+    path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'mechanism-registry.md'),
+  ];
+}
+export function readRegistryText(root) {
+  const cands = registryCandidates(root);
+  for (let i = 0; i < cands.length; i++) {
+    try {
+      return { path: cands[i], text: fs.readFileSync(cands[i], 'utf8'), from: i === 0 ? 'project' : 'seed' };
+    } catch { /* 落到下一级（缺文件不中断，与「缺失即跳过」惯例同语义） */ }
+  }
+  return null;
+}
 
 // STATUSES：状态列闭集（判定与格式校验的唯一取值来源）。
 export const STATUSES = ['现役', '待退役', '已退役'];
@@ -106,6 +133,17 @@ export function ruleNamesOf(criterion) {
     }
   }
   return names;
+}
+
+// srcOf(criterion)：口径列尾缀证据源声明解析（2026-11 F4 步骤 B @src 语法：`规则 A、规则 B @src:judgments`）。
+//   无 @src 尾缀 → { src:'judgments', body:原文 }——既有行解析结果与旧口径一致（零成本向后兼容）；
+//   「… @src:none」尾缀 → { src:'none', body:剥尾缀后的口径 }（显式声明判据无遥测来源）。
+//   body 剥离声明尾缀供 ruleNamesOf 继续抽「」规则名；@src 值自身不含「」，ruleNamesOf(原文) 亦不受染。
+export function srcOf(criterion) {
+  const s = String(criterion);
+  const m = s.match(/\s+@src:([^\s@]+)\s*$/);
+  if (!m) return { src: 'judgments', body: s };
+  return { src: m[1], body: s.slice(0, m.index).trim() };
 }
 
 // zeroMonthsOf(threshold)：阈值形态「连续 N 月 = 0」→ N；否则 null（非自动可判）。
@@ -162,6 +200,22 @@ export function evaluate(registryRows, judgmentRows, now = new Date(), { modelBa
         });
       }
     }
+    // ⑥ 证据源声明（2026-11 F4 步骤 B，口径列尾缀 @src 语法，默认 judgments 行为零变化）：
+    //   @src:none = 显式声明判据无遥测来源——不查 judgments，产专属 no-fuel 动作并与 notAuto 分桶
+    //   （notAuto 是「判不了交人工月判」，no-fuel 是「明确没燃料，月度对账显式催办」，替代该行
+    //   在判据面的「永不出现」）；降噪取舍（设计稿开放问题 1）：evaluate 全量返回、CLI 全量打印
+    //   （月度对账低频），verify 摘要侧只按 kind:'no-fuel' 计数不展开——此处保证 kind 可过滤。
+    //   其余已声明源（gate-metrics/verify）读取器未实现 → notAuto 写明理由，防静默当 judgments 处理
+    //   （否则 @src 声明形同虚设，声明行会被无声地按 judgments 判零命中）。
+    const { src } = srcOf(r.criterion);
+    if (src === 'none') {
+      actions.push({ kind: 'no-fuel', name: r.name, detail: '判据无遥测燃料——接遥测或 owner 复评改判据（@src:none 显式声明）' });
+      continue;
+    }
+    if (src !== 'judgments') {
+      notAuto.push({ name: r.name, reason: `证据源 @src:${src} 已声明、读取器未实现——本轮不自动判（防静默当 judgments 处理）` });
+      continue;
+    }
     const n = zeroMonthsOf(r.threshold);
     const rules = ruleNamesOf(r.criterion);
     if (n === null) { notAuto.push({ name: r.name, reason: '阈值形态非「连续 N 月 = 0」' }); continue; }
@@ -208,13 +262,13 @@ function readJudgments(root) {
 }
 
 function main() {
-  const regPath = path.join(ROOT, REGISTRY_REL);
-  if (!fs.existsSync(regPath)) {
-    console.error(`[ERROR] mechanism-retire-watch: 台账不存在 ${REGISTRY_REL}`);
+  const reg = readRegistryText(ROOT);
+  if (!reg) {
+    console.error(`[ERROR] mechanism-retire-watch: 台账不存在 ${REGISTRY_REL}（项目侧与插件种子均缺）`);
     if (asJson) console.log(JSON.stringify({ error: 'registry-missing', actions: [] }, null, 2));
     process.exit(0);
   }
-  const registryRows = parseRegistry(fs.readFileSync(regPath, 'utf8'));
+  const registryRows = parseRegistry(reg.text);
   const { rows: judgmentRows, missing } = readJudgments(ROOT);
 
   // 读取 engine.json 的 modelBaseline（模型代际基线），与 --model / MODEL_FAMILY 比较以触发代际重评。
@@ -233,7 +287,9 @@ function main() {
 
   console.log(`# 机制退役催办（${NOW.toISOString()}）`);
   console.log('');
-  console.log(`台账 ${REGISTRY_REL}｜机制行 ${registryRows.length}｜judgments 月数 ${monthCount}${missing ? '（台账缺失——尚无运行记录）' : ''}`);
+  // 台账来源如实标注：读种子时点名（装户该知道首拷/落表前看的是插件种子——源仓历史日期随种子分发，见设计稿步骤 A 风险注）
+  const regLabel = reg.from === 'project' ? REGISTRY_REL : `插件种子 ${path.relative(PLUGIN_ROOT, reg.path).split(path.sep).join('/')}`;
+  console.log(`台账 ${regLabel}｜机制行 ${registryRows.length}｜judgments 月数 ${monthCount}${missing ? '（台账缺失——尚无运行记录）' : ''}`);
   console.log('');
   if (!actions.length) {
     console.log('✅ 无阈值触达 / 无逾期——本轮无动作项。');
