@@ -26,7 +26,8 @@ const ok = (name, cond) => {
 // GH Windows Runner 的 TMP 是 8.3 短名（C:\Users\RUNNER~1\...）——`words()` 的严格 shell
 // 白名单不含 `~`，夹具继承该形态会被 gate 正确地静默拒绝（2026-11-09 CI trace 钉死：
 // reject:tokenize）。基座逐级兜底：先 realpath 展开；CI 矩阵（node 18/20/22）实测仍不展开时
-// 退回仓库目录（无 `~`；套件末尾 rmSync 清理）。闸口语义不动。
+// 退回**仓库根**（插件目录之外——落在插件树内会撞 gate 的 ws-guard，夹具不得包住插件）；
+// 套件末尾 rmSync 清理。闸口语义全程不动。
 const tmpBase = (() => {
   let b;
   try {
@@ -34,7 +35,7 @@ const tmpBase = (() => {
   } catch {
     b = tmpdir();
   }
-  return b.includes('~') ? process.cwd() : b;
+  return b.includes('~') ? path.resolve(process.cwd(), '..', '..') : b;
 })();
 const home = mkdtempSync(path.join(tmpBase, 'pstack-hook-test-'));
 const claudeHome = path.join(home, 'claude');
