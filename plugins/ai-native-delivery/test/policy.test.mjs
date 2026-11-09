@@ -12,7 +12,7 @@ const check = (name, cond, detail = '') => {
 };
 
 const versions = Object.keys(POLICIES).map(Number).sort((a, b) => a - b);
-check('S1 版本表连续覆盖 1..14', versions.length === 14 && versions.every((v, i) => v === i + 1), versions.join(','));
+check('S1 版本表连续覆盖 1..15', versions.length === 15 && versions.every((v, i) => v === i + 1), versions.join(','));
 
 check('S2 V1 基线五锚', ['moduleSince', 'check14Since', 'confirmDocsEffective', 'confirmIncidentsEffective', 'bindingTs']
   .every((k) => typeof POLICIES[1][k] === 'string'));
@@ -31,7 +31,7 @@ check('S6 V6 = V4 超集 + 三个新锚', ['delegationSince', 'verifySince', 'in
   .every((k) => POLICIES[6][k] !== undefined)
   && POLICIES[6].delegationSince === POLICIES[4].delegationSince);
 
-for (const [from, to] of [[6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14]]) {
+for (const [from, to] of [[6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15]]) {
   const missing = Object.keys(POLICIES[from]).filter((k) => POLICIES[to][k] === undefined);
   check(`S7 v${from}→v${to} 为超集追加（锚不丢失）`, missing.length === 0, missing.join(','));
 }
@@ -40,6 +40,12 @@ check('S8 V14 具备四枚最新锚', POLICIES[14].reviewerSince === '2026-10-12
   && POLICIES[14].clarifySince === '2026-10-22'
   && POLICIES[14].coverageSince === '2026-10-22'
   && POLICIES[14].convergenceHardSince === '2026-10-12');
+
+// S29（2026-11-09，镜像 convergenceHardSince 断言样式新增用例）：v15 新增检查 1 两 hard 的存量
+// 豁免锚 check1HardSince（命名沿 check14HardSince）；v14 无此键 → 原全量 hard 口径（放宽锚不适用缺键跳过）
+check('S29 V15 新增 check1HardSince 且 v14 无此键（缺键保现行 hard）',
+  POLICIES[15].check1HardSince === '2026-11-10' && POLICIES[14].check1HardSince === undefined
+  && POLICIES[15].convergenceHardSince === '2026-10-12');
 
 // ---- loadKitPolicy ----
 {

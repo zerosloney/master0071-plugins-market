@@ -3838,6 +3838,73 @@ SCEN(async () => {
   rmfix(T);
 });
 
+// §1d 检查 1 两 hard 的存量豁免锚（2026-11-09，policy v15 check1HardSince=2026-11-10，命名沿
+// check14HardSince 先例、锚取发布次日）：红线判低与 L3 状态未确认此前对所有存量文档永久执法，
+// 与其余 4 段 hard（§3x/§8/§15/§23）「首加日 < 锚 → 豁免、存量不回填」纪律不一致。日期三级解析
+// （frontmatter「日期」→ 文件名前 10 位 → git 首加日），不可判定 → 视为存量（fail-open 豁免）；
+// 缺键（v1–v14）→ 原全量 hard 口径逐字节不变。
+SCEN(async () => {
+  // (a) v15 + 锚前（日期 < 2026-11-10）红线勾选 L1 intent → 存量豁免：无 blocker、出 WARN
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 15 }) + '\n');
+  w(T, 'workflow/intents/2026-11-08-lg1.md', INTENT('lg1', '状态: draft\n级别: L1\n日期: 2026-11-08',
+    '\n## 触达红线（对照 AGENTS.md）\n- [x] 数据迁移（Schema、表结构）\n'));
+  w(T, 'workflow/plans/2026-11-08-lg1.md', PLAN('lg1', '状态: draft\n级别: L1'));
+  const r = run(T);
+  check('检查1存量豁免：v15 锚前红线判低 → 无 blocker 出 [WARN 红线判低·存量豁免]',
+    r.status === 0 && outOf(r).includes('[WARN 红线判低·存量豁免]') && !outOf(r).includes('[红线判低]'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+SCEN(async () => {
+  // (b) 同形态存量文档 L3 状态 draft → 状态未确认 hard 降 WARN（同款非 L3 文案），无 blocker
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 15 }) + '\n');
+  w(T, 'workflow/intents/2026-11-08-lg2.md', INTENT('lg2', '状态: draft\n级别: L3\n日期: 2026-11-08'));
+  w(T, 'workflow/plans/2026-11-08-lg2.md', PLAN('lg2', '状态: draft\n级别: L3'));
+  const r = run(T);
+  check('检查1存量豁免：v15 锚前 L3 状态 draft → 无 blocker 出 [WARN 状态未确认]',
+    r.status === 0 && outOf(r).includes('[WARN 状态未确认]') && !outOf(r).includes('[状态未确认]'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+SCEN(async () => {
+  // (c) 回归钉死：v15 + 日期 ≥ 锚（边界日 2026-11-10 即受管）→ 与现行相同的 blocker
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 15 }) + '\n');
+  w(T, 'workflow/intents/2026-11-10-lg3.md', INTENT('lg3', '状态: draft\n级别: L1\n日期: 2026-11-10',
+    '\n## 触达红线（对照 AGENTS.md）\n- [x] 数据迁移（Schema、表结构）\n'));
+  w(T, 'workflow/plans/2026-11-10-lg3.md', PLAN('lg3', '状态: draft\n级别: L1'));
+  w(T, 'workflow/plans/2026-11-10-lg4.md', PLAN('lg4', '状态: draft\n级别: L3'));
+  const r = run(T);
+  check('检查1存量豁免：v15 锚日起新档红线判低 → hard 与现行同款',
+    r.status === 1 && outOf(r).includes('[红线判低]') && outOf(r).includes('[状态未确认] L3 plan 必须为')
+      && !outOf(r).includes('存量豁免'),
+    `exit=${r.status}\n${outOf(r)}`);
+  const T2 = mkfix();
+  w(T2, '.agents/config/engine.json', JSON.stringify({ policyVersion: 15 }) + '\n');
+  w(T2, 'workflow/intents/2026-11-10-lg5.md', INTENT('lg5', '状态: draft\n级别: L3\n日期: 2026-11-10'));
+  const r2 = run(T2);
+  check('检查1存量豁免：v15 锚日起新档 L3 状态 draft → hard 与现行同款',
+    r2.status === 1 && outOf(r2).includes('[状态未确认] L3 intent 必须为'),
+    `exit=${r2.status}\n${outOf(r2)}`);
+  rmfix(T); rmfix(T2);
+});
+SCEN(async () => {
+  // (d) 缺键保现行 hard：v14（无 check1HardSince）同形态锚前存量 → 原全量 hard 口径逐字节不变
+  const T = mkfix();
+  w(T, '.agents/config/engine.json', JSON.stringify({ policyVersion: 14 }) + '\n');
+  w(T, 'workflow/intents/2026-11-08-lg6.md', INTENT('lg6', '状态: draft\n级别: L1\n日期: 2026-11-08',
+    '\n## 触达红线（对照 AGENTS.md）\n- [x] 数据迁移（Schema、表结构）\n'));
+  w(T, 'workflow/plans/2026-11-08-lg6.md', PLAN('lg6', '状态: draft\n级别: L1'));
+  w(T, 'workflow/intents/2026-11-08-lg7.md', INTENT('lg7', '状态: draft\n级别: L3\n日期: 2026-11-08'));
+  const r = run(T);
+  check('检查1存量豁免：v14 缺键 → 锚前存量仍全量 hard（红线判低 + L3 状态未确认）',
+    r.status === 1 && outOf(r).includes('[红线判低]') && outOf(r).includes('[状态未确认] L3 intent 必须为'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+});
+
 // 场景间零共享态（各自 mkfix 独立临时仓 + git init，评估期逐块审计确认）→ 按 idx % K round-robin
 // 分片可安全并行。K = clamp(1..8, floor(cpus/1.5))：12 核本机 8；小核 CI 自适应到 1 = 顺序等价（行为
 // 与分片化前一致）；CHECK_LOOP_TEST_SHARDS 钉死（调试/复现单线程顺序）。--shard=i/K = 子进程态，

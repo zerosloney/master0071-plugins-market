@@ -101,5 +101,17 @@ const run = (root, ...args) => {
   check(`场景 4：升级锚按运行日判定（期望 ${expect}）`, doc.includes(`\`check14HardSince\` | ${m && m[1]} | 检查 14 | 同上——锚日起升 hard-block | hard | ${expect}`), doc);
 }
 
+// 场景 5：v15 新锚 check1HardSince 的消费方登记——policy 加新键须同步登 CONSUMERS（缺登记会渲染
+//   「未登记消费方」占位行，由本场景钉住；断言收在本键行——v13/v14 既有键 clarifySince/coverageSince
+//   的未登记缺口系存量问题，不属本场景）。状态列随运行日在 已生效/待升级 间翻转，不作断言。
+{
+  const d = mkfix(15);
+  run(d);
+  const doc = fs.readFileSync(path.join(d, 'workflow', 'effective-policy.md'), 'utf8');
+  const row = doc.split('\n').find((l) => l.includes('`check1HardSince`'));
+  check('场景 5：v15 渲染含 check1HardSince 行且消费检查项已登记（检查 1）',
+    !!row && row.includes('| 2026-11-10 | 检查 1 |') && !row.includes('未登记消费方'), doc);
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

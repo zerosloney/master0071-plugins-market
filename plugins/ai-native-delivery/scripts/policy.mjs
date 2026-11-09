@@ -156,6 +156,19 @@ const V14 = merge(V13, {
   coverageSince: '2026-10-22', // 验收覆盖门生效锚（2026-10-22 coverage-map）；v1–v13 无此键 → 该门整体跳过
 });
 
+// 版本 15 = v14 + 检查 1 两 hard（红线判低 / L3 状态未确认）的存量豁免锚 check1HardSince（2026-11-09）。
+// 背景：这两类 hard 对所有存量文档永久执法——存量件每次 commit/push 恒 exit 1 直到改旧文档，与本插件
+// 其余 4 段 hard（§3x incidentRegrSince / §8 accCutoff / §15 指纹锚 / §23 convergenceSince/HardSince）
+// 的「首加日 < 锚 → 豁免、存量不回填」纪律不一致。补锚后：日期 < 锚的存量降 WARN（消息带「存量豁免」
+// 前缀，正文保留原话），锚起新档照常 hard。命名沿 check14HardSince 先例（检查号+Hard）；锚取发布次日
+// （2026-11-10，沿 check14HardSince/verifyHardSince 同则：当日在途件不追溯）。日期口径三级解析沿
+// s15-fingerprint 先例：frontmatter「日期」→ 文件名前 10 位 → git 首加日；三级不可判定 → 视为存量豁免
+// （沿 s03x「不可判定→豁免」fail-open 先例）。缺键（v1–v14）→ 原全量 hard 口径逐字节不变——本键是
+// 放宽锚，缺键必须保持现行 hard，不适用「缺键跳过」。
+const V15 = merge(V14, {
+  check1HardSince: '2026-11-10', // 检查 1 红线判低/L3 状态未确认存量豁免锚（2026-11-09）；v1–v14 无此键 → 原全量 hard 口径
+});
+
 export const POLICIES = {
   1: V1,
   2: V2,
@@ -171,6 +184,7 @@ export const POLICIES = {
   12: V12,
   13: V13,
   14: V14,
+  15: V15,
 };
 
 export function loadKitPolicy(root) {

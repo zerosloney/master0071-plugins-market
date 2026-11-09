@@ -47,6 +47,7 @@ const CONSUMERS = {
   convergenceSince: ['检查 23', '判据级收敛对账（L2/L3 done spec 验收判据表逐条对证据——完成声明不是证据）——锚前存量豁免', 'advisory'],
   convergenceHardSince: ['检查 23', '同上——证据无效升 hard（命令须有不早于 spec 日期的 verify-evidence 全绿行；路径只认存在）', 'hard'],
   reviewerSince: ['检查 1', '独立复核上下文标识（复核行须含「复核上下文：<会话/子代理 id>」——独立性声明可证伪化）——锚前存量豁免', 'advisory'],
+  check1HardSince: ['检查 1', '红线判低 / L3 状态未确认两 hard——锚前存量降 WARN（消息带「存量豁免」前缀），锚起新档照常 hard', 'hard'],
 };
 
 // today：视图基准日。EFFECTIVE_POLICY_TODAY 为测试注入缝（场景 2f 跨锚日稳定性用；生产不设）。

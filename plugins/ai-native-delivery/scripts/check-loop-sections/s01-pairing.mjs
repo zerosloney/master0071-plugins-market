@@ -31,10 +31,27 @@ function redlineTouched(file) {
   }
   return false;
 }
-function pushRedline(file, base, lvl) {
+// 两 hard 的存量豁免锚（2026-11-09，policy v15 check1HardSince，命名沿 check14HardSince 先例）：
+// 红线判低与 L3 状态未确认此前对所有存量文档永久执法（每次 commit/push 恒 exit 1 直到改旧文档），
+// 与其余 4 段 hard 的「首加日 < 锚 → 豁免、存量不回填」纪律不一致。日期三级解析沿 s15-fingerprint
+// 先例：frontmatter「日期」→ 文件名前 10 位 → addedDateOf（git 首加日，kit 单源）；三级全缺/不可
+// 判定 → ''（视为存量豁免，沿 s03x「不可判定→豁免」fail-open 先例）。缺键（v1–v14）→ legacy 恒
+// false——本键是放宽锚，缺键必须保持现行全量 hard 口径，不适用「缺键跳过」。
+const check1DateOf = (doc, base) => {
+  let d = fmGet(doc, '日期');
+  if (!d) d = /^\d{4}-\d{2}-\d{2}$/.test(base.slice(0, 10)) ? base.slice(0, 10) : '';
+  if (!d) d = addedDateOf(doc);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+};
+const check1Legacy = (doc, base) => kitPolicy.check1HardSince
+  ? ((d) => d === '' || d < kitPolicy.check1HardSince)(check1DateOf(doc, base))
+  : false;
+function pushRedline(file, base, lvl, legacy) {
   if (laneOfDoc(lvl) === 'high') return;
   if (redlineTouched(file)) {
-    blockers.push(`- [红线判低] ${base} 级别为 ${lvl || '缺失'} 但触达红线已勾选（规则/契约或 schema/结构面）——协作道不受理 STOP 级改动：就高不就低，把「级别」升至 L2/L3 并补同名 spec`);
+    const msg = `${base} 级别为 ${lvl || '缺失'} 但触达红线已勾选（规则/契约或 schema/结构面）——协作道不受理 STOP 级改动：就高不就低，把「级别」升至 L2/L3 并补同名 spec`;
+    if (legacy) warnings.push(`- [WARN 红线判低·存量豁免] ${msg}`);
+    else blockers.push(`- [红线判低] ${msg}`);
   }
 }
 
@@ -46,9 +63,10 @@ for (const intent of docFiles('intents')) {
   const base = path.basename(intent);
   const st = fmGet(intent, '状态');
   const lvl = fmGet(intent, '级别');
+  const legacy = check1Legacy(intent, base);
   if (!stOkDoc(st)) {
     const msg = `${base}（frontmatter 状态键当前值:『${st || '缺失'}』）`;
-    if (lvl === 'L3') blockers.push(`- [状态未确认] L3 intent 必须为 approved/done/superseded/cancelled:${msg}`);
+    if (lvl === 'L3' && !legacy) blockers.push(`- [状态未确认] L3 intent 必须为 approved/done/superseded/cancelled:${msg}`);
     else warnings.push(`- [WARN 状态未确认] intent 必须为 approved/done/superseded/cancelled:${msg}`);
   }
   if (lvl === 'L2' || lvl === 'L3') {
@@ -60,7 +78,7 @@ for (const intent of docFiles('intents')) {
   if (!fs.existsSync(path.join(ROOT, WF, 'plans', base))) {
     warnings.push(`- [WARN 配对断裂] intent 缺 plan:${base}（应在 ${WF}/plans/ 下同名）`);
   }
-  pushRedline(intent, base, lvl);
+  pushRedline(intent, base, lvl, legacy);
 }
 
 for (const spec of docFiles('specs')) {
@@ -71,7 +89,7 @@ for (const spec of docFiles('specs')) {
   if (!hasEntry) warnings.push(`- [WARN 配对断裂] spec 缺 intent/incident:${base}（应在 ${WF}/intents/ 或 ${WF}/incidents/ 下同名）`);
   if (!stOkDoc(st)) {
     const msg = `${base}（frontmatter 状态键当前值:『${st || '缺失'}』）`;
-    if (lvl === 'L3') blockers.push(`- [状态未确认] L3 spec 必须为 approved/done/superseded/cancelled:${msg}`);
+    if (lvl === 'L3' && !check1Legacy(spec, base)) blockers.push(`- [状态未确认] L3 spec 必须为 approved/done/superseded/cancelled:${msg}`);
     else warnings.push(`- [WARN 状态未确认] spec 必须为 approved/done/superseded/cancelled:${msg}`);
   }
   // L3 确认三件：确认结果/确认时间读 frontmatter；独立复核按正文行锚定（放弃件豁免 = 枚举单源 abandoned 集）
@@ -100,13 +118,14 @@ for (const plan of docFiles('plans')) {
   const base = path.basename(plan);
   const st = fmGet(plan, '状态');
   const lvl = fmGet(plan, '级别');
+  const legacy = check1Legacy(plan, base);
   const hasEntry = fs.existsSync(path.join(ROOT, WF, 'intents', base)) || fs.existsSync(path.join(ROOT, WF, 'incidents', base));
   // L1 plan 即入口。级别缺失仍要求入口（fail-closed）。
   if (lvl !== 'L1' && !hasEntry) warnings.push(`- [WARN 配对断裂] plan 缺 intent/incident:${base}（应在 ${WF}/intents/ 或 ${WF}/incidents/ 下同名）`);
-  pushRedline(plan, base, lvl);
+  pushRedline(plan, base, lvl, legacy);
   if (!stOkDoc(st)) {
     const msg = `${base}（frontmatter 状态键当前值:『${st || '缺失'}』）`;
-    if (lvl === 'L3') blockers.push(`- [状态未确认] L3 plan 必须为 approved/done/superseded/cancelled:${msg}`);
+    if (lvl === 'L3' && !legacy) blockers.push(`- [状态未确认] L3 plan 必须为 approved/done/superseded/cancelled:${msg}`);
     else warnings.push(`- [WARN 状态未确认] plan 必须为 approved/done/superseded/cancelled:${msg}`);
   }
   // 链内状态一致性（2026-10-11 链内倒挂 WARN，评审 C1 收口——B1 arrival 链暴露的盲点：配对存在≠终态同批）：
