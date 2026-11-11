@@ -32,6 +32,7 @@
 // 测试：node test/hook.test.mjs（deny 阻断 / 普通放行 / 损坏时地板执法 / deny 不可下调 / matcher 同口径）
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { findProjectRoot, PLUGIN_CONFIG_TEMPLATES_DIR } from '../scripts/paths.mjs';
 
 const STDIN_MAX_CHARS = 100_000; // 与 systemone hook-io 同上限：截断即转 ask（fail-closed）
@@ -89,7 +90,9 @@ const applies = (toolName) => {
 // `git commit -h` 显示 `-n, --no-verify bypass pre-commit and commit-msg hooks`，所以"唯一开关"
 // 当时是假的，短写形态把这一层照样关掉。注意 **push 的 `-n` 是 `--dry-run`**（`git push -h`：
 // `-n, --[no-]dry-run`），不解除任何东西，因此不进地板——把它加进去只会制造误拦。
-const BUILTIN = {
+// export（2026-11 doctor 工单）：scripts/doctor.mjs 单源 import 本清单做安装自检的文件级地板基线。
+// 只加 export，值与匹配逻辑不动。地板不可下调的执法语义见 loadLists（deny = 地板 ∪ 来源追加）。
+export const BUILTIN = {
   deny: [
     'git reset --hard',
     'git push --force',
@@ -424,17 +427,24 @@ async function main() {
   return null; // 清单外：静默放行（清单闸只拦已知风险，不做语义猜测）
 }
 
-main()
-  .then((out) => {
-    writeAndExit(out ? JSON.stringify(out) : '');
-  })
-  .catch((e) => {
-    // 内部故障转 ask（2026-10-31 市场审查）：能走到清单加载/匹配，输入已是「shell 工具 + 有
-    // 命令」——静默 exit 0 等于让一条本会命中 deny 的命令凭 hook 自身故障放行，与「输入不可信
-    // 转 ask」的 fail-closed 方向相反。ask 不阻断（宿主只加一次确认），「绝不硬阻塞」的契约仍守。
-    const msg = e && e.message ? e.message : String(e);
-    process.stderr.write(`[ai-native-delivery hook] 风险闸内部故障，转 ask 由用户确认：${msg}\n`);
-    writeAndExit(JSON.stringify(
-      askDecision(`[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`),
-    ));
-  });
+// CLI 门（isMain 前置，对齐 scripts/init-engine.mjs / gen-host-manifests.mjs 先例）：本文件被
+// scripts/doctor.mjs import BUILTIN 清单时不得拉起 stdin 读取——main() 顶层直跑会让导入方挂到
+// stdin EOF（stdinKiller 14s 还会 process.exit 掉导入方进程）。宿主 / 测试以
+// `node pretool-risk.mjs` 直跑时 argv[1] 即本文件，门内逻辑照常，行为不变。
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  main()
+    .then((out) => {
+      writeAndExit(out ? JSON.stringify(out) : '');
+    })
+    .catch((e) => {
+      // 内部故障转 ask（2026-10-31 市场审查）：能走到清单加载/匹配，输入已是「shell 工具 + 有
+      // 命令」——静默 exit 0 等于让一条本会命中 deny 的命令凭 hook 自身故障放行，与「输入不可信
+      // 转 ask」的 fail-closed 方向相反。ask 不阻断（宿主只加一次确认），「绝不硬阻塞」的契约仍守。
+      const msg = e && e.message ? e.message : String(e);
+      process.stderr.write(`[ai-native-delivery hook] 风险闸内部故障，转 ask 由用户确认：${msg}\n`);
+      writeAndExit(JSON.stringify(
+        askDecision(`[ai-native-delivery 风险闸] hook 内部故障（${msg}）——无法完成清单匹配，请向用户展示命令并确认后再执行。`),
+      ));
+    });
+}

@@ -1,283 +1,54 @@
 #!/usr/bin/env node
 // init-engine — 项目侧引擎初始化（设计文档 §5.2 初始化契约；可独立 CLI 跑、暴露 initEngine 库函数）
-// 幂等契约：重复跑零改动（除 .gitignore 标记块的整块替换更新）；输出「新建/跳过」两类清单；
-// 退出一律 0（文件系统错误除外）。已存在文件一律跳过不覆盖——项目改动不受初始化侵蚀。
-// 落位（名字与源项目一致，§5.2 项目级不变量）：
-//   .agents/            引擎运行时
-//     config/           从 config-templates 全量种子（排除 githooks/ 与 settings.json——各有专位；
-//                        亦排除 pipelines/——编排脚本有专位 .agents/pipelines/，见 ①b）
-//     pipelines/        编排脚本种子（config-templates/pipelines/ → .agents/pipelines/；与
-//                        workflows-check.mjs 扫描面、autonomous-run skill 路径约定同源）
-//     settings.json     permissions 三清单种子（config-templates/settings.json）
-//     confirmations.jsonl + confirmations.d/   确认账（入库；主账缺则建空文件）
-//     cache/ loop/ notes/ board/ tmp/          本机运行时目录（cache/tmp 不入库）
-//   workflow/           交付台账（人类可读，入库）
-//     INDEX.md + plans/ specs/ intents/ incidents/ reviews.d/ delegations.d/ evidence/ archive/
-//     papercuts.md delegations.md metrics.md regression-checklist.md（空骨架标题行）
+// 2026-11 安装引擎重构：plan/apply 两段式 + sha256 安装台账（<root>/.agents/install-manifest.json）。
+//   plan（install/plan.mjs）  把全部落盘行为描述为纯数据计划条目（无写盘副作用）；
+//   apply（install/apply.mjs）按台账裁决 create/update/conflict-skip/adopt 后落盘；
+//   manifest（install/manifest.mjs）台账读写 + CRLF→LF 归一 sha256（种子源与落盘目标同一归一）。
+// 幂等契约：重复跑零改动（台账内容不变不重写；gitignore 标记块内容一致时不写盘）；输出「新建/更新/
+// 冲突跳过/跳过」清单；退出一律 0（文件系统错误除外）。台账语义同 lock 文件：入库共享，不进
+// .gitignore 标记块。裁决口径（详见 install/apply.mjs 头注）：
+//   目标不存在 → create；台账在 + 目标==台账 + 种子≠台账 → update（种子升级传播）；
+//   台账在 + 目标≠台账（用户改过）→ conflict skip 不覆盖（--force 覆盖）；目标在但台账整个缺失
+//   （旧版 init 过的项目）→ 领养：不覆盖任何文件，现状哈希全部记入新账。
+// 落位（名字与源项目一致，§5.2 项目级不变量；种子清单与排除口径见 install/plan.mjs buildPlan）：
+//   .agents/            引擎运行时（config/ 种子、pipelines/ 编排脚本、settings.json、确认账、运行时目录）
+//   workflow/           交付台账（人类可读，入库；八子目录 + 五骨架文档）
 //   .gitignore          标记注释块（BEGIN/END）内追加本机不入库项；已有标记块整块替换，其余原样
-//   git 钩子目录        pre-commit / pre-push 安装（config-templates/githooks 种子，安装时把
-//                       @@ENGINE_SCRIPT@@ 实化为 check-loop.mjs 绝对路径——项目侧 .agents/scripts
-//                       优先回退插件内，paths.mjs scriptPath 同口径）；目录走 gitHooksDir()
-//                       （core.hooksPath 优先，否则 git rev-parse --git-path hooks——worktree 下
-//                       .git 是文件，拼 <root>/.git/hooks 会 ENOTDIR 崩）；已存在同名钩子跳过不覆盖
-// 首行判断：项目 .agents/config/engine.json 的 policyVersion 与插件种子不同 → WARN 可升级但不自动覆盖。
-// 用法：node init-engine.mjs [--root <仓库根>]（缺省用 git root 锚定的项目根）
-// 测试：node test/init.test.mjs（幂等 / gitignore 块替换 / 已存在跳过 / 钩子不覆盖）
-import fs from 'node:fs';
+//   git 钩子目录        pre-commit / pre-push 安装（占位符实化 + CRLF→LF + chmod，陈旧自装钩子
+//                       覆盖刷新例外保留，见 install/apply.mjs）
+// 首行判断：项目 .agents/config/engine.json 的 policyVersion 与插件种子不同 → WARN 可升级但不自动
+// 覆盖项目改动（装户文件仍是种子原样时由台账 update 通道传播升版）。
+// 用法：node init-engine.mjs [--root <仓库根>] [--dry-run] [--force]
+// 测试：node test/init.test.mjs（旧契约回归）；node test/install.test.mjs（两段式 + 台账契约）
 import path from 'node:path';
-import { findProjectRoot, engineDir, ledgerDir, PLUGIN_ROOT, PLUGIN_CONFIG_TEMPLATES_DIR, scriptPath, gitHooksDir } from './paths.mjs';
+import { findProjectRoot } from './paths.mjs';
+import { buildPlan } from './install/plan.mjs';
+import { applyPlan } from './install/apply.mjs';
+import { GITIGNORE_BEGIN, GITIGNORE_END } from './install/plan.mjs';
 
-export const GITIGNORE_BEGIN = '# BEGIN ai-native-delivery engine';
-export const GITIGNORE_END = '# END ai-native-delivery engine';
-// 插件名（2026-11 市场审查 M12）：陈旧自装钩子的「自装」判据锚。宿主版本化缓存布局
-// <cache>/<市场>/<插件名>/<版本>/ 下 path.basename(PLUGIN_ROOT) 是**版本号**——升版后旧钩子
-// baked 的是旧版本目录路径，按当前版本号切路径段永不命中 → 旧钩子被误判第三方，"重跑
-// init-engine" 的修复指引沦为 no-op。改从 plugin.json 的 name 读（单源）；读不出回退目录名
-//（源仓开发形态目录名即插件名，两者同值）。
-const PLUGIN_NAME = (() => {
-  try {
-    const name = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'plugin.json'), 'utf8')).name;
-    return typeof name === 'string' && name ? name : path.basename(PLUGIN_ROOT);
-  } catch { return path.basename(PLUGIN_ROOT); }
-})();
-// 本机不入库项（§5.2 入库口径表：判定/验证流水与缓存是本机机器事实；本机环境与个人模型映射不入库）
-export const GITIGNORE_ENTRIES = [
-  '.agents/cache/',
-  '.agents/judgments.jsonl',
-  '.agents/verifications.jsonl',
-  '.agents/tmp/',
-  '.agents/config/model-roles.local.json',
-  '.agents/notes/runtime-env.local.md',
-  // 台账写锁的临时锁文件（2026-11-01）：ledger-shards 与 MCP update_ledger 共用
-  // `<分片>.md.lock` 做读-改-写临界区。正常路径写完即删；进程被 kill 时残留物最多留 15s
-  // 就会被接管，但那一瞬间不该污染项目的 git status。
-  'workflow/**/*.lock',
-  // 确认分片与主台账写锁残留（2026-11-09 审查收口）：confirmations.d/ 分片锁与主账
-  // confirmations.jsonl.lock 同属「进程被 kill 可短暂残留」的临时锁，不该污染 git status。
-  '.agents/confirmations.d/*.lock',
-  '.agents/confirmations.jsonl.lock',
-];
-
-const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];
-const WORKFLOW_DOCS = {
-  'INDEX.md': '# workflow 索引 — 活跃层与档案\n\n> 初始化骨架（ai-native-delivery init-engine 生成）。活跃层表格可由 gen-workflow-index.mjs 重建；\n> 跨会话恢复优先用 MCP read_context（INDEX 头部 + 在途三件套 + 最近确认行）。\n',
-  'papercuts.md': '# papercuts — 确认税与摩擦记录\n',
-  'delegations.md': '# delegations — 委派记录\n',
-  'metrics.md': '# metrics — 交付指标\n',
-  'regression-checklist.md': '# regression-checklist — 回归清单\n',
-};
-const RUNTIME_DIRS = ['cache', 'loop', 'notes', 'board', 'tmp'];
-
-function walkFiles(dir, base = dir) {
-  const out = [];
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-  for (const e of entries) {
-    const abs = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...walkFiles(abs, base));
-    else if (e.isFile()) out.push(path.relative(base, abs));
-  }
-  return out.sort();
-}
-
-// config-templates → .agents/config 种子清单。排除：githooks/（.git/hooks 安装的模板源，非项目配置）、
-// settings.json（项目侧专位在 .agents/settings.json，与 config/ 平级——§5.2 目录规范）、
-// pipelines/（项目侧专位在 .agents/pipelines/——编排脚本落位口径，见下方 ①b）、
-// ledger-prune/rebuild-manifest.json（2026-11-05：owner 授权修剪/重建的凭据（逐行 sha256）与授权
-//   原文属**运行数据**，按「运行数据不迁」红线不随 init 种子——check-ledger-invariant 只消费
-//   提交自带的 manifest（git 对象读取，工作区/插件目录一律不读），项目侧不预置即无特许通道；
-//   config-templates 留档仅作格式样例，见两文件 _note）。
-function configSeedFiles() {
-  return walkFiles(PLUGIN_CONFIG_TEMPLATES_DIR)
-    .map((rel) => rel.split(path.sep).join('/'))
-    .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json' && !rel.startsWith('pipelines/')
-      && rel !== 'ledger-prune-manifest.json' && rel !== 'ledger-rebuild-manifest.json');
-}
-
-// ①b 编排脚本种子 → 项目侧 .agents/pipelines/（2026-10-27 插件化修复）。
-// 落位口径单源：config-templates/pipelines/_TEMPLATE.md 头注声明「正式落位在项目侧 .agents/pipelines/」，
-// workflows-check.mjs 的机器门扫描面也是 <root>/.agents/pipelines/，autonomous-run skill 引用同一路径。
-// 修复前：本函数只排除了 githooks/ 与 settings.json，pipelines/ 随 config 全量种子落到
-// .agents/config/pipelines/ —— 与三处声明的路径约定全部不符，且编排机器门扫 0 份文件恒报绿（假绿）。
-function seedPipelines(root, report) {
-  const src = path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'pipelines');
-  if (!fs.existsSync(src)) return;
-  const dest = path.join(engineDir(root), 'pipelines');
-  for (const rel of walkFiles(src)) {
-    const posix = rel.split(path.sep).join('/');
-    const target = path.join(dest, ...posix.split('/'));
-    if (fs.existsSync(target)) { report.skipped.push(`.agents/pipelines/${posix}（已存在）`); continue; }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(src, ...rel.split(path.sep)), target);
-    report.created.push(`.agents/pipelines/${posix}`);
-  }
-}
-
-function seedGitignore(root, report) {
-  const file = path.join(root, '.gitignore');
-  const block = [...GITIGNORE_ENTRIES];
-  const ensureNl = (s) => (s === '' || s.endsWith('\n') ? s : `${s}\n`);
-  let cur = null;
-  try { cur = fs.readFileSync(file, 'utf8'); } catch { /* 无文件 → 新建 */ }
-  if (cur === null) {
-    fs.writeFileSync(file, `${GITIGNORE_BEGIN}\n${block.join('\n')}\n${GITIGNORE_END}\n`, 'utf8');
-    report.gitignore = 'created';
-    return;
-  }
-  // 已有标记块 → 整块替换更新；其余部分（含行尾风格之外的内容）原样保留
-  const m = /(#[^\n]*BEGIN ai-native-delivery engine[\s\S]*?#[^\n]*END ai-native-delivery engine[^\n]*)/.exec(cur);
-  const replacement = `${GITIGNORE_BEGIN}\n${block.join('\n')}\n${GITIGNORE_END}`;
-  const next = m ? cur.replace(m[0], replacement) : `${ensureNl(cur)}${replacement}\n`;
-  if (next !== cur) {
-    fs.writeFileSync(file, next, 'utf8');
-    report.gitignore = m ? 'block-replaced' : 'appended';
-  } else {
-    report.gitignore = 'unchanged';
-  }
-}
-
-// git hooks 安装：种子占位符 @@ENGINE_SCRIPT@@ / @@LANE@@ 在安装时实化。
-// ENGINE_SCRIPT 用 JSON.stringify 生成字符串字面量——Windows 反斜杠路径在 JS 单引号串里是
-// 转义雷（'\U' 会吞反斜杠），JSON 字面量转义是唯一稳妥写法。LANE：两钩子均走默认 hard 车道
-//（§3.2 L-git：pre-commit / pre-push 都是 check-loop 硬门执法点；项目可改种子值换 --hygiene/--all）。
-//
-// 钩子目录解析（2026-10-27 插件化修复）：走 gitHooksDir()——core.hooksPath 已设置则以其为准
-//（那才是 git 真正执行的目录），否则取 `git rev-parse --git-path hooks`（worktree / submodule /
-// 标准仓都准）。修复前直接拼 <root>/.git/hooks：worktree 下 .git 是**文件**不是目录 → mkdir 抛
-// ENOTDIR，整个初始化崩在最后一步（已落地的种子留在半途）。
-function installHooks(root, report) {
-  const hooksDir = gitHooksDir(root);
-  report.hooksDir = hooksDir;
-  if (!hooksDir) {
-    report.hooks.skipped.push('git 钩子目录解析不出（非 git 仓库或 git 不可用）——git hooks 未安装');
-    return;
-  }
-  fs.mkdirSync(hooksDir, { recursive: true });
-  for (const name of ['pre-commit', 'pre-push']) {
-    const target = path.join(hooksDir, name);
-    const engine = scriptPath(root, 'check-loop.mjs');
-    if (fs.existsSync(target)) {
-      // 陈旧自装钩子刷新（2026-11-01 修复）：钩子里 baked 的是**插件安装目录的绝对路径**，
-      // 而插件目录随宿主缓存迁移（paths.mjs:13-14 自己写明"随安装缓存目录漂移，不作项目侧
-      // 路径用"）。迁移后旧钩子指向不存在的脚本 → 每次 commit 崩在 MODULE_NOT_FOUND，
-      // 而钩子自带的修复指引正是"重跑 init-engine"，这里"已存在即跳过"让该指引变成 no-op
-      //（实测：重跑打印 skip、commit 仍 exit 1），真修法只剩手工删钩子。
-      // 只刷新「本插件装的、且 baked 的引擎脚本已不存在」的那一类；不是本插件装的钩子
-      // 保持"不覆盖用户钩子"的语义不变。
-      // 自装判据（2026-11-05 迁移修复；2026-11 市场审查 M12 收紧）：首版用 p.startsWith(PLUGIN_ROOT)
-      // 判自装——那是拿**当前**插件根当锚，宿主缓存整体搬家后 baked 的是旧安装根路径，前缀恒
-      // false → 旧钩子被误判成第三方 skip，"重跑 init-engine"仍是 no-op。改判「路径形态属于本
-      // 插件」：resolve 后含**插件名**（PLUGIN_NAME，plugin.json 单源——版本化缓存布局下目录名
-      // 是版本号，basename 判据升版即失效，见 PLUGIN_NAME 头注）的**独立路径段**（按分隔符切分
-      // 后整段相等，`…-old` 后缀目录不误命中）且 baked 的引擎脚本已不存在 → 刷新；当前根前缀
-      // 命中是其子集，一并保留。
-      let staleOwn = false;
-      try {
-        const cur = fs.readFileSync(target, 'utf8');
-        const baked = /const\s+ENGINE_SCRIPT\s*=\s*("(?:[^"\\]|\\.)*")/.exec(cur);
-        if (baked) {
-          const p = JSON.parse(baked[1]);
-          staleOwn = typeof p === 'string'
-            && !fs.existsSync(p)
-            && (p.startsWith(PLUGIN_ROOT) || path.resolve(p).split(/[\\/]/).includes(PLUGIN_NAME));
-        }
-      } catch {
-        staleOwn = false; // 读不出/解析不出 → 当作别人的钩子，不动
-      }
-      if (!staleOwn) {
-        report.hooks.skipped.push(`${name}（已存在同名钩子——不覆盖用户钩子）`);
-        continue;
-      }
-      report.hooks.skipped.push(`${name}（本插件旧装钩子指向已不存在的引擎脚本——覆盖刷新）`);
-    }
-    let tpl = '';
-    try { tpl = fs.readFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'githooks', name), 'utf8'); } catch { continue; }
-    // 占位符（带引号的整体字符串）全局替换为 JSON 字面量——JSON.stringify 的转义保证 Windows
-    // 反斜杠路径在 JS 串里合法；种子未安装时占位串保持原样（语法仍合法，spawn 时 fail-closed）。
-    // 种子头注的机制说明也提到 @@ENGINE_SCRIPT@@（散文，无引号），故匹配必须带引号整体替换。
-    const body = tpl.replace(/\r\n/g, '\n') // CRLF 种子（core.autocrlf 检出）落盘前归一——钩子由 sh 启动，CRLF shebang 会断
-      .replace(/"@@ENGINE_SCRIPT@@"/g, JSON.stringify(engine))
-      .replace(/"@@LANE@@"/g, JSON.stringify(''));
-    fs.writeFileSync(target, body, 'utf8');
-    try { fs.chmodSync(target, 0o755); } catch { /* Windows 尽力而为（git 经 sh 启动钩子，不依赖执行位） */ }
-    report.hooks.installed.push(`${name}（node ${engine}，hard 车道）→ ${target}`);
-  }
-}
+export { GITIGNORE_BEGIN, GITIGNORE_END, GITIGNORE_ENTRIES } from './install/plan.mjs';
 
 /**
- * 幂等初始化。root 为已解析的项目根；重复调用零改动（gitignore 标记块内容一致时不写盘）。
- * @returns {{created:string[], skipped:string[], warnings:string[], gitignore:string, hooks:{installed:string[], skipped:string[]}}}
+ * 幂等初始化。root 为已解析的项目根；重复调用零改动（gitignore 标记块与台账内容一致时不写盘）。
+ * options.dryRun 只裁决不写盘；options.force 覆盖用户改动。
+ * @returns {{created:string[], skipped:string[], warnings:string[], gitignore:string, hooksDir:(string|null),
+ *            hooks:{installed:string[], skipped:string[]}, updated:string[], conflict:string[],
+ *            adopted:number, dryRun:boolean}}
  */
-export function initEngine(root) {
-  const report = { created: [], skipped: [], warnings: [], gitignore: 'unchanged', hooksDir: null, hooks: { installed: [], skipped: [] } };
-  const agents = engineDir(root);
-  const wf = ledgerDir(root);
-
-  // 首行判断：policyVersion 升级提示（不自动覆盖项目侧 engine.json）
-  const seedEngine = JSON.parse(fs.readFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'engine.json'), 'utf8'));
-  const projEngine = path.join(agents, 'config', 'engine.json');
-  if (fs.existsSync(projEngine)) {
-    let cur = null;
-    try { cur = JSON.parse(fs.readFileSync(projEngine, 'utf8')); } catch { /* 损坏交由种子守门（缺文件才补） */ }
-    if (cur && Number(cur.policyVersion) !== Number(seedEngine.policyVersion)) {
-      const projV = cur.policyVersion === undefined ? '缺 policyVersion（按 v1 基线）' : `policyVersion=${cur.policyVersion}`;
-      report.warnings.push(`项目 .agents/config/engine.json ${projV} 与插件种子 ${seedEngine.policyVersion} 不同——可升级（手工对齐或删除该文件后重跑本脚本重新种子；初始化不自动覆盖）`);
-    }
-  }
-
-  // ① .agents/config 全量种子（已存在跳过）
-  fs.mkdirSync(agents, { recursive: true });
-  for (const rel of configSeedFiles()) {
-    const target = path.join(agents, 'config', ...rel.split('/'));
-    if (fs.existsSync(target)) { report.skipped.push(`.agents/config/${rel}（已存在）`); continue; }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, ...rel.split('/')), target);
-    report.created.push(`.agents/config/${rel}`);
-  }
-  // ② settings.json（项目侧专位）+ 确认账 + 运行时目录
-  const settingsTarget = path.join(agents, 'settings.json');
-  if (fs.existsSync(settingsTarget)) report.skipped.push('.agents/settings.json（已存在）');
-  else { fs.copyFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'settings.json'), settingsTarget); report.created.push('.agents/settings.json'); }
-
-  const confirmMain = path.join(agents, 'confirmations.jsonl');
-  if (fs.existsSync(confirmMain)) report.skipped.push('.agents/confirmations.jsonl（已存在）');
-  else { fs.writeFileSync(confirmMain, '', 'utf8'); report.created.push('.agents/confirmations.jsonl'); }
-  for (const dir of ['confirmations.d', ...RUNTIME_DIRS]) {
-    const target = path.join(agents, dir);
-    if (fs.existsSync(target)) { report.skipped.push(`.agents/${dir}/（已存在）`); continue; }
-    fs.mkdirSync(target, { recursive: true });
-    report.created.push(`.agents/${dir}/`);
-  }
-
-  // ③ workflow/ 台账骨架
-  fs.mkdirSync(wf, { recursive: true });
-  for (const dir of WORKFLOW_SUBDIRS) {
-    const target = path.join(wf, dir);
-    if (fs.existsSync(target)) { report.skipped.push(`workflow/${dir}/（已存在）`); continue; }
-    fs.mkdirSync(target, { recursive: true });
-    report.created.push(`workflow/${dir}/`);
-  }
-  for (const [name, skeleton] of Object.entries(WORKFLOW_DOCS)) {
-    const target = path.join(wf, name);
-    if (fs.existsSync(target)) { report.skipped.push(`workflow/${name}（已存在）`); continue; }
-    fs.writeFileSync(target, skeleton, 'utf8');
-    report.created.push(`workflow/${name}`);
-  }
-
-  // ④ .gitignore 标记块 + ⑤ git hooks
-  seedGitignore(root, report);
-  installHooks(root, report);
-  // ⑥ 编排脚本种子 → .agents/pipelines/（落位口径单源，见 seedPipelines 注释）
-  seedPipelines(root, report);
-  return report;
+export function initEngine(root, options) {
+  return applyPlan(buildPlan(root), options);
 }
 
 export function formatReport(root, report) {
   const lines = [`初始化（ai-native-delivery engine）@ ${root}`];
+  if (report.dryRun) lines.push('dry-run: 试运行——只裁决不写盘（文件与台账均未落）');
   for (const w of report.warnings) lines.push(`WARN: ${w}`);
   lines.push(`gitignore: ${report.gitignore}（标记块 ${GITIGNORE_BEGIN} … ${GITIGNORE_END}）`);
   if (report.created.length) lines.push(`新建 ${report.created.length} 项:\n  + ${report.created.join('\n  + ')}`);
   else lines.push('新建 0 项');
+  if (report.updated.length) lines.push(`更新 ${report.updated.length} 项:\n  ~ ${report.updated.join('\n  ~ ')}`);
+  if (report.conflict.length) lines.push(`冲突跳过 ${report.conflict.length} 项（--force 可覆盖）:\n  ! ${report.conflict.join('\n  ! ')}`);
+  if (report.adopted) lines.push(`领养 ${report.adopted} 项（旧版安装无台账——现状哈希记入 .agents/install-manifest.json，未覆盖）`);
   if (report.skipped.length) lines.push(`跳过 ${report.skipped.length} 项:\n  = ${report.skipped.join('\n  = ')}`);
   if (report.hooks.installed.length) lines.push(`git hooks 安装（目录 ${report.hooksDir || '(未解析)'}）:\n  + ${report.hooks.installed.join('\n  + ')}`);
   for (const s of report.hooks.skipped) lines.push(`git hooks 跳过: ${s}`);
@@ -285,18 +56,35 @@ export function formatReport(root, report) {
   return lines.join('\n');
 }
 
+// resolveRoot(explicit)：CLI 根解析（--root 显式优先，缺省 git root 锚定）。失败抛 err.code='BAD_ROOT'，
+// 由 CLI 层 catch 后 stderr + exit 1。
+function resolveRoot(explicit) {
+  const r = explicit ? path.resolve(explicit) : findProjectRoot();
+  if (!r) {
+    const err = new Error('无法定位项目根（当前目录不在 git 仓库内）——用 --root <仓库根> 显式指定');
+    err.code = 'BAD_ROOT';
+    throw err;
+  }
+  return r;
+}
+
 const isMain = process.argv[1] && process.argv[1].endsWith('init-engine.mjs');
 if (isMain) {
-  const ri = process.argv.indexOf('--root');
-  const root = ri >= 0 ? path.resolve(process.argv[ri + 1] || '') : findProjectRoot();
-  if (!root) {
-    console.error('init-engine: 无法定位项目根（当前目录不在 git 仓库内）——用 --root <仓库根> 显式指定');
-    process.exit(1);
+  const argv = process.argv.slice(2);
+  let rootArg = null;
+  let dryRun = false;
+  let force = false;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--root') rootArg = argv[++i];
+    else if (argv[i] === '--dry-run') dryRun = true;
+    else if (argv[i] === '--force') force = true;
   }
   try {
-    console.log(formatReport(root, initEngine(root)));
+    const root = resolveRoot(rootArg);
+    console.log(formatReport(root, initEngine(root, { dryRun, force })));
   } catch (err) {
-    console.error(`init-engine: 初始化失败——${err && err.message ? err.message : err}`);
+    if (err && err.code === 'BAD_ROOT') console.error(`init-engine: ${err.message}`);
+    else console.error(`init-engine: 初始化失败——${err && err.message ? err.message : err}`);
     process.exit(1);
   }
 }

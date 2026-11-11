@@ -1,6 +1,5 @@
 # AI-Native 交付治理引擎插件 · 设计文档 v2.3
 
-> 源项目：`E:\Git\Shipyard.Material`（AI-Native 治理引擎面：`.agents/` + `.zcode/` + `workflow/` + `.githooks/`）
 > 目标：本仓 `plugins/ai-native-delivery`，按 Agent Plugins 1.0.0 标准打包进市场
 > v1 审查修订版；v2.1 重划 MVP（安装即全三层闭环）；v2.2 定案公共插件；v2.3 定案台账项目级不变量，见 §0.1–§0.3 与 §5.2
 
@@ -43,7 +42,7 @@
 
 ### 1.1 插件定位
 
-把 Shipyard.Material 里跑通 14 个 policy version 的交付治理引擎，做成任何项目可安装的插件。它交付的不是"流水线"，而是四件事：
+把跑通 14 个 policy version 的交付治理引擎，做成任何项目可安装的插件。它交付的不是"流水线"，而是四件事：
 
 1. **开工前定级**：任何任务先过"两问定级"进泳道，级别决定后续审计成本；
 2. **过程中门禁**：check-loop 硬门在关单 / pre-push / CI 三个时点校验闭环证据；
@@ -262,7 +261,6 @@ plugins/ai-native-delivery/
 ├── hooks/                         # PreToolUse 风险闸（pretool-risk 风格）
 ├── config-templates/              # §3.2 治理配置模板（首次初始化的种子）
 ├── test/                          # 测试同迁 + 新增验收测试（§10）
-├── NOTICE-ORIGIN.md               # 衍生来源声明（pstack NOTICE-PORT 先例）
 └── README.md
 ```
 
@@ -346,7 +344,6 @@ workflow/           # 交付台账（人类可读）
 1. **定位定案**：本插件即公共插件（用户裁决 2026-10-27），无外发授权阻塞。发布前走一次性人工过检：下 3 条全部执行并留档，不构成实现前置。
 2. **只迁机制，不迁数据**：confirmations / judgments / cache / workflow 台账内容 / workflow-runs 一律不迁移；`workflow/` 只迁目录约定与 `_TEMPLATE` 类模板。
 3. **脱敏扫描**：源码注释携带业务上下文（实证：后端 FormulaEngine.cs 注释含 "yzgy 存量模板" 字样），全部迁移面过 `check-secrets` + 人工 grep 公司专名（yzgy / 内部端点 / azure 资源名 / 人名）。
-4. **衍生声明**：`NOTICE-ORIGIN.md` 说明源自 Shipyard.Material 治理引擎、policyVersion 14 基线、MIT 双向兼容确认。
 
 ---
 
@@ -467,7 +464,7 @@ verify 全量门的 `wiki-consistency` 门依赖**项目自带**脚本（wiki �
 | `test/check-regression-consistency.test.mjs` | `PMLSubmitGuardTests` / `MTOServiceTests` 夹具类名 | 夹具正则联动——提取/悬空判据锚定具体类名，换名即削弱断言 |
 | `test/check-scope.test.mjs` 注释 | worktree 命名实例 | 机制沿革——URL 编码缺陷的实证说明 |
 
-裁定：上述均为**机制沿革叙述与夹具判据锚**，非运行时依赖、非业务数据；作为「类词通用化」的诚实边界保留（源项目治理机制本就生长于真实业务，抽掉实证词句的机制叙述反而不可对质）。skills 侧 `review-method` / `verify-ui`（含 features/*）的业务专名随「挑通用者迁」的技能裁定同迁，详见 `NOTICE-ORIGIN.md`「残留词与脱敏裁定」节。
+裁定：上述均为**机制沿革叙述与夹具判据锚**，非运行时依赖、非业务数据；作为「类词通用化」的诚实边界保留（源项目治理机制本就生长于真实业务，抽掉实证词句的机制叙述反而不可对质）。skills 侧 `review-method` / `verify-ui`（含 features/*）的业务专名随「挑通用者迁」的技能裁定同迁。
 
 ### 12.5 policy_status 退役候选的诚实口径（§3.3 工具表延伸）
 

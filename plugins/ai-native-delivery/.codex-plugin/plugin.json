@@ -1,6 +1,6 @@
 {
   "name": "ai-native-delivery",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "AI-Native 交付治理引擎：三层闭环（任务级硬闭环 / 状态收敛闭环 / 治理进化闭环）——L1/L2/L3 风险泳道 + check-loop 硬门 5 段 + 台账三件套 + 判定账进化；台账为项目级资产，一律落使用项目 git 仓库根。",
   "author": {
     "name": "master0071",
@@ -39,7 +39,7 @@
   "interface": {
     "displayName": "AI-Native Delivery",
     "shortDescription": "AI-Native 交付治理：风险泳道定级 + 硬门关单闸 + 台账审计",
-    "longDescription": "把交付治理做成三层闭环：任务级硬闭环（两问定级进 L1/L2/L3 泳道、check-loop 硬门 5 段、关单与 pre-push 物理闸门）、状态收敛闭环（台账三件套 + INDEX + 收敛对账 + 台账卫生）、治理进化闭环（judgment-ledger 计数、退役候选、门禁段数棘轮、实测墙钟预算）。台账与三本审计账为项目级资产，一律落使用项目 git 仓库根。移植自 Shipyard.Material 治理引擎（policyVersion 14 基线）。",
+    "longDescription": "把交付治理做成三层闭环：任务级硬闭环（两问定级进 L1/L2/L3 泳道、check-loop 硬门 5 段、关单与 pre-push 物理闸门）、状态收敛闭环（台账三件套 + INDEX + 收敛对账 + 台账卫生）、治理进化闭环（judgment-ledger 计数、退役候选、门禁段数棘轮、实测墙钟预算）。台账与三本审计账为项目级资产，一律落使用项目 git 仓库根。",
     "developerName": "master0071",
     "category": "Developer Tools",
     "capabilities": [

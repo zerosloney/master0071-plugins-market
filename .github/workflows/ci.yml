@@ -88,6 +88,8 @@ jobs:
       - name: ai-native-delivery tests
         run: |
           cd plugins/ai-native-delivery
+          # 宿主垫片单源漂移门：垫片手改而未重生成即红（生成器 scripts/gen-host-manifests.mjs）
+          node scripts/gen-host-manifests.mjs --check
           node test/smoke.mjs
           node test/check-loop.test.mjs
           node test/check-loop-rev.test.mjs
@@ -147,6 +149,10 @@ jobs:
           node test/grade.test.mjs
           node test/hook.test.mjs
           node test/init.test.mjs
+          # 安装引擎重构（0.1.19）：两段式装户层 + 宿主垫片生成器 + 安装健康自检
+          node test/install.test.mjs
+          node test/gen-host-manifests.test.mjs
+          node test/doctor.test.mjs
           node test/mcp-tools.test.mjs
           node skills/session-resume/scripts/worktree-audit.test.mjs
           node skills/verify-ui/scripts/gen-verify-feature.test.mjs

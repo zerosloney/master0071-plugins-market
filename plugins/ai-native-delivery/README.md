@@ -1,6 +1,6 @@
 # ai-native-delivery
 
-AI-Native 交付治理引擎：把 Shipyard.Material 里跑通 14 个 policy version 的交付治理机制做成可安装插件（[Agent Plugins 1.0.0](https://agent-plugins.org) 标准）。它交付的不是"流水线"，而是三层闭环：
+AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理机制做成可安装插件（[Agent Plugins 1.0.0](https://agent-plugins.org) 标准）。它交付的不是"流水线"，而是三层闭环：
 
 ## 三层闭环定位
 
@@ -63,6 +63,26 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - **落位**：`.agents/`（config 种子、settings.json、confirmations.jsonl + confirmations.d/、cache 等运行时目录）与 `workflow/`（INDEX + 台账骨架）；另写 `.gitignore` 标记块、安装 `.git/hooks/pre-commit` / `pre-push`（已存在同名钩子跳过不覆盖）；
 - 项目侧 `.agents/config/engine.json` 的 policyVersion 与插件种子不同时 WARN 可升级、不自动覆盖。
 - 种子的领域词表 `workflow-modules.txt` 是**模板种子示例**（领域无关最小集，2026-11-05 脱敏：不再携带源项目制造域词）：项目应改写为自有域词表——`kb-search --module` 与 check-loop 模块校验按项目侧这份文件判，已改写内容初始化不覆盖。
+
+### 安装引擎（0.1.19 重构：plan/apply 两段式 + sha256 台账）
+
+初始化拆两段：`install/plan.mjs` 把全部落盘行为描述为纯数据计划（零写盘副作用），`install/apply.mjs` 按安装台账 `.agents/install-manifest.json`（逐文件 CRLF 归一 sha256，入库共享，语义同 lock 文件）裁决落盘。两个新增通道：
+
+```
+node <插件根>/scripts/init-engine.mjs --dry-run   # 只裁决不写盘：预览 create/update/conflict 清单
+node <插件根>/scripts/init-engine.mjs --force     # conflict 项强制覆盖回种子（用户改动不保留）
+```
+
+升级语义按台账哈希逐文件裁决：目标不存在 → `create`；目标与台账哈希一致而种子有新版 → `update`（**未改过的种子文件随插件升版自动更新**）；目标与台账哈希不一致（用户改过）→ `conflict` 跳过不覆盖，`--force` 才覆盖。**领养模式**：旧版 init-engine 初始化过的项目（文件在、台账整个缺失）首跑一个文件都不覆盖，现状哈希全部记入新账，此后进入正常的升级/保护裁决。
+
+### 安装健康自检（doctor）
+
+```
+node <插件根>/scripts/doctor.mjs                  # 缺省锚定当前 git 仓库根
+node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
+```
+
+7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
 
 ## MCP 工具（7 个）
 
@@ -165,7 +185,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；
 - 全量：`test/` 全部套件逐个可跑（CI 逐行接线）；设计文档 §10 十条验收断言收口在 `test/acceptance.mjs`（黑盒、全走 CLI/stdio 入口），样板仓端到端闭环在 `test/e2e-fixture.mjs`；
-- 迁移口径见 [NOTICE-ORIGIN.md](NOTICE-ORIGIN.md)：只迁机制不迁运行数据；实现收口记录（v2.3 → 0.1.0 落地偏差与裁决）见设计文档 `design/ai-native-delivery.md` §12。
+- 实现收口记录（v2.3 → 0.1.0 落地偏差与裁决）见设计文档 `design/ai-native-delivery.md` §12。
 
 ## 项目侧约定（插件不附带）
 
@@ -176,6 +196,14 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.1.19**
+
+装户层重构：初始化拆 plan/apply 两段式，落盘文件全部记入 sha256 安装台账（`.agents/install-manifest.json`），升级（未改种子自动 update）/ 领养（旧版 init 过的项目首跑只记录不覆盖）/ `--dry-run`（零写盘预览）/ `--force`（覆盖用户改动）通道落地；宿主三垫片改单源生成（`scripts/gen-host-manifests.mjs`，`--check` 漂移门接入 CI）；新增 `scripts/doctor.mjs` 安装健康自检（7 项，✗ 附修复命令）。
+
+**0.1.18**
+
+删除 Shipyard.Material 来源声明：`NOTICE-ORIGIN.md` 移除，plugin.json / README / 设计稿中的来源句清除。
 
 **0.1.15**
 
