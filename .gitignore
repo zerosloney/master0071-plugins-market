@@ -26,3 +26,4 @@ artifacts/review/
 artifacts/ocr/
 # `.qwen/skills/verify` 的运行证据（summary.json + 逐步骤日志），本地留证不入库
 artifacts/verify/
+.zcode/
