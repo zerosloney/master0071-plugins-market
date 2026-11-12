@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { tallyJudgments, recordRun, LEDGER_REL } from '../scripts/judgment-ledger.mjs';
+import { tallyJudgments, recordRun, recordDismiss, LEDGER_REL } from '../scripts/judgment-ledger.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -130,6 +130,79 @@ const check = (desc, cond, detail = '') => {
     { env: { ...process.env, CHECK_LOOP_ROOT: T }, cwd: T, encoding: 'utf8' });
   check('S5 fixture 态 spawn 运行不落账（守卫在子进程同样生效）',
     !fs.existsSync(path.join(T, LEDGER_REL)), `exit=${r.status} ${r.stderr || ''}`);
+  fs.rmSync(T, { recursive: true, force: true });
+}
+
+// ---- S6 dismiss 登记三态（2026-11 误拦遥测）：正常落账 / 缺 reason 拒 / 规则名未知警告从权 ----
+// dismiss 是人工登记动作（agent 被误拦后由人或 agent 代登记），append-only 同库；universe = 账内出现过的规则。
+{
+  const saved = { loopRoot: process.env.CHECK_LOOP_ROOT, noLedger: process.env.CHECK_LOOP_NO_LEDGER };
+  delete process.env.CHECK_LOOP_ROOT;
+  delete process.env.CHECK_LOOP_NO_LEDGER;
+  try {
+    const T = fs.mkdtempSync(path.join(os.tmpdir(), 'jledger-dismiss-'));
+    const now = new Date('2026-11-12T00:00:00.000Z');
+    // 先落一条命中——dismiss 的「未知规则名」判定以账内出现过的规则为 universe
+    recordRun({ root: T, mode: 'hard', blockers: ['- [配对断裂] x'], warnings: [], now });
+    const p = path.join(T, LEDGER_REL);
+    const readRows = () => fs.readFileSync(p, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+    // ① 正常落账：kind:"dismiss" 行（规则名/原因/ts/rev 锚），追加不覆盖 run 行
+    const r = recordDismiss({ root: T, rule: '配对断裂', reason: '误拦：白名单路径被拦', now });
+    const rows = readRows();
+    const d = rows.find((x) => x.kind === 'dismiss');
+    check('S6 dismiss 正常落账（kind/rule/reason/ts 齐，非 git 目录 rev=null）',
+      rows.length === 2 && d && d.rule === '配对断裂' && d.reason === '误拦：白名单路径被拦'
+      && d.ts === '2026-11-12T00:00:00.000Z' && d.rev === null && r.ok === true && r.unknown === false,
+      JSON.stringify(rows));
+    check('S6 追加不覆盖（run 行在前，append-only 同库）', Array.isArray(rows[0].rules) && rows[1].kind === 'dismiss', JSON.stringify(rows.map((x) => Object.keys(x))));
+    // ② 缺 reason 拒（fail-closed：登记动作垃圾进=账被污染）——throw 且不落账
+    let threw = '';
+    try { recordDismiss({ root: T, rule: '配对断裂', reason: '   ' }); } catch (e) { threw = String(e.message); }
+    check('S6 缺 reason 拒（throw 且不落账）', threw.includes('reason') && readRows().length === 2, threw);
+    let threwRule = '';
+    try { recordDismiss({ root: T, rule: '', reason: 'x' }); } catch (e) { threwRule = String(e.message); }
+    check('S6 缺规则名拒', threwRule.includes('规则名') && readRows().length === 2, threwRule);
+    // ③ 规则名未知：stderr 警告一行，照登不误（从权）
+    const errs = [];
+    const orig = console.error;
+    console.error = (...a) => errs.push(a.join(' '));
+    let r3 = null;
+    try { r3 = recordDismiss({ root: T, rule: '不存在规则', reason: 'x' }); } finally { console.error = orig; }
+    const rows3 = readRows();
+    check('S6 规则名未知警告从权（照登 + unknown=true + stderr 一行）',
+      r3 && r3.unknown === true && rows3.some((x) => x.kind === 'dismiss' && x.rule === '不存在规则')
+      && errs.some((m) => m.includes('不存在规则') && m.includes('从权')), JSON.stringify({ errs, n: rows3.length }));
+    fs.rmSync(T, { recursive: true, force: true });
+  } finally {
+    if (saved.loopRoot !== undefined) process.env.CHECK_LOOP_ROOT = saved.loopRoot; else delete process.env.CHECK_LOOP_ROOT;
+    if (saved.noLedger !== undefined) process.env.CHECK_LOOP_NO_LEDGER = saved.noLedger; else delete process.env.CHECK_LOOP_NO_LEDGER;
+  }
+}
+
+// ---- S7 CLI 面：--dismiss/--reason 落账 + 缺 --reason 拒（exit 2）+ 未知规则名 stderr 警告 ----
+// 写侧 fail-closed（与 confirm-doc 同口径）：CLI 须在使用项目的 git 仓库内运行——夹具 git init。
+{
+  const SCRIPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts');
+  const T = fs.mkdtempSync(path.join(os.tmpdir(), 'jledger-cli-'));
+  const git = process.platform === 'win32' ? 'git.exe' : 'git';
+  spawnSync(git, ['init', '-q'], { cwd: T });
+  // 留一个提交：rev 锚（shortRev）需 HEAD 存在——顺带让 S7 断言到「root 锚真的落了账」
+  fs.writeFileSync(path.join(T, 'seed.txt'), 'seed\n');
+  spawnSync(git, ['add', '.'], { cwd: T });
+  spawnSync(git, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'seed'], { cwd: T });
+  const p = path.join(T, LEDGER_REL);
+  const r1 = spawnSync(process.execPath, [path.join(SCRIPTS, 'judgment-ledger.mjs'), '--dismiss', '规则甲', '--reason', '误拦样例', '--root', T], { cwd: T, encoding: 'utf8' });
+  const rows1 = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)) : [];
+  check('S7 CLI 正常落账（exit 0 + kind:dismiss 行 + rev=git 短 rev）',
+    r1.status === 0 && rows1.length === 1 && rows1[0].kind === 'dismiss' && rows1[0].rule === '规则甲'
+    && typeof rows1[0].rev === 'string' && rows1[0].rev.length > 0,
+    `exit=${r1.status} ${r1.stderr || ''}`);
+  check('S7 CLI 未知规则名警告走 stderr（账空 → 从权照登）', /未知规则名/.test(r1.stderr || ''), r1.stderr || '');
+  const n1 = rows1.length;
+  const r2 = spawnSync(process.execPath, [path.join(SCRIPTS, 'judgment-ledger.mjs'), '--dismiss', '规则甲', '--root', T], { cwd: T, encoding: 'utf8' });
+  const n2 = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split(/\r?\n/).filter(Boolean).length : 0;
+  check('S7 CLI 缺 --reason 拒（exit 2、不落账、stderr 提示 reason）',
+    r2.status === 2 && n2 === n1 && /reason/.test(r2.stderr || ''), `exit=${r2.status} ${r2.stderr || ''}`);
   fs.rmSync(T, { recursive: true, force: true });
 }
 

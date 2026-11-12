@@ -1,0 +1,81 @@
+# ai-native-delivery · L-ci 项目适配模板（check-bands 定时巡检示例）
+# ─────────────────────────────────────────────────────────────────────────────
+# 本文件是**参考模板**（随插件分发于 config-templates/ci/，不是运行配置，init-engine
+# 不播种——见同目录 README.md）。复制到使用项目的 .github/workflows/<名字>.yml，
+# 按下方【改这里】注释改完即可接线；插件不默认接线任何宿主。
+#
+# 定位：项目自治的**定时巡检**旁路——schedule（cron）定时对主仓跑确定性带监测
+# check-bands（advisory），输出存 artifact。红线（与插件「不自动唤起 agent」同源）：
+# 本模板不含任何自动执行 agent 的步骤——越带只出**建议指令**，绝不自动执行；
+# 看到越带后走人工处置，或由 owner 另行授权的 runner 面处理。cron 频率与处置方式
+# 全部由项目自调（下方 cron 表达式是示意值，不是推荐值）。
+#
+# 与 github-actions-verify.yml.template 的分工：那份跑门禁车道（PR / push 合入面），
+# 这份只做周期观测（无人在场时发现指标越带）。check-bands 判据与本地 CLI 同源
+# （同一脚本），CI 层不新增判据；零依赖、零网络、零凭据。
+
+name: ai-native-delivery-bands
+
+on:
+  schedule:
+    # 【改这里 1/3】cron 频率项目自调（示意：每周一 03:17 UTC）。GitHub 的 schedule
+    # 走 UTC 且高峰时段会延迟——避开整点可减少被推迟的概率。
+    - cron: '17 3 * * 1'
+  # 手动触发位：接线后首跑验证用，不需要可删
+  workflow_dispatch:
+
+# 所有命令都在**仓库检出根**执行：check-bands 的 --root . 即本仓检出根，
+# 指标源（.agents/verifications.jsonl / workflow/metrics.md）都在主仓里
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 【改这里 2/3】插件根怎么解析（口径同 github-actions-verify.yml.template 的【改这里 1/4】）：
+  #   a. 托管 runner 无宿主安装缓存（最常见）——市场仓随本仓一并检出（见下方 Checkout
+  #      plugin marketplace 步），PLUGIN_ROOT 填相对检出路径（本文件的默认值）；
+  #   b. 自托管 runner 且插件已随宿主常驻安装——改填宿主缓存里的安装路径；
+  #   c. 把插件目录 vendor 进本仓——改填仓内相对路径，并删除市场仓检出步。
+  PLUGIN_ROOT: vendor/master0071-plugins-market/plugins/ai-native-delivery
+  # 方案 a 的市场仓坐标（fork / 私有仓改成自己的只读地址）
+  MARKETPLACE_REPOSITORY: zerosloney/master0071-plugins-market
+
+jobs:
+  bands:
+    name: check-bands (advisory, scheduled)
+    runs-on: ubuntu-latest
+    steps:
+      # 【改这里 3/3】方案 a 用这一步把市场仓检出到 PLUGIN_ROOT 指的相对路径；选方案 b/c
+      # 时删除本步并改 env.PLUGIN_ROOT。私有市场仓取消注释 token 行，凭据经 GitHub Actions
+      # secrets 注入——本模板与插件都不携带任何密钥样例值。
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 18 是插件声明的 Node 下限；观测面单平台单版本即可，项目自调
+          node-version: 22
+      - name: Checkout plugin marketplace
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MARKETPLACE_REPOSITORY }}
+          path: vendor/master0071-plugins-market
+          # token: ${{ secrets.MARKETPLACE_TOKEN }}
+      # 确定性带监测（advisory，见插件 README「确定性带监测」节）：越带只出**建议指令**，
+      # 绝不自动执行——本步即巡检终点，报告落 artifact，处置（带宽校准 / 指标口径调整 /
+      # 执法面增补）走人工或 owner 授权面。退出码：0=带内 / 未配置 / 未判带；1=有越带
+      # （信号面——定时巡检没有别的人在看，让 job 红出来就是它的通知方式）；2=配置损坏
+      # （fail-loud，红出来修配置）。pipefail 让 check-bands 的退出码穿过 tee 不被吞掉。
+      - name: check-bands
+        run: |
+          set -o pipefail
+          node "${PLUGIN_ROOT}/scripts/check-bands.mjs" --root . | tee bands-report.txt
+      # ── 只记录不红的替代形态（默认不接线，项目自治取舍）─────────────────────
+      # - name: check-bands (observe only)
+      #   run: node "${PLUGIN_ROOT}/scripts/check-bands.mjs" --root . | tee bands-report.txt || true
+      - name: upload bands report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bands-report
+          path: bands-report.txt
+          # 保留天数项目自调（示意 30 天；GitHub 免费档上限 90）
+          retention-days: 30

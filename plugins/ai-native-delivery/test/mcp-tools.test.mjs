@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// mcp-tools.test.mjs — MCP 7 工具端到端（spawn mcp/server.mjs，stdio JSON-RPC 往返）
-// 断言：tools/list 恰好 7 个具名工具；grade_task 三态；read_context 未初始化/已初始化两态；
+// mcp-tools.test.mjs — MCP 10 工具端到端（spawn mcp/server.mjs，stdio JSON-RPC 往返）
+// 断言：tools/list 恰好 10 个具名工具；grade_task 三态；read_context 未初始化/已初始化两态；
 //       confirm 落账可解析且 fingerprint 与 confirm-doc.computeFingerprint 同构；
 //       confirm 的引文接地与 confirm-doc 同口径（接地留痕 / advisory 默认 / doc 缺失与路径逃逸硬拒 /
 //       task 行恒不带 stage）；
 //       update_ledger 路径逃逸被拒；verify_gate 在最小 fixture 仓 exit 0；policy_status 返回
-//       policyVersion=种子版；未知工具 / 缺参报 isError。
+//       policyVersion=种子版；band_check / dream_verify / doctor 三只读巡检工具（正常 root 返回
+//       结构 + 缺 root fail-closed）；未知工具 / 缺参报 isError。
 // 零依赖，Node ≥ 18 直接运行：node test/mcp-tools.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -85,9 +86,10 @@ const root = mkRepo();
 
   const list = replies.get(2);
   const names = (list?.result?.tools || []).map((t) => t.name);
-  check('tools/list 恰好 7 个工具', names.length === 7, JSON.stringify(names));
-  check('7 个具名工具与设计文档一致', JSON.stringify(names) === JSON.stringify([
+  check('tools/list 恰好 10 个工具', names.length === 10, JSON.stringify(names));
+  check('10 个具名工具与钉死清单一致', JSON.stringify(names) === JSON.stringify([
     'grade_task', 'read_context', 'update_ledger', 'confirm', 'verify_gate', 'ledger_stats', 'policy_status',
+    'band_check', 'dream_verify', 'doctor',
   ]), JSON.stringify(names));
   check('每个工具带 inputSchema', (list?.result?.tools || []).every((t) => t.inputSchema && t.inputSchema.type === 'object'));
 
@@ -705,6 +707,82 @@ fs.writeFileSync(outFile, JSON.stringify({ acked: acked.length }));
   const raw = `{"jsonrpc":"2.0","id":1e999,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}\n`;
   const r = spawnSync(process.execPath, [SERVER], { input: raw, encoding: 'utf8', cwd: root, maxBuffer: 32 * 1024 * 1024 });
   check('非有限数字 id 拒收不回包（Infinity→null 配对黑洞）', String(r.stdout || '').trim() === '', JSON.stringify(r.stdout));
+}
+
+// ---- 三只读巡检工具（2026-11-12 工具面扩容）：band_check / dream_verify / doctor ----
+// 独立夹具仓（不与主夹具仓混用——doctor 的 ✗ 形态靠删安装台账制造，不能污染其他会话的断言）。
+// root 在三工具的 schema 层必填：缺 root 走协议层 required 闸回 isError；直调 core 的守卫另测。
+{
+  const root3 = mkRepo();
+  initEngine(root3);
+  // band_check 越带夹具：全平绿史（σ=0，判点偏离均值即越带）后 1 行失败——「全绿史后出现
+  // 一次失败」正是带监测要抓的形态；tier=diagnose 走只读白名单建议档
+  fs.writeFileSync(path.join(root3, '.agents', 'config', 'bands.json'), JSON.stringify({
+    metric: { failRate: { source: 'verify-green', value: 'recent-fail-rate', window: 20 } },
+    tiers: { diagnose: { readonlyTools: ['read_context'] } },
+    rules: { 'verify-fail-rate': { metric: 'failRate', tier: 'diagnose' } },
+  }, null, 2), 'utf8');
+  const vrows = [];
+  for (let i = 0; i < 5; i++) vrows.push(JSON.stringify({ ts: `2026-11-01T0${i}:00:00Z`, suite: 'all-gates', exitCode: 0 }));
+  vrows.push(JSON.stringify({ ts: '2026-11-02T00:00:00Z', suite: 'all-gates', exitCode: 1 }));
+  fs.writeFileSync(path.join(root3, '.agents', 'verifications.jsonl'), `${vrows.join('\n')}\n`, 'utf8');
+  // dream_verify 存疑夹具：终态存档件（frontmatter 状态 done）引用两条不存在的仓内路径
+  fs.writeFileSync(path.join(root3, 'workflow', 'plans', '2026-11-12-dream-fixture.md'),
+    '---\n状态: done\n---\n\n# 夹具：终态存档件引用失效\n\n见 workflow/gone.md，配置样例在 .agents/missing.json。\n', 'utf8');
+  // doctor ✗ 夹具：删安装台账——「安装台账缺失（重跑即领养）」是 doctor 判据里的标准 ✗ 形态
+  fs.rmSync(path.join(root3, '.agents', 'install-manifest.json'));
+
+  const { replies: insp } = call(root3, [
+    { jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'band_check', arguments: { root: root3 } } },
+    { jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'dream_verify', arguments: { root: root3 } } },
+    { jsonrpc: '2.0', id: 43, method: 'tools/call', params: { name: 'doctor', arguments: { root: root3 } } },
+    { jsonrpc: '2.0', id: 44, method: 'tools/call', params: { name: 'band_check', arguments: {} } },
+    { jsonrpc: '2.0', id: 45, method: 'tools/call', params: { name: 'dream_verify', arguments: {} } },
+    { jsonrpc: '2.0', id: 46, method: 'tools/call', params: { name: 'doctor', arguments: {} } },
+  ]);
+
+  const bc = jsonOf(insp.get(41));
+  check('band_check 越带仓 → configured 且 breachCount=1',
+    bc && bc.configured === true && bc.breachCount === 1 && bc.counts && bc.counts.breach === 1,
+    JSON.stringify(bc && { configured: bc.configured, breachCount: bc.breachCount, counts: bc.counts }));
+  check('band_check 越带 band 带 tier=diagnose 与建议指令行',
+    Array.isArray(bc && bc.bands) && bc.bands[0] && bc.bands[0].tier === 'diagnose' && bc.bands[0].status === 'breach'
+      && (bc.lines || []).some((l) => l.includes('建议指令') && l.includes('diagnose')),
+    JSON.stringify(bc && { bands: bc.bands, lines: (bc.lines || []).filter((l) => l.includes('建议指令')) }));
+
+  const dv = jsonOf(insp.get(42));
+  check('dream_verify → 存疑注记含失效路径引用',
+    dv && Array.isArray(dv.findings) && dv.findings.some((f) => f.kind === 'path' && f.ref === 'workflow/gone.md'),
+    JSON.stringify(dv && dv.findings));
+  check('dream_verify → 报告落盘并回传 reportPath',
+    dv && typeof dv.reportPath === 'string' && fs.existsSync(dv.reportPath)
+      && path.dirname(path.resolve(dv.reportPath)) === path.resolve(root3, '.agents', 'tmp'),
+    JSON.stringify(dv && dv.reportPath));
+
+  const dc = jsonOf(insp.get(43));
+  check('doctor 破坏仓 → ok:false 且 ✗ 项带 fix',
+    dc && dc.ok === false && Array.isArray(dc.checks) && dc.checks.some((c) => c.ok === false && c.fix),
+    JSON.stringify(dc && dc.checks && dc.checks.filter((c) => !c.ok)));
+  check('doctor ✗ 项含「安装台账」且 fix 指向 init-engine',
+    dc && dc.checks.some((c) => !c.ok && c.name === '安装台账' && /init-engine/.test(c.fix)),
+    JSON.stringify(dc && dc.checks && dc.checks.filter((c) => !c.ok)));
+
+  for (const [id, name] of [[44, 'band_check'], [45, 'dream_verify'], [46, 'doctor']]) {
+    const miss = insp.get(id);
+    check(`${name} 缺 root → isError（required fail-closed）`,
+      isError(miss) && /missing required/.test(miss.result.content[0].text),
+      JSON.stringify(miss && miss.result));
+  }
+
+  // 防御纵深：直调 core 的 handler（绕过协议层 required 闸，如进程内复用）同样 fail-closed
+  const { toolBandCheck, toolDreamVerify, toolDoctor } = await import('../mcp/core.mjs');
+  for (const [label, fn] of [['toolBandCheck', toolBandCheck], ['toolDreamVerify', toolDreamVerify], ['toolDoctor', toolDoctor]]) {
+    let threw = null;
+    try { fn({}); } catch (err) { threw = err; }
+    check(`${label} 直调缺 root → ToolError（core 守卫）`,
+      threw !== null && /root.*必填/.test(threw.message), threw ? threw.message : '(未抛)');
+  }
+  fs.rmSync(root3, { recursive: true, force: true });
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

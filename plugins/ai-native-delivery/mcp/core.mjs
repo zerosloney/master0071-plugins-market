@@ -4,7 +4,7 @@
 // 工具表（schema + 分派）在 tools.mjs，JSON-RPC framing 在 protocol.mjs。
 // 硬边界：MCP 无自有存储——一切文件操作经 paths.mjs（git root 锚定）落在使用项目里；
 // 逻辑优先包装已迁脚本（grade-task / read-context / check-loop / check-ledger-invariant /
-// confirm-doc / agg-judgments），不在 MCP 里重造第二套口径。
+// confirm-doc / agg-judgments / check-bands / dream-verify / doctor），不在 MCP 里重造第二套口径。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +28,10 @@ import { groundQuote, resolveDocText, resolveFamilyTexts } from '../scripts/quot
 import { readAllJudgments, retireCandidates, aggFromRows } from '../scripts/agg-judgments.mjs';
 // workflow/ 台账写锁与 CLI 共用同一把（单源）：两边各写各的锁等于没锁，见 ledger-shards 的注释
 import { withLedgerLock } from '../scripts/ledger-shards.mjs';
+// 三只读巡检工具（2026-11-12 工具面扩容）包装的库导出——isMain 门惯例，import 纯函数零副作用
+import { runBandCheck } from '../scripts/check-bands.mjs';
+import { runDreamVerify } from '../scripts/dream-verify.mjs';
+import { runDoctor } from '../scripts/doctor.mjs';
 
 const SPAWN_TIMEOUT_MS = 120_000;   // 不变量前置等轻量子进程的墙钟上限
 const OUTPUT_CLIP = 8 * 1024;       // verify_gate 回传 stdout/stderr 摘要的截断上限（防爆）
@@ -617,4 +621,42 @@ export function toolPolicyStatus(args = {}) {
   }
 
   return ok({ policy, gateBudgets, retire, ratchet: ratchetStatus(root) });
+}
+
+/* ------------------------------------- band_check / dream_verify / doctor */
+
+// 三只读巡检工具（2026-11-12 工具面扩容）的共同口径：
+//   ① handler 全部单行包装 scripts/ 库导出（runBandCheck / runDreamVerify / runDoctor）——
+//     判据单源在脚本里，MCP 不重造第二套口径（同 grade_task / read_context 的 import 先例；
+//     不走 verify_gate 那种 spawn 是因为三个库函数都是纯读、无墙钟预算面）；
+//   ② root 在 schema 层就必填（不同于既有工具的可选 root）：巡检面按调用方指定的仓库跑，
+//     不落回 cwd 推断——缺 root 由协议层 required 闸先拦，这里再守一道（防御纵深，
+//     直调 core.mjs 的调用方同样 fail-closed），报错形态与 update_ledger 的 ToolError 同款；
+//   ③ 全部只读。dream_verify 的唯一写盘动作是被包装脚本自身的报告落盘（.agents/tmp/），
+//     工具面只如实回传 reportPath，不追加任何自有写点。
+
+// requireRequiredRoot(args)：三巡检工具的 root 必填守卫（fail-closed）。
+function requireRequiredRoot(args) {
+  if (!args || typeof args.root !== 'string' || !args.root.trim()) {
+    throw new ToolError(
+      '`root` 必填：巡检工具只按调用方指定的仓库跑，不按服务进程工作目录推断。\n' +
+      'hint: 传使用项目的 git 仓库根（绝对路径，或其子目录）。',
+    );
+  }
+  return requireRoot(args.root);
+}
+
+export function toolBandCheck(args = {}) {
+  const root = requireRequiredRoot(args);
+  return ok(runBandCheck(root));
+}
+
+export function toolDreamVerify(args = {}) {
+  const root = requireRequiredRoot(args);
+  return ok(runDreamVerify(root));
+}
+
+export function toolDoctor(args = {}) {
+  const root = requireRequiredRoot(args);
+  return ok(runDoctor(root));
 }

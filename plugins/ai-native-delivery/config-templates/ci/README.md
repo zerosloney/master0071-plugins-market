@@ -9,6 +9,7 @@ CI 层不新增判据。
 文件：
 
 - `github-actions-verify.yml.template` — GitHub Actions 示例（无模型步 + 注释形态的可选诊断步）
+- `github-actions-bands.yml.template` — check-bands 定时巡检示例（schedule cron 触发 → advisory 报告入 artifact）
 - 本 README — 用法与授权边界
 
 ## 为何不默认接线
@@ -28,6 +29,21 @@ CI 层不新增判据。
    市场仓检出步（选后两方案时删改）；
 3. 首跑全绿后，再决定要不要解注释末尾的可选诊断步（自备凭据与授权，见下节）。
 
+## 定时巡检（check-bands）
+
+`github-actions-bands.yml.template` 是 check-bands 的独立定时巡检参考件——verify 模板管
+PR / push 合入面的门禁车道，这份管**周期观测**：schedule（cron）定时对主仓跑
+`check-bands.mjs --root .`，报告 `tee` 进 artifact（保留天数项目自调）。三步接入：
+
+1. 复制模板到使用项目 `.github/workflows/ai-native-delivery-bands.yml`；
+2. 按【改这里 1/3–3/3】改：cron 频率（示意值，项目自调）、`env.PLUGIN_ROOT`（与 verify
+   模板同三方案）、市场仓检出步（选 vendor / 常驻安装方案时删改）；
+3. `workflow_dispatch` 手动首跑验证，之后按 cron 自动巡检。
+
+边界重申：越带只出**建议指令**，处置走人工或 owner 另行授权的 runner 面；退出码 1
+（有越带）会让 job 红出来当信号——想只记录不红，模板里附了 `|| true` 的替代形态
+（注释形态，默认不接线）。本模板不含任何自动执行 agent 的步骤（插件红线）。
+
 ## 授权边界
 
 - **无模型步**（check-loop `--all` + verify `--full`）：纯确定性脚本，零凭据零网络，任何项目可直接接；
@@ -35,7 +51,8 @@ CI 层不新增判据。
   与费用，全部由项目裁决；密钥一律经 CI secrets 注入，模板与插件都不携带密钥样例值；提示词按
   「只读诊断、不改文件」约束，结论仍走人工 / PR 处置；
 - **确定性带监测旁路**（`check-bands`，advisory）：越带只出建议指令，绝不自动执行——见插件
-  README「确定性带监测」节，workflow 内附注释形态的定时旁路样例。
+  README「确定性带监测」节，workflow 内附注释形态的定时旁路样例，独立定时巡检模板另见
+  `github-actions-bands.yml.template`（用法见上节）。
 
 ## 与四 git hooks 的分工
 

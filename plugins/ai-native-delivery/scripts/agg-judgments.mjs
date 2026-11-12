@@ -3,7 +3,10 @@
 // 用法：node <插件根>/scripts/agg-judgments.mjs [--month=YYYY-MM]
 //       node <插件根>/scripts/agg-judgments.mjs --retire-candidates [--months=6]
 //       node <插件根>/scripts/agg-judgments.mjs --emit-month[=YYYY-MM]
+//       （默认输出含「误拦面」节：每规则 命中/dismiss/误拦率——dismiss 由 judgment-ledger --dismiss
+//        人工登记；≥50% 且样本 ≥3 点名「建议复评判据」advisory，不改退役判据）
 // 源：.agents/judgments.jsonl（check-loop.mjs 每次真实运行追加一行，本地 gitignore；
+//     另含人工登记的 kind:"dismiss" 误拦行（judgment-ledger --dismiss，见误拦面段注释）；
 //     缺文件 = 尚无运行记录，提示后 exit 0——与 delegations 台账「必在」不同，这是渐积数据）。
 // 仓库级数据面（gate-metrics-shard 2026-10-22）：--emit-month 把某月聚合落成
 //     workflow/gate-metrics.d/<YYYY-MM>.jsonl（每月一行，随提交入库；多机并集——并集语义由
@@ -46,10 +49,13 @@ const argMonth = (process.argv.find((a) => a.startsWith('--month=')) || '').spli
 
 // aggFromRows(rows, month)：按月×规则×级别聚合。rows = 已解析的台账行数组；
 // month = 'YYYY-MM' 过滤（null = 全部）。输出 { byMonth: { 'YYYY-MM': { runs, rules: { rule: { WARN, BLOCK } } } } }。
+// kind:"dismiss" 行跳过（2026-11 误拦遥测）：误拦登记非 check-loop 运行，不计 runs、不入 rules——
+// 误拦另有 dismissStats 度量面，两面分开（命中面不被误拦行膨胀）。
 export function aggFromRows(rows, month = null) {
   const byMonth = {};
   for (const row of rows || []) {
     if (typeof row.ts !== 'string' || !/^\d{4}-\d{2}/.test(row.ts)) continue;
+    if (row.kind === 'dismiss') continue;
     const ym = row.ts.slice(0, 7);
     if (month && ym !== month) continue;
     const b = (byMonth[ym] ||= { runs: 0, rules: Object.create(null) });
@@ -118,19 +124,31 @@ export function readShardsDetailed(root) {
   return { rows, bad };
 }
 
-/** 按月×规则聚合（内部用；与 aggFromRows 同口径，不做 month 过滤）。 */
+/** 按月×规则聚合（内部用；与 aggFromRows 同口径，不做 month 过滤）。
+ *  误拦行（2026-11）路由到 dismissals 计数（不计 runs、不混 rules）；rules/dismissals 均空原型——
+ *  规则名可来自跨机 merge=jsonl-union 提交，__proto__ 落普通对象即污染 Object.prototype
+ *  （与 aggFromRows / mergeJudgmentRows 的空原型收口同纪律）。 */
 function monthRuleCounts(rows) {
   const out = {};
   for (const row of rows || []) {
     if (typeof row.ts !== 'string' || !/^\d{4}-\d{2}/.test(row.ts)) continue;
     const ym = row.ts.slice(0, 7);
-    const b = (out[ym] ||= { runs: 0, rules: {} });
+    const b = (out[ym] ||= { runs: 0, rules: Object.create(null), dismissals: Object.create(null) });
+    if (row.kind === 'dismiss') {
+      if (row.rule && typeof row.rule === 'string') b.dismissals[row.rule] = (b.dismissals[row.rule] || 0) + 1;
+      continue;
+    }
     b.runs++;
     for (const r of Array.isArray(row.rules) ? row.rules : []) {
       if (!r || typeof r.rule !== 'string') continue;
       const cell = (b.rules[r.rule] ||= { WARN: 0, BLOCK: 0 });
       if (r.level === 'WARN') cell.WARN += r.count || 0;
       else if (r.level === 'BLOCK') cell.BLOCK += r.count || 0;
+    }
+    // 月分片快照行自带 dismissals 数组（emitMonth 落的月末快照，非 kind 行）——同样入账；
+    // 快照计数是月内合计，同月多行（跨机并集读出）取 max，与 rules 的幂等口径一致
+    for (const d of Array.isArray(row.dismissals) ? row.dismissals : []) {
+      if (d && typeof d.rule === 'string') b.dismissals[d.rule] = Math.max(b.dismissals[d.rule] || 0, d.count || 0);
     }
   }
   return out;
@@ -148,12 +166,17 @@ export function mergeJudgmentRows(localRows, shardRows) {
   for (const ym of months) {
     // 空原型（2026-11-09 审查收口）：规则名来自台账行，__proto__ 落普通对象即污染 Object.prototype
     const rules = Object.create(null);
+    const dismissals = Object.create(null);
     for (const src of [a[ym], b[ym]]) {
       if (!src) continue;
-      for (const [rule, cell] of Object.entries(src.rules)) {
+      for (const [rule, cell] of Object.entries(src.rules || {})) {
         const cur = (rules[rule] ||= { WARN: 0, BLOCK: 0 });
         cur.WARN = Math.max(cur.WARN, cell.WARN);
         cur.BLOCK = Math.max(cur.BLOCK, cell.BLOCK);
+      }
+      // dismiss 并集同 max 语义（2026-11 误拦遥测）：分片是月末快照，本地可能更新，取 max 幂等不重复计
+      for (const [rule, n] of Object.entries(src.dismissals || {})) {
+        dismissals[rule] = Math.max(dismissals[rule] || 0, n);
       }
     }
     const list = [];
@@ -162,7 +185,11 @@ export function mergeJudgmentRows(localRows, shardRows) {
       if (c.WARN) list.push({ rule, level: 'WARN', count: c.WARN });
       if (c.BLOCK) list.push({ rule, level: 'BLOCK', count: c.BLOCK });
     }
-    out.push({ ts: `${ym}-01T00:00:00.000Z`, mode: 'monthly', rev: null, blockers: 0, warnings: 0, rules: list });
+    const row = { ts: `${ym}-01T00:00:00.000Z`, mode: 'monthly', rev: null, blockers: 0, warnings: 0, rules: list };
+    // dismissals 仅非空时携带——无 dismiss 的月与旧格式逐字节一致（emitMonth 幂等不重写既有分片）
+    const dList = Object.keys(dismissals).sort().map((rule) => ({ rule, count: dismissals[rule] }));
+    if (dList.length) row.dismissals = dList;
+    out.push(row);
   }
   return out;
 }
@@ -204,6 +231,57 @@ export function emitMonth(root, ym) {
 export function prevMonthKey(now = new Date()) {
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+// ---- 误拦面（2026-11 误拦遥测：dismiss 记录由 judgment-ledger --dismiss 人工登记）----
+// 「哪条规则在误伤」的度量面：每规则 命中数 / dismiss 数 / 误拦率 = dismiss/(命中+dismiss)。
+// DISMISS_RATE_FLAG / DISMISS_MIN_SAMPLE：「建议复评判据」点名阈值（advisory）——误拦率 ≥50% 且
+// 样本（命中+dismiss）≥3。只作点名与退役候选优先级旁注，不改任何判据（--retire-candidates 的
+// 候选判据仍是零命中窗口，mechanism-retire-watch.evaluate 同判据不受影响）。
+export const DISMISS_RATE_FLAG = 0.5;
+export const DISMISS_MIN_SAMPLE = 3;
+
+// dismissTotals(rows)：每规则 dismiss 计数（空原型——规则名可来自账外提交）。双源并计：
+// 本地台账 kind:"dismiss" 行（一次一行）+ 月度分片/合并行的 dismissals 数组（月末快照计数）。
+export function dismissTotals(rows) {
+  const out = Object.create(null);
+  for (const row of rows || []) {
+    if (!row || typeof row !== 'object') continue;
+    if (row.kind === 'dismiss') {
+      if (row.rule && typeof row.rule === 'string') out[row.rule] = (out[row.rule] || 0) + 1;
+      continue;
+    }
+    for (const d of Array.isArray(row.dismissals) ? row.dismissals : []) {
+      if (d && typeof d.rule === 'string') out[d.rule] = (out[d.rule] || 0) + (d.count || 0);
+    }
+  }
+  return out;
+}
+
+// dismissStats(rows, month)：误拦面。每规则 命中数（WARN+BLOCK 合计）/ dismiss 数 / 误拦率；
+// 无 dismiss 记录的规则不出行。flagged = 点名清单（率 ≥ DISMISS_RATE_FLAG 且样本 ≥ DISMISS_MIN_SAMPLE）。
+// month = 'YYYY-MM' 过滤（null = 全部），与 aggFromRows 同款行级过滤。
+export function dismissStats(rows, month = null) {
+  const scoped = (rows || []).filter((row) => row && typeof row === 'object'
+    && typeof row.ts === 'string' && /^\d{4}-\d{2}/.test(row.ts)
+    && (!month || row.ts.slice(0, 7) === month));
+  const hits = Object.create(null);
+  for (const row of scoped) {
+    if (row.kind === 'dismiss') continue;
+    for (const r of Array.isArray(row.rules) ? row.rules : []) {
+      if (!r || typeof r.rule !== 'string') continue;
+      hits[r.rule] = (hits[r.rule] || 0) + (r.count || 0);
+    }
+  }
+  const dTotals = dismissTotals(scoped);
+  const out = [];
+  for (const rule of Object.keys(dTotals).sort()) {
+    const hitsN = hits[rule] || 0;
+    const dN = dTotals[rule];
+    const total = hitsN + dN;
+    out.push({ rule, hits: hitsN, dismiss: dN, total, rate: dN / total });
+  }
+  return { rows: out, flagged: out.filter((x) => x.rate >= DISMISS_RATE_FLAG && x.total >= DISMISS_MIN_SAMPLE) };
 }
 
 // calendarWindow(endYm, n)：以 endYm 为终点向前取 n 个日历月（含终点）。
@@ -250,8 +328,11 @@ export const RETIRE_STALE_MONTHS = 2;
 //   - 观测史守卫：首数据月晚于窗口起点 → 观测史不满窗（年轻遥测），数据不充分不产候选。
 // 候选须在全历史出现过（judgments 只记命中行，全账零命中的规则不入账）且窗口内 WARN+BLOCK 全 0。
 // 输出按全历史命中数升序（最冷门在前）。sufficient=false（含 stale）→ candidates 恒 []。
+// 候选行附 dismiss 字段（2026-11 误拦遥测）= 该规则全账 dismiss 计数，作「高误拦率退役候选优先级」
+// 旁注；**不进判据**——候选判据不变（窗口零命中），dismiss 多的零命中规则只是排序审视时更该先看。
 export function retireCandidates(rows, windowMonths = 6, { now = new Date(), staleMonths = RETIRE_STALE_MONTHS } = {}) {
   const { byMonth } = aggFromRows(rows);
+  const dTotals = dismissTotals(rows);
   const months = Object.keys(byMonth).sort();
   const base = { stale: false, anchor: null, dataMonths: months.length, windowMonths, windowFrom: null, windowTo: null, candidates: [], recentHits: [] };
   if (!months.length) return { sufficient: false, ...base };
@@ -282,7 +363,7 @@ export function retireCandidates(rows, windowMonths = 6, { now = new Date(), sta
         if (trailing.has(ym)) inWindow += n;
       }
     }
-    const row = { rule, total, lastHit };
+    const row = { rule, total, lastHit, dismiss: dTotals[rule] || 0 };
     if (inWindow === 0) candidates.push(row);
     else recentHits.push(row);
   }
@@ -312,7 +393,9 @@ function printRetireCandidates(read) {
     console.log('  （无候选——尾部窗口内**账内规则**均有命中；全账零命中的规则不入账、不产候选，见设计文档 §12.5）');
   }
   for (const c of r.candidates) {
-    console.log(`  候选  ${c.rule.padEnd(24)} 全历史命中 ${String(c.total).padStart(4)}  末次命中 ${c.lastHit || '—'}`);
+    // dismiss 旁注（2026-11 误拦遥测）：高误拦率的退役候选优先级信号——仅展示，判据仍是零命中窗口
+    const dNote = c.dismiss > 0 ? `  dismiss ${c.dismiss}` : '';
+    console.log(`  候选  ${c.rule.padEnd(24)} 全历史命中 ${String(c.total).padStart(4)}  末次命中 ${c.lastHit || '—'}${dNote}`);
   }
   for (const c of r.recentHits) {
     console.log(`  在役  ${c.rule.padEnd(24)} 全历史命中 ${String(c.total).padStart(4)}  末次命中 ${c.lastHit}`);
@@ -371,6 +454,21 @@ function main() {
     for (const rule of rules) {
       const { WARN, BLOCK } = b.rules[rule];
       console.log(`    ${rule.padEnd(24)} WARN×${WARN}  BLOCK×${BLOCK}`);
+    }
+  }
+  // 误拦面（2026-11 误拦遥测）：dismiss/(命中+dismiss)——「哪条规则在误伤」的度量面。
+  // 无 dismiss 记录的规则不出行；≥50% 且样本 ≥3 的规则单独点名「建议复评判据」（advisory，
+  // 不改 --retire-candidates 的零命中窗口判据）。登记入口：judgment-ledger --dismiss。
+  const surface = dismissStats(read.rows, argMonth);
+  console.log('📊 误拦面（误拦率 = dismiss/(命中+dismiss)；无 dismiss 的规则不出行）：');
+  if (!surface.rows.length) {
+    console.log('    （无 dismiss 记录——登记：node scripts/judgment-ledger.mjs --dismiss <规则名> --reason <一句话>）');
+  } else {
+    for (const x of surface.rows) {
+      console.log(`    ${x.rule.padEnd(24)} 命中 ${x.hits}  dismiss ${x.dismiss}  误拦率 ${(x.rate * 100).toFixed(1)}%`);
+    }
+    for (const x of surface.flagged) {
+      console.log(`    ⚠ ${x.rule} 误拦率 ${(x.rate * 100).toFixed(1)}%（样本 ${x.total}，判据：≥${DISMISS_RATE_FLAG * 100}% 且样本 ≥${DISMISS_MIN_SAMPLE}）——建议复评判据（advisory）`);
     }
   }
   if (read.bad) console.error(`agg-judgments: 跳过坏行 ${read.bad}（JSON 解析失败，不中断聚合）`);

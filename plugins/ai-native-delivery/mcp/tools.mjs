@@ -1,6 +1,7 @@
 // ai-native-delivery MCP server — tool definitions.
 //
-// 恰好 7 个治理工具（设计文档 §3.3，控制 schema 开销；三个闭环层各至少一个入口）。
+// 恰好 10 个治理工具（设计文档 §3.3 起家 7 个 + 2026-11-12 工具面扩容 3 个只读巡检工具
+// band_check / dream_verify / doctor；控制 schema 开销；三个闭环层各至少一个入口）。
 // 每个条目自带 JSON Schema（required/type/enum；additionalProperties:false——拼错的参数名
 // 被拒绝而不是被静默忽略）与 handler；handler 全部落在 mcp/core.mjs（包装已迁脚本，
 // MCP 不重造逻辑、无自有存储）。
@@ -14,6 +15,9 @@ import {
   toolVerifyGate,
   toolLedgerStats,
   toolPolicyStatus,
+  toolBandCheck,
+  toolDreamVerify,
+  toolDoctor,
 } from "./core.mjs";
 
 // 显式项目根参数（2026-10-28 插件根守卫配套）：宿主按 Agent Plugins 规范把 MCP 服务起在插件根里时，
@@ -23,6 +27,15 @@ const ROOT_PROP = {
   root: {
     type: "string",
     description: "可选：使用项目的 git 仓库根（绝对路径）。缺省按服务进程的工作目录解析；该目录若落在插件安装目录内，工具会明确报错而不猜。",
+  },
+};
+
+// 必填变体（band_check / dream_verify / doctor 三只读巡检工具专用）：巡检面按调用方指定的
+// 仓库跑，root 不做 cwd 回落推断——缺 root 由协议层 required 闸 + core 守卫双重 fail-closed。
+const REQUIRED_ROOT_PROP = {
+  root: {
+    type: "string",
+    description: "使用项目的 git 仓库根（绝对路径，或其子目录）。必填——本工具不按服务进程的工作目录推断项目，缺 root 直接拒绝（fail-closed）。",
   },
 };
 
@@ -124,6 +137,42 @@ const tools = [
       properties: { ...ROOT_PROP },
     },
     handler: (args) => toolPolicyStatus(args),
+  },
+  {
+    name: "band_check",
+    description:
+      "确定性带监测（advisory 只读）：读项目侧 .agents/config/bands.json（metric/baseline/rules/tiers 四段，种子见插件 config-templates/bands.json），从内置指标源（.agents/verifications.jsonl 验证行、workflow/metrics.md 闭环漏斗表）取数，按 μ±kσ 简化判据判带。返回 {configured, error, file, breachCount, counts, bands[]（name/metric/tier/status/均值带宽）, lines[]}——越带 band 按 tier（log/diagnose/propose）附**建议指令行**（lines 内）。建议指令只打印绝不自动执行；未配置 bands.json 时 configured:false 不误报，配置损坏经 error 字段如实回报。定时巡检可套用插件 config-templates/ci/github-actions-bands.yml.template。",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { ...REQUIRED_ROOT_PROP },
+      required: ["root"],
+    },
+    handler: (args) => toolBandCheck(args),
+  },
+  {
+    name: "dream_verify",
+    description:
+      "Dreaming 校错 pass（advisory 只读）：知识文档引用完整性对拍——扫描闭集（workflow/principles.md ∪ 分片、workflow/regression-checklist.md ∪ 分片、specs|plans 终态存档件）里规则型断言行的仓内路径引用与 sha256 指纹引用，对照文件系统与确认台账（confirmations.jsonl ∪ 分片，空台账指纹面整面跳过零误报）对拍，只标硬漂移（引用了不存在的东西），语义真伪不判（宁漏报不误报）。返回 {date, root, scanned, ledger, findings[]（doc/line/kind/ref/advice）, reportPath}；报告落 <root>/.agents/tmp/dream-verify-<日期>.md——这是被包装脚本自身的唯一写盘动作，工具面如实回传路径。删行类建议仅建议，删除须用户单独指令。",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { ...REQUIRED_ROOT_PROP },
+      required: ["root"],
+    },
+    handler: (args) => toolDreamVerify(args),
+  },
+  {
+    name: "doctor",
+    description:
+      "安装健康自检（只读）：对项目跑 7 项静态检查——项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory）/ .gitignore 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 对种子——检查项独立失败（一项 ✗ 不中断其余）。返回 {ok, checks:[{ok, name, detail, fix}]}：✗ 项的 fix 是可直接复制执行的修复命令；advisory 汇总不拦流程，可接进项目侧脚本当安装健康门用。",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { ...REQUIRED_ROOT_PROP },
+      required: ["root"],
+    },
+    handler: (args) => toolDoctor(args),
   },
 ];
 

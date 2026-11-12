@@ -6,7 +6,7 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 
 1. **任务级硬闭环**：任何任务先过"两问定级"进 L1（实现级）/ L2（规则契约）/ L3（数据与运行时结构）风险泳道，级别决定审计成本；L2 有触达面闭集（4 条），L1 plan 勾红线即判低拦截、强制升级；check-loop 硬门 6 段（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账 / 执法者配对）在 init-engine 安装的 pre-commit / pre-push 两个 git hook 物理闸门上校验闭环证据；关单是程序性自检（skills/workflow-closeout §0 + confirm-doc/stage-gates），不经 check-loop。
 2. **状态收敛闭环**：台账三件套（intents / specs / plans）+ INDEX 作为跨会话物理内存；收敛对账保证台账与 git 实际状态不背离；compact / archive 负责台账卫生，mechanism-retire-watch 治理检视由人工 / 项目自定期运行（不随 git hooks 自动跑），read_context + INDEX 支撑断崖恢复。
-3. **治理进化闭环**：judgment-ledger 按 per-rule 计数积累判定事实，连续 6 月零命中的规则进退役候选，门禁段数棘轮锁死上限（只减不增），gate 预算以实测墙钟为据。
+3. **治理进化闭环**：judgment-ledger 按 per-rule 计数积累判定事实，连续 6 月零命中的规则进退役候选，门禁段数棘轮锁死上限（只减不增），gate 预算以实测墙钟为据。误拦遥测（2026-11）：被门禁拦下而人工判定「不该拦」时登记 dismiss——`node <插件根>/scripts/judgment-ledger.mjs --dismiss <规则名> --reason <一句话>`（append-only 同库，人工或 agent 代登记，不自动触发；缺 reason 拒、规则名不在账内警告从权）；误拦面怎么看：`agg-judgments.mjs` 输出的「误拦面」节按规则给出 命中 / dismiss / 误拦率（= dismiss/(命中+dismiss)，无 dismiss 不出行），≥50% 且样本 ≥3 的规则点名「建议复评判据」（advisory——误拦率只作退役候选优先级旁注，退役判据仍是零命中窗口）。
 
 三层在 0.1.0 一次交付、不分段发布（安装即得全量机制面）。
 
@@ -127,7 +127,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
 
-## MCP 工具（7 个）
+## MCP 工具（10 个）
 
 | 工具 | 一句话用途 |
 | --- | --- |
@@ -138,6 +138,11 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 | `verify_gate` | 跑 check-loop 指定车道（hard / hygiene / all）并回报裁决 |
 | `ledger_stats` | 台账体量与不变量状态，供 compact 决策 |
 | `policy_status` | 治理进化可见性：policyVersion / 预算实测 / 退役候选（诚实口径）/ 棘轮计数 |
+| `band_check` | 确定性带监测（advisory 只读）：读 bands.json 判带，越带 band 按 tier 附建议指令（只打印不执行）；未配置不误报 |
+| `dream_verify` | Dreaming 校错 pass（advisory 只读）：知识文档引用完整性对拍，返回存疑注记清单 + 报告路径 |
+| `doctor` | 安装健康自检（只读）：7 项静态检查逐项 ✓/✗，✗ 项附可直接复制执行的修复命令 |
+
+> 三个巡检工具（`band_check` / `dream_verify` / `doctor`）的 `root` **必填**：巡检面按调用方指定的仓库跑，不按服务进程工作目录推断，缺 root 直接拒绝（fail-closed）。全部只读；`dream_verify` 的唯一写盘动作是被包装脚本自身的报告落盘（`<root>/.agents/tmp/`），工具面如实回传路径。
 
 > **`confirm` 的引文接地**：`evidence` 是「用户真的放行过这件事」的唯一可对质证据，所以它复用文件侧同一模块 `scripts/quote-grounding.mjs`（逐字命中 / ≥8 字逐字锚点 / 纯放行语三层，任一成立即接地），而不是另立一套口径。传 `doc`（workflow/ 树内台账文档）才会接地，结果如实记进台账行的 `quoteGrounding`：`verbatim` / `anchor` / `generic` / `ungrounded` / `unanchored`（未带 doc）。**默认只留痕不拦**——该模块头注的 873 条历史委托实测显示，中文口语是复述而非引用，词面判据硬拦会误杀 8–18% 合规放行，而对无关文档仍有 71.2% 通过率（判别力不足）；要收硬请显式传 `strict_quote: true`。只有客观缺陷硬拒：`doc` 在活跃目录与归档里都不存在、路径逃逸出 workflow/ 树（与 `update_ledger` 同围栏）。task 行**恒不带 `stage`**——§15 的文档配对判据是 `doc && VALID_STAGES.has(stage)`，带上 stage 就等于给了任务级确认伪造文档关单凭证的能力（该不变量由 `test/mcp-tools.test.mjs` 钉住）。
 >
@@ -244,11 +249,11 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 - **种子**：`config-templates/bands.json`（init-engine 播种进 `.agents/config/bands.json`），字段 `metric / baseline / rules / tiers` 四段；tier 动作枚举 `log / diagnose（只读工具白名单）/ propose（仅经 PR）`，档位随配置版本化；
 - **用法**：`node <插件根>/scripts/check-bands.mjs --root <仓库根>`——纯确定性读指标源（首版两内置源：`verifications.jsonl` 绿行、`gen-workflow-metrics` 输出），判定越带并按档输出**建议指令行**，绝不自动执行；外部指标源留 `--metric-source` 扩展位；
-- **与 CI 的搭配**：`config-templates/ci/` 的 workflow 模板附注释形态的 `schedule` 定时旁路样例——cron 定时跑 check-bands 出报告，处置走人工 / PR；不要把建议指令行直接接成自动执行步。
+- **与 CI 的搭配**：`config-templates/ci/` 的 workflow 模板附注释形态的 `schedule` 定时旁路样例——cron 定时跑 check-bands 出报告，处置走人工 / PR；不要把建议指令行直接接成自动执行步。定时巡检可套用 ci/ 模板：`config-templates/ci/github-actions-bands.yml.template` 是开箱即用的独立定时巡检参考件（schedule 触发 → 报告入 artifact，不含任何自动执行 agent 的步骤）。
 
 ## 工程准入与验收
 
-- 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；
+- 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 10 工具探测）；
 - 全量：`test/` 全部套件逐个可跑（CI 逐行接线）；设计文档 §10 十条验收断言收口在 `test/acceptance.mjs`（黑盒、全走 CLI/stdio 入口），样板仓端到端闭环在 `test/e2e-fixture.mjs`；
 - 实现收口记录（v2.3 → 0.1.0 落地偏差与裁决）见设计文档 `design/ai-native-delivery.md` §12。
 
@@ -261,6 +266,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.2.2**
+
+巡检工具面与误拦遥测：MCP 工具 7→10（band_check 确定性带监测 / dream_verify 引用完整性对拍 / doctor 安装自检，均 root 必填、只读；smoke 钉死清单与 mcp-tools e2e 同步，全仓声称收口为 10）；check-bands 定时巡检模板（config-templates/ci/github-actions-bands.yml.template，schedule 触发 + 报告 artifact，项目自治、不含任何自动执行 agent 步骤）；误拦率遥测（judgment-ledger --dismiss 人工登记位 + agg-judgments 误拦面：每规则命中/dismiss/误拦率，≥50% 且样本 ≥3 点名建议复评；退役候选旁注 dismiss 信号、退役判据不变；monthRuleCounts 补 __proto__ 原型污染收口）。
 
 **0.2.1**
 

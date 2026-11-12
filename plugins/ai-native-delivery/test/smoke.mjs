@@ -3,7 +3,7 @@
 //
 // 断言工程准入接线本身：四份插件清单可解析且 name / version 一致、两份市场清单含本插件条目
 // 且版本一致、mcp/protocol.mjs 的 SERVER_INFO.version 一致、MCP stdio 探测——tools/list
-// 返回恰好 7 个具名治理工具（骨架期「零工具」断言随工具层挂载退役）。
+// 返回恰好 10 个具名治理工具（骨架期「零工具」断言随工具层挂载退役）。
 // 零依赖，Node ≥ 18 直接运行：
 //
 //   node test/smoke.mjs
@@ -89,8 +89,9 @@ check(
   `got ${serverInfoVersion}`,
 );
 
-// ── MCP stdio 探测：initialize → tools/list 恰好 7 个具名工具 ────────────────
-// 骨架期断言为「tools/list 空」，工具层挂载后改为具名集合钉死（§3.3 工具表，防多注册漏注册）。
+// ── MCP stdio 探测：initialize → tools/list 恰好 10 个具名工具 ───────────────
+// 骨架期断言为「tools/list 空」，工具层挂载后改为具名集合钉死（§3.3 工具表 + 2026-11-12
+// 扩容三巡检工具，防多注册漏注册）。
 const MCP_TOOL_NAMES = [
   'grade_task',
   'read_context',
@@ -99,6 +100,9 @@ const MCP_TOOL_NAMES = [
   'verify_gate',
   'ledger_stats',
   'policy_status',
+  'band_check',
+  'dream_verify',
+  'doctor',
 ];
 {
   const input = [
@@ -117,8 +121,8 @@ const MCP_TOOL_NAMES = [
     } catch { /* 非回执行忽略 */ }
   }
   const names = (tools || []).map((t) => t.name);
-  check('tools/list 返回恰好 7 个工具', names.length === 7, JSON.stringify(names));
-  check('tools/list 工具名与设计文档一致', JSON.stringify(names) === JSON.stringify(MCP_TOOL_NAMES), JSON.stringify(names));
+  check('tools/list 返回恰好 10 个工具', names.length === 10, JSON.stringify(names));
+  check('tools/list 工具名与钉死清单一致', JSON.stringify(names) === JSON.stringify(MCP_TOOL_NAMES), JSON.stringify(names));
   check(
     '每个工具带非空 description 与 inputSchema',
     (tools || []).every((t) => typeof t.description === 'string' && t.description && t.inputSchema && t.inputSchema.type === 'object'),

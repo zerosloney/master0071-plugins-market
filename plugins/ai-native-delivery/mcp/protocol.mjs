@@ -1,7 +1,8 @@
 // ai-native-delivery MCP server — JSON-RPC framing.
 //
-// 协议层：initialize / ping / tools/list / tools/call 分派。工具表在 tools.mjs（7 个治理工具，
-// 设计文档 §3.3），实现内核在 core.mjs；本文件只做握手、分派与错误协议，保持 SERVER_INFO 版本位。
+// 协议层：initialize / ping / tools/list / tools/call 分派。工具表在 tools.mjs（10 个治理工具，
+// 设计文档 §3.3 起家 7 个 + 2026-11-12 扩容 3 个巡检工具），实现内核在 core.mjs；本文件只做握手、
+// 分派与错误协议，保持 SERVER_INFO 版本位。
 
 import { tools, ToolError } from "./tools.mjs";
 
@@ -14,7 +15,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/ai-native-delivery/plugin.json 同步，由 `node scripts/release.mjs ai-native-delivery <x.y.z>` 统一改
-const SERVER_INFO = { name: 'ai-native-delivery', version: '0.2.1' };
+const SERVER_INFO = { name: 'ai-native-delivery', version: '0.2.2' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 

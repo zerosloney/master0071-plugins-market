@@ -8,7 +8,7 @@
 | [worktree-ops](plugins/worktree-ops/) | 0.4.16 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.27 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.25 | `skills/` + `qwen/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 66 个 skill，含 24 条 principle 原则、4 个子智能体（名单与上游一致）与会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包：共享 skill、同一组 4 个子智能体与 Qwen 专属 hook；扩展 skill 带 `pstack:` 命名空间，扩展子智能体保留 frontmatter 裸名 |
-| [ai-native-delivery](plugins/ai-native-delivery/) | 0.2.1 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 6 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根 |
+| [ai-native-delivery](plugins/ai-native-delivery/) | 0.2.2 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L1/L2/L3 风险泳道两问定级 + check-loop 硬门 6 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根 |
 
 ## 共装注意：两个 PreToolUse 风险闸
 
@@ -55,7 +55,7 @@ plugins/
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 ├── ai-native-delivery/
 │   ├── plugin.json           # 标准清单
-│   ├── mcp.json              # 标准 MCP 声明：delivery = node ./mcp/server.mjs（7 工具）
+│   ├── mcp.json              # 标准 MCP 声明：delivery = node ./mcp/server.mjs（10 工具）
 │   ├── skills/               # 标准 skill：6 个（autonomous-run / review-method / session-resume / decision-log / verify-ui / workflow-closeout）
 │   ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心（8 命令 / 3 角色）
 │   ├── scripts/  hooks/  config-templates/            # ↓ 引擎脚本 / PreToolUse 风险闸 / 项目侧配置种子

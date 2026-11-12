@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { aggFromRows, retireCandidates, mergeJudgmentRows, readAllJudgments, emitMonth, shardPath, RETIRE_STALE_MONTHS, nowYmOf } from '../scripts/agg-judgments.mjs';
+import { aggFromRows, retireCandidates, mergeJudgmentRows, readAllJudgments, emitMonth, shardPath, RETIRE_STALE_MONTHS, nowYmOf, dismissStats, dismissTotals, DISMISS_RATE_FLAG, DISMISS_MIN_SAMPLE } from '../scripts/agg-judgments.mjs';
 import { evaluate as evaluateRegistry } from '../scripts/mechanism-retire-watch.mjs'; // S12 两侧对账断言
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -245,6 +245,94 @@ check('S3 null 入参不 throw', Object.keys(aggFromRows(null).byMonth).length =
   check('nowYmOf 取 UTC 月（与 judgment-ledger 的 ISO ts 同基）',
     nowYmOf(new Date('2026-11-01T02:00:00+08:00')) === '2026-10' && nowYmOf(new Date('2026-10-31T23:00:00Z')) === '2026-10',
     nowYmOf(new Date('2026-11-01T02:00:00+08:00')));
+}
+
+// ---- S13 误拦面（2026-11 误拦遥测）：误拦率行 / 无 dismiss 不出行 / 高误拦率点名 / dismiss 行不污染命中面 ----
+// 口径：误拦率 = dismiss/(命中+dismiss)；点名 = 率 ≥ DISMISS_RATE_FLAG(0.5) 且样本 ≥ DISMISS_MIN_SAMPLE(3)。
+{
+  const mkHit = (ts, rule, level, count) => ({ ts, mode: 'hard', rules: [{ rule, level, count }] });
+  const mkD = (ts, rule) => ({ ts, kind: 'dismiss', rule, reason: '误拦' });
+  const rows = [
+    mkHit('2026-11-01T00:00:00Z', '规则甲', 'WARN', 5),
+    mkD('2026-11-02T00:00:00Z', '规则甲'),
+    mkD('2026-11-03T00:00:00Z', '规则甲'),
+    mkHit('2026-11-04T00:00:00Z', '规则乙', 'BLOCK', 1),
+    mkD('2026-11-05T00:00:00Z', '规则乙'),
+    mkD('2026-11-06T00:00:00Z', '规则乙'),
+    mkD('2026-11-07T00:00:00Z', '规则乙'),
+    mkHit('2026-11-08T00:00:00Z', '规则丙', 'WARN', 2), // 无 dismiss → 不出行
+  ];
+  const s = dismissStats(rows);
+  const jia = s.rows.find((x) => x.rule === '规则甲');
+  const yi = s.rows.find((x) => x.rule === '规则乙');
+  check('S13 甲行 命中5/dismiss2/误拦率=2/7（28.6%）',
+    jia && jia.hits === 5 && jia.dismiss === 2 && jia.total === 7 && Math.abs(jia.rate - 2 / 7) < 1e-9, JSON.stringify(s.rows));
+  check('S13 乙行 命中1/dismiss3/误拦率=0.75', yi && yi.hits === 1 && yi.dismiss === 3 && Math.abs(yi.rate - 0.75) < 1e-9, JSON.stringify(s.rows));
+  check('S13 无 dismiss 的规则丙不出行', !s.rows.some((x) => x.rule === '规则丙'), JSON.stringify(s.rows));
+  check('S13 高误拦率点名（乙 ≥50% 且样本 4 ≥3；甲 28.6% 不点名）',
+    s.flagged.length === 1 && s.flagged[0].rule === '规则乙' && s.flagged[0].total === 4, JSON.stringify(s.flagged));
+  check('S13 点名阈值导出在位（两面同阈值单源）', DISMISS_RATE_FLAG === 0.5 && DISMISS_MIN_SAMPLE === 3,
+    `${DISMISS_RATE_FLAG}/${DISMISS_MIN_SAMPLE}`);
+  check('S13 month 过滤（只看 2026-10 → 无行）', dismissStats(rows, '2026-10').rows.length === 0);
+  // dismiss 行不污染命中面：非运行行（不计 runs）、不入 rules 计数
+  const { byMonth } = aggFromRows(rows);
+  check('S13 dismiss 行不计 runs（3 行命中运行）', byMonth['2026-11'].runs === 3, String(byMonth['2026-11'].runs));
+  check('S13 dismiss 行不入 rules 计数（甲 WARN 5 / 乙 BLOCK 1）',
+    byMonth['2026-11'].rules['规则甲'].WARN === 5 && byMonth['2026-11'].rules['规则乙'].BLOCK === 1,
+    JSON.stringify(byMonth['2026-11'].rules));
+  // dismissTotals 双源并计：本地 kind 行 + 分片/合并行 dismissals 数组
+  const dt = dismissTotals([{ ts: '2026-11-02T00:00:00Z', kind: 'dismiss', rule: '规则甲' },
+    { ts: '2026-11-01T00:00:00.000Z', dismissals: [{ rule: '规则甲', count: 2 }] }]);
+  check('S13 dismissTotals 双源并计（1+2=3）', dt['规则甲'] === 3, JSON.stringify(dt));
+}
+
+// ---- S14 dismiss 走同分片机制：mergeJudgmentRows 并集携带 dismissals（max）/ emitMonth 落分片 / 退役候选旁注 ----
+{
+  const local = [
+    { ts: '2026-11-05T00:00:00Z', mode: 'hard', rules: [{ rule: '规则甲', level: 'WARN', count: 2 }] },
+    { ts: '2026-11-06T00:00:00Z', kind: 'dismiss', rule: '规则甲', reason: 'x' },
+  ];
+  const shard = [{ ts: '2026-11-01T00:00:00.000Z', rules: [{ rule: '规则甲', level: 'WARN', count: 4 }], dismissals: [{ rule: '规则甲', count: 2 }] }];
+  const merged = mergeJudgmentRows(local, shard);
+  const m = merged.find((r) => r.ts.startsWith('2026-11'));
+  check('S14 合并行携带 dismissals（max：本地 1 ∪ 分片 2 → 2）',
+    m && Array.isArray(m.dismissals) && m.dismissals.some((d) => d.rule === '规则甲' && d.count === 2), JSON.stringify(m));
+  const mergedNoD = mergeJudgmentRows([{ ts: '2026-10-05T00:00:00Z', rules: [{ rule: 'A', level: 'WARN', count: 1 }] }], []);
+  check('S14 无 dismiss 的月不带 dismissals 键（旧分片逐字节一致，幂等不重写）',
+    !('dismissals' in mergedNoD[0]), JSON.stringify(mergedNoD[0]));
+}
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agg-dismiss-'));
+  fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'judgments.jsonl'), [
+    JSON.stringify({ ts: '2026-11-05T00:00:00Z', mode: 'hard', rules: [{ rule: '规则甲', level: 'WARN', count: 5 }] }),
+    JSON.stringify({ ts: '2026-11-06T00:00:00Z', kind: 'dismiss', rule: '规则甲', reason: 'x' }),
+    JSON.stringify({ ts: '2026-11-07T00:00:00Z', kind: 'dismiss', rule: '规则甲', reason: 'y' }),
+  ].join('\n') + '\n');
+  emitMonth(root, '2026-11');
+  const shard = JSON.parse(fs.readFileSync(shardPath(root, '2026-11'), 'utf8').trim());
+  check('S14 emitMonth 分片携带 dismissals（本地 2 次 dismiss）',
+    Array.isArray(shard.dismissals) && shard.dismissals[0].rule === '规则甲' && shard.dismissals[0].count === 2, JSON.stringify(shard));
+  check('S14 emitMonth 幂等（重跑 unchanged，不重写）', emitMonth(root, '2026-11').unchanged === true);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // 退役候选旁注：窗口零命中判据不变（有 dismiss 也照出候选）；候选行只添 dismiss 计数
+  const mk = (ym, rule, count) => ({ ts: `${ym}-15T00:00:00Z`, mode: 'hard', rules: count ? [{ rule, level: 'WARN', count }] : [] });
+  const now = new Date('2026-10-01T00:00:00Z'); // 锚 2026-09，距今 1 个月 → 新鲜
+  const rows = [
+    mk('2026-03', '规则甲', 3), // 窗口 2026-04..2026-09 之外 → 零命中窗口 → 候选（判据不变）
+    ...['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'].map((ym) => mk(ym, '规则甲', 0)),
+    { ts: '2026-09-20T00:00:00Z', kind: 'dismiss', rule: '规则甲', reason: '误拦' },
+  ];
+  const r = retireCandidates(rows, 6, { now });
+  const jia = r.candidates.find((c) => c.rule === '规则甲');
+  check('S14 候选判据不变（窗口零命中仍出候选）且旁注 dismiss=1',
+    r.sufficient === true && jia && jia.total === 3 && jia.dismiss === 1, JSON.stringify(jia));
+  const r2 = retireCandidates(rows.filter((x) => x.kind !== 'dismiss'), 6, { now });
+  check('S14 对照：无 dismiss 行时候选照出、dismiss=0（旁注缺席不改变候选集）',
+    JSON.stringify(r2.candidates.map((c) => c.rule)) === JSON.stringify(r.candidates.map((c) => c.rule))
+    && r2.candidates[0].dismiss === 0, JSON.stringify(r2.candidates));
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
