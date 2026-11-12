@@ -16,6 +16,15 @@ import('node:child_process').then(async ({ spawnSync }) => {
   const LANE = "@@LANE@@";
 
   const args = LANE ? [LANE] : [];
+  // 已关单正文漂移 advisory（2026-11-11 判据移植）：改终态 workflow 文档正文而同笔无确认台账变更，
+  // 此前要到关单对账才判 hard——前移到提交时刻打 advisory。exit 0 恒不拦、不合门（执法面仍是
+  // check-loop 确认指纹对账）；脚本自身判暂存面，未触及 workflow 四目录文档即静默。advisory 语义：
+  // 脚本缺席只损可见性（existsSync 守卫，不阻断提交），实化路径走 @@DOC_BODY_DRIFT_SCRIPT@@ 占位符
+  //（安装时实化为 check-doc-body-drift.mjs 绝对路径，同 @@ENGINE_SCRIPT@@ 机制）。
+  const DOC_BODY_DRIFT_SCRIPT = "@@DOC_BODY_DRIFT_SCRIPT@@";
+  if (existsSync(DOC_BODY_DRIFT_SCRIPT)) {
+    spawnSync(process.execPath, [DOC_BODY_DRIFT_SCRIPT], { stdio: 'inherit', windowsHide: true });
+  }
   // 引擎脚本缺席预检（2026-11-05 市场审查）：spawn 前 existsSync——否则 node 先吐满屏 MODULE_NOT_FOUND
   // 栈，修复指引淹没在噪音里。fail-closed 不变：同样指引 + exit 1（r.error 兜底其余 spawn 故障）。
   if (!existsSync(ENGINE_SCRIPT)) {

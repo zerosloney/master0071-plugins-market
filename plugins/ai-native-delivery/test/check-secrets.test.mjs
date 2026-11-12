@@ -2,7 +2,9 @@
 // check-secrets.mjs 的 fixture 测试（2026-10-14 G5 建门配套）
 // 注缝：CHECK_SECRETS_ROOT 指夹具根；GITLEAKS_BIN 指 stub（.mjs——记录 argv 落盘 + 按 STUB_EXIT 退出）。
 // 断言：①--staged → protect 参数映射；②detect → detect+基线参数映射；③基线缺失 exit 2；④gitleaks
-//      非 0 透传；⑤缺二进制 loud-skip exit 0；⑥stub exit 2 透传（不止 0/1 两态）。
+//      非 0 透传；⑤缺二进制自动接续 lite（执法者=lite，不再 loud-skip）；⑥stub exit 2 透传（不止 0/1 两态）；
+//      ⑦SECRETS_SCAN_LITE=1/--lite 强制（gitleaks 探测整体跳过）；⑧REQUIRE_GITLEAKS=1 缺二进制 exit 2；
+//      ⑨缺二进制 + 树内真特征 → lite 透传 exit 1。
 // 用法：node test/check-secrets.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,12 +28,22 @@ fs.writeFileSync(process.env.STUB_OUT, JSON.stringify(process.argv.slice(2)));
 process.exit(Number(process.env.STUB_EXIT || '0'));
 `;
 
-const mkfix = ({ baseline = true } = {}) => {
+const git = (args, cwd) => spawnSync(process.platform === 'win32' ? 'git.exe' : 'git', args, { cwd, encoding: 'utf8' });
+
+const mkfix = ({ baseline = true, gitRepo = false } = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'secrets-fix-'));
   fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
   if (baseline) fs.writeFileSync(path.join(root, '.gitleaks-baseline.json'), '[]', 'utf8');
   const stub = path.join(root, 'gitleaks-stub.mjs');
   fs.writeFileSync(stub, STUB, 'utf8');
+  if (gitRepo) {
+    git(['init', '-q'], root);
+    git(['config', 'user.email', 't@t'], root);
+    git(['config', 'user.name', 't'], root);
+    fs.writeFileSync(path.join(root, 'README.md'), 'clean fixture\n', 'utf8');
+    git(['add', '-A'], root);
+    git(['commit', '-qm', 'fix'], root);
+  }
   return { root, stub };
 };
 
@@ -84,15 +96,14 @@ const readStubArgs = (root) => JSON.parse(fs.readFileSync(outPath(root), 'utf8')
   fs.rmSync(f.root, { recursive: true, force: true });
 }
 
-// ⑤ 缺二进制 → loud-skip exit 0
+// ⑤ 缺二进制 → 自动接续 lite（判据移植「装不上也要扫」：不再 loud-skip，恒执法）
 {
-  const f = mkfix();
+  const f = mkfix({ baseline: true, gitRepo: true });
   const r = run(f.root, [], { GITLEAKS_BIN: path.join(f.root, 'no-such-gitleaks.exe'), STUB_OUT: outPath(f.root) });
-  check('⑤ 缺二进制 → exit 0 且响亮跳过（文案含「未安装」）', r.status === 0 && /未安装/.test(r.stderr), `exit=${r.status} ${r.stderr}`);
-  // ⑤b（2026-11 市场审查 M9）：stdout 机器可读跳过标记——verify 编排层据此把本门记入 envSkips
-  //（否则全绿凭证把「没跑」记成「已通过门」，凭证行冒充全量锚）。exit 0 契约与 stderr 提示不变。
-  check('⑤b 缺二进制 → stdout 带机器可读标记 GATE_SKIPPED:no-gitleaks（独立一行）',
-    /^GATE_SKIPPED:no-gitleaks\s*$/m.test(r.stdout), `stdout=${JSON.stringify(r.stdout)}`);
+  check('⑤ 缺二进制 → exit 0 且接续 lite（文案含「执法者=lite」）', r.status === 0 && /执法者=lite/.test(r.stderr), `exit=${r.status} ${r.stderr}`);
+  check('⑤ 接续后不再发 GATE_SKIPPED 标记（门已执法，verify 绿行保留全量锚资格）',
+    !/GATE_SKIPPED/.test(r.stdout), `stdout=${JSON.stringify(r.stdout)}`);
+  check('⑤ lite 实扫跟踪文件（扫描面非 0，非空扫假绿）', /｜[1-9]\d* 文件｜/.test(r.stdout), `out=${r.stdout} err=${r.stderr}`);
   fs.rmSync(f.root, { recursive: true, force: true });
 }
 
@@ -101,6 +112,36 @@ const readStubArgs = (root) => JSON.parse(fs.readFileSync(outPath(root), 'utf8')
   const f = mkfix();
   const r = run(f.root, [], { GITLEAKS_BIN: f.stub, STUB_EXIT: '2', STUB_OUT: outPath(f.root) });
   check('⑥ gitleaks exit 2 → wrapper exit 2', r.status === 2, `exit=${r.status} ${r.stderr}`);
+  fs.rmSync(f.root, { recursive: true, force: true });
+}
+
+// ⑦ SECRETS_SCAN_LITE=1 / --lite 强制 → gitleaks 探测整体跳过（stub 在场也不被调用）
+{
+  const f = mkfix({ baseline: true, gitRepo: true });
+  const r = run(f.root, [], { GITLEAKS_BIN: f.stub, SECRETS_SCAN_LITE: '1', STUB_OUT: outPath(f.root) });
+  check('⑦ SECRETS_SCAN_LITE=1 → exit 0 且 stub 未被调用（探测整体跳过）',
+    r.status === 0 && /执法者=lite/.test(r.stderr) && !fs.existsSync(outPath(f.root)), `exit=${r.status} ${r.stderr}`);
+  const r2 = run(f.root, ['--lite'], { GITLEAKS_BIN: f.stub, STUB_OUT: outPath(f.root) });
+  check('⑦ --lite 旗标同效', r2.status === 0 && /执法者=lite/.test(r2.stderr) && !fs.existsSync(outPath(f.root)), `exit=${r2.status} ${r2.stderr}`);
+  fs.rmSync(f.root, { recursive: true, force: true });
+}
+
+// ⑧ SECRETS_SCAN_REQUIRE_GITLEAKS=1 + 缺二进制 → exit 2 fail-closed（恢复强执法面口径）
+{
+  const f = mkfix({ baseline: true, gitRepo: true });
+  const r = run(f.root, [], { GITLEAKS_BIN: path.join(f.root, 'no-such-gitleaks.exe'), SECRETS_SCAN_REQUIRE_GITLEAKS: '1', STUB_OUT: outPath(f.root) });
+  check('⑧ REQUIRE_GITLEAKS=1 缺二进制 → exit 2 且文案点名配置', r.status === 2 && /REQUIRE_GITLEAKS/.test(r.stderr), `exit=${r.status} ${r.stderr}`);
+  fs.rmSync(f.root, { recursive: true, force: true });
+}
+
+// ⑨ 缺二进制 + 树内真特征 → lite 判红且透传 exit 1（恒执法不只对干净树成立）
+{
+  const f = mkfix({ baseline: true, gitRepo: true });
+  fs.writeFileSync(path.join(f.root, 'leak.txt'), 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n', 'utf8');
+  git(['add', '-A'], f.root);
+  git(['commit', '-qm', 'leak'], f.root);
+  const r = run(f.root, [], { GITLEAKS_BIN: path.join(f.root, 'no-such-gitleaks.exe'), STUB_OUT: outPath(f.root) });
+  check('⑨ 缺二进制 + 真特征 → 接续 lite 判红透传 exit 1', r.status === 1 && r.stderr.includes('aws-access-key-id'), `exit=${r.status}\n${r.stderr}`);
   fs.rmSync(f.root, { recursive: true, force: true });
 }
 

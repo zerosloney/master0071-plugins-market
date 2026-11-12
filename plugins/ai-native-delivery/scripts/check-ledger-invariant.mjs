@@ -134,7 +134,8 @@ const REBUILD_MANIFEST_REL = '.agents/config/ledger-rebuild-manifest.json';
 // 2026-10-15 再前移至 b6cfd0db、2026-10-16 四前移至 46beeb7152、2026-10-26 五前移至 9a0370e8、
 // 2026-10-27 六前移至 e3ceb6c9（豁免 830027060b/e3ceb6c9 整取单侧丢行，同 PR647/b8ce1247 先例）——
 // 六次皆 owner 声明，缘由详见头注；env 覆盖供测试）
-const HISTORY_BASELINE = process.env.LEDGER_HISTORY_BASELINE || 'e3ceb6c901918db828774ddae9370788df0cda68';
+const BUILTIN_BASELINE = 'e3ceb6c901918db828774ddae9370788df0cda68';
+const HISTORY_BASELINE = process.env.LEDGER_HISTORY_BASELINE || BUILTIN_BASELINE;
 const FILE = path.join(ROOT, REL);
 const VALID_STAGES = new Set(['approved', 'done', 'fixed', 'closed', 'superseded', 'cancelled',
   'revert-draft', 'revert-open']); // 回退注记行（check-loop :822 认可；fingerprint 恒 n/a）
@@ -376,14 +377,40 @@ function historyShas(rel) {
   return historyIndex().get(rel) || [];
 }
 
-// 基线后提交集（含基线可达性探测；基线不在本仓 → null = 基线不生效，全史扫描——外来 fixture 场景）
+// 基线后提交集（含基线可达性探测）。基线不可解析分诊（判据移植）：
+//   ① 覆盖值（env，测试用口）解析失败 → loud WARN + 回落内置 owner 基线，**不退全史**——此前静默
+//     回退全史曾双害：把已被 owner 豁免的历史违规整批报出（verify 假红 + fail-fast 跳过其后各门，
+//     一度被误判为 HEAD 既存红）；且把门拖进全史档（快路径与全史档墙钟差一个量级）。覆盖值是
+//     「测试用」入口，残留垃圾值零信息量，回落默认基线 ≠ 吞异常（WARN 保可见）。
+//   ② 内置基线解析失败（对象库异常/怪浅克隆）→ loud WARN + null = 全史扫描——fail-open 于深度、
+//     fail-closed 于内容的既有口径不变，只是不再无声。
 let _postBaseline;
 const postBaselineSet = () => {
   if (_postBaseline !== undefined) return _postBaseline;
+  const resolve = (val) => {
+    gitText(['rev-parse', '--verify', '--quiet', `${val}^{commit}`]);
+    return new Set(gitText(['rev-list', `${val}..HEAD`]).split(/\s+/).filter(Boolean));
+  };
+  const override = process.env.LEDGER_HISTORY_BASELINE;
+  if (override && override !== BUILTIN_BASELINE) {
+    try {
+      _postBaseline = resolve(override);
+      console.error(`[warn] LEDGER_HISTORY_BASELINE 覆盖生效（${override}）——测试用覆盖口，基线外提交不豁免`);
+    } catch {
+      console.error(`[warn] LEDGER_HISTORY_BASELINE="${override}" 在本仓解析不出（持久 shell 残留覆盖值？判据 env | grep LEDGER_HISTORY_BASELINE）——覆盖不生效，回落内置基线 ${BUILTIN_BASELINE.slice(0, 10)}，不退全史`);
+      try {
+        _postBaseline = resolve(BUILTIN_BASELINE);
+      } catch {
+        console.error('[warn] 内置基线亦解析不出——基线不生效，全史扫描（对象库异常请排查）');
+        _postBaseline = null;
+      }
+    }
+    return _postBaseline;
+  }
   try {
-    gitText(['rev-parse', '--verify', '--quiet', `${HISTORY_BASELINE}^{commit}`]);
-    _postBaseline = new Set(gitText(['rev-list', `${HISTORY_BASELINE}..HEAD`]).split(/\s+/).filter(Boolean));
+    _postBaseline = resolve(BUILTIN_BASELINE);
   } catch {
+    console.error(`[warn] 内置基线 ${BUILTIN_BASELINE.slice(0, 10)} 在本仓解析不出——基线不生效，全史扫描（对象库异常请排查）`);
     _postBaseline = null;
   }
   return _postBaseline;

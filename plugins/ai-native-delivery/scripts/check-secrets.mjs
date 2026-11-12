@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 // check-secrets：gitleaks 包装门（2026-10-14 决定 4 / G5 安全插队；机制台账已登记）
-// 用法：node <插件根>/scripts/check-secrets.mjs [--staged]
+// 用法：node <插件根>/scripts/check-secrets.mjs [--staged] [--lite]
 //   默认     = 全量历史：gitleaks detect --baseline-path .gitleaks-baseline.json（基线外新泄漏 exit 1）
 //   --staged = 提交增量：gitleaks protect --staged（只看暂存内容，历史存量不触；原 pre-commit 消费——
 //              2026-10-21 owner 指令「密钥本地不扫」退役该腿，旗标保留供手动/测试）
 // 二进制解析序（机理登记 = .agents/notes/runtime-env.md §6.3 gitleaks 条）：
 //   GITLEAKS_BIN 环境变量（.mjs/.js 结尾经本进程 node 直跑——测试注缝）→ PATH 上 gitleaks
-//   → .agents/tools/gitleaks(.exe)（git-ignore，机器本地）。三处皆缺 = 响亮跳过 exit 0
-//   （loud-skip 诚实原则：跳过可见；不 fail-closed，未装机机器仍可提交）。
-// 基线：.gitleaks-baseline.json = 2026-10-14 历史全量 1221 处存量豁免（--redact 生成；用户拍板
-//   「豁免清单」，真实有效密钥的作废轮换另行处置，不因基线豁免）。2026-10-15 同口径重生成扩至 1227 处：
-//   追加 7bd06ebb（历史业务系统动作脚本）6 处「权限Key」uuid——用户确认系旧系统权限条目
-//   标识符非凭证，与既有 wiki 产品需求采集物同类同处置。2026-10-24 再生成扩至 1230 处：追加
-//   e6f33915/919e7084 私有 npm 源 _auth 3 处（frontend/.npmrc ×2 + 文档抄录 ×1，同凭据家族）——
-//   用户拍板「公司私有 npm 源 Basic 认证凭据豁免，不作废轮换，下次不再扫」（内部源端点见项目侧登记，不随插件分发）。
+//   → .agents/tools/gitleaks(.exe)（git-ignore，机器本地）。
+// **兜底接续（判据移植「装不上也要扫」）**：三处皆缺（典型 = CI agent 无外网/无法落二进制），
+//   改走纯 Node 轻量扫描 check-secrets-lite.mjs（零二进制零网络，复用同一份基线做文件级豁免）——
+//   **不再 loud-skip**：密钥门从此恒执法，只是执法者按环境降级（gitleaks → lite），退出码原样透传。
+//   强制指定：SECRETS_SCAN_LITE=1 或 --lite 跳过 gitleaks；SECRETS_SCAN_REQUIRE_GITLEAKS=1 则缺二进制即
+//   fail-closed（exit 2，供需要强执法面的场合）。降级事实在输出首行标明「执法者=lite」，不再发
+//   GATE_SKIPPED 标记（门已执法，verify 绿行保留全量锚资格；强执法面 = 装机 gitleaks 全史逐行匹配）。
+// 基线：.gitleaks-baseline.json = 使用项目自有资产（存量豁免清单，gitleaks detect --redact 全量报告
+//   生成；真实有效密钥的作废轮换另行处置，不因基线豁免；不随插件分发，从扫描根读取）。
 //   detect 模式基线缺失 = exit 2
 //   （配置失守 fail-closed——静默无基线会让存量全量爆红，与拍板相反）。
 // 测试：node <插件根>/test/check-secrets.test.mjs（CHECK_SECRETS_ROOT + GITLEAKS_BIN 指向 stub）
@@ -21,6 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { findProjectRoot, projectRoot } from './paths.mjs';
+import { main as liteMain } from './check-secrets-lite.mjs';
 
 // ROOT 解析（2026-10-28 收口）：env 注入（测试夹具契约）→ 项目 git 根（findProjectRoot）→ cwd。
 // 此前回退是旧锚 <script>/../..：插件形态下解析到市场仓的 plugins/，基线文件与本地 gitleaks
@@ -30,9 +32,11 @@ const ROOT = process.env.CHECK_SECRETS_ROOT
   || findProjectRoot()
   || projectRoot();
 const STAGED = process.argv.includes('--staged');
+const FORCE_LITE = process.argv.includes('--lite') || process.env.SECRETS_SCAN_LITE === '1';
 const BASELINE = path.join(ROOT, '.gitleaks-baseline.json');
 
 function resolveBin() {
+  if (FORCE_LITE) return null;
   const envBin = process.env.GITLEAKS_BIN;
   if (envBin) {
     if (!fs.existsSync(envBin)) return null;
@@ -47,12 +51,16 @@ function resolveBin() {
 
 const bin = resolveBin();
 if (!bin) {
-  // 机器可读跳过标记（2026-11 市场审查 M9）：verify 编排层此前把本门的 exit 0 记成「已通过门」，
-  // 全绿凭证冒充全量锚——补一行 stdout 标记供编排层识别并记入 envSkips 面（凭证行失去全量锚资格）。
-  // exit 0 契约与 stderr 人读提示不变（CI 与钩子依赖该退出码语义）。
-  console.log('GATE_SKIPPED:no-gitleaks');
-  console.error('[check-secrets] ⏭️ gitleaks 未安装——密钥门本轮未执法（loud-skip，跳过可见）。装机：见 .agents/notes/runtime-env.md §6.3 gitleaks 条（官方 zip 解压 .agents/tools/ 或装进 PATH）');
-  process.exit(0);
+  if (process.env.SECRETS_SCAN_REQUIRE_GITLEAKS === '1' && !FORCE_LITE) {
+    console.error('[check-secrets] ❌ SECRETS_SCAN_REQUIRE_GITLEAKS=1 但 gitleaks 三处解析皆缺——按配置 fail-closed 拦下（装机：官方 zip 解压 .agents/tools/ 或装进 PATH）');
+    process.exit(2);
+  }
+  if (!STAGED && !fs.existsSync(BASELINE)) {
+    console.error(`[check-secrets] ❌ 基线缺失 ${BASELINE}——轻量扫描同样依赖豁免清单，拒跑。重建：gitleaks detect --redact 全量报告存为该文件（无存量项目用 [] 起步）`);
+    process.exit(2);
+  }
+  console.error(`[check-secrets] ℹ️ 执法者=lite（gitleaks 不可用${FORCE_LITE ? '／已强制 --lite' : '——未装或 CI 无外网'}）：纯 Node 轻量规则 + 同一基线文件级豁免；强执法面（全史逐行模式匹配）请装 gitleaks（装机见 .agents/notes/runtime-env.md §6.3 gitleaks 条）`);
+  process.exit(liteMain(STAGED ? ['--staged'] : [], ROOT));
 }
 if (!STAGED && !fs.existsSync(BASELINE)) {
   console.error(`[check-secrets] ❌ 基线缺失 ${BASELINE}——detect 无基线 = 存量豁免失效全量爆红，拒跑。重建：gitleaks detect --redact 全量报告存为该文件（口径见 runtime-env §6.3）`);

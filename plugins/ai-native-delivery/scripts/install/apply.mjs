@@ -119,6 +119,9 @@ function applyGitignore(root, e, report, dryRun) {
 // 旧测试与外部指引按此文案断言）；台账记**渲染后**正文哈希。
 function applyHook(root, e, report, manifest, adopt, force, dryRun, pluginName) {
   const target = targetAbs(root, e);
+  // 报告文案的车道标签：pre-commit / pre-push 是 check-loop 执法点（hard）；post-commit 是
+  // Dreaming advisory 提醒腿（exit 恒 0 不阻断，2026-11-11 移植）——installed 文案随钩子如实标注。
+  const lane = e.hookName === 'post-commit' ? 'advisory，exit 恒 0 不阻断' : 'hard 车道';
   const writeHook = () => {
     if (!dryRun) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -126,7 +129,7 @@ function applyHook(root, e, report, manifest, adopt, force, dryRun, pluginName) 
       try { fs.chmodSync(target, 0o755); } catch { /* Windows 尽力而为（git 经 sh 启动钩子，不依赖执行位） */ }
     }
     manifest.files[e.targetRel] = e.hash;
-    report.hooks.installed.push(`${e.hookName}（node ${e.enginePath}，hard 车道）→ ${target}`);
+    report.hooks.installed.push(`${e.hookName}（node ${e.enginePath}，${lane}）→ ${target}`);
   };
   if (!fs.existsSync(target)) { writeHook(); return; }
   // 领养：现状哈希记为新基线，不覆盖任何已有钩子（含陈旧自装钩子——领养模式下回退到

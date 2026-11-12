@@ -12,15 +12,19 @@ function check(name, cond, detail = '') {
   else { failCount++; console.log('FAIL ' + name + (detail ? '——' + detail : '')); }
 }
 
-// ---- 场景 1：6 节正文齐 ----
+// ---- 场景 1：7 节正文齐（2026-11-11 判据移植：+前提质询 第 7 节）----
 {
   const { body } = renderSpec({ topic: 'test', level: 'L2' });
-  const expectedSections = ['功能行为', '数据流', '系统改动', '约束遵守映射', '验收判据', '风险评估', '确认与复核'];
+  const expectedSections = ['功能行为', '数据流', '系统改动', '约束遵守映射', '验收判据', '风险评估', '前提质询', '确认与复核'];
   for (const s of expectedSections) check('S1 含节 ## ' + s, body.includes('## ' + s));
-  check('S1 共 7 节标题', (body.match(/^##\s/gm) || []).length === 7);
+  check('S1 共 8 节标题', (body.match(/^##\s/gm) || []).length === 8);
   // 验收判据直出表骨架（检查 23 机器输入；表头签名与 s23 解析口径一致）
   check('S1 验收判据含表骨架', /\| 判据（可观察行为） \| 证据（测试文件 \/ 命令 \/ 证据文件） \| 状态 \|/.test(body)
     && body.includes('| <行为 1> | <路径或命令> | <覆盖 / 未覆盖 / 人工> |'));
+  // 前提质询直出表骨架（确认门 premiseGate 机器输入；表头签名与 parsePremiseTable 解析口径一致）
+  check('S1b 前提质询含表骨架（前提 | 反问 | 结论与依据 + 占位行）',
+    /\| 前提 \| 反问（对立解读会怎样） \| 结论与依据 \|/.test(body)
+    && body.includes('| <立论的解读 / 口径选择> | <换成对立解读会怎样、最坏后果> | <选定解读 + 凭什么（用户原话 / 文档 / 实验）> |'));
 }
 
 // ---- 场景 2：frontmatter 含 5 字段 ----
@@ -295,6 +299,19 @@ const runTool = (root, base) => spawnSync(process.execPath,
   check('S25 --topic 换行剥单行（正文标题不被注入分节）',
     r.status === 0 && /^# SPEC — t\s+## 注入节$/m.test(body) && !/^## 注入节$/m.test(body),
     body.slice(0, 160));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // S26 CLI 端到端：生成的草稿带「前提质询」表骨架（第 7 节随双生成路径直出——fill-spec 是插件形态
+  // 唯一的 spec 模板面；占位行由确认门 premiseGate 拦收，骨架在场保证「照抄模板即被点名」）
+  const root = mkws({ entryFile: 'incidents/2026-11-11-prem.md', entryBody: '---\n状态: open\n级别: L2\n---\n# I\n\n## 时间线\n- 用户确认：过目\n' });
+  const out = path.join(root, 'workflow', 'specs', '2026-11-11-prem.md');
+  const r = spawnSync(process.execPath, [CLI, '--topic', '2026-11-11-prem', '--output', out], { cwd: root, encoding: 'utf8' });
+  const body = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
+  check('S26 CLI 生成草稿含「前提质询」第 7 节表骨架',
+    r.status === 0 && /## 前提质询/.test(body) && /\| 前提 \| 反问（对立解读会怎样） \| 结论与依据 \|/.test(body),
+    JSON.stringify({ status: r.status, stderr: r.stderr, head: body.slice(0, 120) }));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

@@ -5,7 +5,7 @@
 //       confirm 的引文接地与 confirm-doc 同口径（接地留痕 / advisory 默认 / doc 缺失与路径逃逸硬拒 /
 //       task 行恒不带 stage）；
 //       update_ledger 路径逃逸被拒；verify_gate 在最小 fixture 仓 exit 0；policy_status 返回
-//       policyVersion=14；未知工具 / 缺参报 isError。
+//       policyVersion=种子版；未知工具 / 缺参报 isError。
 // 零依赖，Node ≥ 18 直接运行：node test/mcp-tools.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -178,8 +178,9 @@ initEngine(root);
   check('verify_gate hard 车道 exit 0（最小 fixture 仓）', vg && vg.exitCode === 0 && vg.timedOut === false, JSON.stringify(vg && { exitCode: vg.exitCode, stderr: (vg.stderr || '').slice(0, 400) }));
 
   const ps = jsonOf(replies.get(19));
-  check('policy_status policyVersion=14（初始化后项目侧）', ps && ps.policy && ps.policy.policyVersion === 14 && /项目侧/.test(ps.policy.source || ''), JSON.stringify(ps && ps.policy));
-  check('policy_status 棘轮余量 > 0（2026-11-09 种子重标定 sections 24 / hard 6，禁止再压线）', ps && ps.ratchet && ps.ratchet.entries.length >= 2 && ps.ratchet.entries.every((e) => e.limit > e.actual), JSON.stringify(ps && ps.ratchet));
+  const seedVersion = JSON.parse(fs.readFileSync(path.join(TEST_DIR, '..', 'config-templates', 'engine.json'), 'utf8')).policyVersion;
+  check(`policy_status policyVersion=${seedVersion}（初始化后项目侧=种子版）`, ps && ps.policy && ps.policy.policyVersion === seedVersion && /项目侧/.test(ps.policy.source || ''), JSON.stringify(ps && ps.policy));
+  check('policy_status 棘轮余量 > 0（种子棘轮须高于真实值 ≥1，禁止压线；2026-11-11 §29 后 sections 23/24、hard 6/7）', ps && ps.ratchet && ps.ratchet.entries.length >= 2 && ps.ratchet.entries.every((e) => e.limit > e.actual), JSON.stringify(ps && ps.ratchet));
 
   const ls = jsonOf(replies.get(20));
   check('ledger_stats 不变量 ok', ls && ls.invariant && ls.invariant.exitCode === 0, JSON.stringify(ls && ls.invariant));

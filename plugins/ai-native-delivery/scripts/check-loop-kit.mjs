@@ -477,7 +477,7 @@ function isDirectoryOrNull(p) {
 export {
   fs, os, path, spawnSync, createHash, createRequire, fileURLToPath,
   loadEnums, runCheck16, auditEnabled, loadKitPolicy, hasFreshVerifyLine, readVerifyLedgerText, laneOfDoc, MARK_RE, approvedTraceIndex,
-  SCRIPT_DIR, GIT, REV_ARG, REV, LOOP_MODE, ROOT, ENUMS, inSet, stOkDoc,
+  SCRIPT_DIR, GIT, REV_ARG, REV, MAIN_ROOT, LOOP_MODE, ROOT, ENUMS, inSet, stOkDoc,
   spawnGit, gitOut, linesOf, fmGet, WF, DOC_DIRS, blockers, warnings, kitPolicy, isTracked, docFiles,
   addedDateOf, warnEvidenceExempt, VERIFY_GREEN_RE, verifyEvidenceTruth,
   delegationResultRows, versionGreater, fmStatus, readdirOrNull, isDirectoryOrNull,

@@ -89,6 +89,60 @@ const snapDiff = (a, b) => {
   check('① git hooks 记渲染后正文哈希',
     m.files['.git/hooks/pre-commit'] === normHash(path.join(root, '.git', 'hooks', 'pre-commit'))
     && m.files['.git/hooks/pre-push'] === normHash(path.join(root, '.git', 'hooks', 'pre-push')));
+  // post-commit（2026-11-11 Dreaming 移植）：同一 githook kind 与占位符实化机制——台账记渲染后哈希；
+  // 种子不含 @@ENGINE_SCRIPT@@ 也要能渲染（DREAM_SCRIPT 实化，无带引号遗留占位符）。
+  check('① post-commit 安装且记渲染后正文哈希',
+    m.files['.git/hooks/post-commit'] === normHash(path.join(root, '.git', 'hooks', 'post-commit')));
+  const postBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'post-commit'), 'utf8');
+  check('① post-commit 渲染：DREAM_SCRIPT 实化、无遗留可执行占位符、不依赖 ENGINE_SCRIPT',
+    /const DREAM_SCRIPT = ".+dream-run\.mjs";/.test(postBody) && !/"@@[A-Z_]+@@"/.test(postBody) && !postBody.includes('ENGINE_SCRIPT'),
+    postBody.split('\n').find((l) => l.includes('DREAM_SCRIPT =')) || postBody.slice(0, 200));
+  // pre-commit / pre-push 新占位符实化（2026-11-12 接线收尾）：装出的钩子无带引号残留占位符；
+  // DOC_BODY_DRIFT_SCRIPT / HOOK_WIRING_SCRIPT 实化路径有效（提取 JSON 字面量 → existsSync）。
+  const hookScriptOf = (body, varName) => {
+    const m = new RegExp('const ' + varName + ' = "((?:[^"\\\\]|\\\\.)*)"').exec(body);
+    return m ? JSON.parse(`"${m[1]}"`) : null;
+  };
+  const preCommitBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), 'utf8');
+  const driftScript = hookScriptOf(preCommitBody, 'DOC_BODY_DRIFT_SCRIPT');
+  check('① pre-commit 渲染：无残留占位符，DOC_BODY_DRIFT_SCRIPT 实化为有效脚本路径',
+    !/"@@[A-Z_]+@@"/.test(preCommitBody) && Boolean(driftScript) && fs.existsSync(driftScript)
+    && driftScript.endsWith('check-doc-body-drift.mjs'),
+    preCommitBody.split('\n').find((l) => l.includes('DOC_BODY_DRIFT_SCRIPT =')) || '未提取到 DOC_BODY_DRIFT_SCRIPT');
+  const prePushBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'pre-push'), 'utf8');
+  const wiringScript = hookScriptOf(prePushBody, 'HOOK_WIRING_SCRIPT');
+  check('① pre-push 渲染：无残留占位符，HOOK_WIRING_SCRIPT 实化为有效脚本路径',
+    !/"@@[A-Z_]+@@"/.test(prePushBody) && Boolean(wiringScript) && fs.existsSync(wiringScript)
+    && wiringScript.endsWith('check-hook-wiring.mjs'),
+    prePushBody.split('\n').find((l) => l.includes('HOOK_WIRING_SCRIPT =')) || '未提取到 HOOK_WIRING_SCRIPT');
+  // commit-msg（2026-11-12 L0/L1 快速道移植）：同一 githook kind 渲染——CONFIRM_ORDER_SCRIPT（gate 腿）
+  // 与 PLAN_REF_SCRIPT（advisory 腿）实化为有效脚本路径，无带引号遗留占位符；SCOPE_RANGE_SCRIPT 同批。
+  const commitMsgBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'commit-msg'), 'utf8');
+  const cmConfirm = hookScriptOf(commitMsgBody, 'CONFIRM_ORDER_SCRIPT');
+  const cmPlanRef = hookScriptOf(commitMsgBody, 'PLAN_REF_SCRIPT');
+  check('① commit-msg 安装且记渲染后正文哈希',
+    m.files['.git/hooks/commit-msg'] === normHash(path.join(root, '.git', 'hooks', 'commit-msg')));
+  check('① commit-msg 渲染：无残留占位符，CONFIRM_ORDER_SCRIPT / PLAN_REF_SCRIPT 实化为有效脚本路径',
+    !/"@@[A-Z_]+@@"/.test(commitMsgBody) && Boolean(cmConfirm) && fs.existsSync(cmConfirm)
+    && cmConfirm.endsWith('check-confirm-order.mjs')
+    && Boolean(cmPlanRef) && fs.existsSync(cmPlanRef) && cmPlanRef.endsWith('check-commit-plan-ref.mjs'),
+    commitMsgBody.split('\n').find((l) => l.includes('CONFIRM_ORDER_SCRIPT =')) || '未提取到 CONFIRM_ORDER_SCRIPT');
+  const cmScopeRange = hookScriptOf(prePushBody, 'SCOPE_RANGE_SCRIPT');
+  check('① pre-push 渲染：SCOPE_RANGE_SCRIPT 实化为有效脚本路径',
+    Boolean(cmScopeRange) && fs.existsSync(cmScopeRange) && cmScopeRange.endsWith('check-scope-range.mjs'),
+    prePushBody.split('\n').find((l) => l.includes('SCOPE_RANGE_SCRIPT =')) || '未提取到 SCOPE_RANGE_SCRIPT');
+  // commit-msg-rules.json 种子安装进 .agents/config/（planSlugRe 短名边界模板单源；
+  // exemptPrefix 含 git 自带 squash 模板首行——69ece3f46「squash 消息豁免」半件回补回归）。
+  const rulesPath = path.join(root, '.agents', 'config', 'commit-msg-rules.json');
+  let rules = null;
+  try { rules = JSON.parse(fs.readFileSync(rulesPath, 'utf8')); } catch { /* 缺件/损坏 */ }
+  check('① commit-msg-rules.json 安装进 .agents/config/ 且 planSlugRe 在场',
+    Boolean(rules) && m.files['.agents/config/commit-msg-rules.json'] === normHash(rulesPath)
+    && typeof rules.planSlugRe === 'string' && rules.planSlugRe.includes('<slug>'),
+    `rules=${JSON.stringify(rules && { planSlugRe: rules.planSlugRe })}`);
+  check('① 种子 exemptPrefix 豁免 git 自带 squash 模板首行（Squashed commit of the following:）',
+    Boolean(rules) && new RegExp(rules.exemptPrefix).test('Squashed commit of the following:'),
+    JSON.stringify(rules && rules.exemptPrefix));
   const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   check('① 台账文件不被写进 .gitignore 标记块（入库共享，同 lock 语义）', !gitignore.includes('install-manifest'), gitignore);
   check('① gitignore 标记块不入台账（块级合并不是整文件）', !Object.keys(m.files).some((k) => k.includes('.gitignore')));

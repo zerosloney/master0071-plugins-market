@@ -7,7 +7,7 @@
 // 验证即被拦。判据与 check-ledger-invariant 行级④同口径：doc 匹配四目录，活跃路径未命中再探
 // workflow/archive/*/（归档是容量治理，不是失效）。
 // 用法：node <插件根>/scripts/check-ledger-doc-presence.mjs [--root <仓库根>] [--staged]
-//   --staged：除磁盘检查外，把**本次暂存删除**的四目录文档也视为缺失（pre-commit 用）——堵住
+//   --staged：除磁盘检查外，把**本次暂存删除/改名移走**的四目录文档也视为缺失（pre-commit 用）——堵住
 //   `git rm --cached` 形态：文件仍在磁盘、提交后却消失，纯磁盘判据会漏（2026-10-24 复核 m5）。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,16 +25,18 @@ const TERMINAL = new Set(['approved', 'done', 'fixed', 'closed', 'superseded', '
 const DOC_RE = /^workflow\/(intents|specs|plans|incidents)\/([^/]+\.md)$/;
 const ARCHIVE = path.join(ROOT, 'workflow', 'archive');
 
-// --staged：本次暂存删除的四目录文档也算「已消失」（git rm --cached 时磁盘仍有文件）
+// --staged：本次暂存删除/改名移走的四目录文档也算「已消失」（git rm --cached 时磁盘仍有文件）
 const stagedDeleted = new Set();
 if (argv.includes('--staged')) {
   try {
+    // 认改名（判据移植）：原 `--diff-filter=D` 漏 `git mv`（改名记 R），且 R 行第 3 列是**新路径**，
+    // 取尾列等于把「移出四目录」记成「移入」——指针悬空仍判存在。改为 DR + `-M`（显式启用改名
+    // 检测，不依赖用户 diff.renames 配置），统一取第 2 列（旧路径）判目录。
     const out = execFileSync('git', [
-      '-c', 'core.quotepath=off', 'diff', '--cached', '--name-status', '--diff-filter=D', '--',
-      'workflow/intents', 'workflow/specs', 'workflow/plans', 'workflow/incidents',
+      '-c', 'core.quotepath=off', 'diff', '--cached', '--name-status', '--diff-filter=DR', '-M',
     ], { cwd: ROOT, encoding: 'utf8' });
     for (const line of out.split(/\r?\n/)) {
-      const rel = line.split('\t').pop();
+      const rel = (line.split('\t')[1] || '').trim();
       if (rel && DOC_RE.test(rel)) stagedDeleted.add(rel);
     }
   } catch { /* 非 git 环境：退化为纯磁盘判据 */ }
@@ -61,7 +63,7 @@ for (const e of ledger) {
 if (missing.size) {
   console.error('台账指针存在性 — HARD-BLOCK:');
   for (const [rel, n] of missing) {
-    console.error(`- [台账悬空] ${rel} 被台账引用 ${n} 行，但活跃与归档均不存在${stagedDeleted.has(rel) ? '（本次暂存删除）' : ''}——删除文档必须走 confirm-doc --to cancelled/superseded（禁直接 git rm）`);
+    console.error(`- [台账悬空] ${rel} 被台账引用 ${n} 行，但活跃与归档均不存在${stagedDeleted.has(rel) ? '（本次暂存删除或改名移走）' : ''}——删除文档必须走 confirm-doc --to cancelled/superseded（禁直接 git rm）`);
   }
   console.error('\n修复：恢复被删文档并按放弃流程置态（confirm-doc --to cancelled|superseded），或按 ledger-prune-manifest 流程特许修剪。');
   process.exit(1);

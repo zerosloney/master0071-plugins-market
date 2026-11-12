@@ -78,5 +78,35 @@ const write = (root, rel) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// --staged 认改名（判据移植）：git mv（暂存态记 R）此前被 --diff-filter=D 漏掉——台账指针悬空照常落库。
+// 构造：seed 后 copy 到四目录外 + add（A 项）+ rm --cached（D 项）——暂存 diff -M 配对成 R100（旧→新），
+// 旧路径磁盘仍在（纯磁盘判据盲区）。改名统一取第 2 列（旧路径）判目录：第 3 列是新路径，取它会把
+// 「移出四目录」记成「移入」，方向相反。
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ldp-git-mv-'));
+  const g = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  g('init', '-q');
+  g('config', 'user.email', 't@example.com');
+  g('config', 'user.name', 'T');
+  fs.mkdirSync(path.join(root, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'confirmations.jsonl'),
+    JSON.stringify({ ts: '2026-10-24T00:00:00.000Z', doc: 'workflow/plans/z.md', stage: 'done', fingerprint: 'd'.repeat(64) }) + '\n');
+  write(root, 'workflow/plans/z.md');
+  g('add', '-A');
+  g('commit', '-qm', 'seed');
+  fs.mkdirSync(path.join(root, 'workflow', 'notes'), { recursive: true });
+  fs.copyFileSync(path.join(root, 'workflow', 'plans', 'z.md'), path.join(root, 'workflow', 'notes', 'z.md'));
+  g('add', 'workflow/notes/z.md');
+  g('rm', '--cached', '-q', 'workflow/plans/z.md');
+  const stagedDiff = g('diff', '--cached', '--name-status', '-M').stdout.trim();
+  check('夹具自检：暂存 diff -M 配出 R100（旧路径 → 四目录外新路径）', stagedDiff.includes('R100\tworkflow/plans/z.md'), stagedDiff);
+  const mv = spawnSync(process.execPath, [CLI, '--root', root, '--staged'], { encoding: 'utf8' });
+  check('--staged：改名移出四目录（磁盘旧路径仍在）→ exit 1 且标注「删除或改名移走」',
+    mv.status === 1 && mv.stderr.includes('workflow/plans/z.md') && mv.stderr.includes('改名移走'), mv.stderr);
+  const plain2 = spawnSync(process.execPath, [CLI, '--root', root], { encoding: 'utf8' });
+  check('无 --staged：磁盘旧路径仍在 → 纯磁盘判据放行（对照，证明缺口只由认改名堵）', plain2.status === 0, plain2.stderr);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

@@ -97,23 +97,29 @@ jobs:
           node test/check-loop-rev-ledger.test.mjs
           node test/check-loop-rev-outside.test.mjs
           node test/check-loop-rev-tree.test.mjs
+          node test/check-loop-rev-semantics.test.mjs
           node test/warn-format.test.mjs
           node test/warn-fold-plugin.test.mjs
           node test/judgment-ledger.test.mjs
           node test/fill-intent.test.mjs
           node test/fill-spec.test.mjs
           node test/fill-plan.test.mjs
-          node test/closeout-l1.test.mjs
+          node test/fill-plan-lite.test.mjs
+          # closeout-l1 已升级改名通用 closeout（L0–L3 单命令）
+          node test/closeout.test.mjs
           node test/git-merge-jsonl.test.mjs
           node test/compact-ledgers.test.mjs
           node test/archive-sweep.test.mjs
           node test/check-ledger-doc-presence.test.mjs
           node test/check-ledger-invariant.test.mjs
           node test/agg-delegations.test.mjs
+          node test/agg-kb-usage.test.mjs
           node test/failure-attribution.test.mjs
           node test/check-pr-size.test.mjs
           node test/check-secrets.test.mjs
+          node test/check-secrets-lite.test.mjs
           node test/check-scope.test.mjs
+          node test/check-scope-range.test.mjs
           node test/check-query-contract.test.mjs
           node test/gen-effective-policy.test.mjs
           node test/check-lane-surface.test.mjs
@@ -121,6 +127,9 @@ jobs:
           node test/check-regression-consistency.test.mjs
           node test/check-script-coverage.test.mjs
           node test/confirm-doc.test.mjs
+          node test/check-confirm-order.test.mjs
+          node test/check-commit-plan-ref.test.mjs
+          node test/check-doc-body-drift.test.mjs
           node test/delegation-presence.test.mjs
           node test/gen-workflow-index.test.mjs
           node test/git-core.test.mjs
@@ -136,6 +145,7 @@ jobs:
           node test/verify-scope.test.mjs
           node test/verify-engine-gates.test.mjs
           node test/kb-search.test.mjs
+          node test/dream-run.test.mjs
           node test/rewrite-file.test.mjs
           node test/append-compensation.test.mjs
           node test/gen-verify-evidence.test.mjs
@@ -148,6 +158,8 @@ jobs:
           node test/gen-workflow-metrics.test.mjs
           node test/grade.test.mjs
           node test/hook.test.mjs
+          node test/pre-write-guard.test.mjs
+          node test/check-hook-wiring.test.mjs
           node test/init.test.mjs
           # 安装引擎重构（0.1.19）：两段式装户层 + 宿主垫片生成器 + 安装健康自检
           node test/install.test.mjs

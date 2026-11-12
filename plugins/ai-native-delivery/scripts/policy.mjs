@@ -169,6 +169,22 @@ const V15 = merge(V14, {
   check1HardSince: '2026-11-10', // 检查 1 红线判低/L3 状态未确认存量豁免锚（2026-11-09）；v1–v14 无此键 → 原全量 hard 口径
 });
 
+// 版本 16 = v15 + 两门生效锚（2026-11-11 判据移植：源引擎 v15/v16 两个版本步进合并为插件一个版本）。
+//   premiseSince = spec 前提质询门（confirm-doc / stage-gates premiseGate，spec draft→approved 必经）——
+//   拦「自信的错误解读」进事实源：前提不是歧义（有清单可扫），是未被反问的立论；一旦进事实源，
+//   门禁/测试/复核按同一错误前提各自失守（三层同源失效），唯一可拦点在它进事实源之前。无解读风险的
+//   小件写「无关键前提」行 + 理由。锚 = 发布次日（2026-10-30，沿 check14HardSince 先例）：当日在途件
+//   不追溯。
+//   regrEnforcerSince = 检查 29 回归清单执法者配对（check-loop-sections/s29-regr-enforcer.mjs）——
+//   回归清单「执法者」列空置长期无告警的机器补位：规则已写但没有任何东西执法 = 重犯信号。锚起
+//   回归清单（主台账「防复发验证」节 + 分片）日期 ≥ 锚的数据行「执法者」列须非空——真执法资产或
+//   显式 [prompt-only]（挂债 papercuts）。锚 = 次日（2026-11-12，同则）：锚前存量不追溯。
+// 两键均适用「缺键跳过」：v1–v15 无此二键 → 两门整体跳过（存量项目零噪声）。
+const V16 = merge(V15, {
+  premiseSince: '2026-10-30', // spec 前提质询门生效锚（premise-interrogation 判据移植）；v1–v15 无此键 → 该门整体跳过
+  regrEnforcerSince: '2026-11-12', // 检查 29 回归清单执法者配对生效锚（s29 判据移植）；v1–v15 无此键 → 该段整体跳过
+});
+
 export const POLICIES = {
   1: V1,
   2: V2,
@@ -185,6 +201,7 @@ export const POLICIES = {
   13: V13,
   14: V14,
   15: V15,
+  16: V16,
 };
 
 export function loadKitPolicy(root) {

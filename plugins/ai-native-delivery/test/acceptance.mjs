@@ -61,7 +61,14 @@ const runCli = (script, args, opts = {}) => {
   });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', out: `${r.stdout || ''}${r.stderr || ''}` };
 };
-const initEngine = (root) => runCli('init-engine.mjs', ['--root', root], { cwd: root });
+// init 后摘除 commit-msg 钩子（2026-11-12 L0/L1 快速道移植）：init-engine 现装四个钩子；本套件的
+// 补档提交（如 backend/tests 凭证件）不走 L0/L1 立档，顺序门会硬拦——本套件不测该面（专测见
+// test/check-confirm-order.test.mjs），与下方 §10.7 摘 pre-commit / pre-push 的防污染口径同款。
+const initEngine = (root) => {
+  const r = runCli('init-engine.mjs', ['--root', root], { cwd: root });
+  fs.rmSync(path.join(root, '.git', 'hooks', 'commit-msg'), { force: true });
+  return r;
+};
 
 // MCP stdio 客户端（一次喂入全部请求行，按 id 收回执；夹具形态同 mcp-tools.test）
 const callMcp = (root, requests) => {
@@ -120,6 +127,9 @@ console.log(`acceptance — 设计文档 §10 验收黑盒（${TODAY}）\n`);
   const d = mkRepo('prejudge');
   try {
     initEngine(d);
+    // 钉 policyVersion 14（种子升 16 后仍无 check1HardSince 存量豁免锚）——本条测的是「红线判低
+    // hard 拦截」主路径，不随种子升版翻转成 WARN（v15+ 锚前存量豁免是另一条已测语义）。
+    fs.writeFileSync(path.join(d, '.agents', 'config', 'engine.json'), '{"policyVersion":14}\n', 'utf8');
     // 勾红线的 L1 plan（plan 即入口；红线勾选 = 自证触达 L2 面）→ §1 红线判低 hard
     // （git 模式下门禁只扫 tracked 文档——夹具文档须先入库）
     w(d, 'workflow/plans/2026-10-27-rl.md', planDoc('rl', '状态: draft\n级别: L1\n日期: 2026-10-27',
@@ -180,14 +190,14 @@ console.log(`acceptance — 设计文档 §10 验收黑盒（${TODAY}）\n`);
     initEngine(d);
     // 在途 plan（approved ∈ 活跃集）+ INDEX（含 next 指向的下一命令——INDEX 是恢复入口的承重面）
     w(d, 'workflow/plans/2026-10-27-wip.md', planDoc('wip', `状态: approved\n级别: L1\n日期: ${TODAY}\n模块: pipeline`));
-    w(d, 'workflow/INDEX.md', '# workflow 索引\n\n| 文档 | 状态 |\n|---|---|\n| plans/2026-10-27-wip.md | approved |\n\n下一步：node .agents/scripts/closeout-l1.mjs workflow/plans/2026-10-27-wip.md\n');
+    w(d, 'workflow/INDEX.md', '# workflow 索引\n\n| 文档 | 状态 |\n|---|---|\n| plans/2026-10-27-wip.md | approved |\n\n下一步：node .agents/scripts/closeout.mjs workflow/plans/2026-10-27-wip.md\n');
     const out = runCli('read-context.mjs', ['--root', d], { cwd: d });
     let ctx = null;
     try { ctx = JSON.parse(out.stdout); } catch { /* 解析失败按断言处置 */ }
     check('§10.4', '断崖恢复：read_context CLI 输出含在途 plan', ctx && ctx.initialized === true
       && Array.isArray(ctx.inFlight.plans) && ctx.inFlight.plans.some((p) => p.file === 'plans/2026-10-27-wip.md'), out.stdout.slice(0, 500));
-    check('§10.4', '断崖恢复：INDEX 头部带出 next 指向的下一命令（closeout-l1）', ctx && ctx.index && ctx.index.exists === true
-      && ctx.index.head.some((l) => l.includes('closeout-l1.mjs')), JSON.stringify(ctx && ctx.index));
+    check('§10.4', '断崖恢复：INDEX 头部带出 next 指向的下一命令（closeout）', ctx && ctx.index && ctx.index.exists === true
+      && ctx.index.head.some((l) => l.includes('closeout.mjs')), JSON.stringify(ctx && ctx.index));
   } finally { rmRepo(d); }
 }
 
@@ -366,6 +376,62 @@ console.log(`acceptance — 设计文档 §10 验收黑盒（${TODAY}）\n`);
       const r = runCli('verify.mjs', ['--stub-gate', 'node -e "process.exit(0)"'], { cwd: d, env: { CHECK_LOOP_ROOT: d, RUN_E2E: '' } });
       check('§10.9④', '进化环：墙钟超预算 → advisory 告警出现（超预算 + 退役一门提示）且 exit 仍为 0',
         r.status === 0 && r.stdout.includes('超预算') && r.stdout.includes('下一批须退役一门'), `exit=${r.status}\n${r.stdout.slice(-400)}`);
+    } finally { rmRepo(d); }
+  }
+  // ⑤ 治理进化·检查 29（regrEnforcerSince 2026-11-12）：锚后回归清单行执法者空置 → hard 红；补配对 → 绿
+  {
+    const d = mkRepo('enforcer');
+    try {
+      initEngine(d);
+      fs.writeFileSync(path.join(d, '.agents', 'config', 'engine.json'), '{"policyVersion":16}\n', 'utf8');
+      // init-engine 装的钩子会在提交时触发 check-loop 污染断言口径（同 ①）——卸掉再入库
+      for (const h of ['pre-commit', 'pre-push']) fs.rmSync(path.join(d, '.git', 'hooks', h), { force: true });
+      const regr = [
+        '# regression-checklist — 回归清单',
+        '',
+        '## 防复发验证',
+        '',
+        '| 来源 incident | 回归条目 | 落点 | 执法者 |',
+        '|---|---|---|---|',
+        '| 2026-11-12 进化环夹具 | 锚后新增行缺执法者 | acceptance 夹具 |  |',
+      ].join('\n') + '\n';
+      w(d, 'workflow/regression-checklist.md', regr);
+      commitAll(d, 'fixture checklist');
+      let r = runCheckLoop(d);
+      check('§10.9⑤', '进化环：锚（regrEnforcerSince）后无执法者回归行 → hard 红且「回归执法者缺失」',
+        r.status !== 0 && r.out.includes('回归执法者缺失'), `exit=${r.status}\n${r.out.slice(-600)}`);
+      w(d, 'workflow/regression-checklist.md', regr.replace('| acceptance 夹具 |  |', '| acceptance 夹具 | [prompt-only] |'));
+      r = runCheckLoop(d);
+      check('§10.9⑤', '进化环：执法者配对补齐（显式 [prompt-only]）→ exit 0',
+        r.status === 0, `exit=${r.status}\n${r.out.slice(-600)}`);
+    } finally { rmRepo(d); }
+  }
+  // ⑥ 治理进化·spec 前提质询门（premiseSince 2026-10-30）：无质询表 spec 走确认门 → 拦；补表 → 落 approved
+  {
+    const d = mkRepo('premise');
+    try {
+      initEngine(d);
+      fs.writeFileSync(path.join(d, '.agents', 'config', 'engine.json'), '{"policyVersion":16}\n', 'utf8');
+      for (const h of ['pre-commit', 'pre-push']) fs.rmSync(path.join(d, '.git', 'hooks', h), { force: true });
+      w(d, `workflow/intents/${TODAY}-pg.md`, `---\n状态: draft\n级别: L2\n日期: ${TODAY}\n模块: pipeline\n---\n# INTENT — pg\n`);
+      // 歧义清单齐备（clarifyGate 先行，隔离 premiseGate 单一变量）；无验收标准节 → coverageGate 跳过
+      const CLR = '\n## 歧义清单\n\n| 维度 | 结论 | 依据 / 问题 | 状态 |\n|---|---|---|---|\n'
+        + ['状态与边界', '数据口径', '失败路径', '契约对称', '存量数据', '验收可测性']
+          .map((dim) => `| ${dim} | 无歧义 | 见功能行为 §1 | 已定 |`).join('\n') + '\n';
+      w(d, `workflow/specs/${TODAY}-pg.md`, `---\n状态: draft\n级别: L2\n日期: ${TODAY}\n模块: pipeline\n---\n# SPEC — pg\n${CLR}`);
+      const cd = (doc, quote) => runCli('confirm-doc.mjs', [doc, '--delegated', quote, '--root', d], { cwd: d });
+      let r = cd(`workflow/intents/${TODAY}-pg.md`, '入口确认，可以');
+      check('§10.9⑥', '进化环：intent 起草确认 → exit 0', r.status === 0, r.out.slice(-400));
+      r = cd(`workflow/specs/${TODAY}-pg.md`, 'spec 确认，可以');
+      check('§10.9⑥', '进化环：锚后 spec 无「前提质询」表 → 确认门拦（exit 2 + 前提未质询）',
+        r.status === 2 && r.out.includes('前提未质询'), `exit=${r.status}\n${r.out.slice(-500)}`);
+      const specPath = path.join(d, 'workflow', 'specs', `${TODAY}-pg.md`);
+      fs.writeFileSync(specPath, fs.readFileSync(specPath, 'utf8')
+        + '\n## 前提质询\n\n| 前提 | 反问（对立解读会怎样） | 结论与依据 |\n|---|---|---|\n'
+        + '| 展示诉求而非存储改写 | 换成改写存储身份会污染审计归属 | 用户原话「只是显示」+ 数据流只读 |\n', 'utf8');
+      r = cd(`workflow/specs/${TODAY}-pg.md`, 'spec 确认，可以');
+      check('§10.9⑥', '进化环：补合规前提质询表 → 确认门放行落 approved（exit 0）',
+        r.status === 0 && fs.readFileSync(specPath, 'utf8').includes('状态: approved'), `exit=${r.status}\n${r.out.slice(-500)}`);
     } finally { rmRepo(d); }
   }
 }

@@ -15,7 +15,7 @@ description: "AI-Native 交付引擎 UI 实测者：只验证不修复的浏览�
 - **Process**: 
   1. 读根/目录级 `AGENTS.md` $\rightarrow$ 遵循 `.agents/skills/verify-ui/SKILL.md`（插件形态读 `<插件根>/skills/verify-ui/SKILL.md`）
   2. 启动 API/前端/浏览器验证环境
-  3. 按步骤验证行为 $\rightarrow$ 优先使用 DOM 几何数据 (布局类)
+  3. 交互实测第一选择 chrome-devtools MCP（先探形、单步驱动）；MCP 不通才降级 harness headless 探针，并在实测报告记一行降级原因（无降级原因的探针实测 = 路径违规，报告不收口）；需复跑的回归/防复发断言才落 harness 脚本；布局类断言以 DOM 几何数据为准
   4. 采集证据 (控制台/网络/DOM/截图) $\rightarrow$ 关闭后台进程
 - **Deliverables**: 验证环境/路由 + 逐项结果 + 失败复现证据 + 异常日志 + 未验证范围/阻塞项
 

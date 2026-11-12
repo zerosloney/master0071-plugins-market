@@ -46,6 +46,13 @@ next: 按阶段路由
 
 定级后、动手前，把所选命令的步骤标题**逐字复制**到 todo 列表首项；不另写摘要。跳过的步骤保留在列表里并写 `skip: <理由>`。todo 是执行契约，命令文件是 playbook——本页不复制步骤正文（单源）。
 
+## L0 极简道（提交时豁免通道）
+
+**何时可用**：产品面 ≤5 文件；未命中 §1 两问的 L2/L3；不新增依赖 / 构建步骤。L0 不进两问定级、不动 lane-surfaces 闭集——只在**提交时点**给小改免 intent/spec/plan 立档；先照常两问，未命中才可走本道。
+**判据行怎么写**：单笔 commit，消息体含一行行首非空 `L0: <判据>`（机器可 grep，写清为何够小，如 `L0: 修文案错字`；空判据行不豁免，fail-closed 拒提交）。
+**流程与落账**：改码 → `node <插件根>/scripts/verify.mjs --scope` 绿 → 单笔 commit；放行由 commit-msg 顺序门在 judgments 记 L0 观测计数（mode=commit-msg，非 WARN/BLOCK）。
+**推送面**：`check-scope-range`（pre-push）按同一 `L0:` 行 + ≤5 豁免 plan 声明并打印明细——L0 不立 plan，不受「越界件」硬判；同一文件另有非 L0 提交改动时照旧计入。
+
 ## L1 快速道
 
 命中 L2 或 L3 就离开本页。任务类型以根 `AGENTS.md` §4 为准。L1 做到下面 6 步为止，不打开 `build.md` / `test.md`。
@@ -54,7 +61,7 @@ next: 按阶段路由
 
 1. **定级**：用 §1 两问和 L2 闭集。未命中即 L1，`级别` 写在 plan frontmatter。完成标准：plan 头里的级别与两问结论一致。
 2. **检索**：`node <插件根>/scripts/kb-search.mjs --scope workflow --module <token> "<关键词>"`。命中的 incident 根因写进下一步 plan 的自查。完成标准：检索命令跑过；有命中就准备好要写进 plan 的根因，无命中就写明无命中。命中同功能 spec / features $\rightarrow$ 按 `workflow/README.md`「同功能续作」改原件不新建。
-3. **立 plan**：`node <插件根>/scripts/fill-plan.mjs --level L1 --topic <主题> --output workflow/plans/<YYYY-MM-DD>-<主题>.md`。填实入口（来源、目标、红线）、改动方案、约束与风险、验证计划、验收标准，并把第 2 步的检索结果写进自查。frontmatter `模块` 改成主导模块。不写 intent，不写预判字段。完成标准：这五节都有正文，检索结论已在 plan 里；验收标准写不出可测试判据就停；红线要么勾中并升到 L2/L3，要么明确不勾。
+3. **立 plan**：`node <插件根>/scripts/fill-plan.mjs --level L1 --topic <主题> --output workflow/plans/<YYYY-MM-DD>-<主题>.md`。可加 `--lite`（三节：入口 / 改动方案 / 验证与验收；条件：第 2 步检索无 incident 命中且红线全不勾），缺省仍为五节。填实入口（来源、目标、红线）、改动方案、约束与风险、验证计划、验收标准，并把第 2 步的检索结果写进自查。frontmatter `模块` 改成主导模块。不写 intent，不写预判字段。完成标准：所选模板各节有正文（五节或 lite 三节），检索结论已在 plan 里；验收标准写不出可测试判据就停；红线要么勾中并升到 L2/L3，要么明确不勾。
 4. **确认后动手**：`node <插件根>/scripts/confirm-doc.mjs <plan> --delegated "<用户原话>"` 把 draft 收到 approved，然后再改代码。只改 plan 列出的文件。四条红线：不提交密钥或 `.env`、不用 `--no-verify`、最小改动、偏离 plan 先停。**承诺面锁定（2026-10-27）**：approved 之后改「承诺面」（验收判据文本 / 红线 / 目标 / 改动方案）须先让用户重新点头——跑 `confirm-doc.mjs <plan> --reconfirm --delegated "<用户原话>"` 重录承诺面指纹；否则关单被拒、推送被检查 15 hard 拦（勾验收 + 证据回填不算改承诺）。改完后把 approved 的 plan 和代码放进同一笔提交，这一笔不把 plan 标成 done。完成标准：该提交已入库，plan 仍是 approved。
 5. **验证**：`node <插件根>/scripts/verify.mjs --scope`。有前端改动再打开 `.agents/skills/verify-ui/SKILL.md`（插件形态读 `<插件根>/skills/verify-ui/SKILL.md`）。失败就改代码，不在本页改门禁。完成标准：命令退出码 0，前端改动另有实测证据。
 6. **关单**：打开 `.agents/skills/workflow-closeout/SKILL.md`（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。L1 只关这份 plan。完成标准：plan 为 done，关单提交已入库。

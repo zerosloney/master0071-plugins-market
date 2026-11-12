@@ -20,7 +20,10 @@
 //   「×N 条同类」单行，明细落 .agents/tmp/check-loop-warn.log）——**BLOCK 一律不折**；无标签条目逐条输出。
 //   折叠只改呈现不改判据；实现见 warn-format.mjs + warn-format.test.mjs（S1-S7 锁住折叠规则）。
 // 现状（2026-10-23）：22 段 = hard 5（§1 §3x §8 §15 §23）+ hygiene 17（§28 脚本覆盖对账为 P1 新增）；
-//   段数棘轮见 .agents/config/rule-budgets.txt（check-loop-sections 计数上限 22，退役一段同降一）。
+// 2026-11-11 判据移植（policy v16）：§29 回归清单执法者配对接入 hard（锚 regrEnforcerSince——
+//   回归清单「执法者」列空置长期无告警的机器补位；缺键（v1–v15）整段跳过，存量项目零破坏）。
+// 现状（2026-11-11）：23 段 = hard 6（§1 §3x §8 §15 §23 §29）+ hygiene 17；
+//   段数棘轮见 .agents/config/rule-budgets.txt（check-loop-sections 计数上限 24，退役一段同降一）。
 // --hygiene 只跑卫生段（索引/宿主/词表/指标签名/委派等 WARN）。--all 两段都跑。
 // 测试:node <插件根>/test/check-loop.test.mjs（fixture 注入 CHECK_LOOP_ROOT；套件默认 --all）
 import * as kit from './check-loop-kit.mjs';
@@ -62,6 +65,7 @@ import { run as s25_prejudgment } from './check-loop-sections/s25-prejudgment.mj
 import { run as s26_funnel_action } from './check-loop-sections/s26-funnel-action.mjs';
 import { run as s27_regression_consistency } from './check-loop-sections/s27-regression-consistency.mjs';
 import { run as s28_script_coverage } from './check-loop-sections/s28-script-coverage.mjs';
+import { run as s29_regr_enforcer } from './check-loop-sections/s29-regr-enforcer.mjs';
 
 // 顺序 = 原单文件段序。lane：hard = 默认关单/pre-push（只放有阻断力的段——2026-10-22 批 1 后
 //   车道与阻断级别对齐，§3/§14/§25 因零阻断力下沉 hygiene）；hygiene = --hygiene / --all。
@@ -84,15 +88,34 @@ const SECTIONS = [
   { lane: 'hygiene', run: s19_stage_audit },
   { lane: 'hygiene', run: s21_spec_verif },
   { lane: 'hygiene', run: s22_registry },
-  { lane: 'hard', run: s23_convergence_audit },
+  { lane: 'hard', run: s23_convergence_audit, convergence: true },
   { lane: 'hygiene', run: s24_incident_attribution },
   { lane: 'hygiene', run: s25_prejudgment },
   { lane: 'hygiene', run: s26_funnel_action },
   { lane: 'hygiene', run: s27_regression_consistency },
   { lane: 'hygiene', run: s28_script_coverage },
+  { lane: 'hard', run: s29_regr_enforcer },
 ];
+// §23 收敛对账登记式跳过（判据移植，跨机证据不对称）：workflow/evidence/ 为本机留存面（.gitignore），
+// 他机 authored 的 spec 其收敛证据文件只存在于 author 机——本机推送范围含该类 spec 时 §23 结构性不可绿。
+// 沿集成档登记通道：PREPUSH_SKIP_CONVERGENCE=<登记文件路径>，路径必须已存在否则 fail-closed 阻断；
+// 跳过时大声明示「这不是绿凭证」；只跳 §23，其余段照跑；不设该变量即恢复执法（无持久状态）。
+// hygiene 车道本就不跑 §23，登记变量不参与判定。
+const convergenceSkipRef = (process.env.PREPUSH_SKIP_CONVERGENCE || '').trim();
 for (const section of SECTIONS) {
-  if (kit.LOOP_MODE === 'all' || section.lane === kit.LOOP_MODE) section.run();
+  const laneRun = kit.LOOP_MODE === 'all' || section.lane === kit.LOOP_MODE;
+  if (laneRun && section.convergence) {
+    if (convergenceSkipRef && fs.existsSync(convergenceSkipRef)) {
+      console.error(`check-loop: §23 收敛对账按登记跳过——登记文件：${convergenceSkipRef}`);
+      console.error('check-loop: 这不是绿凭证：§23 本轮未跑，已知红须按登记推进修复；不设该变量即恢复执法。');
+      continue;
+    }
+    if (convergenceSkipRef) {
+      blockers.push(`- [PREPUSH_SKIP_CONVERGENCE 指向的登记文件不存在（${convergenceSkipRef}）——fail-closed，推送已阻止`);
+      continue;
+    }
+  }
+  if (laneRun) section.run();
 }
 // --- 判定流水落账（judgment-ledger，灰度消费端数据底座）---
 // 每次真实运行追加一行 per-rule 判定计数到 .agents/judgments.jsonl（本地 gitignore；fixture 经
@@ -122,5 +145,15 @@ if (blockers.length) {
 }
 if (warnings.length) {
   process.stderr.write(`check-loop.mjs WARN（advisory,不阻断）:\n\n${renderWarnings(warnings)}\n`);
+}
+// 合并语义对拍探针（判据移植，防退化钉子）：--all 全量审计末尾自动跑——合并提交按 `git show` 默认
+// 无文件面（增量面空集），任何按提交增量面取数的实现（现行或后续引入）退化回 git show 时本探针立红。
+// 仅本地全量审计（无 --rev worktree、无夹具根）自动跑；探针可独立手动直跑（node scripts/check-loop-rev-semantics.mjs）。
+if (kit.LOOP_MODE === 'all' && !kit.REV && !process.env.CHECK_LOOP_ROOT) {
+  const probe = spawnSync(process.execPath, [scriptPath(ROOT, 'check-loop-rev-semantics.mjs')], { stdio: 'inherit', cwd: ROOT, windowsHide: true });
+  if (probe.status !== 0) {
+    process.stderr.write('闭环骨架断档（check-loop.mjs）— 合并语义对拍探针未过（check-loop-rev-semantics.mjs）——合并提交增量面取数实现疑似退化。HARD-BLOCK\n');
+    process.exit(1);
+  }
 }
 process.exit(0);

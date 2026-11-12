@@ -12,6 +12,8 @@
 //   用于规则面一进一出（如 check-loop 段数上限）：新增一条须先退役一条（退役判定
 //   agg-judgments --retire-candidates）。旧格式行（纯数字）不受影响；`#count` 行对旧读者（未升级的
 //   脚本副本）因上限非纯数字被跳过——fail-open，不误拦。
+// 单行上限（判据移植，防激增）：上限字段形如 `<N>#line` = 匹配文件「提交后树」逐行字节上限（行级
+//   棘轮，对冲「登记行只增不减」；同 #count 非纯数字，旧读者 fail-open 跳过）。
 //
 // 路径解析（2026-10-27 插件化修复）：预算表里的路径是**源仓形态**口径（`.agents/scripts/…`、
 //   `.agents/commands/…`）。插件化后治理脚本与命令面留在插件内（项目侧只落数据），故按 paths.mjs
@@ -51,6 +53,15 @@ const fsize = (e) => {
     if (git(['cat-file', '-e', `HEAD:${e.rel}`]).ok) return Number(git(['cat-file', '-s', `HEAD:${e.rel}`]).out);
   }
   try { return fs.readFileSync(e.abs).length; } catch { return 0; }
+};
+
+// 「提交后」内容（单行上限用，同源优先级同 fsize）
+const fcontent = (e) => {
+  if (e.rel) {
+    if (git(['cat-file', '-e', `:${e.rel}`]).ok) return git(['cat-file', '-p', `:${e.rel}`]).out;
+    if (git(['cat-file', '-e', `HEAD:${e.rel}`]).ok) return git(['cat-file', '-p', `HEAD:${e.rel}`]).out;
+  }
+  try { return fs.readFileSync(e.abs, 'utf8'); } catch { return ''; }
 };
 
 // 预算表内容：索引 → HEAD → 工作区 → 插件种子兜底（2026-10-27 budget-index-source + 插件化）。
@@ -153,8 +164,10 @@ for (const line of readBudgets().split(/\r?\n/)) {
   const pat = line.slice(0, sp), lim = line.slice(sp + 1);
   if (pat === '' || pat.startsWith('#')) continue;
   // 条目数预算（2026-10-15 减重手段②）：`<N>#count` = 匹配文件数上限（一进一出的执法面）
+  // 单行上限（判据移植）：`<N>#line` = 匹配文件逐行字节上限（行级棘轮）
   const cnt = /^(\d+)#count$/.exec(lim);
-  if (!cnt && !/^\d+$/.test(lim)) continue;
+  const ln = /^(\d+)#line$/.exec(lim);
+  if (!cnt && !ln && !/^\d+$/.test(lim)) continue;
   if (cnt) {
     if (pat === 'check-loop-hard') {
       // 伪路径：数 check-loop.mjs 的 hard 段（--staged 下仅当段表或预算表被暂存才查）
@@ -166,6 +179,16 @@ for (const line of readBudgets().split(/\r?\n/)) {
     if (mode === '--staged' && !stagedTouches(pat)) continue;
     const n = expand(pat).length;
     if (n > Number(cnt[1])) overCount(pat, n, cnt[1]);
+    continue;
+  }
+  if (ln) {
+    for (const e of expand(pat)) {
+      if (mode === '--staged' && (!e.rel || !staged.includes(e.rel))) continue;
+      const bad = fcontent(e).split(/\r?\n/)
+        .map((l, i) => [i + 1, Buffer.byteLength(l)])
+        .filter(([, b]) => b > Number(ln[1]));
+      if (bad.length) over(`${e.rel || e.abs} 单行×${bad.length}（行${bad.map(([i]) => i).join(',')}）`, Math.max(...bad.map(([, b]) => b)), ln[1]);
+    }
     continue;
   }
   if (pat.endsWith('/')) {

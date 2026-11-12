@@ -23,6 +23,8 @@ description: 会话重入与中断落盘——接手、切换 worktree、压缩/
 | 上次绿在哪 | `.agents/verifications.jsonl` 末行（钉 headShort + 24h 窗） | 当前 HEAD 是否已有绿凭证 |
 
 > L2/L3 的 plan 勾选态对齐口径单源 = `commands/build.md`「会话重入」；本技能不复制，只补 L1 与跨 worktree 场景。
+>
+> 梦境报告装载（若存在）：`.agents/tmp/dream-report-*.md` 在场时按 `skills/dream/SKILL.md` 读最新报告并处置冷数据候选（advisory，不阻塞重建）。
 
 ## 2. 对齐（不符先停手）
 

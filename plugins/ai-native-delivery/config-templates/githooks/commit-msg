@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+// ai-native-delivery 引擎 git hook（commit-msg）——由 scripts/init-engine.mjs 安装到 <项目>/.git/hooks/。
+// 定位机制：本文件是插件 config-templates/githooks/ 的种子，安装时 @@CONFIRM_ORDER_SCRIPT@@ 与
+// @@PLAN_REF_SCRIPT@@ 被实化为绝对路径（项目侧 .agents/scripts 优先、回退插件内本体——paths.mjs
+// scriptPath 同口径）。钩子落 .git/hooks/，不入版本库；卸载 = 删除本文件（init-engine 输出含卸载说明）。
+// 职能①（gate）：先确认后改代码——暂存产品路径时，每条路径须出现在 approved plan 正文（豁免 A：
+//   消息体非空 `L0: <判据>` 行且产品 ≤5；豁免 B：覆盖 plan 与产品同批暂存）→ 红即阻止提交。
+//   判据单源在 check-confirm-order.mjs（产品面匹配 / 合并族探测 / L0 上限都在脚本内，种子不复制——
+//   未暂存产品路径由脚本内 SKIP，故本钩子不做事前过滤）。脚本缺失 fail-closed 阻止提交。
+// 职能②（advisory）：任务短名——覆盖 plan 恰好一份时提交消息须含其短名（plan 文件名去 .md），
+//   git log 可按任务检索。脚本内部 exit 恒 0（观察期不阻断）；脚本缺失只损可见性（existsSync 守卫，
+//   advisory 不指一个跑不起来的命令）。
+// 合并/squash/rebase/cherry-pick：commit-msg 时点合并状态文件（MERGE_HEAD/SQUASH_MSG 等）已落盘，
+//   两脚本内部分别探测跳过——收已经写过的树，不在这里重判。真实 squash 消息（git merge --squash
+//   生成的 "Squashed commit of the following:" 模板）同属收树形态，由同一探测豁免。
+// process.argv[2] 为 git 传入的本次消息文件（真实待提交内容）。
+// 模块中立：无扩展名钩子的模块系统随项目最近 package.json 的 "type" 决定（pre-commit 种子头注
+// 同款说明）——用两种模块系统都支持的动态 import()。
+import('node:child_process').then(async ({ spawnSync }) => {
+  const { existsSync } = await import('node:fs');
+
+  const CONFIRM_ORDER_SCRIPT = "@@CONFIRM_ORDER_SCRIPT@@";
+  const PLAN_REF_SCRIPT = "@@PLAN_REF_SCRIPT@@";
+  const msgFile = process.argv[2];
+
+  // 职能① gate：脚本缺席预检（对齐 pre-commit 种子 fail-closed 先例）——spawn 前 existsSync，
+  // 否则 node 先吐满屏 MODULE_NOT_FOUND 栈，修复指引淹没在噪音里。
+  if (!existsSync(CONFIRM_ORDER_SCRIPT)) {
+    console.error(`commit-msg: 无法启动先确认后改代码门（${CONFIRM_ORDER_SCRIPT}）——提交已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
+    process.exit(1);
+  }
+  const gate = spawnSync(process.execPath, [CONFIRM_ORDER_SCRIPT, msgFile], { stdio: 'inherit', windowsHide: true });
+  if (gate.error || gate.status === null || gate.status !== 0) {
+    console.error('commit-msg: 先确认后改代码未通过，提交已阻止');
+    process.exit(gate.status === null || gate.error ? 1 : gate.status);
+  }
+  // 职能② advisory：脚本缺席静默退出（advisory 语义——不提示不存在的命令）；红不阻断（exit 恒 0，
+  // 由脚本内部保证），输出走 stderr 供作者提交后即见。
+  if (existsSync(PLAN_REF_SCRIPT)) {
+    spawnSync(process.execPath, [PLAN_REF_SCRIPT, msgFile], { stdio: 'inherit', windowsHide: true });
+  }
+  process.exit(0);
+}).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

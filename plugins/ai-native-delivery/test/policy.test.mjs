@@ -12,7 +12,7 @@ const check = (name, cond, detail = '') => {
 };
 
 const versions = Object.keys(POLICIES).map(Number).sort((a, b) => a - b);
-check('S1 版本表连续覆盖 1..15', versions.length === 15 && versions.every((v, i) => v === i + 1), versions.join(','));
+check('S1 版本表连续覆盖 1..16', versions.length === 16 && versions.every((v, i) => v === i + 1), versions.join(','));
 
 check('S2 V1 基线五锚', ['moduleSince', 'check14Since', 'confirmDocsEffective', 'confirmIncidentsEffective', 'bindingTs']
   .every((k) => typeof POLICIES[1][k] === 'string'));
@@ -31,7 +31,7 @@ check('S6 V6 = V4 超集 + 三个新锚', ['delegationSince', 'verifySince', 'in
   .every((k) => POLICIES[6][k] !== undefined)
   && POLICIES[6].delegationSince === POLICIES[4].delegationSince);
 
-for (const [from, to] of [[6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15]]) {
+for (const [from, to] of [[6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15], [15, 16]]) {
   const missing = Object.keys(POLICIES[from]).filter((k) => POLICIES[to][k] === undefined);
   check(`S7 v${from}→v${to} 为超集追加（锚不丢失）`, missing.length === 0, missing.join(','));
 }
@@ -47,6 +47,14 @@ check('S29 V15 新增 check1HardSince 且 v14 无此键（缺键保现行 hard�
   POLICIES[15].check1HardSince === '2026-11-10' && POLICIES[14].check1HardSince === undefined
   && POLICIES[15].convergenceHardSince === '2026-10-12');
 
+// S30（2026-11-11 判据移植）：v16 = v15 + 两门生效锚（源引擎 v15/v16 两版合并为插件一个版本步进）——
+// spec 前提质询门 premiseSince + 检查 29 回归清单执法者配对 regrEnforcerSince；两键适用「缺键跳过」：
+// v15 无此二键 → 两门整体跳过（与 check1HardSince 的「放宽锚缺键保现行」语义相反，三态并列钉死）。
+check('S30 V16 新增 premiseSince + regrEnforcerSince 且 v15 无此二键（缺键跳过语义）',
+  POLICIES[16].premiseSince === '2026-10-30' && POLICIES[16].regrEnforcerSince === '2026-11-12'
+  && POLICIES[15].premiseSince === undefined && POLICIES[15].regrEnforcerSince === undefined
+  && POLICIES[16].check1HardSince === '2026-11-10');
+
 // ---- loadKitPolicy ----
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'policy-test-'));
@@ -58,6 +66,11 @@ check('S29 V15 新增 check1HardSince 且 v14 无此键（缺键保现行 hard�
   const p14 = loadKitPolicy(tmp);
   check('S9 选定版本 14 生效且回显 requested', p14.policyVersion === 14 && p14.requestedVersion === 14
     && p14.coverageSince === '2026-10-22');
+
+  write({ policyVersion: 16 });
+  const p16 = loadKitPolicy(tmp);
+  check('S9b 选定版本 16 生效（两新锚在场——门消费面）',
+    p16.policyVersion === 16 && p16.premiseSince === '2026-10-30' && p16.regrEnforcerSince === '2026-11-12');
 
   // S10（2026-11 市场审查裁决改语义）：越界版本不再静默回落 v1（回落会把 §3x/§23 hard 门整段关停）
   // → fail-closed 抛明确错误，由消费方非零退出并指引支持的版本表

@@ -4,7 +4,7 @@
 //       阻断语义在 stdout 决策体，照 systemone hook 同款）；②普通命令（git status）→ 静默放行；
 //       ③settings.json 损坏 → WARN + 内置 deny 地板继续执法；④项目侧 ask 整体接管 / deny 不可
 //       下调；⑤ask 清单 / 非 shell 工具不管辖；⑥deny 键缺失或空数组 → 地板仍拦；⑦坏 JSON 输入
-//       → fail-closed 转 ask；⑧声明面 matcher 与代码 SHELL_TOOL 同口径（防风险闸静默不被调用）；
+//       → fail-closed 转 ask；⑧声明面 matcher 与内核名单同口径（shell 段 + 写前门段，防 hook 静默不被调用）；
 //       ⑨内部故障 → 转 ask 而非静默放行（2026-10-31 市场审查：顶层 catch 曾 exit 0 无决策体，
 //         一条本该命中 deny 的命令凭 hook 自身故障被放行）。
 // 零依赖，Node ≥ 18 直接运行：node test/hook.test.mjs
@@ -205,7 +205,9 @@ const mkRepo = () => {
     d && d.permissionDecisionReason);
 }
 
-// ---- ⑧ 声明面 matcher 与代码 SHELL_TOOL 同口径（2026-10-28 市场审查；10-29 与远端的同编号用例合并）----
+// ---- ⑧ 声明面 matcher 与内核名单同口径（2026-10-28 市场审查；10-29 与远端的同编号用例合并；
+//      2026-11-12 扩写前门段：按条目挂载的脚本分面对账——pretool-risk ↔ SHELL_TOOL_NAMES、
+//      pre-write-guard ↔ WRITE_TOOL_NAMES，两段各自锁「matcher 窄于内核」与「内核不认」两向）----
 // matcher 决定「hook 会不会被调到」，代码正则决定「调到之后管不管」。两者脱节时风险闸对某类
 // shell 工具**静默不存在**——零告警、零现象，比判错更危险。本仓实测踩过两次，方向相反：
 //   ① matcher 窄于内核名单（只写 `Bash|Shell|Terminal`，内核认 12 名）→ hook 压根不被调用；
@@ -213,7 +215,7 @@ const mkRepo = () => {
 // 本用例同时锁两个方向：名字提取失败即报红（防对账空转），并对驼峰宿主名跑真实进程判行为。
 {
   const hookSrc = fs.readFileSync(HOOK, 'utf8').replace(/\r/g, ''); // CRLF 会让 $ 锚失配
-  // 直接取「纯小写交替组」：SHELL_TOOL 里还有 (^|[_\-.\s]) 这种边界组，它不满足本模式故被跳过。
+  // 直接取「纯小写交替组」：SHELL_TOOL 里还有 (^|[_\-.\\s]) 这种边界组，它不满足本模式故被跳过。
   // 正则改形导致取不到名单时下面立即报红——这正是「对账退化成空转」的入口。
   // （2026-11-05 同步注明：内核改为 SHELL_TOOL_NAMES 单源名单数组，从它构建三种形态——边界 /
   //   粘连词尾 / 子串告警（移植 systemone risk-gate），对账提取随之从正则交替组改为数组字面量。）
@@ -222,6 +224,16 @@ const mkRepo = () => {
     hookSrc.split('\n').find((l) => l.includes('SHELL_TOOL_NAMES')) || '(找不到 SHELL_TOOL_NAMES 定义行)');
   const names = listMatch ? (listMatch[1].match(/'([a-z]+)'/g) || []).map((s) => s.slice(1, -1)) : [];
   check('工具名覆盖数 ≥ 12（防交替组被改写后对账空转）', names.length >= 12, `实际 ${names.length}：${names.join(',')}`);
+
+  // 写前门内核名单（hooks/pre-write-guard.mjs WRITE_TOOL_NAMES，对账与 shell 段同构；名单含
+  // apply_patch 带下划线，提取字符类要收 _）
+  const WRITE_HOOK = path.join(TEST_DIR, '..', 'hooks', 'pre-write-guard.mjs');
+  const writeSrc = fs.readFileSync(WRITE_HOOK, 'utf8').replace(/\r/g, '');
+  const wListMatch = /const WRITE_TOOL_NAMES = \[([^\]]*)\]/.exec(writeSrc);
+  check('能从写前门源提取 WRITE_TOOL 名单（提取失败=名单改形，需同步本测试）', Boolean(wListMatch),
+    writeSrc.split('\n').find((l) => l.includes('WRITE_TOOL_NAMES')) || '(找不到 WRITE_TOOL_NAMES 定义行)');
+  const writeNames = wListMatch ? (wListMatch[1].match(/'([a-z_]+)'/g) || []).map((s) => s.slice(1, -1)) : [];
+  check('写工具名覆盖数 ≥ 5（防交替组被改写后对账空转）', writeNames.length >= 5, `实际 ${writeNames.length}：${writeNames.join(',')}`);
 
   const decls = [
     ['hooks/hooks.json', path.join(TEST_DIR, '..', 'hooks', 'hooks.json')],
@@ -233,40 +245,53 @@ const mkRepo = () => {
     const entries = (holder && holder.PreToolUse) || [];
     const matchers = entries.map((e) => e.matcher).filter((m) => typeof m === 'string' && m);
     check(`${label} 声明了 PreToolUse matcher`, matchers.length > 0, JSON.stringify(entries));
-    for (const matcher of matchers) {
-      // names 为空时下面的 missing 会空转通过——显式判红，别让对账退化成假绿
-      check(`${label} 对账有实义（SHELL_TOOL 名单非空）`, names.length > 0, '名单为空，覆盖率断言无意义');
-      // 方向①：matcher 必须覆盖内核认的全部名字（含宿主常见包装形态）
+    for (const entry of entries) {
+      const matcher = entry.matcher;
+      if (typeof matcher !== 'string' || !matcher) continue;
+      // 分面路由：条目挂的是哪个内核（决定用哪份名单对账）；两段都对不上时按 shell 段对账兜底报红
+      const isWriteGuard = Array.isArray(entry.hooks)
+        && entry.hooks.some((h) => typeof h?.command === 'string' && h.command.includes('pre-write-guard.mjs'));
       const hostForms = (n) => [n, n[0].toUpperCase() + n.slice(1), `run_${n}`, `mcp__h__${n}_command`];
+      const faceNames = isWriteGuard ? writeNames : names;
+      const faceLabel = isWriteGuard ? 'WRITE_TOOL' : 'SHELL_TOOL';
+      const missLabel = isWriteGuard ? '写前门' : '风险闸';
+      // names 为空时下面的 missing 会空转通过——显式判红，别让对账退化成假绿
+      check(`${label} ${missLabel}段对账有实义（${faceLabel} 名单非空）`, faceNames.length > 0, '名单为空，覆盖率断言无意义');
+      // 方向①：matcher 必须覆盖内核认的全部名字（含宿主常见包装形态）
       const missed = [];
-      for (const name of names) {
+      for (const name of faceNames) {
         for (const form of hostForms(name)) {
           if (!new RegExp(matcher).test(form)) missed.push(form);
         }
       }
-      check(`${label} matcher 覆盖内核 SHELL_TOOL 名单全部成员的常见宿主形态`, missed.length === 0,
-        missed.length ? `matcher 漏掉 "${missed.join('", "')}"（内核名单 ${names.join('/')}）——该调用不会进风险闸` : '');
-      // 反向锚：确认对账用的是宿主语义（大小写敏感正则），`Bash|Shell|Terminal` 那种窄写法必红
-      check(`${label} matcher 非窄写法（不只 Bash/Shell/Terminal）`,
-        new RegExp(matcher).test('Command') && new RegExp(matcher).test('pwsh'), matcher);
-      // 方向②：matcher 是子串正则，比代码 SHELL_TOOL 更宽。驼峰宿主名（RunCommand / ExecuteCommand /
-      // BashTool）会被 matcher 命中并调用 hook，但 `Command` 两侧都不是词边界，内核对不上就判
-      // 「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面只验了方向①，锁不住这个洞。
-      // 这里用真实进程跑，判的是实际行为而不是正则字面量。
+      check(`${label} ${missLabel}段 matcher 覆盖内核 ${faceLabel} 名单全部成员的常见宿主形态`, missed.length === 0,
+        missed.length ? `matcher 漏掉 "${missed.join('", "')}"（内核名单 ${faceNames.join('/')}）——该调用不会进${missLabel}` : '');
+      // 反向锚：确认对账用的是宿主语义（大小写敏感正则），窄写法必红（shell 段防 `Bash|Shell|Terminal`
+      // 三名窄写；写前门段防只认单一写工具的窄写）
       const reg = new RegExp(matcher);
-      // 2026-11-05 补粘连词尾：matcher（子串）会命中 nushell / fishshell 这类「字母前缀 + shell
-      // 词尾」并把 hook 拉起，内核必须经词尾形态认领，否则整类免检零信号（双向对账的两条新词）。
-      for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell', 'nushell', 'fishshell']) {
-        check(`${label} 前提：matcher 会命中 "${hostName}"`, reg.test(hostName));
-        if (!reg.test(hostName)) continue;
-        const r = run({ tool_name: hostName, tool_input: { command: 'git reset --hard' } }, process.cwd());
-        check(`${label} 驼峰名 "${hostName}" 的 deny 命令确实被拦`,
-          decisionOf(r)?.permissionDecision === 'deny', `stdout=${r.stdout}`);
-      }
-      // 拆词不能把普通工具也拉进管辖（否则每次文件读写都发判定）
-      for (const notShell of ['Read', 'Write', 'Edit', 'Grep', 'WebFetch']) {
-        const r = run({ tool_name: notShell, tool_input: { command: 'git reset --hard' } }, process.cwd());
-        check(`${label} 非 shell 工具 "${notShell}" 不被管辖`, r.status === 0 && r.stdout.trim() === '', r.stdout);
+      check(`${label} ${missLabel}段 matcher 非窄写法`,
+        isWriteGuard
+          ? (reg.test('Write') && reg.test('Edit') && reg.test('Update') && reg.test('NotebookEdit'))
+          : (reg.test('Command') && reg.test('pwsh')), matcher);
+      if (!isWriteGuard) {
+        // 方向②：matcher 是子串正则，比代码 SHELL_TOOL 更宽。驼峰宿主名（RunCommand / ExecuteCommand /
+        // BashTool）会被 matcher 命中并调用 hook，但 `Command` 两侧都不是词边界，内核对不上就判
+        // 「非 shell 工具」静默放行——闸门被调用却什么都没拦。上面只验了方向①，锁不住这个洞。
+        // 这里用真实进程跑，判的是实际行为而不是正则字面量。
+        // 2026-11-05 补粘连词尾：matcher（子串）会命中 nushell / fishshell 这类「字母前缀 + shell
+        // 词尾」并把 hook 拉起，内核必须经词尾形态认领，否则整类免检零信号（双向对账的两条新词）。
+        for (const hostName of ['RunCommand', 'ExecuteCommand', 'BashTool', 'RunShell', 'nushell', 'fishshell']) {
+          check(`${label} 前提：matcher 会命中 "${hostName}"`, reg.test(hostName));
+          if (!reg.test(hostName)) continue;
+          const r = run({ tool_name: hostName, tool_input: { command: 'git reset --hard' } }, process.cwd());
+          check(`${label} 驼峰名 "${hostName}" 的 deny 命令确实被拦`,
+            decisionOf(r)?.permissionDecision === 'deny', `stdout=${r.stdout}`);
+        }
+        // 拆词不能把普通工具也拉进管辖（否则每次文件读写都发判定）
+        for (const notShell of ['Read', 'Write', 'Edit', 'Grep', 'WebFetch']) {
+          const r = run({ tool_name: notShell, tool_input: { command: 'git reset --hard' } }, process.cwd());
+          check(`${label} 非 shell 工具 "${notShell}" 不被管辖`, r.status === 0 && r.stdout.trim() === '', r.stdout);
+        }
       }
     }
   }

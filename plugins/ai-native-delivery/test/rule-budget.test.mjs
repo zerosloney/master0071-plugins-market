@@ -256,6 +256,35 @@ const indexInfo = (root, entries) => {
     r.code === 1 && /超限|fail-closed/.test(r.out), `exit=${r.code}\n${r.out.slice(0, 300)}`);
 }
 
+// ---- T14 单行上限（判据移植）：`<N>#line` = 匹配文件「提交后树」逐行字节上限（行级棘轮；
+//      对冲「登记行只增不减」。夹具非 git → 字节/内容口径回退工作区文件，同 T1 前注）----
+root = makeFixture({
+  budgets: 'AGENTS.md 100#line\n',
+  files: { 'AGENTS.md': 'ok\n' + 'x'.repeat(200) + '\n' },
+});
+{
+  const r = run(root);
+  check('T14a #line 单行超限 exit 1 + 行号点名（行2）', r.code === 1 && r.out.includes('单行×1（行2）') && r.out.includes('> 上限 100B'), JSON.stringify(r));
+}
+root = makeFixture({
+  budgets: 'AGENTS.md 100#line\n',
+  files: { 'AGENTS.md': 'ok\n' + 'x'.repeat(200) + '\n' + 'y'.repeat(150) + '\n' },
+});
+{
+  const r = run(root);
+  check('T14b 多行超限逐行点名（行2,3，取最大字节报）', r.code === 1 && r.out.includes('单行×2（行2,3）'), JSON.stringify(r));
+}
+root = makeFixture({
+  budgets: 'AGENTS.md 100#line\n',
+  files: { 'AGENTS.md': 'ok\n' + 'x'.repeat(50) + '\n' },
+});
+check('T14c 全部行压线内 exit 0', run(root).code === 0);
+root = makeFixture({
+  budgets: 'AGENTS.md 100#lines\n',
+  files: { 'AGENTS.md': 'ok\n' + 'x'.repeat(5000) + '\n' },
+});
+check('T14d 未知 `#lines` 后缀 → 整行跳过（fail-open，同 #count 旧读者口径）', run(root).code === 0);
+
 for (const d of fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('rule-budget-'))) {
   try { fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true }); } catch { /* Windows 文件锁容忍 */ }
 }

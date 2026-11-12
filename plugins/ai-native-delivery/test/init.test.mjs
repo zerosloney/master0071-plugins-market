@@ -81,13 +81,23 @@ const snapDiff = (a, b) => {
   check('首跑种子 .agents/settings.json', r1.created.includes('.agents/settings.json'));
   check('首跑建确认主账与分片目录', r1.created.includes('.agents/confirmations.jsonl') && r1.created.includes('.agents/confirmations.d/'));
   check('首跑建 workflow 八子目录与 INDEX', r1.created.includes('workflow/INDEX.md') && r1.created.includes('workflow/archive/'));
-  check('首跑安装两个 git hooks', r1.hooks.installed.length === 2, JSON.stringify(r1.hooks));
+  check('首跑安装四个 git hooks（pre-commit / pre-push / post-commit / commit-msg）', r1.hooks.installed.length === 4, JSON.stringify(r1.hooks));
   check('首跑 .gitignore 标记块写入', r1.gitignore === 'created' && fs.readFileSync(path.join(root, '.gitignore'), 'utf8').includes(GITIGNORE_BEGIN));
   // 钩子已实化：**带引号的可执行占位符**已被替换为可解析的绝对路径。
   // 注意：种子头注的散文里合法提到 @@ENGINE_SCRIPT@@（说明占位符语义），故断言只查带引号的可执行形式。
   const hookBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), 'utf8');
   check('钩子占位符已被实化', !/const ENGINE_SCRIPT = "@@ENGINE_SCRIPT@@"/.test(hookBody)
     && /const ENGINE_SCRIPT = ".+check-loop\.mjs";/.test(hookBody), hookBody.split('\n').find((l) => l.includes('ENGINE_SCRIPT =')));
+  // post-commit（2026-11-11 Dreaming 移植）：advisory 提醒腿——DREAM_SCRIPT 实化为 dream-run.mjs
+  const postBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'post-commit'), 'utf8');
+  check('post-commit 占位符实化为 dream-run.mjs（无带引号遗留占位符）',
+    !/"@@[A-Z_]+@@"/.test(postBody) && /const DREAM_SCRIPT = ".+dream-run\.mjs";/.test(postBody), postBody.split('\n').find((l) => l.includes('DREAM_SCRIPT =')));
+  // commit-msg（2026-11-12 L0/L1 快速道移植）：顺序门 gate 腿 + 任务短名 advisory 腿占位符实化
+  const cmBody = fs.readFileSync(path.join(root, '.git', 'hooks', 'commit-msg'), 'utf8');
+  check('commit-msg 占位符实化为顺序门与短名脚本（无带引号遗留占位符）',
+    !/"@@[A-Z_]+@@"/.test(cmBody)
+    && /const CONFIRM_ORDER_SCRIPT = ".+check-confirm-order\.mjs";/.test(cmBody)
+    && /const PLAN_REF_SCRIPT = ".+check-commit-plan-ref\.mjs";/.test(cmBody), cmBody.split('\n').find((l) => l.includes('CONFIRM_ORDER_SCRIPT =')));
 
   const snap1 = snapshot(root);
   const r2 = initEngine(root);
@@ -149,7 +159,8 @@ const snapDiff = (a, b) => {
   const r = initEngine(root);
   check('用户钩子不被覆盖', fs.readFileSync(userHook, 'utf8').includes('my-custom-hook'));
   check('同名钩子列入 skipped', r.hooks.skipped.some((s) => s.includes('pre-commit')), JSON.stringify(r.hooks.skipped));
-  check('其余钩子照常安装', r.hooks.installed.length === 1 && r.hooks.installed[0].includes('pre-push'), JSON.stringify(r.hooks.installed));
+  check('其余钩子照常安装（pre-push + post-commit + commit-msg）',
+    r.hooks.installed.length === 3 && r.hooks.installed.some((s) => s.includes('pre-push')) && r.hooks.installed.some((s) => s.includes('post-commit')) && r.hooks.installed.some((s) => s.includes('commit-msg')), JSON.stringify(r.hooks.installed));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

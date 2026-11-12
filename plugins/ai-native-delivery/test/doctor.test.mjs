@@ -112,6 +112,40 @@ const fixLineOf = (out, name) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- ⑤b commit-msg 两态（2026-11-12 L0/L1 快速道移植，语义照 post-commit 先例）----
+{
+  const root = mkRepo();
+  runInit(root);
+  fs.rmSync(path.join(root, '.git', 'hooks', 'commit-msg'));
+  const r = runDoctorCli(root);
+  check('⑤b1 台账有记录而盘上被删 → ✗ 点名 commit-msg 缺失（被删态）',
+    r.status === 1 && failLine(r.stdout, 'git hooks').includes('commit-msg 缺失（安装台账有记录，盘上被删）'), failLine(r.stdout, 'git hooks'));
+  fs.rmSync(root, { recursive: true, force: true });
+
+  // 旧装两态：抹掉台账中 commit-msg 记录 → 模拟旧版安装从未装过
+  const root2 = mkRepo();
+  runInit(root2);
+  fs.rmSync(path.join(root2, '.git', 'hooks', 'commit-msg'));
+  const manifestPath2 = path.join(root2, '.agents', 'install-manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath2, 'utf8'));
+  for (const k of Object.keys(manifest.files)) if (k.endsWith('/commit-msg')) delete manifest.files[k];
+  fs.writeFileSync(manifestPath2, JSON.stringify(manifest));
+  const r2 = runDoctorCli(root2);
+  check('⑤b2 台账无记录 → ✗ 旧版安装「从未装过」可读说明（非误报被删）',
+    r2.status === 1 && failLine(r2.stdout, 'git hooks').includes('commit-msg 未安装（当前插件版本新增的顺序门钩子'), failLine(r2.stdout, 'git hooks'));
+  fs.rmSync(root2, { recursive: true, force: true });
+
+  // 在位但指向损坏：改写 baked CONFIRM_ORDER_SCRIPT 为不存在路径 → ✗ 点名
+  const root3 = mkRepo();
+  runInit(root3);
+  const cmPath = path.join(root3, '.git', 'hooks', 'commit-msg');
+  fs.writeFileSync(cmPath, fs.readFileSync(cmPath, 'utf8').replace(/const CONFIRM_ORDER_SCRIPT = "(?:[^"\\]|\\.)*"/, 'const CONFIRM_ORDER_SCRIPT = "<broken>/gone.mjs"'));
+  const r3 = runDoctorCli(root3);
+  check('⑤b3 commit-msg 在位但指向的引擎脚本不存在 → ✗ 点名',
+    r3.status === 1 && failLine(r3.stdout, 'git hooks').includes('commit-msg 指向的引擎脚本不存在'), failLine(r3.stdout, 'git hooks'));
+  fs.rmSync(root3, { recursive: true, force: true });
+}
+
 // ---- ⑥ 抹掉 .gitignore 标记块 → gitignore ✗ ----
 {
   const root = mkRepo();
@@ -169,6 +203,37 @@ const fixLineOf = (out, name) => {
   check('⑨ 项目根 ✗（不可锚定为 git 仓库根）', /✗ 项目根/.test(r.stdout), r.stdout);
   check('⑨ 其余检查项照常出列（一项 ✗ 不中断其余）', CHECK_NAMES.every((n) => r.stdout.includes(n)), r.stdout);
   fs.rmSync(plain, { recursive: true, force: true });
+}
+
+// ---- ⑩ post-commit（2026-11-11 Dreaming 移植）：健康在场 ✓ / 删钩子（台账有记录）→「被删」✗ /
+//      旧装模拟（台账无记录）→ 可读说明 ✗ 而非「被删」误报 ----
+{
+  const root = mkRepo();
+  runInit(root);
+  // ⑩a 健康仓：hooks ✓ detail 认得 post-commit advisory 提醒
+  const ok = runDoctorCli(root);
+  check('⑩a 健康仓 hooks ✓ 且点名 post-commit advisory', ok.status === 0 && /✓ git hooks.*post-commit/.test(ok.stdout), ok.stdout);
+  // ⑩b 删 post-commit 文件（安装台账仍有记录）→ 真缺失 ✗ + 修复命令
+  fs.rmSync(path.join(root, '.git', 'hooks', 'post-commit'));
+  const r1 = runDoctorCli(root);
+  check('⑩b 删 post-commit → hooks ✗ 且判「台账有记录，盘上被删」',
+    r1.status === 1 && /✗ git hooks/.test(r1.stdout) && /post-commit 缺失（安装台账有记录，盘上被删）/.test(failLine(r1.stdout, 'git hooks')), failLine(r1.stdout, 'git hooks'));
+  check('⑩b 修复行含 init-engine 命令', fixLineOf(r1.stdout, 'git hooks').includes('init-engine.mjs'), fixLineOf(r1.stdout, 'git hooks'));
+  // ⑩c 旧装模拟：台账记录一并抹掉（该钩子从未装过）→ ✗ 但 detail 是「未安装 / 旧版安装 / 不影响门禁」可读说明
+  const manifestFile = path.join(root, '.agents', 'install-manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  delete manifest.files['.git/hooks/post-commit'];
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), 'utf8');
+  const r2 = runDoctorCli(root);
+  const line = failLine(r2.stdout, 'git hooks');
+  check('⑩c 旧装（从未装过）→ ✗ 且 detail 为可读说明（未安装/旧版安装）',
+    r2.status === 1 && /post-commit 未安装/.test(line) && /旧版安装/.test(line), line);
+  check('⑩c 不误报「被删」且说明不装不影响门禁', !/盘上被删/.test(line) && /不影响门禁/.test(line), line);
+  // ⑩d 补装后（重跑 init）→ hooks 恢复 ✓
+  runInit(root);
+  const r3 = runDoctorCli(root);
+  check('⑩d 重跑 init 补装 → doctor 恢复全绿', r3.status === 0 && fs.existsSync(path.join(root, '.git', 'hooks', 'post-commit')), r3.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
 }
 
 // 汇总 + 退出码（同 install.test.mjs 口径：断言全挂必须让进程退出码变红）

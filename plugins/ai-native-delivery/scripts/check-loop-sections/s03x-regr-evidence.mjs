@@ -19,7 +19,10 @@ export function run() {
 {
   const anchor = kitPolicy.incidentRegrSince;
   if (anchor) {
-    const REGR_EVIDENCE_RE = /\.test\.mjs|backend\/[^\s]*[Tt]ests?[\/.]|\w+Tests\.cs|frontend\/[^\s]*(?:__tests__|tests?)\/|workflow\/regression-checklist\.md|regression-smoke|npm\s+test|dotnet\s+test|run-tests/;
+    // 回归清单引用含分片路径（判据移植）：regression-checklist.md 分片制下防复发条目落
+    // workflow/regression-checklist.d/<YYYY-MM>.md（append-only 追加区），主台账读侧自动合并——
+    // 门禁正则须同认分片，否则只引分片的 incident 被误判「未落回归清单」。
+    const REGR_EVIDENCE_RE = /\.test\.mjs|backend\/[^\s]*[Tt]ests?[\/.]|\w+Tests\.cs|frontend\/[^\s]*(?:__tests__|tests?)\/|workflow\/regression-checklist\.md|workflow\/regression-checklist\.d\/|regression-smoke|npm\s+test|dotnet\s+test|run-tests/;
     for (const inc of docFiles('incidents')) {
       const incSt = fmGet(inc, '状态');
       if (!['fixed', 'closed'].includes(incSt)) continue;

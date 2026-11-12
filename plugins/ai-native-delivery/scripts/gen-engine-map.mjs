@@ -102,6 +102,9 @@ function registrySummary() {
 // 动机：本页此前的 CI 行是**硬编码字符串**，与 azure-pipelines.yml 无任何取数关系——yml 改了
 // （2026-10-26 恢复 develop 触发）而「engine-map --check」仍恒绿，漂移门对真漂移完全无感。
 // 改为现场解析 yml：trigger 分支列表 + 各 step 的 condition 分支 + 实际命令。
+// PR 独占变量（判据移植）：直推构建里为空，condition 含它们才是「PR validation 才跑」的判据
+// （TargetBranch 不算——双向门 or(直推, PR) 里它只是 PR 侧的臂）。
+const PR_EXCLUSIVE_RE = /System\.PullRequest\.(?:PullRequestId|SourceCommitId)/;
 function ciSummary() {
   const text = readText('azure-pipelines.yml');
   if (text === null) return null;
@@ -120,18 +123,53 @@ function ciSummary() {
   const steps = [];
   for (const chunk of text.split(/^\s*-\s*(?:task|checkout):/m).slice(1)) {
     const name = (chunk.match(/displayName:\s*(.+)/) || [])[1];
+    const condLine = ((chunk.match(/condition:\s*(.+)/) || [])[1] || '').trim();
     const branch = (chunk.match(/condition:\s*eq\(variables\['Build\.SourceBranch'\],\s*'refs\/heads\/([^']+)'\)/) || [])[1];
     const args = (chunk.match(/arguments:\s*(.+)/) || [])[1];
     const cmd = (args || name || '').trim();
     if (!cmd) continue;
-    steps.push({ cmd, branch: branch || null });
+    // PR 独占判定（判据移植）：condition 含 PR 独占变量（PullRequestId / SourceCommitId——直推构建
+    // 里为空）且**无直推臂**（本页口径：condition 无 Build.SourceBranch 直推谓词）才算 PR 独占；
+    // TargetBranch 只是 PR 侧的臂，不是独占证据。此类步只进 PR validation，不进直推列——旧实现
+    // （无 PR 判别）会把 PR-only 步无条件并进每个分支的直推列，读图像「直推也跑」。
+    const prOnly = condLine !== '' && PR_EXCLUSIVE_RE.test(condLine) && !branch;
+    steps.push({ cmd, condLine, branch: branch || null, prOnly });
   }
   if (!branches.length) return null;
+  const rows = new Map(branches.map((b) => [b, steps.filter((s) => !s.prOnly && (!s.branch || s.branch === b)).map((s) => s.cmd)]));
+  assertCiGrounding(steps, rows, branches);
   const perBranch = branches.map((b) => {
-    const runs = steps.filter((s) => !s.branch || s.branch === b).map((s) => s.cmd);
+    const runs = rows.get(b);
     return `${b} 直推 = ${runs.length ? runs.join(' + ') : '（无 CI 步）'}`;
   });
   return `trigger = ${branches.join(' + ')}；${perBranch.join('；')}（本页现场取数 azure-pipelines.yml；口径登记 runtime-env §6.5）`;
+}
+
+// 接地断言（判据移植）：渲染出的每一列都必须由 yml 里的**字面谓词**支撑，不靠启发式。两条不变量：
+//   ① 被标「仅 PR 生效」的步，condition 不得同时含 Build.SourceBranch 直推臂，且必须含 PR 独占变量
+//      ——对 prOnly 判据自身做互斥自检（解析形态变宽/变窄时立响，不静默误标）；
+//   ② condition 字面写明 eq(variables['Build.SourceBranch'], 'refs/heads/<b>') 的步，<b> 直推列必须
+//      列出它——防「解析口径变了、渲染没变」的静默漏列（本函数在渲染后跑，对 rows 断言）。
+function assertCiGrounding(steps, rows, branches) {
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const s of steps) {
+    if (!s.prOnly) continue;
+    if (/Build\.SourceBranch/.test(s.condLine)) {
+      throw new Error(`ciSummary 接地失败①：${s.cmd} 被标「仅 PR 生效」，但 condition 含直推臂 → ${s.condLine}`);
+    }
+    if (!PR_EXCLUSIVE_RE.test(s.condLine)) {
+      throw new Error(`ciSummary 接地失败①：${s.cmd} 被标「仅 PR 生效」，但 condition 无 PR 独占变量 → ${s.condLine || '(无 condition)'}`);
+    }
+  }
+  for (const b of branches) {
+    const push = rows.get(b);
+    for (const s of steps) {
+      const litPush = new RegExp(`eq\\(variables\\['Build\\.SourceBranch'\\]\\s*,\\s*'refs/heads/${esc(b)}'\\)`).test(s.condLine);
+      if (litPush && !push.includes(s.cmd)) {
+        throw new Error(`ciSummary 接地失败②：${b} 直推列漏列 ${s.cmd}——yml condition 字面含 refs/heads/${b}`);
+      }
+    }
+  }
 }
 
 // 卡口职责说明（键 = .githooks 文件名；未登记者按通用行渲染——钩子清单仍来自单源）

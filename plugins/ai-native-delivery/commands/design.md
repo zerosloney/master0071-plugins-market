@@ -43,6 +43,7 @@ next: commands/build.md
    - 上界：每维 ≤2 行、合计 ≤12、单轮问询 ≤5。
    - 推断类结论 → 另记「假设与推断」。
    - 缺节 / 缺维 / 待澄清 ≠ 0 / 依据空 / 超界 → 确认门拒。
+8. **前提质询**: 写「前提质询」表——列出 spec 立论的解读性前提（如「展示诉求 vs 存储改写」），逐条反问对立解读并写选定依据；无解读风险的小件写一行「无关键前提」+ 理由。缺节 / 空表 / 占位 / 缺反问或缺依据 → 确认门拒（锚 premiseSince 起；拦「自信的错误解读」进事实源——歧义清单拦「没想清」，本表拦「想错了」）
 **Output**: `workflow/specs/{name}.md` (Status: Draft)
 
 ## 3. 独立复核 (L2/L3 强制)
@@ -54,7 +55,7 @@ next: commands/build.md
 
 ## 4. 确认与落态
 **Process**:
-1. **HALT**: 输出 spec 全文 $\rightarrow$ 等待用户确认。确认前自查歧义清单：待澄清归零、6 维齐、每行有依据（不满足则落态被拒）
+1. **HALT**: 输出 spec 全文 $\rightarrow$ 等待用户确认。确认前自查歧义清单与前提质询：待澄清归零、6 维齐、每行有依据、前提有反问有选定依据（不满足则落态被拒）
 2. **状态迁移**: $\text{draft} \rightarrow \text{approved}$
 3. **落态入口**: 运行 `node <插件根>/scripts/confirm-doc.mjs <path>` (详情见 `build.md` §1. Gates)
 4. **留痕提交**: 立即 `docs(workflow)` 单独提交
@@ -67,6 +68,7 @@ next: commands/build.md
 | 自行推定交互 | → UI 与需求不符 | 必须由用户确认形态 |
 | L3 自查冒充 | `.agents/skills/workflow-closeout/SKILL.md` §0.3 HALT（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。check-loop 对缺复核上下文只 WARN | 必须由 `independent-reviewer` 执行 |
 | 带着「待澄清」走确认门 | `confirm-doc` 拒（歧义未清，exit 2，不落盘不记账）；缺维 / 依据为空同样拒 | 先问用户拿判定再落态 |
+| 前提不经质询进事实源 | `confirm-doc` 拒（前提质询缺节 / 空 / 占位 / 缺反问或缺依据，exit 2） | 无解读风险须写「无关键前提」行并给理由 |
 | 把可实验项问用户 | 多一轮确认税，且答案本就跑得出来 | 先查库 / 跑 eval / 原型，依据写实验结论 |
 | 「已定」不写依据 | `confirm-doc` 拒（等于没想过） | 依据须可指认（节号 / 代码路径 / 查库结果） |
 

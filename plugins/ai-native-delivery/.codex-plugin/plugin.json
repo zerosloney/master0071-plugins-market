@@ -1,6 +1,6 @@
 {
   "name": "ai-native-delivery",
-  "version": "0.1.19",
+  "version": "0.2.0",
   "description": "AI-Native 交付治理引擎：三层闭环（任务级硬闭环 / 状态收敛闭环 / 治理进化闭环）——L1/L2/L3 风险泳道 + check-loop 硬门 5 段 + 台账三件套 + 判定账进化；台账为项目级资产，一律落使用项目 git 仓库根。",
   "author": {
     "name": "master0071",
@@ -29,6 +29,16 @@
             {
               "type": "command",
               "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs\"",
+              "timeout": 15
+            }
+          ]
+        },
+        {
+          "matcher": "[wW][rR][iI][tT][eE]|[eE][dD][iI][tT]|[mM][uU][lL][tT][iI][eE][dD][iI][tT]|[nN][oO][tT][eE][bB][oO][oO][kK][eE][dD][iI][tT]|[uU][pP][dD][aA][tT][eE]|[aA][pP][pP][lL][yY][_-][pP][aA][tT][cC][hH]|[aA][pP][pP][lL][yY][pP][aA][tT][cC][hH]",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-write-guard.mjs\"",
               "timeout": 15
             }
           ]

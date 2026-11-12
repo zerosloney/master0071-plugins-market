@@ -23,3 +23,10 @@ indirect | .agents/scripts/grade-task.mjs | .agents/scripts/grade.test.mjs | 两
 indirect | .agents/scripts/init-engine.mjs | .agents/scripts/init.test.mjs | 幂等初始化契约：重复跑零改动 / gitignore 标记块整块替换 / 已存在跳过不覆盖 / 钩子不覆盖
 indirect | .agents/scripts/read-context.mjs | .agents/scripts/mcp-tools.test.mjs | 跨会话恢复视图（INDEX 头部 / 在途三件套 / 最近确认行）经 MCP 端到端用例覆盖
 indirect | .agents/scripts/paths.mjs | .agents/scripts/check-local-gate-config.test.mjs | 路径解析层：部署形态判别（deploymentMode）与有效钩子目录解析（gitHooksDir）经本门用例黑盒覆盖
+# 2026-11-12 0.2.0 机制同步补登：装户层 install/ 三件与宿主注册表无同位测试属既定缺口——黑盒面
+# 已由 install.test.mjs / gen-host-manifests.test.mjs 覆盖，按本表语义走 indirect（exempt = 无任何
+# 测试面，与事实不符）；同位测试补齐后删行。
+indirect | .agents/scripts/install/plan.mjs | .agents/scripts/install.test.mjs | 装户层计划器（纯数据计划，零写盘副作用）：create/update/conflict/领养通道裁决经 install.test.mjs 两段式契约用例黑盒覆盖
+indirect | .agents/scripts/install/apply.mjs | .agents/scripts/install.test.mjs | 装户层执行器（按台账裁决落盘 + sha256 记账）：经 install.test.mjs 台账升级/领养/--force 用例黑盒覆盖
+indirect | .agents/scripts/install/manifest.mjs | .agents/scripts/install.test.mjs | 安装台账读写（CRLF 归一 sha256）：经 install.test.mjs 台账核验用例黑盒覆盖
+indirect | .agents/scripts/hosts.mjs | .agents/scripts/gen-host-manifests.test.mjs | 宿主注册表单源（三垫片渲染 + hook 接线）：经 gen-host-manifests.test.mjs 生成/漂移门用例黑盒覆盖

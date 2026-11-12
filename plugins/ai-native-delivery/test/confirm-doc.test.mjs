@@ -1654,5 +1654,105 @@ const intentDoc = (acceptBody) => `---\n状态: approved\n级别: L1\n日期: 20
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- S71【前提质询门】premise-interrogation（判据移植，锚 premiseSince 2026-10-30）----
+// 判据：锚后 spec 的 draft→approved 须有非空且非占位的「前提质询」表（前提 | 反问 | 结论与依据）——
+//       拦「自信的错误解读」进事实源（歧义清单拦「没想清」，本门拦「想错了」）。
+//       无解读风险的小件写「无关键前提」行 + 理由；锚前存量与缺锚键（v1–v15）零阻断。
+{
+  const CLR = [
+    '## 歧义清单', '| 维度 | 结论 | 依据 / 问题 | 状态 |', '|---|---|---|---|',
+    ...['状态与边界', '数据口径', '失败路径', '契约对称', '存量数据', '验收可测性']
+      .map((d) => `| ${d} | 无歧义 | 见功能行为 §1 | 已定 |`),
+  ].join('\n');
+  const PREMISE_OK = [
+    '## 前提质询', '| 前提 | 反问（对立解读会怎样） | 结论与依据 |', '|---|---|---|',
+    '| 展示诉求而非存储改写 | 换成「改写存储身份」会污染审计归属，最坏固定资产归属错账 | 用户原话「只是页面上显示成谁」+ 数据流 §2 只读 |',
+  ].join('\n');
+  const mkPrem = (pv, specDate, premiseBody) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-premise-'));
+    for (const d of ['workflow/intents', 'workflow/specs', '.agents/config']) fs.mkdirSync(path.join(root, ...d.split('/')), { recursive: true });
+    fs.writeFileSync(path.join(root, '.agents', 'config', 'engine.json'), JSON.stringify({ policyVersion: pv }));
+    fs.writeFileSync(path.join(root, 'workflow', 'intents', '2026-09-30-p.md'), '---\n状态: approved\n级别: L2\n日期: 2026-09-30\n---\n# I\n');
+    fs.writeFileSync(path.join(root, 'workflow', 'specs', '2026-09-30-p.md'),
+      `---\n状态: draft\n级别: L2\n日期: ${specDate}\n---\n# S\n\n${CLR}\n\n${premiseBody}\n`);
+    return root;
+  };
+  const runP = (root) => spawnSync(process.execPath, [CLI, 'workflow/specs/2026-09-30-p.md', '--delegated', '前提已质询，可以'], { cwd: root, encoding: 'utf8' });
+  const premStatus = (root) => fs.readFileSync(path.join(root, 'workflow', 'specs', '2026-09-30-p.md'), 'utf8');
+
+  {
+    const root = mkPrem(16, '2026-10-30', CLR);
+    const r = runP(root);
+    check('S71a 锚后 spec 缺「## 前提质询」节 → exit 2 + 未落盘（缺节≠无前提）',
+      r.status === 2 && /前提未质询/.test(r.stderr) && /缺「## 前提质询」节/.test(r.stderr) && premStatus(root).includes('状态: draft'),
+      JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 300) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const empty = ['## 前提质询', '| 前提 | 反问（对立解读会怎样） | 结论与依据 |', '|---|---|---|'].join('\n');
+    const root = mkPrem(16, '2026-10-30', `${CLR}\n\n${empty}`);
+    const r = runP(root);
+    check('S71b 表空（只有表头）→ exit 2 + 要求至少一行',
+      r.status === 2 && /前提质询表为空/.test(r.stderr), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 200) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const ph = `${CLR}\n\n## 前提质询\n| 前提 | 反问（对立解读会怎样） | 结论与依据 |\n|---|---|---|\n| <立论的解读 / 口径选择> | <换成对立解读会怎样、最坏后果> | <选定解读 + 凭什么> |`;
+    const root = mkPrem(16, '2026-10-30', ph);
+    const r = runP(root);
+    check('S71c 模板占位行未填 → exit 2 + 点名占位行（占位视同没写）',
+      r.status === 2 && /占位/.test(r.stderr) && premStatus(root).includes('状态: draft'),
+      JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 200) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const noChal = `${CLR}\n\n## 前提质询\n| 前提 | 反问（对立解读会怎样） | 结论与依据 |\n|---|---|---|\n| 展示诉求而非存储改写 | 短 | 用户原话「只是页面上显示成谁」+ 数据流 §2 只读 |`;
+    const noBasis = `${CLR}\n\n## 前提质询\n| 前提 | 反问（对立解读会怎样） | 结论与依据 |\n|---|---|---|\n| 展示诉求而非存储改写 | 换成「改写存储身份」会污染审计归属 | 凭感觉 |`;
+    const r1 = runP(mkPrem(16, '2026-10-30', noChal));
+    const r2 = runP(mkPrem(16, '2026-10-30', noBasis));
+    check('S71d 缺反问 / 缺结论依据 → 均 exit 2 + 分语义点名',
+      r1.status === 2 && /缺反问/.test(r1.stderr) && r2.status === 2 && /缺结论依据/.test(r2.stderr),
+      JSON.stringify([String(r1.stderr).slice(0, 160), String(r2.stderr).slice(0, 160)]));
+  }
+  {
+    const rows = ['## 前提质询', '| 前提 | 反问（对立解读会怎样） | 结论与依据 |', '|---|---|---|']
+      .concat([1, 2, 3, 4, 5, 6].map((i) => `| 前提 ${i} | 对立解读 ${i} 会怎样、最坏后果如何 | 选定解读 + 用户原话依据 ${i} |`)).join('\n');
+    const root = mkPrem(16, '2026-10-30', `${CLR}\n\n${rows}`);
+    const r = runP(root);
+    check('S71e 超 5 行 → exit 2 + 反确认税上界（前提没提炼或 spec 该拆小）',
+      r.status === 2 && /超上限/.test(r.stderr), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 200) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const root = mkPrem(16, '2026-10-30', `${CLR}\n\n${PREMISE_OK}`);
+    const r = runP(root);
+    check('S71a2 合规前提质询表（有反问有依据）→ exit 0 落 approved',
+      r.status === 0 && premStatus(root).includes('状态: approved'), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 300) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const none = `${CLR}\n\n## 前提质询\n| 前提 | 反问（对立解读会怎样） | 结论与依据 |\n|---|---|---|\n| 无关键前提 | 无对立解读可反问（纯展示改动） | 理由：无口径选择，交互形态已经用户确认 |`;
+    const root = mkPrem(16, '2026-10-30', none);
+    const r = runP(root);
+    check('S71f 无解读风险小件「无关键前提」声明行 → 放行落 approved',
+      r.status === 0 && premStatus(root).includes('状态: approved'), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 300) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const root = mkPrem(15, '2026-11-11', CLR); // v15 无 premiseSince 键
+    const r = runP(root);
+    check('S71g 缺锚键（v15）→ 无质询表也放行（存量项目零破坏）',
+      r.status === 0 && premStatus(root).includes('状态: approved'), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 300) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  {
+    const root = mkPrem(16, '2026-10-29', CLR); // 锚前存量
+    const r = runP(root);
+    check('S71h 锚前存量（2026-10-29 < premiseSince）→ 放行落 approved',
+      r.status === 0 && premStatus(root).includes('状态: approved'), JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 300) }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

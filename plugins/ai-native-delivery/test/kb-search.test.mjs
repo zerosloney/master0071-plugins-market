@@ -303,6 +303,32 @@ const files = (out) => (out.match(/^📄 (workflow\/\S+)/gm) || []).map((l) => l
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景 16：命中遥测（2026-11-11 Dreaming 记忆负债）——实际展示的命中追加 .agents/cache/kb-usage.jsonl ----
+// 口径：命中才落账（零命中/失败不落）、--no-telemetry 跳过、行形状 {ts, query, docs[]}（agg-kb-usage 数据源）。
+{
+  const root = mkfix();
+  const tel = path.join(root, '.agents', 'cache', 'kb-usage.jsonl');
+  const rows = () => fs.readFileSync(tel, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  // 16a 命中落账：docs = 实际展示的 workflow/ 前缀相对路径，query = 原词
+  const hit = run(root, ['--scope', 'workflow', '编码模板', '冲突']);
+  check('场景 16a：命中后遥测文件生成', hit.status === 0 && fs.existsSync(tel), `exit=${hit.status} stderr=${hit.stderr.slice(0, 200)}`);
+  const r1 = rows()[0];
+  check('场景 16a：行形状 {ts, query, docs[]} 且 docs 为展示命中',
+    r1 && typeof r1.ts === 'string' && !Number.isNaN(Date.parse(r1.ts)) && r1.query === '编码模板 冲突'
+    && Array.isArray(r1.docs) && r1.docs.includes('workflow/intents/2026-09-21-bbb.md'), JSON.stringify(r1));
+  // 16b 零命中不落账：行数不变
+  const before = rows().length;
+  const none = run(root, ['--scope', 'workflow', 'zzz-绝不存在-zzz']);
+  check('场景 16b：零命中 exit 0 且不追加遥测行', none.status === 0 && rows().length === before, `before=${before} after=${rows().length}`);
+  // 16c --no-telemetry：独立夹具零落账
+  const root2 = mkfix();
+  const runNoTel = (args) => spawnSync(process.execPath, [KB, '--cache', rootCache(root2), '--no-telemetry', ...args], { cwd: root2, encoding: 'utf8' });
+  const r2 = runNoTel(['--scope', 'workflow', '编码模板']);
+  check('场景 16c：--no-telemetry 命中但不落账', r2.status === 0 && files(r2.stdout).length > 0 && !fs.existsSync(path.join(root2, '.agents', 'cache', 'kb-usage.jsonl')), `exit=${r2.status}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root2, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);

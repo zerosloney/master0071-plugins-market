@@ -4,7 +4,7 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 
 ## 三层闭环定位
 
-1. **任务级硬闭环**：任何任务先过"两问定级"进 L1（实现级）/ L2（规则契约）/ L3（数据与运行时结构）风险泳道，级别决定审计成本；L2 有触达面闭集（4 条），L1 plan 勾红线即判低拦截、强制升级；check-loop 硬门 5 段（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账）在 init-engine 安装的 pre-commit / pre-push 两个 git hook 物理闸门上校验闭环证据；关单是程序性自检（skills/workflow-closeout §0 + confirm-doc/stage-gates），不经 check-loop。
+1. **任务级硬闭环**：任何任务先过"两问定级"进 L1（实现级）/ L2（规则契约）/ L3（数据与运行时结构）风险泳道，级别决定审计成本；L2 有触达面闭集（4 条），L1 plan 勾红线即判低拦截、强制升级；check-loop 硬门 6 段（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账 / 执法者配对）在 init-engine 安装的 pre-commit / pre-push 两个 git hook 物理闸门上校验闭环证据；关单是程序性自检（skills/workflow-closeout §0 + confirm-doc/stage-gates），不经 check-loop。
 2. **状态收敛闭环**：台账三件套（intents / specs / plans）+ INDEX 作为跨会话物理内存；收敛对账保证台账与 git 实际状态不背离；compact / archive 负责台账卫生，mechanism-retire-watch 治理检视由人工 / 项目自定期运行（不随 git hooks 自动跑），read_context + INDEX 支撑断崖恢复。
 3. **治理进化闭环**：judgment-ledger 按 per-rule 计数积累判定事实，连续 6 月零命中的规则进退役候选，门禁段数棘轮锁死上限（只减不增），gate 预算以实测墙钟为据。
 
@@ -60,7 +60,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 - **幂等**：重复执行零改动；已存在的文件一律跳过不覆盖（项目改动不受初始化侵蚀）；
 - **new-task 首步自动引导**：`commands/new-task.md` §1 定级前检测项目根无 `.agents/config/engine.json` 时，先执行本初始化再定级（命令文本驱动，MCP 工具不做静默自动写盘）；未初始化时 MCP 工具仍返回降级响应（如 `read_context` 的 `{initialized:false, hint}`）而非报错，亦可随时手动执行上面的命令；
-- **落位**：`.agents/`（config 种子、settings.json、confirmations.jsonl + confirmations.d/、cache 等运行时目录）与 `workflow/`（INDEX + 台账骨架）；另写 `.gitignore` 标记块、安装 `.git/hooks/pre-commit` / `pre-push`（已存在同名钩子跳过不覆盖）；
+- **落位**：`.agents/`（config 种子、settings.json、confirmations.jsonl + confirmations.d/、cache 等运行时目录）与 `workflow/`（INDEX + 台账骨架）；另写 `.gitignore` 标记块、安装 `.git/hooks/` 四钩子（pre-commit / pre-push / commit-msg / post-commit，已存在同名钩子跳过不覆盖）；
 - 项目侧 `.agents/config/engine.json` 的 policyVersion 与插件种子不同时 WARN 可升级、不自动覆盖。
 - 种子的领域词表 `workflow-modules.txt` 是**模板种子示例**（领域无关最小集，2026-11-05 脱敏：不再携带源项目制造域词）：项目应改写为自有域词表——`kb-search --module` 与 check-loop 模块校验按项目侧这份文件判，已改写内容初始化不覆盖。
 
@@ -82,7 +82,7 @@ node <插件根>/scripts/doctor.mjs                  # 缺省锚定当前 git �
 node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 ```
 
-7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
+7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
 
 ## MCP 工具（7 个）
 
@@ -102,7 +102,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 命令 / 角色 / skills 清单
 
-命令（`commands/`，8 个）、角色（`agents/`，3 个）、技能（`skills/`，6 个）按各宿主约定目录加载（见「宿主与 hook 降级」），不支持对应约定的宿主跳过加载即可，MCP 工具不受影响。
+命令（`commands/`，8 个）、角色（`agents/`，4 个）、技能（`skills/`，7 个）按各宿主约定目录加载（见「宿主与 hook 降级」），不支持对应约定的宿主跳过加载即可，MCP 工具不受影响。
 
 ### 命令（8 个）
 
@@ -117,20 +117,22 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 | `/maintain` | Maintain 阶段：立 incident + 复盘三件套（修复 / 防复发 / 规范条目） |
 | `/review` | 代码评审标准（横切：合入前使用，不占 6 阶段之一）：机器兜底 + AI 自查出清单，用户决策定性和合入 |
 
-### 角色（3 个）
+### 角色（4 个）
 
 | 角色 | 一句话定位 |
 | --- | --- |
 | `implementer` | 受控实施者：范围明确任务的实现与自验，最小 diff，授权边界外即 HALT |
 | `independent-reviewer` | 独立复核者：独立上下文只读复核 spec/plan/diff，证据驱动，落盘行交主智能体写入 |
 | `ui-verifier` | UI 实测者：只验证不修复的浏览器实测，DOM 几何取证，证据交还主智能体 |
+| `wiki-compiler` | 知识编纂者：把代码提交翻译成业务能力语言，只读分析、严格 JSON 产出、不落盘 |
 
-### skills（6 个）
+### skills（7 个）
 
 | 技能 | 一句话用途 |
 | --- | --- |
 | `autonomous-run` | 无人值守长跑合同：长任务/过夜时逐单元签收、自底向上落地、何时停机 |
 | `decision-log` | 长跑/无人值守的决策轨迹：append-only TSV，一行一个决策（what/why/evidence/result） |
+| `dream` | 离线梦境（Dreaming）记忆维护：跑 dream-run 只读审计、读记忆负债报告、处置冷数据候选与终态件归档建议（裁决归主智能体/用户） |
 | `review-method` | 代码复核走查方法（Standards×Spec 双轴 + 坏味道清单 + 合入标尺），`commands/review.md` 的方法层单源 |
 | `session-resume` | 会话重入与中断落盘：接手/切换 worktree/压缩续作前先用机器事实重建当前态 |
 | `verify-ui` | 启动本地服务并用浏览器实测 UI 改动（只读验证、不留脏数据） |
@@ -147,11 +149,12 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
     - 短选项簇先展开（2026-11-01 补）：`git push -uf` 与 `git push -u -f` 是同一个命令，旧判据把 `-uf` 当一个词元，规则里的 `-f` 对不上、子串判据也落空，实测 `git push -uf` 与 `git commit -n` 双双静默放行——与引号变体是同一个洞的第二张脸。命令侧与规则侧同时展开，`rm -rf` 规则也才判得中 `rm -fr`。
   - **ask 仍可被项目侧整体接管**（ask 只是多问一句，由项目自定是合理的；不写 `ask` 键则回退内置默认）。
   - 想放宽地板只能由**人**在宿主侧关掉这个插件的 hook，不提供项目内配置位——这是刻意的：治理引擎的门不该由被治理的仓库拆。
-- **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门；卸载 = 删除两个钩子文件，种子正文在 `config-templates/githooks/`。
+- **PreToolUse 写前门**（`hooks/pre-write-guard.mjs`，hooks.json 第二个 PreToolUse 段，同风险闸类宿主生效）：Write/Edit 类写工具在落盘**前**过两组判据——① 执法面自保护：目标落在项目 `.agents/` 治理状态（门禁脚本 / 配置 / hook 本体 / 安装台账）即拒，仅 init-engine 的运行时目录（cache / loop / notes / board / tmp）可写，AI 不得自解拴绳；② 三本审计账 append-only：confirmations / judgments / verifications.jsonl 只许前缀扩展式追加，整写 / 删改即拒。坏输入 / 写目标不可判定 fail-closed 转 ask。已知边界：Bash 重定向 / sed 写盘不经本门（走 shell 风险闸与 git 钩子兜底）。
+- **git hooks**（init-engine 安装到 `.git/hooks/`，任何宿主生效）：pre-commit / pre-push 执行 check-loop 硬门（pre-push 另带接线宣称对账与推送范围改动面对账，见「提交道与关单」）；commit-msg 执法「先确认后改代码」顺序门并提示任务短名；post-commit 只做 Dreaming 审计提醒（advisory，永不阻断）。卸载 = 删除对应钩子文件，种子正文在 `config-templates/githooks/`。
 
 不支持对应 hook 约定的宿主自动降级为 git hooks 单层拦截，硬门语义不变（见「宿主与 hook 降级」）。
 
-三平台 hook 注册差异（机制事实）：`.zcode` 读插件 `./hooks/hooks.json` 拉起 PreToolUse 风险闸；`.codex` 由 `.codex-plugin/plugin.json` 内联同一段 PreToolUse；`.omp-plugin/` 仅为市场清单，未注册任何 hook——`.omp` 宿主不拉起 PreToolUse 风险闸，拦截靠 init-engine 装入 `.git/hooks/` 的 pre-commit / pre-push 兜底（即上句的单层拦截形态）。
+三平台 hook 注册差异（机制事实）：`.zcode` 读插件 `./hooks/hooks.json` 拉起 PreToolUse 风险闸与写前门（双 PreToolUse 段）；`.codex` 由 `.codex-plugin/plugin.json` 内联同一段 PreToolUse；`.omp-plugin/` 仅为市场清单，未注册任何 hook——`.omp` 宿主不拉起 PreToolUse 面（风险闸与写前门都不生效），拦截靠 init-engine 装入 `.git/hooks/` 的四钩子兜底（即上句的单层拦截形态）。
 
 ### 与 systemone-decision 共装时（双风险闸，2026-10-28 说明）
 
@@ -181,6 +184,17 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 退出码三态：`0` = 全绿（含 `--list`）；`1` = 有门红或 verify 运行时崩溃；`2` = 用法 / 门表契约违规（互斥参数、门表被裁剪出依赖孤儿、引擎门缺适用性判据等——verify 自身拒跑，不带病出凭证）。
 
+## 提交道与关单（0.2.0 机制同步）
+
+源引擎 policyVersion 14→16（`config-templates/engine.json`）机制同步的执行面，判据单源均在各脚本内（机制登记见 `config-templates/mechanism-registry.md`）：
+
+- **L1–L3 立档道（顺序门）**：改动先立 intent / spec / plan。commit-msg 钩子执法「先确认后改代码」（`check-confirm-order.mjs`）——暂存产品路径须出现在本次提交可见的 approved plan 正文里（done 历史 plan 不算覆盖；豁免 B：覆盖 plan 与产品同批暂存）；合并 / squash 族与未暂存产品路径跳过。pre-push 由 `check-scope-range.mjs` 对整段推送范围（old..new）再对账 plan 声明并集：只判越界（改了未声明）为 hard，未落件仅 advisory；范围内无 plan 变更则跳过并补盲面警告。`check-commit-plan-ref.mjs` 提示提交消息含覆盖 plan 短名（文件名去 `.md`，advisory 观察期）。
+- **L0 极简道（提交时豁免通道）**：产品件 ≤5 的小改，提交消息体带非空 `L0: <判据>` 行即免 intent / spec / plan 立档——顺序门与推送对账按同一判据放行并打印明细（合并提交不适用；无消息参数 fail-closed），judgments 落 L0 观测计数。配套 `fill-plan --lite`（L1 三节最小 plan）与 `closeout.mjs --l0 "<判据>"` 单命令关单。
+- **§v16 两门**（policy v16 生效锚后，存量项目不追溯）：① spec 前提质询门——spec draft→approved 必经 premiseGate，关键前提须有质询记录（小件可写「无关键前提」行 + 理由）；② 检查 29 回归清单执法者配对——防复发清单锚后新行的「执法者」列须指认「复发时谁会红」（hard，显式 `[prompt-only]` 为合法声明）。
+- **通用关单**：`scripts/closeout.mjs` 把 workflow-closeout §1–§5 固定序列收成 L0–L3 单命令（confirm-doc 落终态 → 索引重生成 → 定向 git add → 暂存区核对防夹带 → git commit，禁 `--no-verify`），取代 closeout-l1（单入口不并存）。
+- **兜底与自愈**：`check-secrets-lite.mjs` 在 gitleaks 三级定位（GITLEAKS_BIN / PATH / `.agents/tools`）全空时自动接续密钥扫描（纯 Node 零二进制零网络；强特征全文件执法且基线豁免不适用，宽泛特征只扫基线外文件）；verify 生成物漂移门（生效规则视图 / 引擎地图 / 工作流索引）首检漂移先原地重生成再复检，复检绿计通过并留自愈行（♻️ 可审计）；`check-doc-body-drift.mjs` 对已关单文档正文漂移在提交时刻打 advisory（执法面仍是关单时确认指纹对账，口径零变化）；`check-hook-wiring.mjs` 对账「接线宣称 ↔ 宿主实态」（hooks.json / 三宿主垫片 / MCP 入口），漂移红即挡推送。
+- **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。
+
 ## 工程准入与验收
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 7 工具探测）；
@@ -196,6 +210,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.2.0**
+
+源引擎 policyVersion 14→16 机制同步（判据级移植，存量项目按生效锚不追溯）：判据修正包与合并语义探针；v16 两门——spec 前提质询门（premiseGate）与检查 29 回归清单执法者配对（hard 5→6）；提交与推送面——commit-msg 顺序门「先确认后改代码」（L0 判据行豁免通道，产品 ≤5 免立档）、推送范围改动面对账、提交消息任务短名 advisory、doc-body-drift 已关单正文漂移 advisory、check-hook-wiring 接线宣称对账；兜底与自愈——secrets-lite 密钥扫描兜底（gitleaks 缺位自动降级，零二进制零网络）、verify 生成物漂移门自愈（重生成后复检绿计通过）、通用 closeout（L0–L3 单命令，取代 closeout-l1）；PreToolUse 写前门（执法面自保护 + 三本审计账 append-only，hooks.json 双 PreToolUse 段）；Dreaming 持续运行链路（kb-search 命中遥测、agg-kb-usage 冷数据聚合、dream-run 只读审计、post-commit advisory、新增 dream 技能）；L0/L1 快速道配套 fill-plan --lite 与 commit-msg-rules.json 种子；新增第 4 角色 wiki-compiler，ui-verifier 实测栈改 chrome-devtools MCP 优先。git hooks 2→4 只（新增 commit-msg 执法点与 post-commit advisory）。
 
 **0.1.19**
 
@@ -241,7 +259,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **C1|陈旧钩子迁移刷新失效**：`init-engine` 判「自装钩子」此前用**当前**插件根前缀——宿主缓存升版换目录后 baked 的是旧根路径，前缀恒不中 → 判为第三方 skip，重跑 no-op、commit 持续 MODULE_NOT_FOUND（头注描述的正是该场景，修复条件排除了它）。现改为「路径含本插件名的独立路径段（带分隔符边界，`-old` 后缀不误命中）且引擎脚本已不存在」即刷新；测试改真实迁移形态（旧版目录 baked）+ 反例。
 - **服务层六项**（多数移植 systemone-decision 姊妹先例）：deny 地板 `git.exe` 形态绕过（词元归一化剥可执行后缀，一处修双判据）；stdin 挂起 14s 预算 killer 先发 ask 再退出（挂起≠静默放行）；matcher↔内核粘连词尾缝收口（`nushell` 类纳入管辖 + 告警兜底）；协议四道闸（无 id 通知不回包不执行、非法 id/jsonrpc 拒收）；stdout EPIPE 静默退出；schema 类型/enum 协议层执行（`strict_quote:"yes"` 不再静默按 false，unknown tool 改回 -32602）。
 - **硬门禁五项**：§1 判低拦截吃行首缩进与「升级至/升至」措辞变体；§15 确认指纹日期兜底回退 git 首加日（无日期+非日期文件名不再整段豁免）；rule-budget 等四门 git 调用 maxBuffer 64MB + ENOBUF fail-closed（>1MB 暂存清单不再静默全过）；泳道面定义与 lane 判定改读 git index/HEAD（工作区仅未跟踪回退，自我豁免面封死）；`policyVersion` 越界不再静默回落 v1 关停门禁——fail-closed 带支持版本列表指引。
-- **凭证链 git 锚 + 来源可对质**：verify 落凭证行带 `head`（当时 HEAD sha）与逐门 `gates[{id,exit,src}]`（脚本实际解析路径，项目侧桩替换从此在凭证与入库视图可对质）；消费侧（confirm-doc hard 档 / closeout-l1 预检 / §8 对账）对带 head 的行校验 `merge-base --is-ancestor`，引用不在当前历史的行不认；无 head 存量行兼容放行。诚实定性：抬门槛 + 可对质的半步加固，非密码学终极。
+- **凭证链 git 锚 + 来源可对质**：verify 落凭证行带 `head`（当时 HEAD sha）与逐门 `gates[{id,exit,src}]`（脚本实际解析路径，项目侧桩替换从此在凭证与入库视图可对质）；消费侧（confirm-doc hard 档 / closeout 预检 / §8 对账）对带 head 的行校验 `merge-base --is-ancestor`，引用不在当前历史的行不认；无 head 存量行兼容放行。诚实定性：抬门槛 + 可对质的半步加固，非密码学终极。
 - **台账并发补锁**：compact-ledgers 逐分片持锁收缩（并发确认行不再随 unlink 丢失）；splitMain 全程持分片锁（并发追加不再被整写抹掉）；不变量检查器「第二父创建路径」合并形态不再整文件跳过并集对账（跨父丢行可检出）；pipeline-run run 文件互斥（并发 next 响亮失败）+ writeConfirmation 走分片锁——锁统一 `withLedgerLock` 单源。
 - **装配种子四项**：断链的 `commit-check.config.json`「单源」指针改真实口径；制造域词表（material/mto/inventory…）泛化为领域无关示例 + 种子标注（与 NOTICE 脱敏红线对齐）；源项目预算行改注释示例；两个源项目运行 manifest 不再随 init 种子（保留为格式样例）。
 - 验证：五单元均失效测试先行（RED→GREEN）；全量 61 套测试门禁全绿。

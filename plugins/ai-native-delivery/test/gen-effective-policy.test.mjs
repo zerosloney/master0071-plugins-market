@@ -113,5 +113,20 @@ const run = (root, ...args) => {
     !!row && row.includes('| 2026-11-10 | 检查 1 |') && !row.includes('未登记消费方'), doc);
 }
 
+// 场景 6：v16 两新锚（2026-11-11 判据移植：premiseSince / regrEnforcerSince）的消费方登记——
+//   与场景 5 同判据：缺 CONSUMERS 登记会渲染「未登记消费方」占位行。状态列随运行日在
+//   已生效/待升级 间翻转，不作断言。
+{
+  const d = mkfix(16);
+  run(d);
+  const doc = fs.readFileSync(path.join(d, 'workflow', 'effective-policy.md'), 'utf8');
+  const rowP = doc.split('\n').find((l) => l.includes('`premiseSince`'));
+  const rowR = doc.split('\n').find((l) => l.includes('`regrEnforcerSince`'));
+  check('场景 6：v16 渲染含 premiseSince 行且消费检查项已登记（stage-gates premiseGate）',
+    !!rowP && rowP.includes('| 2026-10-30 | confirm-doc（stage-gates premiseGate） |') && !rowP.includes('未登记消费方'), doc);
+  check('场景 6b：v16 渲染含 regrEnforcerSince 行且消费检查项已登记（检查 29）',
+    !!rowR && rowR.includes('| 2026-11-12 | 检查 29 |') && !rowR.includes('未登记消费方'), doc);
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

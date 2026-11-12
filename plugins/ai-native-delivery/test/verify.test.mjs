@@ -1039,6 +1039,97 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     retireSummaryLines([]).length === 0 && retireSummaryLines(null).length === 0);
 }
 
+// ---- 场景 21（判据移植 outputs 并 stderr）：loud-skip 声明走 **stderr**（loud-skip 契约的真实通道
+// 是 console.error）→ GATE_SKIPPED 标记仍被识别、绿行 envSkips 记录——只存 stdout 时该通道整条失明。 ----
+{
+  const root = mkfix();
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-cmd-')), 'skipstderr.mjs');
+  fs.writeFileSync(f, 'process.stderr.write("GATE_SKIPPED:self-skip\\n");process.exit(0);', 'utf8');
+  const r = run(['--test-cmd', `node ${f}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const line = fs.existsSync(vp) ? JSON.parse(fs.readFileSync(vp, 'utf8').trim()) : null;
+  check('场景 21：stderr 声明的 GATE_SKIPPED 被识别（警告行 + 绿行 envSkips 记录）',
+    r.status === 0 && r.stdout.includes('自报未执法') && line !== null
+      && Array.isArray(line.envSkips) && line.envSkips.includes('test:self-skip'),
+    `exit=${r.status} line=${JSON.stringify(line)}\n${r.stdout.slice(-400)}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 22（判据移植 溢出归因）：输出超限中止 → 失败行恒带 attribution（溢出前已捕获输出喂
+// classifyFailure，无签名保守 real）——失败行不留无归因空洞。verify 会回显门输出（~33MB），
+// 外层 spawnSync 须显式放大 maxBuffer（默认 1MB 会 ENOBUFS，spawn 失败吞掉全部断言现场）。 ----
+{
+  const root = mkfix();
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-cmd-')), 'flood.mjs');
+  fs.writeFileSync(f, 'process.stdout.write("x".repeat(33 * 1024 * 1024));process.exit(1);', 'utf8');
+  const r = spawnSync(process.execPath, [VERIFY, '--test-cmd', `node ${f}`], {
+    encoding: 'utf8', maxBuffer: 96 * 1024 * 1024, env: { ...process.env, CHECK_LOOP_ROOT: root },
+  });
+  const vp = path.join(root, '.agents', 'verifications.jsonl');
+  const lines = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  check('场景 22：溢出判红（exit 1 + 「输出超上限」标记）',
+    r.status === 1 && r.stderr.includes('输出超'), `exit=${r.status}\n${r.stderr.slice(-400)}`);
+  check('场景 22：溢出失败行带归因 real（无签名保守默认，不落无归因空洞）',
+    lines.length === 1 && lines[0].note === 'output-overflow' && lines[0].attribution === 'real',
+    JSON.stringify(lines));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 23：生成物漂移门自愈（2026-11 S3 判据移植，源仓 engine-artifacts 自愈档模式）----
+// 23a 自愈态：git 夹具根（生成物缺席 = 首检必漂移）生产档全量跑 → 三漂移门各自「--check 红 →
+//   原地重生成 → 复检绿」→ exit 0、输出三行 ♻️、绿行 selfHeal 记三门（审计可对质，不挡关单）；
+//   密钥门以 SECRETS_SCAN_LITE=1 强制（机器装没装 gitleaks 都走 lite，断言确定性）→ 绿行
+//   secretsEnforcer=lite（恒执法，不再是跳过）。
+// 23b 真红态：生成物落点被目录占位 → --check 判漂移、重生成写盘 EISDIR 失败 → 自愈失败真红
+//   （exit 1 + 「自愈失败」响亮出账 + 失败行 note=self-heal: …），不出全绿。
+{
+  const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const mkHealFix = () => {
+    const root = mkfix();
+    git(['init', '-q'], root);
+    git(['config', 'user.email', 't@t'], root);
+    git(['config', 'user.name', 't'], root);
+    fs.writeFileSync(path.join(root, 'README.md'), 'base\n');
+    fs.writeFileSync(path.join(root, '.gitleaks-baseline.json'), '[]', 'utf8'); // 密钥门 lite 档的豁免清单
+    fs.writeFileSync(path.join(root, 'workflow', 'metrics.md'), `<!-- 快照生成：${new Date().toISOString()} -->\n# metrics\n`, 'utf8'); // 时效门（非漂移门，不自愈）须新鲜
+    git(['add', '-A'], root);
+    git(['commit', '-qm', 'base'], root);
+    git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'HEAD'], root).stdout.trim()], root);
+    return root;
+  };
+  {
+    const root = mkHealFix();
+    const r = run([], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '', SECRETS_SCAN_LITE: '1' }, maxBuffer: 64 * 1024 * 1024 });
+    const vp = path.join(root, '.agents', 'verifications.jsonl');
+    const rows = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const green = rows.find((l) => l.exitCode === 0 && l.suite === 'all-gates') || null;
+    const healed = (r.stdout.match(/已原地重生成并复检通过/g) || []).length;
+    check('场景 23a：三漂移门自愈 → exit 0 全绿（首检漂移不再挡关单）',
+      r.status === 0 && healed === 3 && r.stdout.includes('♻️'), `exit=${r.status} healed=${healed}\n${r.stdout.slice(-1200)}`);
+    check('场景 23a：绿行 selfHeal 记三门（effective-policy/engine-map/workflow-index）',
+      green !== null && Array.isArray(green.selfHeal)
+        && ['effective-policy', 'engine-map', 'workflow-index'].every((id) => green.selfHeal.includes(id)),
+      `line=${JSON.stringify(green)}`);
+    check('场景 23a：密钥门 lite 兜底 → 绿行 secretsEnforcer=lite（不再 envSkips，保留全量锚资格）',
+      green !== null && green.secretsEnforcer === 'lite' && !(Array.isArray(green.envSkips) && green.envSkips.some((s) => String(s).startsWith('secrets-scan'))),
+      `line=${JSON.stringify(green)}`);
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+  {
+    const root = mkHealFix();
+    fs.mkdirSync(path.join(root, 'workflow', 'effective-policy.md')); // 生成物落点被目录占位 → 重生成写盘必败
+    const r = run([], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '', SECRETS_SCAN_LITE: '1' }, maxBuffer: 64 * 1024 * 1024 });
+    const vp = path.join(root, '.agents', 'verifications.jsonl');
+    const rows = fs.existsSync(vp) ? fs.readFileSync(vp, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    check('场景 23b：重生成异常 → 自愈失败真红（exit 1 + 响亮出账，不出全绿）',
+      r.status === 1 && r.stderr.includes('自愈失败') && !r.stdout.includes('全绿'), `exit=${r.status}\n${r.stderr.slice(-600)}`);
+    check('场景 23b：失败行留痕 note=self-heal: …（suite=effective-policy）',
+      rows.length >= 1 && rows.some((l) => l.suite === 'effective-policy' && l.exitCode !== 0 && String(l.note).startsWith('self-heal:')),
+      `rows=${JSON.stringify(rows)}`);
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

@@ -794,6 +794,26 @@ SCEN(async () => {
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+// B2 基线覆盖值解析失败分诊（判据移植）：env 覆盖解析不出 → loud WARN + 回落内置基线，**不静默**退全史；
+// 内置基线在夹具仓亦不存在 → 再 WARN 后按既有「基线不生效 = 全史扫描」口径走（裁决与无覆盖一致）；
+// 有效覆盖照常生效且 loud 声明。此前静默回退全史双害：整批报出已豁免历史违规（verify 假红）+ 门拖进全史档。
+SCEN(async () => {
+  const d = mkrepo();
+  append(d, row({ ts: '2026-10-02T01:00:00.000Z', stage: 'done' }));
+  commitAll(d, 'append');
+  fs.writeFileSync(ledPath(d), row({ ts: '2026-10-02T02:00:00.000Z', quote: '改写' }) + '\n');
+  commitAll(d, 'rewrite pre-baseline');
+  const rBad = run(d, [], { LEDGER_HISTORY_BASELINE: 'deadbee' }); // 夹具短 SHA 残留形态：解析不出
+  check('B2 覆盖值解析失败 → loud WARN 回落内置基线（裁决与无覆盖一致，不再静默）',
+    rBad.code === 1 && rBad.out.includes('回落内置基线') && rBad.out.includes('解析不出'),
+    `code=${rBad.code}\n${rBad.out.slice(-300)}`);
+  const head = G(d, ['rev-parse', 'HEAD']).stdout.trim();
+  const rOk = run(d, [], { LEDGER_HISTORY_BASELINE: head });
+  check('B2 有效覆盖 → loud 声明生效（豁免过）',
+    rOk.code === 0 && rOk.out.includes('覆盖生效'), `code=${rOk.code}\n${rOk.out.slice(-300)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 // ---- 历史索引改造（2026-10-27 ledger-history-index）：批量读须与逐个读同裁决 ----
 // 背景：293 条路径 × 每路径一次 `git log` = 159s，2397 次 `git show` = 123s；改为一次
 // `git log -m --full-history --name-only` 建倒排 + `cat-file --batch` 批量读（全门 479s → 4s）。

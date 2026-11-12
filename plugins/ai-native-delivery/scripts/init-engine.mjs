@@ -14,8 +14,10 @@
 //   .agents/            引擎运行时（config/ 种子、pipelines/ 编排脚本、settings.json、确认账、运行时目录）
 //   workflow/           交付台账（人类可读，入库；八子目录 + 五骨架文档）
 //   .gitignore          标记注释块（BEGIN/END）内追加本机不入库项；已有标记块整块替换，其余原样
-//   git 钩子目录        pre-commit / pre-push 安装（占位符实化 + CRLF→LF + chmod，陈旧自装钩子
-//                       覆盖刷新例外保留，见 install/apply.mjs）
+//   git 钩子目录        pre-commit / pre-push / post-commit / commit-msg 安装（占位符实化 + CRLF→LF +
+//                       chmod，陈旧自装钩子覆盖刷新例外保留，见 install/apply.mjs；post-commit 为
+//                       Dreaming advisory 提醒腿，exit 恒 0 不阻断；commit-msg 为先确认后改代码顺序门
+//                       + 任务短名 advisory，2026-11-12 L0/L1 快速道移植）
 // 首行判断：项目 .agents/config/engine.json 的 policyVersion 与插件种子不同 → WARN 可升级但不自动
 // 覆盖项目改动（装户文件仍是种子原样时由台账 update 通道传播升版）。
 // 用法：node init-engine.mjs [--root <仓库根>] [--dry-run] [--force]
@@ -52,7 +54,7 @@ export function formatReport(root, report) {
   if (report.skipped.length) lines.push(`跳过 ${report.skipped.length} 项:\n  = ${report.skipped.join('\n  = ')}`);
   if (report.hooks.installed.length) lines.push(`git hooks 安装（目录 ${report.hooksDir || '(未解析)'}）:\n  + ${report.hooks.installed.join('\n  + ')}`);
   for (const s of report.hooks.skipped) lines.push(`git hooks 跳过: ${s}`);
-  lines.push(`卸载说明: git hooks 落在 ${report.hooksDir || '.git/hooks/'}（不入版本库）——删除该目录下的 pre-commit 与 pre-push 即卸载；种子正文在插件 config-templates/githooks/。`);
+  lines.push(`卸载说明: git hooks 落在 ${report.hooksDir || '.git/hooks/'}（不入版本库）——删除该目录下的 pre-commit、pre-push、post-commit 与 commit-msg 即卸载；种子正文在插件 config-templates/githooks/。`);
   return lines.join('\n');
 }
 

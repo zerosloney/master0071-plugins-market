@@ -19,6 +19,11 @@
 //         clone 传播的静默失效面从「靠人记得跑 check-local-gates」升格为每次关单自动对质）。
 //         2026-10-27 插件化迁移：wiki-consistency 门加 optional 标记——该门脚本为项目自带件（wiki 内容
 //         源项目专有不随插件分发），缺失降级 SKIP（项目适配点，门表计数/序不变），在场照常执法。
+//         2026-11 S3 判据移植两件：① 生成物漂移三门（effective-policy / engine-map / workflow-index）
+//         「漂移即红」改「原地重生成后复检通过」——生成物是磁盘态的确定函数，漂移的正确处置是重生成
+//         而非拦人；重生成/复检失败才真红（并行会话在途立档的既有漂移不再误伤关单 verify）。
+//         ② secrets-scan gitleaks 缺装机自动降级 lite 兜底扫描（恒执法、不再 loud-skip /
+//         GATE_SKIPPED），绿行改记 secretsEnforcer=lite——密钥门缺二进制不再拖累绿行的全量锚资格。
 // 用法：node <插件根>/scripts/verify.mjs [--full | --scope] [--list] [--jobs N | --serial]
 //       node <插件根>/scripts/verify.mjs --stub-gate <cmd>   （仅 CHECK_LOOP_ROOT 夹具；走生产尾段，不打 testCmd）
 //   **默认档 = diff 面增量**（verify-scope-default 2026-10-22）：不带参数即按变更面裁门；`--full` 显式全量。
@@ -149,16 +154,18 @@ const GATES = [
   // 生效规则视图漂移门（2026-10-09 P2-5）：policy/engine 变更后必须重生成 effective-policy.md 随同提交——
   // 把「存量豁免 vs 受管」的规则二分从 check-loop 源码显性化，CI 强制不漂移。
   // --check 比对前行尾归一，autocrlf 检出不算漂移。
-  { id: 'effective-policy', cohort: 'engine', optional: 'gen-effective-policy.mjs', name: '生效规则视图漂移检查', cmd: eng('gen-effective-policy.mjs') + ' --check', folder: '.', type: 'shell' },
+  // selfHeal（2026-11 S3 判据移植，与 engine-map / workflow-index 同语义）：--check 首检漂移 → 调
+  // 生成器默认模式原地重生成 → 复跑 --check 复检；复检绿按通过计并记自愈行，重生成/复检失败才真红。
+  { id: 'effective-policy', cohort: 'engine', optional: 'gen-effective-policy.mjs', name: '生效规则视图漂移检查', cmd: eng('gen-effective-policy.mjs') + ' --check', selfHeal: eng('gen-effective-policy.mjs'), folder: '.', type: 'shell' },
   // 引擎地图漂移门（2026-10-22 改进 3）：engine-map.md 是冷启动单源生成物（钩子清单 / GATES /
   // check-loop 段表 / 机制台账摘要 / 目录计数），此前 --check 只存在于脚本自身，**没有任何门调用它**
   // ——故能漂移数月无人见（实证：台账状态列加类型标记后生成物写出「现役 0」，与台账声明的 35 矛盾，
   // 而 --check 恒红也没人跑到）。与 effective-policy 同型：生成物 + --check + verify 门三件套。
   // 语义要求工作树（改完单源就地重生成随同提交），故挂 verify 而非 pre-push（后者扫待推树）。
-  { id: 'engine-map', cohort: 'engine', optional: 'gen-engine-map.mjs', name: '引擎地图漂移检查', cmd: eng('gen-engine-map.mjs') + ' --check', folder: '.', type: 'shell' },
+  { id: 'engine-map', cohort: 'engine', optional: 'gen-engine-map.mjs', name: '引擎地图漂移检查', cmd: eng('gen-engine-map.mjs') + ' --check', selfHeal: eng('gen-engine-map.mjs'), folder: '.', type: 'shell' },
   // 生成物漂移门（2026-10-24 复核 P1）：INDEX.md 是活跃流程的冷启动入口，此前只有 --check 与
   // check-loop 日检 WARN，实测已漂移 3 件无人拦。与 engine-map 同型：生成物 + --check + verify 门三件套。
-  { id: 'workflow-index', cohort: 'engine', optional: 'gen-workflow-index.mjs', name: '工作流索引漂移检查', cmd: eng('gen-workflow-index.mjs') + ' --check', folder: '.', type: 'shell' },
+  { id: 'workflow-index', cohort: 'engine', optional: 'gen-workflow-index.mjs', name: '工作流索引漂移检查', cmd: eng('gen-workflow-index.mjs') + ' --check', selfHeal: eng('gen-workflow-index.mjs'), folder: '.', type: 'shell' },
   // metrics 门（2026-10-27 修「门名不符实」）：metrics.md 是月度快照，**不做磁盘逐字漂移校验**（作者口径：
   // 任何文档改动都会让当前值漂移，拿它比磁盘只会常红）。此前本门只跑 --dry-run——恒 exit 0、只打印，
   // 名叫「指标数据自洽检查」却不做任何检查；实测 published 表停在 2026-10-25（92 全量绿行 / 165.7s /
@@ -180,16 +187,19 @@ const GATES = [
   // 改动须 diff 内协伴 L2+ 入口；本地手跑无基准事实 → 脚本内 advisory 跳过（显式 --base origin/main 可预检）。
   { id: 'lane-surface-ci', cohort: 'engine', optional: 'check-lane-surface.mjs', name: '泳道完整性（CI diff 面；本地无基准则跳过）', cmd: eng('check-lane-surface.mjs') + ' --ci', folder: '.', type: 'shell' },
   // 安全段（2026-10-14 决定 4 / G5 插队）：密钥扫描。
-  // secrets-scan：gitleaks detect + 基线（.gitleaks-baseline.json，存量 1227 处豁免清单，用户拍板——
-  //   2026-10-15 扩 6 处权限Key 标识符，见 check-secrets.mjs 头注）；
-  //   缺二进制响亮跳过（loud-skip，装机见 runtime-env §6.3）。pre-commit 侧另有 --staged 增量门。
+  // secrets-scan：gitleaks detect + 基线（.gitleaks-baseline.json = 使用项目自有存量豁免清单，不随插件分发）。
+  //   **2026-11 S3 起恒执法（判据移植「装不上也要扫」）**：gitleaks 三处解析皆缺（典型 = CI agent 无外网）
+  //   → 自动降级为纯 Node 兜底扫描 check-secrets-lite.mjs（同一基线做文件级豁免：强特征全文件执法、
+  //   宽泛 key=value 只查基线外文件），不再 loud-skip / 不再发 GATE_SKIPPED；输出首行标明执法者，
+  //   绿行记 secretsEnforcer=lite（密钥门缺二进制不再拖累绿行的全量锚资格）。
+  //   需要缺二进制即红：SECRETS_SCAN_REQUIRE_GITLEAKS=1（check-secrets exit 2）。
   // 依赖漏洞审计三门（nuget-audit / frontend-audit-prod / frontend-audit-devtool）2026-10-16 退役
   //   （owner 指令）：三者皆依赖公网漏洞服务（npm `/-/npm/v1/security/*`、NuGet 源索引的
   //   `VulnerabilityInfo`），内网镜像均不代理该面（实测见 runtime-env §6.4「漏洞数据源实测」），
   //   冷缓存/网络抖动即假红、换内网源即假绿——判据不可靠，故整族退出关单门表。
   //   退役留档：机制台账两行（NuGet 漏洞门 / 前端依赖审计）+ papercuts 2026-10-16 行。
   // script（closeout-anchor 2026-11-05）：本门走 eng() 但无 optional——src 解析名显式声明（凭证 provenance 用）。
-  { id: 'secrets-scan', cohort: 'security', name: '密钥扫描（gitleaks 全量+基线）', cmd: eng('check-secrets.mjs'), script: 'check-secrets.mjs', folder: '.', type: 'shell' },
+  { id: 'secrets-scan', cohort: 'security', name: '密钥扫描（gitleaks 优先 / lite 兜底，+基线）', cmd: eng('check-secrets.mjs'), script: 'check-secrets.mjs', folder: '.', type: 'shell' },
   // 项目适配点（2026-10-28 市场审查）：产品段各门都指向源项目那套 .NET + Vue 栈。消费项目里
   // 这些路径不存在，装上即得五条红门，与「装上即得」的承诺冲突。加 requires 判据：所需路径不在
   // 即判「不适用」SKIP（显式输出、不挡关单、不进 passedCount——没跑 ≠ 过了）。
@@ -321,6 +331,8 @@ const recordFailure = (step, exitInfo, note, attribution) => {
   try {
     const entry = { ts: new Date().toISOString(), exitCode: typeof exitInfo === 'number' ? exitInfo : -1, suite: step, head: headSha(), note };
     // 归因（gate-health 2026-10-22）：env / flaky / real——红单可读，AI 不在假红上反复重跑。
+    // 存量豁免（判据移植）：此锚前的失败行与全部绿行（绿行无失败可归因，attribution 只标注失败，
+    // 恒不落）可缺该字段——消费侧按未知处理，不回填不追溯。
     if (attribution) entry.attribution = attribution;
     if (process.env.PIPELINE_RUN_ID) entry.runId = process.env.PIPELINE_RUN_ID;
     if (!LEDGER.writable) {
@@ -627,6 +639,7 @@ async function run() {
   // 只记实跑门（合成跳过不进），全绿行里恒 0。
   const gateExits = {};
   const flakyGates = []; // 重跑绿的 flaky 门（写进绿行 flaky 字段，可审计）
+  const selfHealGates = []; // 自愈门（2026-11 S3 判据移植）：首检漂移 → 原地重生成后复检过（写进绿行 selfHeal 字段，可审计）
   let cohortSeen = '';
   const cohortLabel = { engine: '引擎段', security: '安全段', product: '产品段' };
   const doneIdx = new Set();  // 已出裁决的门序（成功/失败/中止；未列入者 = fail-fast 后状态未知）
@@ -634,8 +647,8 @@ async function run() {
   const running = new Map();  // 门序 -> child（树杀目标）
   let failedIdx = -1;
 
-  const startGate = (i) => {
-    const gate = gates[i];
+  const startGate = (i, override = null) => {
+    const gate = override || gates[i];
     // optional 门（2026-10-27 插件化迁移）：项目自带脚本缺失 → 合成 SKIP（不 spawn、不计耗时、
     // 不进 passedCount；跳过在 finishGate 以 ⏭️ 行显式可见，与 CI-only loud-skip 对称——没跑 ≠ 过了）。
     if (optionalGateMissing(gate, ROOT)) {
@@ -723,7 +736,9 @@ async function run() {
     if (r.overflow) {
       console.error(`[verify] ❌ ${i + 1}/${gates.length} ${gate.name} 未通过（输出超 ${MAX_GATE_OUTPUT / 1024 / 1024}MB 上限，已中止）`);
       persistGateLog(gate, r);
-      recordFailure(gate.id, -1, 'output-overflow');
+      // 归因恒带（判据移植）：溢出前已捕获的输出仍可供 failure-attribution 启发式签名匹配，
+      // 无签名则落保守默认 real（同 classifyFailure「否则 real」口径）——失败行不留无归因空洞。
+      recordFailure(gate.id, -1, 'output-overflow', classifyFailure(`${r.stdout || ''}\n${r.stderr || ''}`));
       return true;
     }
     // 门超时（2026-11-05 Minor）：fail-closed——挂起的门不许静默放行，判红并留痕，与门红同一消费面（exit 1）
@@ -731,6 +746,13 @@ async function run() {
       console.error(`[verify] ❌ ${i + 1}/${gates.length} ${gate.name} 未通过（门超时 >${Math.round(GATE_TIMEOUT_MS / 1000)}s 已中止——门超时不放行）`);
       persistGateLog(gate, r);
       recordFailure(gate.id, -1, 'gate-timeout');
+      return true;
+    }
+    // 自愈失败（2026-11 S3 判据移植）：重生成异常或复检仍漂移才真红——单源与磁盘不可自动收敛，人工介入。
+    if (r.selfHealFail) {
+      console.error(`[verify] ❌ ${i + 1}/${gates.length} ${gate.name} 未通过（自愈失败：${r.healWhy}；首检漂移：${r.healReason}）`);
+      persistGateLog(gate, r);
+      recordFailure(gate.id, r.status, `self-heal: ${r.healWhy}`, classifyFailure(`${r.stdout || ''}\n${r.stderr || ''}`));
       return true;
     }
     if (r.status !== 0) {
@@ -744,10 +766,13 @@ async function run() {
       recordFailure(gate.id, r.status, note, attribution);
       return true;
     }
-    outputs[gate.id] = r.stdout || '';
+    // stdout+stderr 都留档（判据移植）：loud-skip 类声明多走 stderr（console.error），只存 stdout
+    // 会让落账段的 envSkips 动态探测落空——锚点空洞堵不住。GATE_SKIPPED 识别同读并集面。
+    const gateOutput = `${r.stdout || ''}\n${r.stderr || ''}`;
+    outputs[gate.id] = gateOutput;
     // GATE_SKIPPED 标记识别（M9，见 runtimeEnvSkips 注）：独立一行 `GATE_SKIPPED:<原因>`（m 锚行首，
     // 门输出里其他行含同串不误判）。exit 0 裁决不变（loud-skip 契约），只补审计面与锚资格面。
-    const skipMark = /^GATE_SKIPPED:(\S+)\s*$/m.exec(r.stdout || '');
+    const skipMark = /^GATE_SKIPPED:(\S+)\s*$/m.exec(gateOutput);
     if (skipMark) {
       console.log(`[verify] ⚠️ ${gate.name}：exit 0 但门自报未执法（${skipMark[1]}）——记入 envSkips，本凭证不作全量锚`);
       runtimeEnvSkips.push(`${gate.id}:${skipMark[1]}`);
@@ -756,6 +781,10 @@ async function run() {
       console.log(`[verify] ⚠️ ${gate.name} 首跑红（exit ${r.firstStatus}）→ 重跑绿：判 flaky（已记入绿行 flaky 字段）`);
       if (r.firstTail) console.log(`[verify]   首跑尾部：\n${r.firstTail}`);
       flakyGates.push(gate.id);
+    }
+    if (r.selfHealed) {
+      console.log(`[verify] ♻️ ${i + 1}/${gates.length} ${gate.name}：首检漂移（${r.healReason}）→ 已原地重生成并复检通过——按通过计（自愈不挡关单，已记入绿行 selfHeal 字段）`);
+      selfHealGates.push(gate.id);
     }
     console.log(`[verify] ✅ ${i + 1}/${gates.length} ${gate.name} 通过 [${r.durMs} ms]\n`);
     passedCount++;
@@ -775,6 +804,17 @@ async function run() {
   const runGate = async (i) => {
     const gate = gates[i];
     const first = await startGate(i);
+    // 生成物自愈（2026-11 S3 判据移植，判据与流程同源仓 engine-artifacts 自愈档）：首检漂移 →
+    // 同生成器默认模式原地重生成 → 复跑 --check 复检；复检绿 = 自愈按通过计（并行会话在途立档的
+    // 既有漂移不再误伤关单 verify），重生成异常或复检仍漂移才真红。无漂移零写盘（幂等）。
+    if (gate.selfHeal && first.status !== 0 && !first.timedOut) {
+      const reason = (`${first.stdout || ''}${first.stderr || ''}`.trim().split(/\r?\n/)[0] || `exit ${first.status}`).slice(0, 200);
+      const regen = await startGate(i, { ...gate, cmd: gate.selfHeal });
+      const recheck = regen.status === 0 ? await startGate(i, { ...gate }) : null;
+      if (recheck && recheck.status === 0) return { ...recheck, selfHealed: true, healReason: reason };
+      const f = recheck || regen;
+      return { ...f, selfHealFail: true, healReason: reason, healWhy: regen.status === 0 ? '重生成后复检仍漂移' : `重生成器异常 exit ${regen.status}` };
+    }
     // 门超时不进 flaky 重跑（2026-11-05）：挂死不是争用偶发——重跑只是再挂一个上界时长
     if (!flakyRetryEnabled || first.status === 0 || first.timedOut || !retryGates.has(gate.id)) return first;
     const attribution = classifyFailure(`${first.stdout || ''}\n${first.stderr || ''}`);
@@ -867,6 +907,13 @@ async function run() {
       // flaky 重跑绿（gate-health 2026-10-22）：绿行记录哪些门是「首跑红、重跑绿」——审计可对质，
       // 不把偶发洗成无痕。hasFreshVerifyLine 仍认其为关单凭证（门最终绿了）。
       if (flakyGates.length) entry.flaky = flakyGates;
+      // 生成物自愈（2026-11 S3 判据移植）：绿行记录哪些门是「首检漂移、重生成后复检过」——审计可对质
+      // 自愈事实，不把生成物漂移洗成无痕。hasFreshVerifyLine 仍认其为关单凭证（门最终绿了）。
+      if (selfHealGates.length) entry.selfHeal = selfHealGates;
+      // secrets 执法者（2026-11 S3 lite-fallback 判据移植）：gitleaks 缺装机时门自动降级纯 Node 兜底
+      // 扫描（仍执法）——不再是跳过、不落 envSkips（绿行保留全量锚资格），改记 secretsEnforcer='lite'
+      // 供审计对质（装机 gitleaks 全史逐行匹配才是强执法面）。
+      if ((outputs['secrets-scan'] || '').includes('执法者=lite')) entry.secretsEnforcer = 'lite';
       // CI-only 本地跳过（verify-diet 二批 P0-2）+ 运行期环境跳过（M9 GATE_SKIPPED 标记）
       // + 插件模式桩越界（M10 stub:<门id>）：绿行记录跳过事实——审计面可对质「该行没跑哪些门、为何」；
       // envSkips 非空 → 失去全量锚资格。
@@ -900,7 +947,11 @@ async function run() {
       const wallMs = entry ? entry.wallMs : Math.round(performance.now() - wallStart);
       const totalMs = entry ? entry.totalMs : Object.values(durations).reduce((a, b) => a + b, 0);
       // 成本预算（gate-budget 2026-10-22）：advisory——超限只告警不阻断；把「体感重」变成可对质的数字。
-      const budget = readGateBudget(ROOT, scopeMode ? 'scopeMs' : 'fullMs');
+      // 预算档按「**实际裁掉了几门**」选，不按 --scope 开关选（判据移植）：变截面全触及 / 只触及
+      // 非前端面时，--scope 仍会跑全部重活门，实质是全量成本——此时拿增量档 scopeMs 去比会产出
+      // 假超限告警。与绿行 scope 标记同口径（上方注释）：零裁剪即零标记，也即全量档。
+      const skippedGateIds = scopeMode && scope ? scope.skippedGateIds : [];
+      const budget = readGateBudget(ROOT, skippedGateIds.length ? 'scopeMs' : 'fullMs');
       const over = budget !== null && wallMs > budget;
       const budgetNote = budget === null ? '' : `（预算 ${(budget / 1000).toFixed(0)}s${over ? `，超 ${((wallMs / budget - 1) * 100).toFixed(1)}%` : ''}）`;
       console.log(`[verify] ⏱️ 门禁成本：墙钟 ${(wallMs / 1000).toFixed(1)}s${budgetNote}｜各门合计 ${(totalMs / 1000).toFixed(1)}s｜最慢三门 ${top3}`);

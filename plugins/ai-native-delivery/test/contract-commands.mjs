@@ -176,11 +176,11 @@ for (const group of DOCS) {
   }
 }
 
-// 插件面完备性：8 命令 + 3 角色 + autonomous-run（2026-10-27 迁移清单钉死）
+// 插件面完备性：8 命令 + 4 角色 + autonomous-run（2026-10-27 迁移清单钉死；2026-11 S3 增 wiki-compiler）
 const expectFiles = [
   'commands/new-task.md', 'commands/plan.md', 'commands/design.md', 'commands/build.md',
   'commands/test.md', 'commands/review.md', 'commands/deploy.md', 'commands/maintain.md',
-  'agents/implementer.md', 'agents/independent-reviewer.md', 'agents/ui-verifier.md',
+  'agents/implementer.md', 'agents/independent-reviewer.md', 'agents/ui-verifier.md', 'agents/wiki-compiler.md',
   'skills/autonomous-run/SKILL.md',
 ];
 for (const f of expectFiles) {

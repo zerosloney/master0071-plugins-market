@@ -68,5 +68,60 @@ try {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- ciSummary PR 独占判据（判据移植）：condition 含 PR 独占变量（PullRequestId / SourceCommitId）
+// 且无直推臂的步不进直推列；TargetBranch 只是 PR 侧的臂，双向门不误标；直推列由 yml 字面谓词支撑
+// （assertCiGrounding 在渲染后对 rows 断言，解析口径与渲染脱节即立红）。
+{
+  const ci = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-map-ci-'));
+  try {
+    spawnSync('git', ['init', '-q'], { cwd: ci });
+    const gp = spawnSync('git', ['rev-parse', '--git-path', 'hooks'], { cwd: ci, encoding: 'utf8' });
+    const hooksRel = String(gp.stdout || '').trim();
+    const hooksDir = path.isAbsolute(hooksRel) ? hooksRel : path.join(ci, hooksRel);
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'pre-commit'), '');
+    fs.mkdirSync(path.join(ci, '.agents', 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(ci, '.agents', 'scripts', 'check-loop.mjs'),
+      "const SECTIONS = [\n  { lane: 'hard', run: s01_pairing },\n];\n");
+    fs.writeFileSync(path.join(ci, 'azure-pipelines.yml'), [
+      'trigger:',
+      '  include:',
+      '    - main',
+      '    - develop',
+      'steps:',
+      '  - task: NodeTool@0',
+      '    displayName: setup node',
+      '  - task: CmdLine@1',
+      '    displayName: verify full',
+      '    condition: eq(variables[\'Build.SourceBranch\'], \'refs/heads/main\')',
+      '    arguments: verify --full',
+      '  - task: CmdLine@1',
+      '    displayName: pr ledger gate',
+      '    condition: and(succeeded(), ne(variables[\'System.PullRequest.PullRequestId\'], \'\'))',
+      '    arguments: ledger gate',
+      '  - task: CmdLine@1',
+      '    displayName: two-way gate',
+      '    condition: or(eq(variables[\'Build.SourceBranch\'], \'refs/heads/develop\'), ne(variables[\'System.PullRequest.TargetBranch\'], \'refs/heads/develop\'))',
+      '    arguments: verify --mid',
+      '',
+    ].join('\n'));
+    const runCi = (args) => spawnSync(process.execPath, [GEN, ...args], { encoding: 'utf8' });
+    const gci = runCi(['--root', ci]);
+    const mapCi = path.join(ci, '.agents', 'notes', 'engine-map.md');
+    const textCi = fs.existsSync(mapCi) ? fs.readFileSync(mapCi, 'utf8') : '';
+    const ciRow = textCi.split('\n').find((l) => l.includes('CI（azure-pipelines）')) || '';
+    check('ciSummary：PR 独占步（PullRequestId 且无直推臂）不进任何直推列',
+      gci.status === 0 && !ciRow.includes('ledger gate'), `${gci.status}\n${ciRow}`);
+    check('ciSummary：直推字面谓词步进列（main 直推含 verify --full——接地②）',
+      ciRow.includes('main 直推 = setup node + verify --full'), ciRow);
+    check('ciSummary：双向门不误标（TargetBranch 非独占证据——develop 直推含 verify --mid）',
+      ciRow.includes('develop 直推 = setup node + verify --mid'), ciRow);
+    const okCi = runCi(['--root', ci, '--check']);
+    check('ciSummary：--check 一致（接地断言不误伤正常解析）', okCi.status === 0, `${okCi.status}\n${okCi.stdout}${okCi.stderr}`);
+  } finally {
+    fs.rmSync(ci, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

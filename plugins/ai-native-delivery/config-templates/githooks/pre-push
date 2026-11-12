@@ -16,6 +16,45 @@ import('node:child_process').then(async ({ spawnSync }) => {
   const LANE = "@@LANE@@";
 
   const args = LANE ? [LANE] : [];
+  // 接线宣称机检（2026-11-11 判据移植）：宿主接线宣称 ↔ 实态对账（hooks.json / 三份宿主垫片 vs
+  // mechanism-registry 台账行）。条件执行：脚本在场才跑；红 = 宣称与实态漂移，推送已阻止
+  //（gate 语义）。期望态变更须同提交改 check-hook-wiring.mjs CLAIMS 与台账对应行。
+  const HOOK_WIRING_SCRIPT = "@@HOOK_WIRING_SCRIPT@@";
+  if (existsSync(HOOK_WIRING_SCRIPT)) {
+    const rw = spawnSync(process.execPath, [HOOK_WIRING_SCRIPT], { stdio: 'inherit', windowsHide: true });
+    if (rw.status !== null && rw.status !== 0) process.exit(rw.status);
+  }
+  // 推送级改动面对账（2026-11-12 判据移植）：old..new 推送范围内 plan 声明并集 ↔ 范围 diff 双向对账——
+  // 只判越界方向（改了未声明）= gate 红，红即挡推送；未落件仅 advisory；范围内无 plan 变更 / 新分支首推
+  //（remote 全零）由脚本内 skip。判据单源 check-scope-range.mjs（首父链逐提交取改、L0 按提交粒度豁免、
+  // 盲面警告都在脚本内）。脚本缺席 fail-closed（与 ENGINE_SCRIPT 预检同口径）。
+  const SCOPE_RANGE_SCRIPT = "@@SCOPE_RANGE_SCRIPT@@";
+  if (!existsSync(SCOPE_RANGE_SCRIPT)) {
+    console.error(`pre-push: 无法启动推送级改动面对账（${SCOPE_RANGE_SCRIPT}）——推送已阻止（fail-closed；未安装种子请先跑 node <插件>/scripts/init-engine.mjs）`);
+    process.exit(1);
+  }
+  {
+    // stdin：git 以管道喂入待推引用行（<local ref> <local sha> <remote ref> <remote sha>，逐推送行执法）；
+    // TTY 直跑（手动运行钩子文件）不挂起读，按「无推送范围」跳过。
+    const { readFileSync } = await import('node:fs');
+    let stdinText = '';
+    if (!process.stdin.isTTY) {
+      try { stdinText = readFileSync(0, 'utf8'); } catch { /* 无管道输入 */ }
+    }
+    let saw = 0;
+    for (const line of stdinText.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 4) continue;
+      const localSha = parts[1];
+      const remoteSha = parts[3];
+      if (/^0+$/.test(localSha)) continue; // 删除推送不扫
+      saw = 1;
+      const rs = spawnSync(process.execPath, [SCOPE_RANGE_SCRIPT, remoteSha, localSha, '--strict'], { stdio: 'inherit', windowsHide: true });
+      if (rs.error || rs.status === null || rs.status !== 0) process.exit(rs.status === null || rs.error ? 1 : rs.status);
+    }
+    if (!saw) console.error('pre-push: 手动运行无推送范围——推送级改动面对账跳过（真实推送时按 old..new 范围执法）');
+  }
   // 引擎脚本缺席预检（2026-11-05 市场审查）：spawn 前 existsSync——否则 node 先吐满屏 MODULE_NOT_FOUND
   // 栈，修复指引淹没在噪音里。fail-closed 不变：同样指引 + exit 1（r.error 兜底其余 spawn 故障）。
   if (!existsSync(ENGINE_SCRIPT)) {

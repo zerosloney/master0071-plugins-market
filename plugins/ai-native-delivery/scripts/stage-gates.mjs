@@ -43,7 +43,34 @@ export const INCIDENT_STATUSES = ['open', 'fixed', 'closed'];
 //   ③b 剔确认记录行（行首「- 确认结果:」「- 确认时间:」）——确认记录非承诺（frontmatter 同名键见②）
 //   ④ 勾选态归一：`- [x]`/`- [X]` → `- [ ]`（勾验收是关单动作，不是承诺变更）
 //   ⑤ 剔证据尾注：`（证据：…）`/`(证据:…)` 整段，及行内首个「证据：」至行尾
+//   ⑥ 剔留痕尾注：行内首个「留痕：」至行尾（任务项实现留痕回填属关单动作，与证据尾注同口径）
 // 诚实边界：承诺若被藏进证据括号或复核行，机器看不见——不宣称通道关闭（同本模块信任边界声明口径）。
+// ⑤ 实现注（判据移植根修）：剥段按括号配对深度——证据段内嵌括号时旧正则 [^（）()]* 不匹配，
+//   回落「截断至证据：」留下悬空开括号 → 归一漂移 → 关单被误拒。
+const stripEvidenceSegment = (l) => {
+  const idx = l.search(/证据[：:]/);
+  if (idx < 0) return l;
+  // 自「证据：」向前找紧邻开括号：先遇闭括号 = 证据不在括号组内（裸「证据：…」）→ 剥至行尾
+  let open = -1;
+  for (let i = idx - 1; i >= 0; i--) {
+    const c = l[i];
+    if (c === '）' || c === ')') break;
+    if (c === '（' || c === '(') { open = i; break; }
+  }
+  if (open < 0) return l.slice(0, idx).replace(/[，,、；;]\s*$/, ''); // 裸形态连带剥前导逗号/顿号
+  // 深度配对剥整组（全/半角同 family 计数；未配对至行尾 → 剥开括号起至行尾，不留悬空）
+  let depth = 0;
+  for (let i = open; i < l.length; i++) {
+    const c = l[i];
+    if (c === '（' || c === '(') depth++;
+    else if (c === '）' || c === ')') {
+      depth--;
+      if (depth === 0) return l.slice(0, open) + l.slice(i + 1);
+    }
+  }
+  return l.slice(0, open);
+};
+
 export function commitmentFingerprint(text) {
   const lines = Array.isArray(text) ? text : String(text).replace(/\r\n/g, '\n').split('\n');
   const out = [];
@@ -61,9 +88,10 @@ export function commitmentFingerprint(text) {
     }
     if (/^\s*[-*]\s*(独立复核|复核)\s*[：:]/.test(l) || l.includes('复核上下文：')) continue;
     if (/^\s*[-*]\s*(确认结果|确认时间)\s*[：:]/.test(l)) continue;
-    l = l.replace(/[（(][^（）()]*证据[：:][^（）()]*[）)]/g, '');
-    const ev = l.search(/证据[：:]/);
-    if (ev >= 0) l = l.slice(0, ev);
+    let prev;
+    do { prev = l; l = stripEvidenceSegment(l); } while (l !== prev); // 一行多段证据循环剥净
+    const lk = l.search(/留痕[：:]/);
+    if (lk >= 0) l = l.slice(0, lk);
     l = l.replace(/^(\s*[-*]\s*)\[[xX]\]/, '$1[ ]');
     l = l.replace(/\s+$/, '');
     if (!l.trim()) continue;
@@ -331,6 +359,71 @@ export function clarifyGate(root, docRel) {
   return { applied: true, ok: true };
 }
 
+// ---- 前提质询门（premise-interrogation 判据移植）----
+// 与 clarifyGate 互补：歧义清单拦「列出的维度没想清」，本门拦「自信的错误解读」。前提不是歧义
+// （有清单可扫），是未被反问的立论——spec 把展示诉求写成存储身份改写这类错误解读一旦进事实源
+// （approved），测试按错前提固化期望、独立复核只核实现自洽不质疑前提、静态门不读语义，三层同源失效；
+// 唯一可拦点在前提进事实源之前。
+export function parsePremiseTable(text) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s*前提质询\s*$/.test(lines[i].trim())) { start = i; break; }
+  }
+  if (start < 0) return { found: false, rows: [] };
+  const rows = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) break;
+    if (!/^\s*\|/.test(lines[i])) continue;
+    const cells = lines[i].replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+    if (cells.length < 3) continue;
+    if (/^:?-{2,}:?$/.test(cells[0]) || cells[0] === '前提') continue; // 分隔行 / 表头
+    rows.push({ premise: cells[0], challenge: cells[1] || '', concl: cells[2] || '', line: i + 1 });
+  }
+  return { found: true, rows };
+}
+
+// premiseGate：spec 确认门前置（confirmGateFor 调用）。
+// applied=false 的情形同 clarifyGate：政策无 premiseSince（v1–v15）/ 文档缺「日期」不可判定 / 锚前存量。
+export function premiseGate(root, docRel) {
+  let pol = null;
+  try { pol = loadKitPolicy(root); } catch { return { applied: false }; }
+  const since = pol && pol.premiseSince;
+  if (!since) return { applied: false };
+  const abs = path.join(root, ...docRel.split('/'));
+  const date = readFm(abs, '日期');
+  if (!date) return { applied: false };
+  if (date < since) return { applied: false };
+  const { found, rows } = parsePremiseTable(readBody(abs));
+  const hint = '补「## 前提质询」表：每行一个立论前提（解读/口径选择，如「展示诉求 vs 存储改写」），'
+    + '反问「换成对立解读会怎样」，结论写凭什么选定（用户原话/文档/实验）；无解读风险的小件写一行「无关键前提」+ 理由';
+  if (!found) {
+    return { applied: true, ok: false, reason: 'spec 缺「## 前提质询」节（口径见 workflow/specs/_TEMPLATE.md）', hint };
+  }
+  if (!rows.length) {
+    return { applied: true, ok: false, reason: '前提质询表为空——至少一行（含「无关键前提」声明行）', hint };
+  }
+  // 占位行（模板 <…> 未填）视同没写：与验收判据表「作者只填行」同口径。
+  const ph = rows.filter((r) => /^</.test(r.premise) || /^</.test(r.concl));
+  if (ph.length) {
+    return { applied: true, ok: false, reason: `前提质询第 ${ph.map((r) => r.line).join('、')} 行仍是模板占位未填`, hint };
+  }
+  // 上界（同「清单是收敛工具不是工作台」纪律）：前提是立论骨架，>5 行 = 没提炼或 spec 该拆小。
+  const MAX_ROWS = 5;
+  if (rows.length > MAX_ROWS) {
+    return { applied: true, ok: false, reason: `前提质询共 ${rows.length} 行，超上限 ${MAX_ROWS}——前提没提炼，或 spec 该拆小`, hint };
+  }
+  const noChal = rows.filter((r) => r.challenge.length < 4);
+  if (noChal.length) {
+    return { applied: true, ok: false, reason: `前提质询缺反问：第 ${noChal.map((r) => r.line).join('、')} 行（对立解读没问 = 没质询）`, hint };
+  }
+  const noBasis = rows.filter((r) => !r.concl || r.concl.length < 4);
+  if (noBasis.length) {
+    return { applied: true, ok: false, reason: `前提质询缺结论依据：第 ${noBasis.map((r) => r.line).join('、')} 行（选定解读须写凭什么——用户原话/文档/实验）`, hint };
+  }
+  return { applied: true, ok: true };
+}
+
 // ---- 验收覆盖门（coverage-map 2026-10-22）----
 // 背景（实测）：L2/L3 的 intent↔spec 共 37 对，两侧各有一条证据链——intent 验收清单走 §8 勾验、
 // spec 判据表走 §23 判据级对账——但**没有任何编号把两条链连起来**。后果：intent 新增一条验收而 spec
@@ -474,11 +567,15 @@ export function confirmGateFor(root, docRel) {
   const kind = docRel.startsWith('workflow/specs/') ? 'spec' : 'plan';
   const g = draftGateFor(kind, root, base);
   if (!g.ok) return g;
-  // 歧义清单门（clarify-ledger）：只在 spec 的 draft→approved 前置上叠加；plan 与存量（锚前/缺日期）不涉。
-  // 放在进入门之后——先证明「这份 spec 有资格被确认」，再判「它想清楚了没有」，两错并存时先修前置。
+  // 歧义清单门（clarify-ledger）+ 前提质询门（premise-interrogation）+ 验收覆盖门（coverage-map）：
+  // 只在 spec 的 draft→approved 前置上叠加；plan 与存量（锚前/缺日期）不涉。
+  // 放在进入门之后——先证明「这份 spec 有资格被确认」，再判「它想清楚了没有」（歧义=已知维度没想清、
+  // 前提=立论解读没被反问、覆盖=判据连不回验收），两错并存时先修前置。
   if (kind === 'spec') {
     const cg = clarifyGate(root, docRel);
     if (cg.applied && !cg.ok) return { ok: false, reason: `歧义未清——${cg.reason}`, hint: cg.hint };
+    const pg = premiseGate(root, docRel);
+    if (pg.applied && !pg.ok) return { ok: false, reason: `前提未质询——${pg.reason}`, hint: pg.hint };
     const vg = coverageGate(root, docRel);
     if (vg.applied && !vg.ok) return { ok: false, reason: `验收覆盖不足——${vg.reason}`, hint: vg.hint };
   }

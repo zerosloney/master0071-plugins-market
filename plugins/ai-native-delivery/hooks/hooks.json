@@ -10,6 +10,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "[wW][rR][iI][tT][eE]|[eE][dD][iI][tT]|[mM][uU][lL][tT][iI][eE][dD][iI][tT]|[nN][oO][tT][eE][bB][oO][oO][kK][eE][dD][iI][tT]|[uU][pP][dD][aA][tT][eE]|[aA][pP][pP][lL][yY][_-][pP][aA][tT][cC][hH]|[aA][pP][pP][lL][yY][pP][aA][tT][cC][hH]",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-write-guard.mjs\"",
+            "timeout": 15
+          }
+        ]
       }
     ]
   }

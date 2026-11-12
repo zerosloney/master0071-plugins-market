@@ -48,6 +48,8 @@ const CONSUMERS = {
   convergenceHardSince: ['检查 23', '同上——证据无效升 hard（命令须有不早于 spec 日期的 verify-evidence 全绿行；路径只认存在）', 'hard'],
   reviewerSince: ['检查 1', '独立复核上下文标识（复核行须含「复核上下文：<会话/子代理 id>」——独立性声明可证伪化）——锚前存量豁免', 'advisory'],
   check1HardSince: ['检查 1', '红线判低 / L3 状态未确认两 hard——锚前存量降 WARN（消息带「存量豁免」前缀），锚起新档照常 hard', 'hard'],
+  premiseSince: ['confirm-doc（stage-gates premiseGate）', 'spec 确认门前提质询门——锚起新建 spec 须有非空且非占位的「前提质询」表（拦「自信的错误解读」进事实源；无解读风险写「无关键前提」行 + 理由）', 'hard'],
+  regrEnforcerSince: ['检查 29', '回归清单执法者配对——锚起数据行「执法者」列须非空（真执法资产或显式 [prompt-only]）——锚前存量不追溯', 'hard'],
 };
 
 // today：视图基准日。EFFECTIVE_POLICY_TODAY 为测试注入缝（场景 2f 跨锚日稳定性用；生产不设）。

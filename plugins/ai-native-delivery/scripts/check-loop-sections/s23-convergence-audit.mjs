@@ -13,7 +13,7 @@
 import {
   fs, os, path, spawnSync, createHash, createRequire, fileURLToPath,
   loadEnums, runCheck16, auditEnabled, loadKitPolicy, hasFreshVerifyLine, laneOfDoc, MARK_RE, approvedTraceIndex,
-  SCRIPT_DIR, GIT, REV_ARG, REV, ROOT, ENUMS, inSet, stOkDoc,
+  SCRIPT_DIR, GIT, REV_ARG, REV, MAIN_ROOT, ROOT, ENUMS, inSet, stOkDoc,
   spawnGit, gitOut, linesOf, fmGet, WF, DOC_DIRS, blockers, warnings, kitPolicy, isTracked, docFiles,
   addedDateOf, warnEvidenceExempt, VERIFY_GREEN_RE, verifyEvidenceTruth,
   delegationResultRows, versionGreater, fmStatus, bindingSha256, readdirOrNull, isDirectoryOrNull,
@@ -31,8 +31,14 @@ const EXTRA_CMD = (Array.isArray(kitPolicy && kitPolicy.convergenceCommands) ? k
   .filter((c) => typeof c === 'string' && c.trim() !== '');
 const escCmd = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const extraAlt = EXTRA_CMD.slice().sort((a, b) => b.length - a.length).map(escCmd).join('|');
-const CMD_RE = EXTRA_CMD.length ? new RegExp(`${extraAlt}|${CMD_RE_BASE.source}`) : CMD_RE_BASE;
-const CITE_RE = EXTRA_CMD.length ? new RegExp(`${extraAlt}|${CITE_RE_BASE.source}`, 'g') : CITE_RE_BASE;
+// 词边界（判据移植）：词首统一加 (?<![\w.@\-\\/]) 负向断言——证据路径里的路径片段（前一字符为
+// / 或 . 等，如 `.agents/skills/verify-ui/features/*.md` 中的 `verify-ui`）不再被误判为命令引用；
+// 命令引用（前一字符为空白或行首）语义不变。无断言时指向真实证据文件的路径被切成命令引用 → hard 档
+// 走全量门白名单（不含该词）恒判证据无效。项目扩展命令（convergenceCommands）同受边界保护。
+const CMD_WB = '(?<![\\w.@\\-\\\\/])';
+const wbCmdSrc = (base) => `${CMD_WB}(?:${EXTRA_CMD.length ? `${extraAlt}|` : ''}${base.source})`;
+const CMD_RE = new RegExp(wbCmdSrc(CMD_RE_BASE));
+const CITE_RE = new RegExp(wbCmdSrc(CITE_RE_BASE), 'g');
 // verify.mjs 全绿行（suite=all-gates）实际覆盖的命令。不在此集的白名单命令没有对应绿记录。
 // vue-tsc（2026-10-21 verify-diet ④）：本地关单前端门 = npm run type-check（vue-tsc -b），
 // vite bundle 分离到 deploy/CI（TF_BUILD 下 frontend-build 门仍 npm run build）——两形态都是门实跑命令。
@@ -64,6 +70,43 @@ function greenEvidenceDates() {
     if (/^\d{4}-\d{2}-\d{2}$/.test(day)) dates.push(day);
   }
   return dates;
+}
+
+// 关单树路径存在（判据移植 done-tree-evidence）：「关单后业务重构删证据」结构性失灵的堵口。
+// 原判据 existsSync(今天) 单认当下——spec done 后证据文件被合法重构删除时，历史承诺被事后树态
+// 否决（默认档绿 / 全量档红的档间裂缝）。补第二认：该 spec 首次进入 done 态的提交树中路径存在
+// （历史树对账：关单时的承诺按关单时的树兑现判）。双认 = 今天存在 ∪ done 树存在。
+// done 树解析：spec 文件历史最早一个「正文前 12 行含行首 `状态: done`」的提交（done spec 数少 +
+// memo 缓存；非 git / 查不到 → null 不放行第二认，行为与旧判据等价不误放）。
+const doneTreeMemo = new Map(); // spec 绝对路径 → sha|null
+function doneTreeShaOf(spec) {
+  if (doneTreeMemo.has(spec)) return doneTreeMemo.get(spec);
+  let sha = null;
+  try {
+    const rel = path.relative(ROOT, spec).split(path.sep).join('/');
+    const log = gitOut(['log', '--format=%H', '--follow', '--', rel]); // 新→旧
+    if (log) {
+      for (const line of log.split('\n').reverse()) { // 反转成旧→新，首遇 = 最早 done
+        const c = line.trim();
+        if (!c) continue;
+        const body = gitOut(['show', `${c}:${rel}`]);
+        if (body !== null && /^状态:\s*done\s*$/m.test(body.split(/\r?\n/).slice(0, 12).join('\n'))) { sha = c; break; }
+      }
+    }
+  } catch { /* 非 git / 异常 → null */ }
+  doneTreeMemo.set(spec, sha);
+  return sha;
+}
+const doneTreePathMemo = new Map(); // `${sha}\n${relPath}` → bool
+function doneTreeHasPath(spec, relPath) {
+  const sha = doneTreeShaOf(spec);
+  if (!sha) return false;
+  const key = `${sha}\n${relPath}`;
+  if (doneTreePathMemo.has(key)) return doneTreePathMemo.get(key);
+  let ok = false;
+  try { ok = spawnGit(['cat-file', '-e', `${sha}:${relPath}`]).status === 0; } catch { ok = false; }
+  doneTreePathMemo.set(key, ok);
+  return ok;
 }
 
 // 命令格：每一处引用都须落在全量门里，且有不早于 spec 日期的全绿行。解析不出引用 → 不放行。
@@ -133,7 +176,18 @@ export function run() {
  else {
  const cands = [];
  for (const m of ev.matchAll(PATH_RE)) cands.push(m[1].replace(/\\/g, '/'));
- ok = cands.some((p) => REPO_REL_PATH(p) && fs.existsSync(path.join(ROOT, p)));
+ // 双认（done-tree-evidence）：今天存在 ∪ done 提交树存在——关单后删证据不再否决历史承诺。
+ // 三认（local-evidence-fallback）：本机证据目录（workflow/evidence/，.gitignore 按设计只存本机）
+ //   在 --rev/--range 换根（ROOT=临时 worktree）时天然不在树上，仅引证据文件的判据恒判未覆盖——
+ //   与 kit readVerifyLedgerText 同口径回退主工作区；树上已有仍以树为准，非本机证据目录不回退
+ //   （不让任意缺失路径蒙混过关）。三态结论维持 REPO_REL_PATH 口径：仓库相对形态才参与判定。
+ const LOCAL_EVIDENCE_PREFIX = 'workflow/evidence/';
+ const localEvidenceInMain = (p) => !!MAIN_ROOT
+   && path.resolve(MAIN_ROOT) !== path.resolve(ROOT)
+   && p.startsWith(LOCAL_EVIDENCE_PREFIX)
+   && fs.existsSync(path.join(MAIN_ROOT, p));
+ ok = cands.some((p) => REPO_REL_PATH(p)
+   && (fs.existsSync(path.join(ROOT, p)) || doneTreeHasPath(spec, p) || localEvidenceInMain(p)));
  }
  }
  if (!ok) missed.push(`${JSON.stringify(crit)}→${ev ? JSON.stringify(ev) : '（空）'}`);

@@ -40,6 +40,7 @@ const USAGE = `用法: node <插件根>/scripts/kb-search.mjs [选项] <词1> [�
   --cache <文件>                 结构缓存文件路径覆盖（默认 .agents/cache/kb-index.json；测试注入用）
   --rebuild 忽略现有缓存重建后回写
   --stats 阶段耗时与缓存命中打到 stderr（stdout 不变；也可设 KB_SEARCH_STATS=1）
+  --no-telemetry                 不记录命中遥测（默认把实际展示的命中追加到 .agents/cache/kb-usage.jsonl）
   --help                         打印本说明
 
 退出码：0 正常（含无命中）；1 参数错误（无词 / 词内空白 / 未知选项 / 非法枚举值）`;
@@ -58,6 +59,7 @@ let noCache = false;
 let cacheFileOverride = ''; // --cache <文件>（board-kb-p1）：测试注入式缓存路径，不再直跑清真实开发缓存
 let rebuild = false;
 let stats = process.env.KB_SEARCH_STATS === '1'; // --stats：阶段耗时与缓存命中打到 stderr，stdout 不变
+let noTelemetry = false; // --no-telemetry：测试注入/批量脚本跳过命中遥测
 let filesRaw = ''; // --files <路径,...>：文件关联 OR 词元
 const words = [];
 for (let i = 0; i < args.length; i++) {
@@ -73,6 +75,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--cache') cacheFileOverride = args[++i] ?? '';
   else if (a === '--rebuild') rebuild = true;
   else if (a === '--stats') stats = true;
+  else if (a === '--no-telemetry') noTelemetry = true;
   else if (a === '--files') filesRaw = args[++i] || '';
   else if (a === '--help' || a === '-h') { console.log(USAGE); process.exit(0); }
   else words.push(a);
@@ -203,6 +206,7 @@ function matchWords(lines, words, anyWords = []) {
 // 键 = <检索根 cwd>::<相对路径>（多语料根共存一文件，fixture 临时目录天然隔离）；读写任何异常静默回退全扫。
 const CACHE_DIR = path.join(engineDir(KB_PROJECT_ROOT), 'cache');
 const CACHE_FILE = cacheFileOverride || path.join(CACHE_DIR, 'kb-index.json');
+const TELEMETRY_FILE = path.join(CACHE_DIR, 'kb-usage.jsonl');
 const ROOT_NS = `${path.resolve('.')}::`;
 // WIKI_EXTS：wiki 语料扩展面（含 --include-generated 分支）——上移至 CFG_FP 之前（board-kb-p1 起纳入指纹派生）
 const WIKI_EXTS = includeGenerated ? /\.(md|sql|html|csv|json|txt)$/i : /\.(md|sql|html|txt)$/i;
@@ -286,6 +290,17 @@ function saveCache() {
  cacheWrote = true;
  } catch { /* 只读目录 / 并发写等异常：放弃回写，下次重建 */ }
  marks.save = performance.now() - tSave0;
+}
+
+// ---- 命中遥测（2026-11-11，Dreaming 记忆负债）：实际展示的 workflow/wiki 命中追加到 .agents/cache/kb-usage.jsonl ----
+// .agents/cache/ 整目录在安装时进 .gitignore 标记块，本地运行态不入库不进门禁；零命中/失败不落账。
+// --no-telemetry 供测试注入/批量脚本跳过；遥测任何异常静默（可见性数据，不与检索争失败面）。
+function recordUsage(usedDocs) {
+  if (noTelemetry || !usedDocs.length) return;
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.appendFileSync(TELEMETRY_FILE, JSON.stringify({ ts: new Date().toISOString(), query: words.join(' '), docs: usedDocs }) + '\n', 'utf8');
+  } catch { /* 遥测失败静默，不影响检索 */ }
 }
 
 // ---- workflow 检索 ----
@@ -391,6 +406,7 @@ function searchWiki(words) {
 // ---- 输出 ----
 const top = (arr) => (limit ? arr.slice(0, limit) : arr);
 let anyHits = 0;
+const usedDocs = []; // 实际展示的命中文档（workflow/ 与 wiki/ 前缀相对路径），供命中遥测
 
 if (scope === 'workflow' || scope === 'all') {
  const tWf = performance.now();
@@ -400,6 +416,7 @@ if (scope === 'workflow' || scope === 'all') {
   const shown = top(res);
   console.log(`── workflow（${res.length} 个文件命中${res.length > shown.length ? `，展示前 ${shown.length}` : ''}）──`);
   for (const r of shown) {
+    usedDocs.push(`workflow/${r.file}`);
     console.log(`📄 workflow/${r.file} — ${r.status || '未填状态'} · ${r.level} · ${r.module} · ${r.total} 处命中 / ${r.kb < 10 ? r.kb.toFixed(1) : Math.round(r.kb)}KB`);
     for (const h of r.shown) console.log(`   [${h.section}] L${h.ln}: ${h.line.trim().slice(0, 130)}`);
   }
@@ -414,6 +431,7 @@ if (scope === 'wiki' || scope === 'all') {
   const shown = top(res);
   console.log(`── wiki（${res.length} 个文件命中${res.length > shown.length ? `，展示前 ${shown.length}` : ''}）──`);
   for (const r of shown) {
+    usedDocs.push(`wiki/${r.file}`);
     console.log(`📄 wiki/${r.file} — ${r.total} 处命中 / ${r.kb < 10 ? r.kb.toFixed(1) : Math.round(r.kb)}KB`);
     for (const h of r.shown) console.log(`   L${h.ln}: ${h.line.trim().slice(0, 130)}`);
   }
@@ -425,6 +443,7 @@ console.log(`\n${anyHits ? `合计 ${anyHits} 个文件命中（${words.join(' A
   `；排序：命中数/√文件KB${scope === 'workflow' ? '' : '（workflow 侧活跃 ×1.3）'}` +
   (scope === 'all' ? '；`--scope` 限定语料、`--status all` 显式全量' : ''));
 
+recordUsage(usedDocs); // 命中遥测（--no-telemetry 跳过；零命中不落账；失败静默）
 saveCache();
 
 if (stats) {

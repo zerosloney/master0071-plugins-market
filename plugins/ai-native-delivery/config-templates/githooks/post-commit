@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+// ai-native-delivery 引擎 git hook（post-commit）——由 scripts/init-engine.mjs 安装到 <项目>/.git/hooks/。
+// 定位机制：本文件是插件 config-templates/githooks/ 的种子，安装时 @@DREAM_SCRIPT@@ 被实化为
+// dream-run.mjs 的绝对路径（项目侧 .agents/scripts 优先、回退插件内本体——paths.mjs scriptPath
+// 同口径）。钩子落 .git/hooks/，不入版本库；卸载 = 删除本文件（init-engine 输出含卸载说明）。
+// 职能：离线梦境（Dreaming）记忆维护提醒——距上次 dream-run 审计报告（<项目>/.agents/tmp/
+// dream-report-<date>.md）≥7 天或尚无报告时，stderr 打一行 advisory。git 在钩子内以工作树根为 cwd，
+// 报告目录按 cwd 相对解析（core.hooksPath 下 __dirname 锚定会漂，不用）。
+// advisory 语义：本钩子**永不阻断提交**（任何分支 exit 0），失败静默；dream-run 本体也是只读审计
+// （不移动/不改写/不删除文档），跑不跑由用户裁决。引擎脚本缺席（插件升级迁移后 baked 路径失效）
+// 静默退出——advisory 不指一个跑不起来的命令。
+// 模块中立：无扩展名钩子的模块系统随项目最近 package.json 的 "type" 决定（pre-commit 种子头注同款
+// 说明）——用两种模块系统都支持的动态 import()。
+import('node:fs').then(({ existsSync, readdirSync }) => {
+  const DREAM_SCRIPT = "@@DREAM_SCRIPT@@";
+  if (!existsSync(DREAM_SCRIPT)) return; // 引擎件缺席：advisory 静默，不提示不存在的命令
+  const dreamDir = '.agents/tmp'; // cwd 相对：git 以工作树根为钩子 cwd（头注）
+  let latest = '';
+  if (existsSync(dreamDir)) {
+    for (const f of readdirSync(dreamDir)) {
+      const m = f.match(/^dream-report-(\d{4}-\d{2}-\d{2})\.md$/);
+      if (m && m[1] > latest) latest = m[1];
+    }
+  }
+  if (!latest) {
+    console.error(`[dream] 尚无离线梦境审计报告——可跑 node "${DREAM_SCRIPT}"（advisory，非阻断）`);
+  } else {
+    const days = Math.floor((Date.now() - Date.parse(`${latest}T00:00:00Z`)) / 86400000);
+    if (days >= 7) {
+      console.error(`[dream] 距上次离线梦境审计（${latest}）已 ${days} 天——可跑 node "${DREAM_SCRIPT}"（advisory，非阻断）`);
+    }
+  }
+}).catch(() => { /* 提醒失败不影响提交 */ }).finally(() => process.exit(0));

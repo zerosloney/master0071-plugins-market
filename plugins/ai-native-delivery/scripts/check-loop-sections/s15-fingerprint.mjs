@@ -147,9 +147,14 @@ export function run() {
       // （逐份读级别，L2/L3 逐份拒绝），台账行带 brief:true——全行带标记的批次是 sanctioned 泳道行为
       // （异步审计兜底），不出「确认并录」；缺标记（旧版脚本/手造台账）照旧告警，判据偏严不偏松。
       if (rows.every((r) => r.brief === true)) continue;
+      // 判据的主体是「多份**不同**文档并作一次」：同一文档重复落账（重确认链、手改台账把多行写成
+      // 同一 doc）不塌逐件确认门，按行数报会把同文档重复误报成并录。取 distinct doc 判定，
+      // 真并录（≥2 份不同文档）一条不漏。
+      const distinctDocs = [...new Set(rows.map((r) => String(r.doc)))];
+      if (distinctDocs.length < 2) continue;
       const of = Math.max(...rows.map((r) => (typeof r.of === 'number' ? r.of : 0)));
-      const docs = rows.map((r) => String(r.doc).replace(/^workflow\//, '')).join('、');
-      warnings.push(`- [WARN 确认并录] 单次调用落账 ${rows.length} 份（batch ${b}，of=${of}）：${docs}——同一次 --delegated 调用放行多份，塌掉「逐件确认」门（build.md）；口径见 workflow/papercuts.md 2026-09-28 与 incidents/2026-09-28-batch-ledger-audit.md`);
+      const docs = distinctDocs.map((d) => d.replace(/^workflow\//, '')).join('、');
+      warnings.push(`- [WARN 确认并录] 单次调用落账 ${distinctDocs.length} 份不同文档（batch ${b}，of=${of}）：${docs}——同一次 --delegated 调用放行多份，塌掉「逐件确认」门（build.md）；口径见 workflow/papercuts.md 2026-09-28 与 incidents/2026-09-28-batch-ledger-audit.md`);
     }
   }
 }

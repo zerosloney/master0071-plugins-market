@@ -10,7 +10,7 @@
 //   a 项目根             git 仓可用、root 可锚定（显式 --root 也须在 git 仓内）
 //   b 安装台账           <root>/.agents/install-manifest.json 在位且可解析（缺失/损坏 → 重跑即领养）
 //   c 已装文件与台账一致  逐文件核验（CRLF 归一 sha256，同安装段口径）：盘上缺失 / 内容不符分列
-//   d git hooks          pre-commit / pre-push 在位，且渲染内容指向的 check-loop 脚本存在
+//   d git hooks          pre-commit / pre-push / commit-msg 在位，且渲染内容指向的引擎脚本存在
 //   e .gitignore 标记块  BEGIN/END 成对在位
 //   f settings.json      在位、JSON 可解析，permissions.deny 含**文件级地板基线**：内置地板
 //                       （hooks/pretool-risk.mjs BUILTIN，单源 import）∩ 插件种子 deny——种子自带的
@@ -31,6 +31,14 @@ import { BUILTIN } from '../hooks/pretool-risk.mjs';
 
 const DOCTOR_PATH = fileURLToPath(import.meta.url);
 const HOOK_NAMES = ['pre-commit', 'pre-push'];
+// commit-msg（2026-11-12 L0/L1 快速道移植）：gate 钩子——缺失也 ✗（顺序门不执法即红）；对「从未装过」
+// 的旧装项目与「被删」两态照 post-commit 先例给可读说明（判据 = 安装台账有无该钩子记录，见检查项内注）。
+const COMMIT_MSG_HOOK = 'commit-msg';
+// commit-msg 钩子内实化的脚本常量（与种子头注同名单）：顺序门 gate 腿 + 任务短名 advisory 腿。
+const COMMIT_MSG_CONSTS = ['CONFIRM_ORDER_SCRIPT', 'PLAN_REF_SCRIPT'];
+// advisory 钩子（2026-11-11 Dreaming 移植）：缺失也 ✗（带修复命令），但对「从未装过」的旧装项目
+// 给可读说明而非误报（判据 = 安装台账有无该钩子记录，见 git hooks 检查项内注）。
+const ADVISORY_HOOKS = ['post-commit'];
 const INIT_ENGINE = path.join(path.dirname(DOCTOR_PATH), 'init-engine.mjs');
 
 // initEngineCmd(root)：✗ 项统一指向的修复命令（单源）。重跑 init-engine 即领养 / update / conflict
@@ -61,12 +69,13 @@ const FLOOR_BASELINE = (() => {
   return BUILTIN.deny.filter((b) => seedDeny.some((d) => typeof d === 'string' && normRule(d) === normRule(b)));
 })();
 
-// bakedEngineScript(hookAbs)：钩子正文里实化的 ENGINE_SCRIPT 绝对路径（与 install/apply.mjs
-// isStaleOwnHook 同一正则口径——只认带引号的 JS 字符串字面量）。读不出 / 无该行 → null。
-function bakedEngineScript(hookAbs) {
+// bakedEngineScript(hookAbs, constName)：钩子正文里实化的占位符常量绝对路径（与 install/apply.mjs
+// isStaleOwnHook 同一正则口径——只认带引号的 JS 字符串字面量）。执法钩子用 ENGINE_SCRIPT；
+// post-commit advisory 钩子无 ENGINE_SCRIPT，改认 DREAM_SCRIPT。读不出 / 无该行 → null。
+function bakedEngineScript(hookAbs, constName = 'ENGINE_SCRIPT') {
   let body;
   try { body = fs.readFileSync(hookAbs, 'utf8'); } catch { return null; }
-  const m = /const\s+ENGINE_SCRIPT\s*=\s*("(?:[^"\\]|\\.)*")/.exec(body);
+  const m = new RegExp(`const\\s+${constName}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(body);
   if (!m) return null;
   try {
     const p = JSON.parse(m[1]);
@@ -164,10 +173,46 @@ export function runDoctor(root) {
       if (!engine) problems.push(`${name} 读不出 ENGINE_SCRIPT 指向（疑似非本引擎钩子，不自动处置）`);
       else if (!fs.existsSync(engine)) problems.push(`${name} 指向的引擎脚本不存在：${engine}`);
     }
+    // commit-msg（2026-11-12 L0/L1 快速道移植）：gate 钩子——缺失也 ✗（顺序门/短名 advisory 不执法）；
+    // 「从未装过」与「被删」两态语义照 post-commit 先例（判据 = 安装台账有无该钩子记录）；在位则逐腿
+    // 校验 baked CONFIRM_ORDER_SCRIPT / PLAN_REF_SCRIPT 指向存在。
+    {
+      const target = path.join(hooksDir, COMMIT_MSG_HOOK);
+      if (!fs.existsSync(target)) {
+        const manifest = readManifest(root);
+        const recorded = manifest !== null && Object.keys(manifest.files).some((k) => k.endsWith(`/${COMMIT_MSG_HOOK}`));
+        problems.push(recorded
+          ? `${COMMIT_MSG_HOOK} 缺失（安装台账有记录，盘上被删）`
+          : `${COMMIT_MSG_HOOK} 未安装（当前插件版本新增的顺序门钩子——本项目安装台账无该钩子记录，属旧版安装而非被删；不装则提交顺序门与任务短名 advisory 不执法）`);
+      } else {
+        for (const constName of COMMIT_MSG_CONSTS) {
+          const baked = bakedEngineScript(target, constName);
+          if (!baked) problems.push(`${COMMIT_MSG_HOOK} 读不出 ${constName} 指向（疑似非本引擎钩子，不自动处置）`);
+          else if (!fs.existsSync(baked)) problems.push(`${COMMIT_MSG_HOOK} 指向的引擎脚本不存在：${baked}`);
+        }
+      }
+    }
+    // post-commit（advisory 腿，2026-11-11 Dreaming 移植）：在场则校验 baked DREAM_SCRIPT 指向存在；
+    // 缺失按台账记录分两说——台账有记录 = 曾安装被删（真缺失）；台账无记录 = 旧版安装从未装过
+    // （当前插件版本新增的可选钩子），给可读说明而非「被删」误报。两说都 ✗ 带重跑 init 的修复命令。
+    for (const name of ADVISORY_HOOKS) {
+      const target = path.join(hooksDir, name);
+      if (!fs.existsSync(target)) {
+        const manifest = readManifest(root);
+        const recorded = manifest !== null && Object.keys(manifest.files).some((k) => k.endsWith(`/${name}`));
+        problems.push(recorded
+          ? `${name} 缺失（安装台账有记录，盘上被删）`
+          : `${name} 未安装（当前插件版本新增的 advisory 提醒钩子——本项目安装台账无该钩子记录，属旧版安装而非被删；不装不影响门禁，仅少提交后的 Dreaming 提醒）`);
+        continue;
+      }
+      const dream = bakedEngineScript(target, 'DREAM_SCRIPT');
+      if (!dream) problems.push(`${name} 读不出 DREAM_SCRIPT 指向（疑似非本引擎钩子，不自动处置）`);
+      else if (!fs.existsSync(dream)) problems.push(`${name} 指向的引擎脚本不存在：${dream}`);
+    }
     if (problems.length) {
       return { ok: false, name: 'git hooks', detail: `${problems.join('；')}（钩子目录 ${hooksDir}）`, fix: initEngineCmd(root) };
     }
-    return { ok: true, name: 'git hooks', detail: `pre-commit / pre-push 在位且引擎脚本指向有效（${hooksDir}）`, fix: '' };
+    return { ok: true, name: 'git hooks', detail: `pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 提醒在位且脚本指向有效（${hooksDir}）`, fix: '' };
   });
 
   // e .gitignore 标记块

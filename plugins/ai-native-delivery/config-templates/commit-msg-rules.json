@@ -1,0 +1,7 @@
+{
+  "_comment": "commit-msg 校验规则单源（判据移植 2026-11-12）：JSON 兼容 CJS 钩子与 ESM 脚本两种读法，取最简。types = Conventional Commits 中文枚举；typeSuffix = 类型后须紧跟 ( 或 : 或 （；exemptPrefix = 真实 merge/revert/squash 形态豁免（git 默认消息 Merge /Revert 与自定义小写 merge:/revert: 前缀；squash 模板首行 `Squashed commit of the following:` 由 git merge --squash 生成，非作者笔误）；收紧后不匹配任意 merge/revert 开头。planSlugRe = 任务短名在提交消息中的边界匹配模板（<slug> 占位符替换为 plan 文件名去 .md），插件内消费方 scripts/check-commit-plan-ref.mjs（configDir 解析：项目侧 .agents/config 优先、回退插件种子）。types/typeSuffix/exemptPrefix 供项目自接线的提交文案门与 CI 复用（源形态 .githooks/commit-msg 首行枚举执法面同读一份）——插件 commit-msg 种子只执法顺序门与短名 advisory，不执法首行类型枚举（提交文案约定属项目自治）。改本文件 = 同步改全部执法面。",
+  "types": ["feat", "fix", "docs", "style", "refactor", "perf", "chore"],
+  "typeSuffix": "(\\(|:|（)",
+  "exemptPrefix": "^(Merge |merge:|Revert |revert:|Squashed commit of the following:)",
+  "planSlugRe": "(^|[^A-Za-z0-9-])<slug>($|[^A-Za-z0-9-])"
+}

@@ -2,12 +2,12 @@
 // e2e-fixture.mjs — 样板仓端到端（设计文档 §9 MVP 退出判据的「样板仓实测一轮闭环」；2026-10-27）
 // 从零构造临时 git 仓，走完 L1 协作道全生命周期，全程断言无 crash、终态一致：
 //   init-engine → grade_task(L1 描述) → fill-plan 建最小 L1 plan → confirm 两次
-//   → verify_gate(hard) exit 0 → read_context 报在途 1 → closeout-l1 关单
+//   → verify_gate(hard) exit 0 → read_context 报在途 1 → closeout 关单
 //   → verify_gate 再跑 exit 0 → ledger_stats 体量 > 0
 // 入口口径：宿主侧走 MCP stdio（grade_task / confirm / verify_gate / read_context / ledger_stats），
-//   命令侧走 CLI（init-engine / fill-plan / confirm-doc / verify / closeout-l1）——与真实使用一致。
+//   命令侧走 CLI（init-engine / fill-plan / confirm-doc / verify / closeout）——与真实使用一致。
 // 确认两次 = ① MCP confirm（任务级确认，kind:"task" 行）+ ② confirm-doc 起草确认（draft→approved，
-//   台账配对行）；关单确认由 closeout-l1 内部经 confirm-doc 完成（approved→done）。
+//   台账配对行）；关单确认由 closeout 内部经 confirm-doc 完成（approved→done）。
 // 用法：node test/e2e-fixture.mjs（可重复跑——夹具为独立临时仓，跑完清理）
 import fs from 'node:fs';
 import os from 'node:os';
@@ -75,6 +75,9 @@ try {
   /* ---- ① 从零建仓 + init-engine ---- */
   step('① init-engine');
   git(['init', '-q'], root);
+  // 仓库级身份（closeout ⑤ 的 git commit 由 closeout 进程直跑，不带 -c 注入——夹具自配）
+  git(['config', 'user.email', 't@t'], root);
+  git(['config', 'user.name', 't'], root);
   fs.writeFileSync(path.join(root, 'README.md'), '样板仓端到端夹具\n', 'utf8');
   git(['add', '-A'], root);
   git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'base'], root);
@@ -89,7 +92,7 @@ try {
   const g = jsonOf(callMcp(root, 1, 'grade_task', { description: '把登录页标题文案从「用户登录」改为「欢迎登录」' }));
   check('grade_task L1 描述 → L1（MCP stdio）', g && g.level === 'L1', JSON.stringify(g));
 
-  /* ---- ③ fill-plan 建最小 L1 plan（closeout-l1.test 夹具形态）---- */
+  /* ---- ③ fill-plan 建最小 L1 plan（closeout.test 夹具形态）---- */
   step('③ fill-plan');
   const planRel = 'workflow/plans/2026-10-27-e2e-demo.md';
   const fp = runCli('fill-plan.mjs', ['--level', 'L1', '--topic', 'e2e-demo', '--output', planRel, '--root', root], { cwd: root });
@@ -135,8 +138,8 @@ try {
     && rc.inFlightCount === 1 && rc.inFlight.plans.some((p) => p.file === 'plans/2026-10-27-e2e-demo.md'),
     JSON.stringify(rc && rc.inFlight));
 
-  /* ---- ⑦ closeout-l1 关单 ---- */
-  step('⑦ closeout-l1');
+  /* ---- ⑦ closeout 关单 ---- */
+  step('⑦ closeout');
   // 勾验收 + 证据回填（关单期合法动作——commitmentFingerprint 归一口径：勾选态与「（证据：…）」尾注不改承诺面），
   // 再补 24h 内 verify 绿凭证（stub 夹具门走生产尾段落账）
   planText = fs.readFileSync(planAbs, 'utf8')
@@ -145,8 +148,8 @@ try {
   const vg = runCli('verify.mjs', ['--stub-gate', 'node -e "process.exit(0)"'], { cwd: root, env: { CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
   check('verify 夹具单门全绿 → 绿凭证落账（exit 0）', vg.status === 0
     && fs.existsSync(path.join(root, '.agents', 'verifications.jsonl')), vg.out.slice(-300));
-  const co = runCli('closeout-l1.mjs', [planRel, '--delegated', '验收都过了，关单', '--root', root], { cwd: root });
-  check('closeout-l1 执行关单 → exit 0', co.status === 0, co.out.slice(-600));
+  const co = runCli('closeout.mjs', [planRel, '--delegated', '验收都过了，关单', '--root', root], { cwd: root });
+  check('closeout 执行关单（①代录→②索引→③add→④核对→⑤提交）→ exit 0', co.status === 0, co.out.slice(-600));
   // 关单即随确认滚动归档：活跃层原路径消失，终态 done 落 workflow/archive/<月>/plans/
   const archiveRel = path.join('workflow', 'archive', TODAY.slice(0, 7), 'plans', '2026-10-27-e2e-demo.md');
   const archivedText = (() => { try { return fs.readFileSync(path.join(root, archiveRel), 'utf8'); } catch { return ''; } })();

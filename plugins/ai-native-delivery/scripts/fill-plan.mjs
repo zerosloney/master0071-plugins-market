@@ -1,6 +1,7 @@
-// fill-plan：起草 plan 草稿（L1 五节且 plan 即入口 / L2-L3 完整 4 节）
-// 用法：node <插件根>/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--root <仓库根>] [--force 覆盖已存在输出]
+// fill-plan：起草 plan 草稿（L1 五节或 --lite 三节且 plan 即入口 / L2-L3 完整 4 节）
+// 用法：node <插件根>/scripts/fill-plan.mjs --level L1 --topic "test" --output /tmp/x.md [--lite] [--root <仓库根>] [--force 覆盖已存在输出]
 // L1：入口 + 改动方案 + 约束与风险 + 验证计划 + 验收标准（不另立 intent）
+// L1 --lite：入口 + 改动方案 + 验证与验收（三节；适用条件：检索无 incident 命中且红线全不勾）
 // L2/L3：改动方案 + 任务拆解 + 执行顺序 + 验证计划
 // 起草门（stage-gate-machine）：output 落于工作区（路径含 workflow 段）时，须同主题入口已确认，
 // 且入口级别（取入口 frontmatter，非 --level）为 L2/L3 时同名 spec 已确认；未过 → 拒绝生成（exit 2）。
@@ -14,7 +15,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
 const LEVELS = ENUMS['level.all']; // 级别词表单源（.agents/config/workflow-enums.txt）
 
 function parseArgs(argv) {
-  const out = { topic: null, level: 'L1', output: null, root: null };
+  const out = { topic: null, level: 'L1', output: null, root: null, lite: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { const v = argv[++i]; if (v === undefined) return null; return v; };
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     else if (a === '--level') out.level = next();
     else if (a === '--output') out.output = next();
     else if (a === '--root') out.root = next();
+    else if (a === '--lite') out.lite = true;
   }
   return out;
 }
@@ -44,6 +46,17 @@ const L1_SECTIONS = [
   L1_ACCEPTANCE,
 ];
 
+// L1 轻量三节（--lite，档二放宽判据移植）：复用既有节定义不复制正文——入口 / 改动方案 / 验证与验收。
+// 约束与风险以一句话并入改动方案条目（lite 只减节，不减判据）。
+const L1_LITE_SECTIONS = [
+  L1_ENTRY,
+  L1_SECTIONS[1],
+  {
+    title: '验证与验收（lite）',
+    hint: '- 静态门：`node <插件根>/scripts/verify.mjs --scope` 绿（涉前端改动另附实测证据）\n- 检索：粘贴第 2 步 kb-search 输出（无命中贴命令与空结果即可，免另写说明）\n- 验收：\n- [ ] <逐条可测试；写不出判据 = 还没想清楚>\n\n> 关单前逐条勾验并补证据：`- [x] <判据>（证据：<commit SHA / 测试用例名 / 冒烟输出>）`。约束与风险以一句话并入改动方案条目。',
+  },
+];
+
 const FULL_SECTIONS = [
   L1_SECTIONS[1],
   { title: '任务拆解（L2/L3 必填；L1 仅多文件多步骤时用，单任务微改动删本节）', hint: '- [ ] 1. <任务>\n   - 判据：<怎样算完成；尽量对应一个测试或可复现操作>\n   - 风险：低 / 中 / 高（<原因>）\n   - 留痕：（勾选时回填 commit SHA / 测试名 / 实测输出）\n- [ ] 2. <任务>\n   - 判据：…\n   - 风险：…\n   - 留痕：…\n\n> 任务即勾选态（session-context）：完成一项立刻勾选并回填留痕；压缩 / 新会话续作先读本表勾选态 + git status 重建进度，禁凭记忆补勾。' },
@@ -51,9 +64,9 @@ const FULL_SECTIONS = [
   L1_SECTIONS[3],
 ];
 
-export function renderPlan({ topic, level = 'L1', date = TODAY }) {
+export function renderPlan({ topic, level = 'L1', date = TODAY, lite = false }) {
   if (!LEVELS.includes(level)) throw new Error('level 不在枚举 ' + LEVELS.join('|') + '：' + level);
-  const sections = level === 'L1' ? L1_SECTIONS : FULL_SECTIONS;
+  const sections = level === 'L1' ? (lite ? L1_LITE_SECTIONS : L1_SECTIONS) : FULL_SECTIONS;
   // 自由文本剥换行（2026-11-05 注入防护，同 fill-intent）：--topic 是 CLI 自由文本，换行可
   // 向正文/标题结构注入任意内容。入正文前剥成单行。
   const oneLine = (v) => (typeof v === 'string' ? v.replace(/\r?\n/g, ' ') : v);
@@ -78,6 +91,7 @@ if (isMain) {
   const a = parseArgs(argv);
   if (!a.topic || !a.output) fail('必填：--topic / --output；选填：--level（默认 L1）/ --root');
   if (!LEVELS.includes(a.level)) fail('level 必须在 ' + LEVELS.join('|') + '：' + a.level);
+  if (a.lite && a.level !== 'L1') fail('--lite 仅支持 --level L1');
   // 输出守卫（2026-11-05 台账族 Minor#9；与 fill-intent/fill-spec 同口径）：
   // ① 存在守卫：--output 已存在 → 拒绝，--force 显式才覆盖（防把 approved/done 文档打回 draft 模板）；
   // ② 工作区围栏：output 落在 workflow/ 树内时必须落本工具的协议子目录 plans/；仓外草稿
@@ -105,6 +119,6 @@ if (isMain) {
   const { body } = renderPlan(a);
   fs.mkdirSync(path.dirname(a.output), { recursive: true });
   fs.writeFileSync(a.output, body);
-  console.log('✅ 已生成 plan 草稿：' + a.output + '（状态 draft / 级别 ' + a.level + ' / ' + (a.level === 'L1' ? 'L1 五节（plan 即入口）' : '完整 4 节') + '）');
+  console.log('✅ 已生成 plan 草稿：' + a.output + '（状态 draft / 级别 ' + a.level + ' / ' + (a.level === 'L1' ? (a.lite ? 'L1-lite 三节（plan 即入口）' : 'L1 五节（plan 即入口）') : '完整 4 节') + '）');
 }
 export default renderPlan;

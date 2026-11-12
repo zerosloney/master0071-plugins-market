@@ -59,7 +59,9 @@ const WORKFLOW_DOCS = {
   'metrics.md': '# metrics — 交付指标\n',
   'regression-checklist.md': '# regression-checklist — 回归清单\n',
 };
-const RUNTIME_DIRS = ['cache', 'loop', 'notes', 'board', 'tmp'];
+// 运行时目录单源（2026-11-12 写前门判据移植 export）：hooks/pre-write-guard.mjs 的「执法面自保护
+// 可写例外」复用同一份名单——init-engine 落什么运行时目录，写前门就放什么目录，两处永不漂移。
+export const RUNTIME_DIRS = ['cache', 'loop', 'notes', 'board', 'tmp'];
 
 function walkFiles(dir, base = dir) {
   const out = [];
@@ -94,13 +96,32 @@ function configSeedFiles() {
 // 检出）落盘前归一——钩子由 sh 启动，CRLF shebang 会断。种子未安装时占位串保持原样（语法仍
 // 合法，spawn 时 fail-closed）；种子头注的散文里合法提到 @@ENGINE_SCRIPT@@（无引号），故匹配
 // 必须带引号整体替换。种子缺席 → 该钩子不装（同旧 installHooks 的 continue）。
+// 2026-11-11 判据移植新增两占位符（同机制、同带引号整体替换）：
+//   @@DOC_BODY_DRIFT_SCRIPT@@ → check-doc-body-drift.mjs（pre-commit advisory 腿，脚本缺席时钩子内
+//     existsSync 守卫只损可见性不阻断）；@@HOOK_WIRING_SCRIPT@@ → check-hook-wiring.mjs（pre-push
+//     接线对账腿，条件执行：在场才跑，红即挡推送）。
+// 2026-11-11 Dreaming 记忆负债链新增：@@DREAM_SCRIPT@@ → dream-run.mjs（post-commit advisory 提醒腿，
+//     钩子内 existsSync 守卫缺席静默——advisory 不指死命令）。post-commit 种子不含 @@ENGINE_SCRIPT@@
+//     等其余占位符，renderHook 的 replace 对未命中占位符是 no-op——同一渲染机制天然覆盖。
+// 2026-11-12 L0/L1 快速道移植新增三占位符（同机制、同带引号整体替换）：
+//     @@CONFIRM_ORDER_SCRIPT@@ → check-confirm-order.mjs（commit-msg 顺序门 gate 腿，fail-closed）；
+//     @@PLAN_REF_SCRIPT@@ → check-commit-plan-ref.mjs（commit-msg 任务短名 advisory 腿，existsSync 守卫）；
+//     @@SCOPE_RANGE_SCRIPT@@ → check-scope-range.mjs（pre-push 推送范围对账 gate 腿，fail-closed）。
 function renderHook(root, name) {
   let tpl;
   try { tpl = fs.readFileSync(path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'githooks', name), 'utf8'); } catch { return null; }
-  const engine = scriptPath(root, 'check-loop.mjs');
+  // enginePath = 该钩子指向的引擎脚本（台账/doctor/报告文案共用）：执法钩子指 check-loop.mjs；
+  // post-commit 的提醒腿指 dream-run.mjs（advisory，非执法）；commit-msg 的顺序门腿指 check-confirm-order.mjs。
+  const engine = scriptPath(root, name === 'post-commit' ? 'dream-run.mjs' : name === 'commit-msg' ? 'check-confirm-order.mjs' : 'check-loop.mjs');
   const content = tpl.replace(/\r\n/g, '\n')
     .replace(/"@@ENGINE_SCRIPT@@"/g, JSON.stringify(engine))
-    .replace(/"@@LANE@@"/g, JSON.stringify(''));
+    .replace(/"@@LANE@@"/g, JSON.stringify(''))
+    .replace(/"@@DOC_BODY_DRIFT_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'check-doc-body-drift.mjs')))
+    .replace(/"@@HOOK_WIRING_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'check-hook-wiring.mjs')))
+    .replace(/"@@DREAM_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'dream-run.mjs')))
+    .replace(/"@@CONFIRM_ORDER_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'check-confirm-order.mjs')))
+    .replace(/"@@PLAN_REF_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'check-commit-plan-ref.mjs')))
+    .replace(/"@@SCOPE_RANGE_SCRIPT@@"/g, JSON.stringify(scriptPath(root, 'check-scope-range.mjs')));
   return { engine, content };
 }
 
@@ -152,7 +173,10 @@ export function buildPlan(root) {
   // git 不可用）→ hooksDir=null、无钩子条目，apply 据此报「git hooks 未安装」。
   const hooksDir = gitHooksDir(root);
   if (hooksDir) {
-    for (const name of ['pre-commit', 'pre-push']) {
+    // pre-commit / pre-push = 执法点（check-loop hard 门）；post-commit = Dreaming advisory 提醒腿
+    // （2026-11-11 移植，exit 恒 0 不阻断）；commit-msg = 顺序门执法点（2026-11-12 L0/L1 快速道移植，
+    // 先确认后改代码 gate + 任务短名 advisory——同一 githook kind 与占位符实化机制，差别只在渲染内容）。
+    for (const name of ['pre-commit', 'pre-push', 'post-commit', 'commit-msg']) {
       const rendered = renderHook(root, name);
       if (!rendered) continue;
       const targetAbs = path.join(hooksDir, name);
