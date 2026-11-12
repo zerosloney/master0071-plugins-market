@@ -28,7 +28,7 @@ import { PLUGIN_CONFIG_TEMPLATES_DIR, projectRoot } from './paths.mjs';
 
 const USAGE = `用法：node <插件根>/scripts/gen-workflow-metrics.mjs [--month YYYY-MM] [--dry-run] [--check] [--restamp] [--help]
 
-事实源：workflow/{intents,specs,plans,incidents}/*.md（排除 _TEMPLATE.md）+ workflow/INDEX.md + .agents/config/rule-budgets.txt + workflow/reviews.d/*.md（独立复核效果台账，2026-10-16 建账）+ workflow/specs/*.md 与 workflow/archive/*/specs/*.md（spec 体积观察，2026-10-16 起采集）+ workflow/deploy-observations.d/（发布观察台账，2026-10-25 建账）
+事实源：workflow/{intents,specs,plans,incidents}/*.md（排除 _TEMPLATE.md）+ workflow/INDEX.md + .agents/config/rule-budgets.txt + workflow/reviews.d/*.md（独立复核效果台账，2026-10-16 建账）+ workflow/specs/*.md 与 workflow/archive/*/specs/*.md（spec 体积观察，2026-10-16 起采集）+ workflow/deploy-observations.d/（发布观察台账，2026-10-25 建账）+ git log（阶段流转与返工代理，2026-11-12 步骤 E 建账）
 产物：workflow/metrics.md —— 每月一行（同月重跑即更新该行，不重复追加）；明细打印在 stdout，不落表。
 选项：
   --month YYYY-MM   指定月份键（默认取当前月 UTC；用于补记历史）
@@ -485,6 +485,126 @@ const DEPLOY_HEAD = [
 const deployRows = Object.keys(deploys).sort().map((ym) => `| ${ym} | ${deploys[ym].releases} | ${deploys[ym].passed} | ${deploys[ym].abnormal} |`);
 if (!deployRows.length) deployRows.push('| （无记录） | 0 | 0 | 0 |'); // 零数据占位——表始终输出，机制可见
 
+// ---- 阶段流转（第八表；2026-11-12 设计稿 ai-native-closed-loop-and-memory 步骤 E，机制登记 [数据面]）----
+// 口径（成文）：同名族 = 台账三件套 intents/specs/plans 同文件名去 .md（check-loop §1 配对口径）。
+//   三段流转时长 = git 首次进入时间差——intent→spec：intent 首次进 git → 同名 spec 首次进 git；
+//   spec→plan 同理；plan→close = plan 首次进 git → 台账终态确认（done/closed，非 revert，
+//   与闭环漏斗同判据）。归桶 = 各段终点所在月；取不到终点（无 git 时间 / 无终态行）的段不进
+//   分布，格写 —/—（不写 0，对齐漏斗「不写 0.0」纪律）。
+// 返工代理（build 开始后 spec/plan 修订提交数）：build 开始锚 = 该族「首个非台账产品提交」
+//   （触 workflow/ 与 .agents/ 之外路径、且提交消息含该族任务短名——check-commit-plan-ref 的
+//   消息↔plan 可追溯惯例）与「plan 终态确认」两锚中**较早**者——产品提交先于 plan 收口是
+//   常态（build 在 approved→done 窗内），早锚即真实开工时刻；纯台账族无产品提交时回退终态锚；
+//   两锚皆缺 → 该族返工不可测，不进统计（不误报 0）。修订提交 = 锚后触 workflow/ 下同名
+//   specs|plans 文件（含 archive 各月）的提交数。
+// 数据不足（非 git 仓 / 浅克隆取不到时间 / 无三件套）→ 整表占位行「数据不足」，不误报。
+function loadCommitFeed(root) {
+  // 单次 git log：提交行 `%cI\x1f%s` + 逐行文件——返工代理与产品提交锚的唯一数据源（只读观测，
+  // 失败退化 null → 数据不足，不 fail-loud；对齐 engineCommitRatio 的观测面退化纪律）。
+  let r;
+  try {
+    r = spawnSync(GIT, ['log', '--format=%cI%x1f%s', '--name-only'], { cwd: root, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
+  if (!r || r.status !== 0) return null;
+  const commits = [];
+  let cur = null;
+  for (const line of String(r.stdout || '').split(/\r?\n/)) {
+    if (line.includes('\x1f')) {
+      const i = line.indexOf('\x1f');
+      cur = { ts: line.slice(0, i), subj: line.slice(i + 1), files: [] };
+      commits.push(cur);
+    } else if (cur && line.trim()) {
+      cur.files.push(line.trim().replace(/\\/g, '/'));
+    }
+  }
+  return commits;
+}
+const daysBetween = (fromIso, toIso) => {
+  const d = (Date.parse(toIso) - Date.parse(fromIso)) / 86400000;
+  return Number.isFinite(d) && d >= 0 ? d : null;
+};
+function flowFromData(firstAddedMap, ledgerEntries, commits) {
+  // 族谱：stem → { intentsTs, specsTs, plansTs, prodTs, revs[] }（首次进 git 取最早，含 archive 各月）
+  const fams = new Map();
+  const items = [];
+  if (!firstAddedMap) return { byMonth: {}, fams, items };
+  for (const [p, ts] of firstAddedMap) {
+    const m = p.match(/^workflow\/(?:archive\/[^/]+\/)?(intents|specs|plans)\/([^/]+)\.md$/);
+    if (!m) continue;
+    if (!fams.has(m[2])) fams.set(m[2], {});
+    const f = fams.get(m[2]);
+    const slot = `${m[1]}Ts`;
+    if (!f[slot] || ts < f[slot]) f[slot] = ts;
+  }
+  // plan 终态锚（漏斗同判据：非 revert 的 done/closed 末次；台账 doc 路径按 stem 归族，含归档态路径）
+  const termByStem = new Map();
+  for (const e of ledgerEntries) {
+    if (typeof e.doc !== 'string' || typeof e.ts !== 'string') continue;
+    const rel = e.doc.replace(/\\/g, '/');
+    if (!/^workflow\/(?:archive\/[^/]+\/)?plans\/[^/]+\.md$/.test(rel)) continue;
+    if (/^revert-/.test(String(e.stage || ''))) continue;
+    if (e.stage !== 'done' && e.stage !== 'closed') continue;
+    const stem = rel.split('/').pop().replace(/\.md$/, '');
+    const prev = termByStem.get(stem);
+    if (!prev || e.ts > prev) termByStem.set(stem, e.ts);
+  }
+  // 单次遍历提交流：产品提交锚（消息含短名 ∩ 非台账路径）+ 修订提交收集
+  if (commits) {
+    for (const c of commits) {
+      const isProd = c.files.some((f) => !f.startsWith('workflow/') && !f.startsWith('.agents/'));
+      if (isProd) {
+        for (const [stem, f] of fams) {
+          if (c.subj.includes(stem) && (!f.prodTs || c.ts < f.prodTs)) f.prodTs = c.ts;
+        }
+      }
+      for (const rel of c.files) {
+        const m = rel.match(/^workflow\/(?:archive\/[^/]+\/)?(?:specs|plans)\/([^/]+)\.md$/);
+        if (m && fams.has(m[1])) (fams.get(m[1]).revs ||= []).push(c.ts);
+      }
+    }
+  }
+  // 逐族三段 + 返工 → 按月聚合（归桶 = 各段终点 / 返工锚所在月）
+  const byMonth = {};
+  for (const [stem, f] of fams) {
+    const bucket = (ym) => (byMonth[ym] ||= { is: [], sp: [], pc: [], revs: 0, reworkFams: 0 });
+    const seg = (ym, key, from, to) => {
+      const d = from && to ? daysBetween(from, to) : null;
+      if (d != null) bucket(ym)[key].push(d);
+    };
+    seg(String(f.specsTs || '').slice(0, 7), 'is', f.intentsTs, f.specsTs);
+    seg(String(f.plansTs || '').slice(0, 7), 'sp', f.specsTs, f.plansTs);
+    const closeTs = termByStem.get(stem) || null;
+    seg(String(closeTs || '').slice(0, 7), 'pc', f.plansTs, closeTs);
+    const anchor = [f.prodTs, closeTs].filter(Boolean).sort()[0] || null;
+    const reworkN = anchor && f.revs ? f.revs.filter((ts) => ts > anchor).length : null;
+    if (anchor && f.revs) {
+      const b = bucket(String(anchor).slice(0, 7));
+      b.revs += reworkN;
+      if (reworkN > 0) b.reworkFams += 1;
+    }
+    items.push({ stem, reworkN });
+  }
+  return { byMonth, fams, items };
+}
+const commitFeed = loadCommitFeed(ROOT);
+const flow = flowFromData(firstAdded, ledgerRows, commitFeed);
+const flowMedMax = (arr) => (arr.length ? `${fmtMedianDays(medianOf(arr))}/${fmtMedianDays(Math.max(...arr))}` : '—/—');
+const flowRowOf = (ym, b) => `| ${ym} | ${flowMedMax(b.is)} | ${flowMedMax(b.sp)} | ${flowMedMax(b.pc)} | ${b.revs} | ${b.reworkFams} |`;
+const flowMonths = Object.keys(flow.byMonth).sort();
+const FLOW_DATA_OK = firstAdded && flowMonths.length > 0;
+const flowRow = FLOW_DATA_OK
+  ? flowRowOf(month, flow.byMonth[month] || { is: [], sp: [], pc: [], revs: 0, reworkFams: 0 })
+  : '| （数据不足：非 git 仓 / 无台账三件套或 git 时间不可得） | —/— | —/— | —/— | — | — |';
+// 阶段流转表头（第八表；2026-11-12 步骤 E）。观测面非门禁（机制台账 [数据面] 行）——不挂任何检查。
+const FLOW_HEAD = [
+  '## 阶段流转（源：台账三件套 + git 时间戳；2026-11-12 建账，设计稿 ai-native-closed-loop-and-memory 步骤 E）',
+  '',
+  '| 月份 | intent→spec 中位/最大(天) | spec→plan 中位/最大(天) | plan→close 中位/最大(天) | build 后 spec/plan 修订提交 | 返工族 |',
+  '|---|---|---|---|---|---|',
+];
+const FLOW_NOTE = '> 口径：intent→spec = 同名族 intent→spec 首次进 git 的时间差（spec→plan 同理）；plan→close = plan 首次进 git → 台账终态确认（done/closed，非 revert，与闭环漏斗同判据）。归桶 = 各段终点所在月；取不到终点的段不进分布（—/—）。\n> 返工代理（build 开始锚）：该族「首个非台账产品提交」（触 workflow/ 与 .agents/ 之外路径且消息含任务短名）与「plan 终态确认」两锚中较早者——产品提交先于收口是常态，早锚即真实开工时刻；纯台账族回退终态锚，两锚皆缺不进统计。修订提交 = 锚后触同名 specs|plans 文件（含 archive）的提交数。非 git 仓 / 无三件套 → 整表「数据不足」，不误报。';
 
 // ---- 明细（stdout，不落表）：类型分布 + 逐条预算占用 ----
 console.log(`📅 ${month} 快照`);
@@ -502,6 +622,9 @@ console.log(`  门禁成本/迭代：全量绿行 ${costList.length} 行${costLi
   const dNow = deploys[month];
   console.log(`  发布观察：本月 ${dNow ? `release ${dNow.releases}（通过 ${dNow.passed} / 异常 ${dNow.abnormal}）` : '无记录（deploy.md §5 出结论即落行；长期无行 = 观察结论未落账挂债）'}`);
 }
+// 阶段流转明细（第八表配套；只报逐族返工数，三段分布已在表内按月聚合）
+console.log(`  阶段流转：本月 ${flowMonths.includes(month) ? `intent→spec ${flowMedMax(flow.byMonth[month].is)}｜spec→plan ${flowMedMax(flow.byMonth[month].sp)}｜plan→close ${flowMedMax(flow.byMonth[month].pc)}` : '无流转数据'}｜返工代理 ${FLOW_DATA_OK ? `${flowRow.split('|')[5].trim()} 次修订 / ${flowRow.split('|')[6].trim()} 族` : '数据不足'}`);
+for (const it of flow.items) console.log(`    ${String(it.stem).padEnd(58)} 锚后 spec/plan 修订 ${it.reworkN == null ? '—' : `${it.reworkN} 次`}`);
 // 归档积压提醒（2026-10-15 减重手段⑥，回路别等人喊）：滚动归档已随确认门自动跑（confirm-doc
 // archive-on-close），历史积压走 archive-sweep 手工批次——月度 stdout 报候选数使积压可见。
 // 判定单源 = archive-sweep.analyze（21 天窗，禁第二套口径）；analyze/loadLastTouch 抛错（如
@@ -525,6 +648,7 @@ if (DRY) {
   console.log(`\n复核效果表（整表再生）：\n${[...REVIEW_HEAD, ...reviewRows].join('\n')}`);
   console.log(`\nspec 体积观察表（整表再生）：\n${[...SPEC_HEAD, ...specRows].join('\n')}`);
   console.log(`\n发布观察表（整表再生）：\n${[...DEPLOY_HEAD, ...deployRows].join('\n')}`);
+  console.log(`\n阶段流转表（月行 upsert，历史行保留）：\n${[...FLOW_HEAD, flowRow, '', FLOW_NOTE].join('\n')}`);
   process.exit(0);
 }
 
@@ -591,6 +715,7 @@ let rows = [];
 let funnelRows = [];
 let attrRows = [];
 let costRows = [];
+let flowRows = [];
 if (existing.includes(BEGIN) && existing.includes(END)) {
   const section = existing.slice(existing.indexOf(BEGIN), existing.indexOf(END));
   // 表头句子会改（列名、时钟说明）。分段锚用稳定标题前缀，避免改表头时把漏斗行吸进体量表。
@@ -598,6 +723,9 @@ if (existing.includes(BEGIN) && existing.includes(END)) {
   const attrMarker = '## 产品与质量维度';
   const costMarker = '## 门禁成本';
   const reviewMarker = '## 复核效果'; // 第五表整表再生、不回吸旧行；分段只为防旧复核行被误吸进成本行
+  const specMarker = '## spec 体积观察';
+  const deployMarker = '## 发布观察';
+  const flowMarker = '## 阶段流转'; // 第八表（2026-11-12 步骤 E）月行 upsert——旧文件无该节则从空起步（向后兼容）
   const bodyPart = section.includes(funnelMarker) ? section.slice(0, section.indexOf(funnelMarker)) : section;
   const restPart = section.includes(funnelMarker) ? section.slice(section.indexOf(funnelMarker)) : '';
   const funnelPart = restPart.includes(attrMarker) ? restPart.slice(0, restPart.indexOf(attrMarker)) : restPart;
@@ -605,10 +733,15 @@ if (existing.includes(BEGIN) && existing.includes(END)) {
   const attrPart = attrRest.includes(costMarker) ? attrRest.slice(0, attrRest.indexOf(costMarker)) : attrRest;
   const costAll = attrRest.includes(costMarker) ? attrRest.slice(attrRest.indexOf(costMarker)) : '';
   const costPart = costAll.includes(reviewMarker) ? costAll.slice(0, costAll.indexOf(reviewMarker)) : costAll;
+  const reviewAll = costAll.includes(reviewMarker) ? costAll.slice(costAll.indexOf(reviewMarker)) : '';
+  const specAll = reviewAll.includes(specMarker) ? reviewAll.slice(reviewAll.indexOf(specMarker)) : '';
+  const deployAll = specAll.includes(deployMarker) ? specAll.slice(specAll.indexOf(deployMarker)) : '';
+  const flowPart = deployAll.includes(flowMarker) ? deployAll.slice(deployAll.indexOf(flowMarker)) : '';
   rows = bodyPart.split(/\r?\n/).filter((l) => /^\|\s*\d{4}-\d{2}\s*\|/.test(l));
   funnelRows = funnelPart.split(/\r?\n/).filter((l) => /^\|\s*\d{4}-\d{2}\s*\|/.test(l));
   attrRows = attrPart.split(/\r?\n/).filter((l) => /^\|\s*\d{4}-\d{2}\s*\|/.test(l));
   costRows = costPart.split(/\r?\n/).filter((l) => /^\|\s*\d{4}-\d{2}\s*\|/.test(l));
+  flowRows = flowPart.split(/\r?\n/).filter((l) => /^\|\s*\d{4}-\d{2}\s*\|/.test(l));
 }
 // 非当月且已有体量行：冻结（该行是生成当天的磁盘快照，重跑会用今天的仓库盖掉）。漏斗与归因仍按月份键更新。
 const priorVolume = rows.find((l) => l.startsWith(`| ${month} `));
@@ -629,6 +762,11 @@ attrRows.sort((a, b) => a.slice(2, 9).localeCompare(b.slice(2, 9)));
 costRows = costRows.filter((l) => !l.startsWith(`| ${month} `));
 costRows.push(costRow);
 costRows.sort((a, b) => a.slice(2, 9).localeCompare(b.slice(2, 9)));
+// 阶段流转行：同月 upsert；有数据后清除历史「数据不足」占位行（占位行无月份键，按前缀剔除）
+flowRows = flowRows.filter((l) => !l.startsWith(`| ${month} `) && !/^\|\s*（数据不足/.test(l));
+if (FLOW_DATA_OK) flowRows.push(flowRow);
+else if (!flowRows.length) flowRows.push(flowRow); // 数据不足且无历史行 → 占位行；有历史行则保留历史、不回退
+flowRows.sort((a, b) => a.slice(2, 9).localeCompare(b.slice(2, 9)));
 
 // ---- 动作阈值播报（funnel-action-threshold）：相邻两月协议前占比均 >30% → 响亮动作要求 ----
 // 判据只看日历相邻（nextMonth(前一月) === 当前月）的两行——单月波动（批量迁移 / 集中补录）不触发。
@@ -660,7 +798,7 @@ if (breachPairs.length) {
   console.error('   按约定跑一轮归因：哪一环在逼人绕路（确认门太重 / 级别判错 / 批量豁免滥用？）——结论记 workflow/papercuts.md 或立 incident，并在 mechanism-registry 月度对账登记处置');
 }
 const SNAP_LINE = `<!-- 快照生成：${new Date().toISOString()}（${month} 行；判据 = 本生成器现场取数；时效门 = --check，METRICS_MAX_AGE_DAYS） -->`;
-const inner = `${BEGIN}\n${SNAP_LINE}\n\n${[...TABLE_HEAD, ...rows].join('\n')}\n\n${[...FUNNEL_HEAD, ...funnelRows].join('\n')}\n\n${[...ATTR_HEAD, ...attrRows].join('\n')}\n\n${[...COST_HEAD, ...costRows, '', COST_HEAD_NOTE].join('\n')}\n\n${[...REVIEW_HEAD, ...reviewRows].join('\n')}\n\n${[...SPEC_HEAD, ...specRows].join('\n')}\n\n${[...DEPLOY_HEAD, ...deployRows].join('\n')}\n\n${END}`;
+const inner = `${BEGIN}\n${SNAP_LINE}\n\n${[...TABLE_HEAD, ...rows].join('\n')}\n\n${[...FUNNEL_HEAD, ...funnelRows].join('\n')}\n\n${[...ATTR_HEAD, ...attrRows].join('\n')}\n\n${[...COST_HEAD, ...costRows, '', COST_HEAD_NOTE].join('\n')}\n\n${[...REVIEW_HEAD, ...reviewRows].join('\n')}\n\n${[...SPEC_HEAD, ...specRows].join('\n')}\n\n${[...DEPLOY_HEAD, ...deployRows].join('\n')}\n\n${[...FLOW_HEAD, ...flowRows, '', FLOW_NOTE].join('\n')}\n\n${END}`;
 let out;
 if (existing.includes(BEGIN) && existing.includes(END)) {
   out = existing.slice(0, existing.indexOf(BEGIN)) + inner + existing.slice(existing.indexOf(END) + END.length);

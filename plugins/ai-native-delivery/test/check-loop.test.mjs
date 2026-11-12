@@ -4156,6 +4156,9 @@ SCEN(async () => {
 // 判据：主台账「防复发验证」节 + regression-checklist.d/ 分片的数据行（双 | 包边、首列剥反引号后
 //       以日期开头），行日期 ≥ 锚的第 4 列执法者须非空且非 —/-；[prompt-only] 显式声明合法；
 //       锚前存量不追溯；缺锚键（v1–v15）整段跳过。
+// 步骤 D 扩展（2026-11-12）：仓内路径形态的执法者（含 / 或 \ 或已知扩展名；URL/人名/门禁 §N 等
+//       纯外部形态不检）机检「文件存在 + node --check 级可解析」——不存在或不可解析 →
+//       hard「回归执法者指认失效」（与「未指认」分列）。
 SCEN(async () => {
   const REGR_HEAD = [
     '# regression-checklist — 回归清单',
@@ -4180,6 +4183,11 @@ SCEN(async () => {
     }
     return T;
   };
+  // 路径形态执法者的落盘（步骤 D 机检对象）：name 须以 .mjs/.js 结尾（node --check 级可解析检）
+  const putEnforcer = (T, name, content) => {
+    fs.mkdirSync(path.join(T, '.agents', 'scripts'), { recursive: true });
+    w(T, `.agents/scripts/${name}`, content);
+  };
   const OLD = '| 2026-11-10 存量事故 | 旧条目（锚前不追溯） | 旧落点 | — |';
   const NEW_EMPTY = '| 2026-11-12 新事故 | 锚后新条目缺执法者 | 新落点 |  |';
   // ① 锚前存量行放行（主台账无「防复发验证」节/无分片时同样零告警）
@@ -4194,15 +4202,16 @@ SCEN(async () => {
   check('检查29 锚后空执法者行（主台账）→ hard「回归执法者缺失」',
     r.status === 1 && outOf(r).includes('回归执法者缺失') && outOf(r).includes('2026-11-12'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
-  // ③ [prompt-only] 显式声明 + 真执法资产 → 均放行
+  // ③ [prompt-only] 显式声明 + 真执法资产（仓内路径存在且可解析）→ 均放行
   T = mkRegr(16, [
     OLD,
     '| 2026-11-12 事故甲 | 显式挂债条目 | 落点甲 | [prompt-only] |',
     '| 2026-11-12 事故乙 | 自动化条目 | 落点乙 | .agents/scripts/foo.test.mjs |',
   ]);
+  putEnforcer(T, 'foo.test.mjs', '// 执法者夹具（真资产）\nexport const ok = true;\n');
   r = run(T);
-  check('检查29 [prompt-only] 与真执法资产 → 放行',
-    r.status === 0 && !outOf(r).includes('回归执法者缺失'), `exit=${r.status}\n${outOf(r)}`);
+  check('检查29 [prompt-only] 与存在且可解析的真执法资产 → 放行',
+    r.status === 0 && !outOf(r).includes('回归执法者缺失') && !outOf(r).includes('回归执法者指认失效'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
   // ④ 分片行覆盖：主台账干净、分片锚后空执法者 → 拦且点名分片文件
   T = mkRegr(16, [OLD], [NEW_EMPTY]);
@@ -4224,6 +4233,29 @@ SCEN(async () => {
   r = run(T);
   check('检查29 缺锚键（v15）→ 整段跳过不拦',
     r.status === 0 && !outOf(r).includes('回归执法者缺失'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑦ 步骤 D：指认不存在文件 → hard「指认失效」（与「未指认」分列、点名路径）
+  T = mkRegr(16, ['| 2026-11-12 事故丙 | 指认失效条目 | 落点丙 | .agents/scripts/missing.test.mjs |']);
+  r = run(T);
+  check('检查29 指认不存在文件 → hard「回归执法者指认失效」且点名路径',
+    r.status === 1 && outOf(r).includes('回归执法者指认失效') && outOf(r).includes('.agents/scripts/missing.test.mjs') && outOf(r).includes('文件不存在'),
+    `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑧ 步骤 D：指认存在但语法坏（.mjs 不可解析）→ hard「指认失效（不可解析）」
+  T = mkRegr(16, ['| 2026-11-12 事故丁 | 语法坏条目 | 落点丁 | .agents/scripts/broken.mjs |']);
+  putEnforcer(T, 'broken.mjs', 'function {{{ 坏语法\n');
+  r = run(T);
+  check('检查29 指认存在但不可解析文件 → hard「指认失效」含语法检标记',
+    r.status === 1 && outOf(r).includes('回归执法者指认失效') && outOf(r).includes('不可解析'), `exit=${r.status}\n${outOf(r)}`);
+  rmfix(T);
+  // ⑨ 步骤 D：纯外部形态指认不检——门禁 §N（无分隔符无扩展名）与 URL（外部形态，含 / 不算仓内路径）
+  T = mkRegr(16, [
+    '| 2026-11-12 事故戊 | 门禁条目 | 落点戊 | 门禁 §29 |',
+    '| 2026-11-12 事故己 | 外部条目 | 落点己 | https://example.invalid/ci/run |',
+  ]);
+  r = run(T);
+  check('检查29 纯文本/URL 指认不检 → 放行（纯外部形态不进可达性机检）',
+    r.status === 0 && !outOf(r).includes('回归执法者指认失效'), `exit=${r.status}\n${outOf(r)}`);
   rmfix(T);
 });
 

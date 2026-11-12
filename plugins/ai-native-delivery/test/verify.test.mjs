@@ -1130,6 +1130,53 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
   }
 }
 
+// ---- 场景 24：回归清单 [prompt-only] 挂债摘要（enforcer-debt-summary 2026-11-12，设计稿步骤 D）----
+// 两态：①锚（policy v16）+ 清单 [prompt-only] 挂债行 → 尾部出摘要（计 N 行 + 催办去处）；
+// ②无挂债（自动化执法者行）→ 静默不出段。纯提示面：exit 0 / 全绿裁决不变（同 retire-summary
+// 场景 19 口径）；≤5 行截断（6 行夹具 → 3 明细 + 「…另 3 行」）。
+{
+  const REGR = (rows) => [
+    '# regression-checklist — 回归清单', '',
+    '## 防复发验证', '',
+    '| 来源 incident | 回归条目 | 落点 | 执法者 |',
+    '|---|---|---|---|',
+    ...rows, '',
+  ].join('\n');
+  const withAnchor = (rows) => {
+    const root = mkfix();
+    fs.writeFileSync(path.join(root, '.agents', 'config', 'engine.json'), '{"policyVersion":16}\n', 'utf8');
+    fs.writeFileSync(path.join(root, 'workflow', 'regression-checklist.md'), REGR(rows), 'utf8');
+    return root;
+  };
+  const tailAfter = (r) => r.stdout.split('全绿——可以关单')[1] || r.stdout.slice(-700);
+
+  const root = withAnchor([
+    '| 2026-11-12 事故甲 | 显式挂债条目一 | 落点甲 | [prompt-only] |',
+    '| 2026-11-12 事故乙 | 显式挂债条目二 | 落点乙 | [prompt-only] |',
+  ]);
+  const r = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root } });
+  check('场景 24：挂债两行 → 尾部出摘要（计 2 行 + 催办去处）且 exit 0（纯提示不改裁决）',
+    r.status === 0 && r.stdout.includes('[prompt-only] 挂债 2 行') && r.stdout.includes('催办去处'),
+    `exit=${r.status}\n${tailAfter(r)}\n${r.stderr.slice(-200)}`);
+  check('场景 24：摘要明细点名挂债行（日期 + 条目 + 台账名）',
+    r.stdout.includes('- 2026-11-12「显式挂债条目一」（regression-checklist.md）'), tailAfter(r));
+  fs.rmSync(root, { recursive: true, force: true });
+
+  const root2 = withAnchor(['| 2026-11-12 事故丙 | 自动化条目 | 落点丙 | 门禁 §29 |']);
+  const r2 = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root2 } });
+  check('场景 24：无 [prompt-only] 挂债 → 不出摘要段（静默）',
+    r2.status === 0 && !r2.stdout.includes('挂债'), `exit=${r2.status}\n${tailAfter(r2)}`);
+  fs.rmSync(root2, { recursive: true, force: true });
+
+  const root3 = withAnchor(Array.from({ length: 6 }, (_, i) => `| 2026-11-2${i} 事故 | 批量挂债条目${i} | 落点 | [prompt-only] |`));
+  const r3 = run(['--test-cmd', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root3 } });
+  const debtLines = r3.stdout.split('\n').filter((l) => l.includes('[prompt-only] 挂债') || /- 2026-11-2\d「/.test(l) || l.includes('…另'));
+  check('场景 24：挂债 6 行 → 摘要 ≤5 行（3 明细 + …另 3 行 收尾）',
+    r3.status === 0 && debtLines.length === 5 && r3.stdout.includes('…另 3 行'),
+    `exit=${r3.status} lines=${JSON.stringify(debtLines)}`);
+  fs.rmSync(root3, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log('\n用法：node .agents/scripts/verify.test.mjs');

@@ -16,6 +16,11 @@ import { findProjectRoot, engineDir, ledgerDir } from './paths.mjs';
 export const HINT_UNINITIALIZED = '先跑 init_engine 或任意命令触发初始化';
 const INDEX_HEAD_LINES = 15;
 const CONFIRM_TAIL = 5;
+// INDEX 注入纪律阈值（2026-11-12 设计稿 ai-native-closed-loop-and-memory 步骤 F）：
+// read_context 承担跨会话物理记忆的会话头部注入面，INDEX 随任务数单调膨胀会逐渐吃掉任务本身
+// （记忆文件膨胀陷阱的慢速版）。超阈值时输出「分片/归档建议」advisory，指向既有 compact/archive
+// 卫生链——只建议、不改写 INDEX、不拦任何流程（非门禁；量级上限，独立常量从权，200 行量级）。
+export const INDEX_MAX_LINES = 200;
 
 // frontmatter 单键提取（「状态:」/「级别:」只在 frontmatter 区取，防正文误命中——confirm-doc 同口径）
 function fmValue(text, key) {
@@ -123,6 +128,17 @@ export function readContext(root) {
       degraded.push(`workflow/INDEX.md 读不出（${(e && e.code) || (e && e.message) || '未知错误'}）——索引内容未取到（不是「索引为空」）`);
     }
     index = { exists: true, readable, head: readable ? text.replace(/\r\n/g, '\n').split('\n').slice(0, INDEX_HEAD_LINES) : [] };
+    if (readable) {
+      // 容量纪律（步骤 F）：只数真实行（尾换行不生幻影行，对齐 wc -l）；超阈值才附 lines/advisory——
+      // 带内 INDEX 的输出键形与既有形状逐键一致（快照级兼容，不追加恒在场的新键）。
+      const lines = text.replace(/\r\n/g, '\n').split('\n');
+      if (lines[lines.length - 1] === '') lines.pop();
+      const total = lines.length;
+      if (total > INDEX_MAX_LINES) {
+        index.lines = total;
+        index.advisory = `INDEX 已 ${total} 行，超注入纪律阈值 ${INDEX_MAX_LINES} 行——会话头部注入面随任务数单调膨胀（维护成本逐渐吃掉任务本身）。建议走既有卫生链收口：终态件归档（confirm-doc archive-on-close / scripts/archive-sweep.mjs）+ 台账收缩（scripts/compact-ledgers.mjs），随后 gen-workflow-index.mjs 再生活跃层；历史条目查 kb-search。本提示只建议、不改写 INDEX。`;
+      }
+    }
   }
   const inFlight = {
     intents: inFlightFiles(root, 'intents', degraded),

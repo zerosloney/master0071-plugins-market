@@ -78,6 +78,8 @@ function walkFiles(dir, base = dir) {
 // config-templates → .agents/config 种子清单。排除：githooks/（.git/hooks 安装的模板源，非项目配置）、
 // settings.json（项目侧专位在 .agents/settings.json，与 config/ 平级——§5.2 目录规范）、
 // pipelines/（项目侧专位在 .agents/pipelines/——编排脚本落位口径，见下方 ①b）、
+// ci/（L-ci 项目适配参考模板——GitHub Actions 示例属使用项目的 CI 资产，装进 .agents/config/
+//   既不运行也不该被台账追平；复制接线由项目自行做，先例同 githooks/pipelines）、
 // ledger-prune/rebuild-manifest.json（2026-11-05：owner 授权修剪/重建的凭据（逐行 sha256）与授权
 //   原文属**运行数据**，按「运行数据不迁」红线不随 init 种子——check-ledger-invariant 只消费
 //   提交自带的 manifest（git 对象读取，工作区/插件目录一律不读），项目侧不预置即无特许通道；
@@ -86,6 +88,7 @@ function configSeedFiles() {
   return walkFiles(PLUGIN_CONFIG_TEMPLATES_DIR)
     .map((rel) => rel.split(path.sep).join('/'))
     .filter((rel) => !rel.startsWith('githooks/') && rel !== 'settings.json' && !rel.startsWith('pipelines/')
+      && !rel.startsWith('ci/')
       && rel !== 'ledger-prune-manifest.json' && rel !== 'ledger-rebuild-manifest.json');
 }
 

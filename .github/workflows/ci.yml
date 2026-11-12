@@ -125,6 +125,7 @@ jobs:
           node test/check-lane-surface.test.mjs
           node test/agg-judgments.test.mjs
           node test/check-regression-consistency.test.mjs
+          node test/check-bands.test.mjs
           node test/check-script-coverage.test.mjs
           node test/confirm-doc.test.mjs
           node test/check-confirm-order.test.mjs
@@ -146,6 +147,7 @@ jobs:
           node test/verify-engine-gates.test.mjs
           node test/kb-search.test.mjs
           node test/dream-run.test.mjs
+          node test/dream-verify.test.mjs
           node test/rewrite-file.test.mjs
           node test/append-compensation.test.mjs
           node test/gen-verify-evidence.test.mjs
@@ -166,6 +168,8 @@ jobs:
           node test/gen-host-manifests.test.mjs
           node test/doctor.test.mjs
           node test/mcp-tools.test.mjs
+          # INDEX 注入纪律 advisory（步骤 F，read_context 输出容量纪律）
+          node test/read-context.test.mjs
           node skills/session-resume/scripts/worktree-audit.test.mjs
           node skills/verify-ui/scripts/gen-verify-feature.test.mjs
           node skills/decision-log/scripts/decision-log.test.mjs

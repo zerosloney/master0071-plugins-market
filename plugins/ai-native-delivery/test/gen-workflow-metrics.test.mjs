@@ -551,6 +551,112 @@ const mkSpec = (lines, checks) => {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- 场景组「阶段流转」（2026-11-12 步骤 E，第八表）：台账三件套 + git 时间戳 → 三段时长 + 返工代理 ----
+// mkfixGitLedger：mkfix + git init + 按指定日期逐笔提交（GIT_AUTHOR_DATE/COMMITTER_DATE 注入）+ 台账行。
+// steps = [[iso, [[相对路径, 内容], ...], 提交消息], ...]——每步先写盘再 add（同文件两次入步即「修订提交」）
+const mkfixGitLedger = (ledgerLines, steps) => {
+  const root = mkfixLedger(ledgerLines);
+  const gitEnv = (iso) => ({ ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso });
+  const git = (args, iso) => spawnSync('git', args, { cwd: root, encoding: 'utf8', env: gitEnv(iso) });
+  git(['init'], '2026-10-01T00:00:00Z');
+  git(['config', 'user.email', 'flow-test@example.com'], '2026-10-01T00:00:00Z');
+  git(['config', 'user.name', 'flow-test'], '2026-10-01T00:00:00Z');
+  for (const [iso, files, msg] of steps) {
+    for (const [rel, text] of files) {
+      fs.mkdirSync(path.join(root, rel, '..'), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text, 'utf8');
+    }
+    git(['add', ...files.map(([rel]) => rel)], iso);
+    const c = git(['commit', '-m', msg], iso);
+    if (c.status !== 0) throw new Error(`夹具提交失败（${iso} ${msg}）：${c.stderr}`);
+  }
+  return root;
+};
+{
+  // FL1：主路径——intent(10-01)→spec(10-02)→plan(10-04)→产品提交(10-05，锚)→spec 修订(10-05T12)→终态(10-06)
+  // 三段 = 1.0 / 2.0 / 2.0 天；build 锚 = min(产品提交, 终态) = 10-05；锚后修订 1 次 → 返工族 1
+  const stem = '2026-10-01-fam1';
+  const root = mkfixGitLedger(
+    [LROW({ ts: '2026-10-06T00:00:00.000Z', doc: `workflow/plans/${stem}.md`, stage: 'done', prev: 'approved' })],
+    [
+      ['2026-10-01T00:00:00Z', [[`workflow/intents/${stem}.md`, doc('状态: approved\n级别: L1\n模块: pipeline', 'INTENT — 流转')]], `add intent ${stem}`],
+      ['2026-10-02T00:00:00Z', [[`workflow/specs/${stem}.md`, doc('状态: approved\n级别: L1\n模块: pipeline', 'SPEC — 流转')]], `add spec ${stem}`],
+      ['2026-10-04T00:00:00Z', [[`workflow/plans/${stem}.md`, doc('状态: approved\n级别: L1\n模块: pipeline', 'PLAN — 流转')]], `add plan ${stem}`],
+      ['2026-10-05T00:00:00Z', [['src/app.txt', 'product']], `${stem}: 实现主体`],
+      ['2026-10-05T12:00:00Z', [[`workflow/specs/${stem}.md`, doc('状态: approved\n级别: L1\n模块: pipeline\n备注: 修订', 'SPEC — 流转')]], `${stem}: spec 修订（返工）`],
+    ],
+  );
+  const r = run(root, ['--month', '2026-10']);
+  const md = readMetrics(root);
+  check('流转 FL1：三段时长与返工计数（| 2026-10 | 1.0/1.0 | 2.0/2.0 | 2.0/2.0 | 1 | 1 |）',
+    r.status === 0 && /## 阶段流转[\s\S]*?\| 2026-10 \| 1\.0\/1\.0 \| 2\.0\/2\.0 \| 2\.0\/2\.0 \| 1 \| 1 \|/.test(md), `exit=${r.status}\n${r.stdout}${r.stderr}\n${md}`);
+  check('流转 FL1：stdout 逐族返工明细（锚后 spec/plan 修订 1 次）', /锚后 spec\/plan 修订 1 次/.test(r.stdout), r.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // FL2：无 git 仓 → 整表「数据不足」占位，不误报（无月份行、无 0 值）
+  const root = mkfix();
+  const r = run(root, ['--month', '2026-10']);
+  const md = readMetrics(root);
+  check('流转 FL2：非 git 仓 → 「数据不足」占位行且无月份行',
+    r.status === 0 && /## 阶段流转[\s\S]*?\| （数据不足：非 git 仓 \/ 无台账三件套或 git 时间不可得） \| —\/— \| —\/— \| —\/— \| — \| — \|/.test(md)
+    && !/## 阶段流转[\s\S]*?\| 2026-10 \|\s*\d/.test(md), `exit=${r.status}\n${r.stdout}${r.stderr}\n${md}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // FL3：无产品提交 → build 锚回退 plan 终态；锚后修订计 1（纯台账族）
+  const stem = '2026-10-01-fam2';
+  const docText = (extra = '') => doc(`状态: approved\n级别: L1\n模块: pipeline${extra}`, '流转夹具 fam2');
+  const root = mkfixGitLedger(
+    [LROW({ ts: '2026-10-05T00:00:00.000Z', doc: `workflow/plans/${stem}.md`, stage: 'done', prev: 'approved' })],
+    [
+      ['2026-10-01T00:00:00Z', [[`workflow/intents/${stem}.md`, docText()]], `add intent ${stem}`],
+      ['2026-10-02T00:00:00Z', [[`workflow/specs/${stem}.md`, docText()]], `add spec ${stem}`],
+      ['2026-10-03T00:00:00Z', [[`workflow/plans/${stem}.md`, docText()]], `add plan ${stem}`],
+      ['2026-10-06T00:00:00Z', [[`workflow/specs/${stem}.md`, docText('\n备注: 收口后修订')]], `${stem}: 收口后 spec 修订`],
+    ],
+  );
+  const r = run(root, ['--month', '2026-10']);
+  const md = readMetrics(root);
+  check('流转 FL3：终态锚回退（| 2026-10 | 1.0/1.0 | 1.0/1.0 | 2.0/2.0 | 1 | 1 |）',
+    r.status === 0 && /## 阶段流转[\s\S]*?\| 2026-10 \| 1\.0\/1\.0 \| 1\.0\/1\.0 \| 2\.0\/2\.0 \| 1 \| 1 \|/.test(md), `exit=${r.status}\n${r.stdout}${r.stderr}\n${md}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  // FL4：同月重跑 upsert 不重复；旧版文件（无「阶段流转」节）跑出新节且既有节原样保留（向后兼容）
+  const stem = '2026-10-01-fam3';
+  const famDoc = doc('状态: approved\n级别: L1\n模块: pipeline', '流转夹具 fam3');
+  const mk = () => mkfixGitLedger(
+    [LROW({ ts: '2026-10-06T00:00:00.000Z', doc: `workflow/plans/${stem}.md`, stage: 'done', prev: 'approved' })],
+    [
+      ['2026-10-01T00:00:00Z', [[`workflow/intents/${stem}.md`, famDoc]], `add intent ${stem}`],
+      ['2026-10-04T00:00:00Z', [[`workflow/specs/${stem}.md`, famDoc]], `add spec ${stem}`],
+      ['2026-10-05T00:00:00Z', [[`workflow/plans/${stem}.md`, famDoc]], `add plan ${stem}`],
+    ],
+  );
+  const rootUp = mk();
+  run(rootUp, ['--month', '2026-10']);
+  run(rootUp, ['--month', '2026-10']);
+  const mdUp = readMetrics(rootUp);
+  check('流转 FL4：同月重跑 upsert（「阶段流转」2026-10 行恰 1 行）',
+    (mdUp.match(/^\| 2026-10 \|/gm) || []).length >= 1
+    && (mdUp.split('## 阶段流转')[1].match(/^\| 2026-10 \|/gm) || []).length === 1, mdUp);
+  fs.rmSync(rootUp, { recursive: true, force: true });
+  const rootOld = mk();
+  run(rootOld, ['--month', '2026-10']);
+  const md1 = readMetrics(rootOld);
+  const END = '<!-- GENERATED:END -->';
+  const mdLegacy = md1.slice(0, md1.indexOf('## 阶段流转')) + END + '\n'; // 模拟旧版生成器产物：无第八节
+  fs.writeFileSync(path.join(rootOld, 'workflow', 'metrics.md'), mdLegacy, 'utf8');
+  const r2 = run(rootOld, ['--month', '2026-10']);
+  const md2 = readMetrics(rootOld);
+  const funnelPart = md2.split('## 闭环漏斗')[1]?.split('## 产品与质量维度')[0] || '';
+  check('流转 FL4：旧版文件补出新节且漏斗行原样保留（不回吸不重复）',
+    r2.status === 0 && /## 阶段流转[\s\S]*?\| 2026-10 \| 3\.0\/3\.0 \| 1\.0\/1\.0 \| 1\.0\/1\.0 \|/.test(md2)
+    && (funnelPart.match(/^\| 2026-10 \|/gm) || []).length === 1, `exit=${r2.status}\n${md2}`);
+  fs.rmSync(rootOld, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 if (fail) {
   console.log(`\n${USAGE}`);

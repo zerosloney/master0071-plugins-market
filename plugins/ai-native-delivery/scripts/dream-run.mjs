@@ -8,6 +8,9 @@
 //   node <插件根>/scripts/dream-run.mjs --report <path>      # 自定义报告路径
 //   node <插件根>/scripts/dream-run.mjs --stale-days 180     # 冷数据阈值（透传 agg-kb-usage 口径）
 //   node <插件根>/scripts/dream-run.mjs --months 6           # 遥测数据月下限（透传）
+// D 段（2026-11-12 步骤 C）：进程内 import 复用 dream-verify.mjs 的 runDreamVerify（避免重复扫描），
+//   报告附「D. 引用完整性对拍」——有存疑项才出、≤10 行点名 + 指向完整报告（.agents/tmp/dream-verify-<date>.md）；
+//   对拍失败按 advisory 降级（stderr 一行，D 段跳过，不拦审计）。
 // 安全边界：
 //   - 唯一写盘动作 = 报告本身，落项目侧 .agents/tmp/（安装时进 gitignore 标记块的运行时目录），
 //     绝不落插件目录；聚合与建议是机械筛查，裁决走主智能体/用户。
@@ -19,6 +22,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { collectColdCandidates, renderCold, readTelemetry } from './agg-kb-usage.mjs';
+import { runDreamVerify } from './dream-verify.mjs';
 import { findProjectRoot, projectRoot } from './paths.mjs';
 
 // ROOT 解析：CHECK_LOOP_ROOT 夹具注入 > 项目 git 根 > cwd（agg-kb-usage 同口径，注释互指）。
@@ -99,8 +103,10 @@ function collectTexts(root) {
 }
 
 // ---------- 分析（纯函数核心：root/阈值/now 可注入，测试复用） ----------
-// 返回 { cold, terminalDocs:[{doc,status,lastTouch}], suggestions:[{doc,status,hitMonths,refs,advice}] }
-export function analyzeDream({ root = ROOT, rows = readTelemetry(), minMonths = 3, staleDays: stale = 90, now = Date.now() } = {}) {
+// 返回 { cold, terminalDocs:[{doc,status,lastTouch}], suggestions:[{...}], verify }
+// verify = D 段数据源：{ findings:[{doc,line,kind,ref,advice}], reportRel }（null = 对拍失败/被注入跳过，不出段）。
+// 缺省时进程内跑 runDreamVerify(root)（唯一写盘 = 其报告本身，.agents/tmp/）；测试可经 verify 注入替身。
+export function analyzeDream({ root = ROOT, rows = readTelemetry(), minMonths = 3, staleDays: stale = 90, now = Date.now(), verify } = {}) {
   const cold = collectColdCandidates({ root, rows, minMonths, staleDays: stale, now });
   const texts = collectTexts(root);
   const refsOf = (rel) => {
@@ -142,7 +148,20 @@ export function analyzeDream({ root = ROOT, rows = readTelemetry(), minMonths = 
       : `曾被命中但已转冷——复评时效性：更新知识或降级归档${refNote}`;
     return { doc: c.doc, status: st || '—', hitMonths: c.hitMonths, lastHit: c.lastHit, lastTouch: c.lastTouch, refs, advice };
   });
-  return { cold, terminalDocs, suggestions };
+  // D. 引用完整性对拍（dream-verify，advisory 校错面）：缺省进程内复用 runDreamVerify；失败降级不出段。
+  if (verify === undefined) {
+    try {
+      const v = runDreamVerify(root);
+      verify = {
+        findings: v.findings,
+        reportRel: v.reportPath ? path.relative(root, v.reportPath).split(path.sep).join('/') : '',
+      };
+    } catch (err) {
+      console.error(`[dream-verify] 引用完整性对拍失败，D 段跳过（advisory 不拦）：${err && err.message}`);
+      verify = null;
+    }
+  }
+  return { cold, terminalDocs, suggestions, verify };
 }
 
 // ---------- 报告渲染（CLI 与测试单源） ----------
@@ -171,6 +190,16 @@ export function renderReport(analysis, { staleDays: stale = 90, date = today(), 
     lines.push(`    → ${s.advice}`);
   }
   lines.push('');
+  if (analysis.verify && analysis.verify.findings && analysis.verify.findings.length > 0) {
+    lines.push('## D. 引用完整性对拍（dream-verify，只标硬漂移；语义真伪不判）');
+    lines.push('');
+    for (const f of analysis.verify.findings.slice(0, 10)) {
+      lines.push(`  ${f.doc}:${f.line}  ${f.kind === 'path' ? '引用失效' : '指纹未对上'}  ${f.ref}`);
+    }
+    if (analysis.verify.findings.length > 10) lines.push(`  …其余 ${analysis.verify.findings.length - 10} 处见完整报告`);
+    if (analysis.verify.reportRel) lines.push(`  → 完整存疑注记清单（含建议动作 复评/更新/删行）：${analysis.verify.reportRel}`);
+    lines.push('');
+  }
   return lines.join('\n');
 }
 
@@ -205,5 +234,5 @@ if (isMain) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, renderReport(analysis, { staleDays }), 'utf8');
   console.log(`报告已写入 ${path.relative(ROOT, target) || target}`);
-  console.log(`（advisory 只读审计：冷数据候选 ${analysis.cold.sufficient ? analysis.cold.candidates.length : '数据不足'}、终态件候选 ${analysis.terminalDocs.length}、处置建议 ${analysis.suggestions.length}——裁决走主智能体/用户）`);
+  console.log(`（advisory 只读审计：冷数据候选 ${analysis.cold.sufficient ? analysis.cold.candidates.length : '数据不足'}、终态件候选 ${analysis.terminalDocs.length}、处置建议 ${analysis.suggestions.length}、引用存疑 ${analysis.verify && analysis.verify.findings ? analysis.verify.findings.length : 0}——裁决走主智能体/用户）`);
 }

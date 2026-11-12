@@ -129,5 +129,27 @@ const run = (root, args) => spawnSync(process.execPath, [DREAM, ...args], { cwd:
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ---- ⑧ D 段两态（dream-verify 引用完整性对拍集成）：无存疑不出段 / 有存疑出段并指向完整报告 ----
+{
+  const { root } = mkfix();
+  const r = run(root, ['--stale-days', '30']);
+  const report = fs.readFileSync(path.join(root, '.agents', 'tmp', fs.readdirSync(path.join(root, '.agents', 'tmp')).find((f) => f.startsWith('dream-report-'))), 'utf8');
+  check('⑧ 无存疑 → D 段不出（报告仍三段）', r.status === 0 && !report.includes('## D.') && ['## A.', '## B.', '## C.'].every((h) => report.includes(h)), report);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+{
+  const { root } = mkfix();
+  fs.writeFileSync(path.join(root, 'workflow', 'principles.md'),
+    '# 原则\n\n证据必须落 workflow/evidence/gone.md（已删除的凭证文件）。\n', 'utf8');
+  const r = run(root, ['--stale-days', '30']);
+  const report = fs.readFileSync(path.join(root, '.agents', 'tmp', fs.readdirSync(path.join(root, '.agents', 'tmp')).find((f) => f.startsWith('dream-report-'))), 'utf8');
+  check('⑧ 有存疑 → D 段出且点名 文档:行号+失效引用', r.status === 0 && report.includes('## D. 引用完整性对拍')
+    && /workflow\/principles\.md:3\s+引用失效\s+workflow\/evidence\/gone\.md/.test(report.replace(/\r\n/g, '\n')), report);
+  check('⑧ D 段指向完整对拍报告（dream-verify-<date>.md）且对拍报告已落 .agents/tmp/',
+    /dream-verify-\d{4}-\d{2}-\d{2}\.md/.test(report)
+    && fs.readdirSync(path.join(root, '.agents', 'tmp')).some((f) => f.startsWith('dream-verify-')), report);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

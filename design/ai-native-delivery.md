@@ -361,7 +361,7 @@ workflow/           # 交付台账（人类可读）
 | 命令 | §3.1 全部 8 个 |
 | 硬门 | check-loop hard 5 段全量：§1 判低拦截与 L3 状态 / §3x 回归证据 / §8 验收勾验 / §15 确认指纹 / §23 收敛对账 |
 | 关闸点 | closeout（关单）与 pre-push 两个物理闸门接线 |
-| 拦截 | 拦截模型前两层全量：PreToolUse 风险闸 + git hooks；CI 层为项目适配点（插件不附带 CI 模板，裁决见 §12.8） |
+| 拦截 | 拦截模型前两层全量：PreToolUse 风险闸 + git hooks；CI 层为项目适配点（0.1.0 裁决不附带模板，裁决见 §12.8；2026-11-12 起附带参考模板 config-templates/ci/，接线仍属项目自治） |
 | 台账 | 三件套 + INDEX + delegations + regression-checklist + evidence/verify-evidence + incidents |
 | 审计 | confirmations 双层账 + judgments + verifications |
 
@@ -480,9 +480,11 @@ verify 全量门的 `wiki-consistency` 门依赖**项目自带**脚本（wiki �
 
 **初始化触发接线（§5.2「首次命令执行触发」的定案形态，2026-10-27 收口）**：按命令文本驱动——`new-task.md` §1 定级前置检测项目根无 `.agents/config/engine.json` 时引导执行 `init-engine.mjs`；**不做 MCP 工具静默自动写盘**（工具面保持只读守门与显式 hint，初始化始终是用户/会话可见的显式动作）。closeout skill 与 review 命令核实无「未初始化假红」场景（其前提是 workflow 文档已在手），不加同款前置。
 
-### 12.8 §3.2 L-ci 裁决：CI 层是项目适配点，插件不附带 CI 模板
+### 12.8 §3.2 L-ci 裁决：CI 层是项目适配点，插件不附带 CI 模板（0.1.0 时效裁决；2026-11-12 起附带参考模板，见节末时效注记）
 
 §3.2 的拦截模型表把 L-ci 写为「CI workflow 模板（**项目适配点**）」，而 v1 文案（根 `plugin.json`、两份市场清单、插件 README）把它宣传成「PreToolUse 风险闸 + git hooks + **CI 模板**三层拦截」——插件内实际不含任何 CI workflow 模板（`config-templates/` 无 yml），文案与实物不符。
 
 **裁决**：0.1.0 只随插件交付前两层（PreToolUse 风险闸 + git hooks），CI 层保持为**项目适配点**——项目在自己的 CI 里跑 `node <插件安装路径>/scripts/check-loop.mjs --all` 即可补上合入前兜底，插件不代为生成 workflow 模板（生成器/供应商差异属项目侧资产，插件无权替项目选 CI 供应商）。文案侧全部对齐为「前两层随插件 + CI 层为项目适配点」，不再宣称不存在的模板。
+
+**时效注记（2026-11-12）**：本裁决的「不附带模板」部分已被设计稿 ai-native-closed-loop-and-memory 步骤 B 推翻——插件现附带 CI 适配参考模板（`config-templates/ci/`，不随 init-engine 播种），接线仍属项目自治、仍不默认接线任何宿主；「供应商中立理由」成立如初。上文裁决文本按历史原样保留。
 

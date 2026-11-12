@@ -79,6 +79,11 @@ import { PLUGIN_SCRIPTS_DIR, PLUGIN_ROOT, ledgerRoot, ledgerRefusal, scriptPath,
 // 故直接消费其数据源，口径一致）。
 import { evaluate as retireEvaluate, parseRegistry, readRegistryText } from './mechanism-retire-watch.mjs';
 import { readAllJudgments } from './agg-judgments.mjs';
+// 回归清单 [prompt-only] 挂债摘要数据源（enforcer-debt-summary 2026-11-12，设计稿
+// ai-native-closed-loop-and-memory 步骤 D）：行判据零重实现——消费 regr-enforcer-scan 共享扫描
+// （s29 hard 门同源，单源纪律）；锚 = policy.regrEnforcerSince（loadKitPolicy）。
+import { loadKitPolicy } from './policy.mjs';
+import { scanRegrEnforcer } from './regr-enforcer-scan.mjs';
 
 const SCRIPT_DIR = PLUGIN_SCRIPTS_DIR;
 const LEDGER = ledgerRoot({ fixture: process.env.CHECK_LOOP_ROOT });
@@ -325,6 +330,25 @@ export const retireSummaryLines = (actions) => {
   const other = list.length - known.length;
   if (other > 0) lines.push(`另 no-fuel 判据无燃料 ${other} 条：node <插件根>/scripts/mechanism-retire-watch.mjs 详查`);
   return lines;
+};
+
+// ---- 回归清单 [prompt-only] 挂债摘要（enforcer-debt-summary 2026-11-12，设计稿步骤 D）----
+// [prompt-only] 是 s29 的合法显式执法者声明，但每行都是「复发时不会自动红」的挂债——计数进
+// verify 尾部摘要（仿 retire-watch 摘要先例：有挂债才出、≤5 行、点名挂债 N 条与催办去处）。
+// 纯提示语义：缺锚（policy v1–v15）/ 无清单 / 无挂债 / 数据不可得 → 静默不出段；不红门、不改裁决。
+// parseCheck:false——摘要只要计数，不逐文件 spawn node --check（语法检是 s29 hard 门的事）。
+export const promptOnlyDebtLines = (root) => {
+  try {
+    const anchor = loadKitPolicy(root).regrEnforcerSince;
+    if (!anchor) return [];
+    const { targets } = scanRegrEnforcer(root, { anchor, parseCheck: false });
+    const rows = targets.flatMap((t) => t.promptOnly);
+    if (!rows.length) return [];
+    const lines = [`📋 回归清单 [prompt-only] 挂债 ${rows.length} 行（锚 ${anchor} 后显式人工执法声明——复发时不会自动红）——催办去处：对应行转真执法资产（测试/脚本/门禁）或登记 workflow/papercuts.md 处置`];
+    for (const r of rows.slice(0, 3)) lines.push(`- ${r.date}「${r.topic}」（${r.base}）`);
+    if (rows.length > 3) lines.push(`…另 ${rows.length - 3} 行`);
+    return lines.slice(0, 5);
+  } catch { return []; } // 治理提示不是门——数据面任何破损不出段、不拦关单
 };
 
 const recordFailure = (step, exitInfo, note, attribution) => {
@@ -973,6 +997,9 @@ async function run() {
   // 机制退役摘要（retire-summary 2026-11-09 步骤 C）：纯提示附在输出尾部——workflow-metrics 所在
   // 门段的执行尾；数据不可得 / 无动作 → 无行（静默）。不改变裁决与退出码。
   for (const line of retireSummaryLines(retireActions(ROOT))) console.log(`[verify] ${line}`);
+  // 回归清单挂债摘要（enforcer-debt-summary 步骤 D）：同 retire-summary 位（输出尾部、纯提示、
+  // 有挂债才出）；数据/锚不可得静默，不改裁决与退出码。
+  for (const line of promptOnlyDebtLines(ROOT)) console.log(`[verify] ${line}`);
   if (engineOnly) {
     console.log(`\n[verify] ✅ 引擎段 ${passedCount} 门全绿——增量门通过（非 20 门关单凭证，不落 all-gates 台账与摘要）`);
   } else {

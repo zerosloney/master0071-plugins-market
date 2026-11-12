@@ -7,7 +7,8 @@
 //         自己的 PLUGIN_ROOT，正好构成"上游种子变更"）→ 命中 update 且台账随升版；④用户改已装
 //         文件 → conflict skip 且内容与台账基线都不动；⑤--force 覆盖；⑥领养模式（正常安装后删
 //         台账重跑）→ adopted 且用户改动不覆盖、现状哈希入账；⑦--dry-run 对已装/空仓项目零写盘
-//        （跑前后全树快照比对，台账不落）。
+//        （跑前后全树快照比对，台账不落）；⑧config-templates/ci/ 不进种子（L-ci 模板是项目
+//        适配参考件）+ 模板 YAML 静态夹具（零依赖子集解析）。
 // 零依赖，Node ≥ 18 直接运行：node test/install.test.mjs（node --test 亦可）
 import fs from 'node:fs';
 import os from 'node:os';
@@ -251,6 +252,118 @@ const snapDiff = (a, b) => {
   check('⑦b 空仓 dry-run 零写盘（含台账不落）', snapDiff(snap3, snap4).length === 0 && !fs.existsSync(manifestOf(empty)), snapDiff(snap3, snap4).join(', '));
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(empty, { recursive: true, force: true });
+}
+
+// ---- ⑧ config-templates/ci/ 不进种子：L-ci 模板是项目适配参考件，init 不装、台账不追平 ----
+{
+  const root = mkRepo();
+  const r = runCli(root);
+  check('⑧ 首装 exit 0', r.status === 0, `exit=${r.status} ${r.stderr}`);
+  const configDir = path.join(root, '.agents', 'config');
+  const entries = fs.readdirSync(configDir);
+  check('⑧ 装出的 .agents/config/ 不含 ci/（模板随插件分发，非运行配置种子）',
+    !entries.includes('ci') && !fs.existsSync(path.join(configDir, 'ci')), entries.join(', '));
+  const m = readManifest(root);
+  check('⑧ 安装台账无 .agents/config/ci/ 键（不被台账追平）',
+    !Object.keys(m.files).some((k) => k.startsWith('.agents/config/ci/')),
+    Object.keys(m.files).filter((k) => k.startsWith('.agents/config/ci/')).join(', '));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑨ ci 模板静态夹具：零依赖 YAML 子集解析（缩进/嵌套/块标量），模板必须可解析成预期结构 ----
+// 只覆盖模板用到的构造（全行注释、嵌套映射、块序列、flow 序列、| 块标量、引号标量）——
+// 缩进错位 / tab / 断键这类常见 YAML 语法损伤会让解析或结构断言变红。零依赖，不引第三方解析器。
+{
+  const tplPath = path.join(PLUGIN_ROOT, 'config-templates', 'ci', 'github-actions-verify.yml.template');
+  check('⑨ ci 模板在位', fs.existsSync(tplPath));
+  const tpl = fs.existsSync(tplPath) ? fs.readFileSync(tplPath, 'utf8') : '';
+  const parseYamlSubset = (text) => {
+    if (/^\t/im.test(text)) throw new Error('缩进含 tab');
+    const lines = text.split(/\r?\n/)
+      .map((l, idx) => ({ text: l, no: idx + 1 }))
+      .filter((l) => { const t = l.text.trim(); return t !== '' && !t.startsWith('#'); });
+    let i = 0;
+    const indentOf = (l) => l.text.match(/^ */)[0].length;
+    const stripQuotes = (s) => {
+      s = s.trim();
+      if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1);
+      return s;
+    };
+    const parseScalar = (s) => {
+      s = s.trim();
+      if (s.startsWith('[') && s.endsWith(']')) return s.slice(1, -1).split(',').map(stripQuotes).filter((x) => x !== '');
+      return stripQuotes(s);
+    };
+    const parseMap = (indent) => {
+      const obj = {};
+      while (i < lines.length) {
+        const cur = lines[i];
+        const ci = indentOf(cur);
+        if (ci < indent) break;
+        if (ci > indent) throw new Error(`第 ${cur.no} 行缩进越级: ${cur.text.trim()}`);
+        const m = cur.text.slice(indent).match(/^([^:]+):(?:[ ]+(.*))?$/);
+        if (!m) throw new Error(`第 ${cur.no} 行不是 key: value 形态: ${cur.text.trim()}`);
+        const key = m[1].trim();
+        const rest = (m[2] || '').trim();
+        i++;
+        if (rest === '|' || rest === '|-') {
+          const buf = [];
+          while (i < lines.length && indentOf(lines[i]) > indent) { buf.push(lines[i].text.slice(indent + 2)); i++; }
+          obj[key] = buf.join('\n');
+        } else if (rest === '') {
+          if (i < lines.length && indentOf(lines[i]) > indent) { obj[key] = parseBlock(indentOf(lines[i])); continue; }
+          obj[key] = null;
+        } else {
+          obj[key] = parseScalar(rest);
+        }
+      }
+      return obj;
+    };
+    const parseSeq = (indent) => {
+      const seq = [];
+      while (i < lines.length) {
+        const cur = lines[i];
+        const ci = indentOf(cur);
+        if (ci < indent) break;
+        if (ci > indent) throw new Error(`第 ${cur.no} 行缩进越级: ${cur.text.trim()}`);
+        const m = cur.text.slice(indent).match(/^-(?:[ ]+(.*))?$/);
+        if (!m) throw new Error(`第 ${cur.no} 行不是序列项: ${cur.text.trim()}`);
+        const rest = (m[1] || '').trim();
+        if (rest === '') { i++; seq.push(parseBlock(indent + 2)); continue; }
+        // 行内首键当作虚位更深行（dash 缩进 + 2，标准两空格对齐），与其余更深层一起解析
+        lines[i] = { text: ' '.repeat(ci + 2) + rest, no: cur.no };
+        seq.push(parseBlock(ci + 2));
+      }
+      return seq;
+    };
+    const parseBlock = (indent) => (/^\s*- /.test(lines[i].text) ? parseSeq(indent) : parseMap(indent));
+    const doc = parseBlock(indentOf(lines[0]));
+    if (i !== lines.length) throw new Error(`第 ${lines[i].no} 行未被消费（缩进结构断裂）`);
+    return doc;
+  };
+  let doc = null;
+  let parseErr = '';
+  try { doc = tpl ? parseYamlSubset(tpl) : null; } catch (e) { parseErr = e.message; }
+  check('⑨ 模板可被零依赖 YAML 子集解析器完整解析（缩进/嵌套/块标量）', doc !== null, parseErr);
+  if (doc) {
+    const job = doc.jobs && doc.jobs.governance;
+    const steps = job && job.steps;
+    check('⑨ 结构完整：steps 含 check-loop / verify 无模型步（run 命令带 PLUGIN_ROOT 占位）',
+      Array.isArray(steps)
+      && steps.some((s) => typeof s.run === 'string' && s.run.includes('check-loop.mjs'))
+      && steps.some((s) => typeof s.run === 'string' && s.run.includes('verify.mjs'))
+      && steps.every((s) => typeof s !== 'string'),
+      JSON.stringify(doc.jobs && Object.keys(doc.jobs)));
+    const matrix = job && job.strategy && job.strategy.matrix;
+    check('⑨ 双系统 matrix（ubuntu + windows）与 env.PLUGIN_ROOT 在场',
+      Boolean(matrix) && Array.isArray(matrix.os) && matrix.os.includes('ubuntu-latest') && matrix.os.includes('windows-latest')
+      && Boolean(doc.env) && typeof doc.env.PLUGIN_ROOT === 'string' && doc.env.PLUGIN_ROOT !== '');
+  }
+  // 护栏（全局约束机器化）：无盘符绝对路径、无密钥样例值、可选诊断步必须整段注释（无可执行模型调用行）
+  check('⑨ 模板护栏：无绝对路径、无密钥样例值、claude -p 只存在于注释行',
+    !/[A-Za-z]:[\\/]/.test(tpl)
+    && !/ghp_|github_pat_|sk-[A-Za-z0-9]|AKIA|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY/.test(tpl)
+    && !/^(?!\s*#).*claude\s+-p/m.test(tpl));
 }
 
 // 汇总 + 退出码（同 init.test.mjs 口径：断言全挂必须让进程退出码变红）

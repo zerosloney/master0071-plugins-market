@@ -30,8 +30,51 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 
 - **PreToolUse 风险闸**仅在 Claude 式 hook 宿主（Claude Code / ZCode 等）生效；
 - 不支持该类 hook 的宿主**自动降级为 git hooks 单层拦截**，硬门语义不变，只是拦截时点从工具调用前推迟到提交 / 推送前；
-- **CI 层是项目适配点，插件不附带 CI 模板**：项目可在自己的 CI 里跑 `node <插件安装路径>/scripts/check-loop.mjs --all`（插件随宿主常驻，CI 侧需能访问该路径），把合入前兜底补上；
+- **CI 层是项目适配点**：插件附带参考模板（`config-templates/ci/`，不随 init-engine 播种），项目复制到自己的 CI 接线，判据与 git hooks 同源，详见下节「CI 层项目适配指南」；
 - 命令、角色委派（斜杠命令 / 子智能体）按各宿主约定目录加载，不支持对应约定的宿主跳过加载即可，MCP 工具全宿主可用。
+
+## CI 层项目适配指南（L-ci）
+
+三层拦截模型里插件只自带两层（PreToolUse 风险闸 / 写前门 + git hooks 四钩子），第三层 CI 是**项目适配点**：拦截面从本机提交 / 推送前移到 PR 合入前（服务端执行，本机 `--no-verify` 或宿主 hook 缺席都绕不过它），判据与 git hooks 同源（同一套 check-loop / verify 脚本，不新增判据）。
+
+- **模板位置**：`config-templates/ci/`（`github-actions-verify.yml.template` + 目录内 README）。参考件而非运行配置——`install/plan.mjs` 的种子排除清单把 `ci/` 挡在 `.agents/config/` 之外（先例同 githooks/、pipelines/），init-engine 不播种、安装台账不追平；
+- **三步接入**：① 模板复制到使用项目 `.github/workflows/`；② 按 workflow 内【改这里】注释改三处——`env.PLUGIN_ROOT`（插件根解析：市场仓随检出 / 宿主常驻安装路径 / vendor 进仓，三方案任选）、action pin（建议按 commit SHA 固定）、市场仓检出步；③ 首跑全绿后再决定是否解注释可选诊断步；
+- **授权边界**：无模型步（check-loop `--all` + verify `--full`）零凭据零模型调用，任何项目可直接接；可选诊断步（`claude -p "…"` 无交互模型调用）属**项目自治**——插件不默认接线，密钥经 CI secrets 注入（模板与插件都不携带密钥样例值），提示词按「只读诊断、不改文件」约束，结论仍走人工 / PR 处置；
+- **为何不默认接线**：init-engine 只落使用项目运行时，插件无法预知项目用哪个 CI、插件在 runner 上以什么形态在场（托管 runner 上没有宿主安装缓存）；模型诊断步涉及凭据与授权，不能替项目决定。
+
+## 项目侧安全适配（宿主能力边界，纯指引）
+
+插件的拦截面有两层：deny/ask 风险闸只看 **shell 命令串**，check-secrets 只扫 **git diff**——agent 仍可经 Read 工具把 `.env` 里的密钥读进上下文、再经任何出网通道带出。补齐这类面属**宿主托管安全能力**（文件读取拒绝面 / 沙箱网络白名单 / 凭据剥离），插件不内置、不仿制（设计稿 §3「明确不做」），只成文为项目侧适配要求：宿主支持时按下面样例接线，键名以各宿主版本文档为准，样例一律注释形态、占位符**不写真值**。
+
+```jsonc
+// ZCode / Claude 式宿主：settings.json（项目或托管层）——文件读取拒绝面（支持 Read(...) 规则的宿主）
+// {
+//   "permissions": {
+//     "deny": [
+//       "Read(.env*)",          // .env* 一律不进上下文
+//       "Read(secrets/**)"      // 密钥目录拒读（按项目实际目录与命名改）
+//     ]
+//   }
+// }
+```
+
+```toml
+# Codex 宿主：config.toml——沙箱网络白名单（默认全拒出网，需要时按域名白名单放开）
+# sandbox_mode = "workspace-write"
+# [sandbox_workspace_write]
+# network_access = false
+```
+
+- **凭据剥离**：属托管/网关形态能力（如企业 LLM 网关的出口脱敏策略），zcode/codex 项目侧无一等价键位可写——按宿主能力以托管 settings 或代理网关实现；插件层不做、也代配不了。
+- **宿主不支持时**：三类能力整体降级为「不可用」，此时只剩插件两层（见下表）——这是能力边界，不是可修的缺陷；装配前先确认宿主支持面。
+
+**三层分工边界**（各拦什么 / 拦不住什么）：
+
+| 层 | 拦截面 | 各拦什么 | 拦不住什么 |
+|---|---|---|---|
+| 插件 deny/ask 风险闸（PreToolUse hook） | shell 命令串 | 危险命令文本：`git push --force` / `git reset --hard` / `drop database` 等**不可下调地板** ∪ 项目追加；ask 面弹确认 | 非 shell 工具的读取（Read `.env` 直接进上下文）；无 PreToolUse 面的宿主（omp 等，退 git hooks）；脚本内容里夹带的密钥 |
+| check-secrets（verify.mjs 安全段，gitleaks + secrets-lite 兜底） | git diff 面 | 即将进版本库的密钥：关单前 / pre-push / CI 扫 staged 与全量 | 不进 git 的文件外泄；已被 Read 进上下文的密钥（上下文可能随后出网）；运行时内存中的凭据 |
+| 项目侧安全适配（读取拒绝面 / 网络白名单 / 凭据剥离） | 工具读取面 + 出网面 + 上下文出口 | 密钥进不了上下文（拒读）；即使进了也出不了网（白名单）；出口再脱敏（剥离兜底） | 宿主不支持时全面失效；项目不接线则不生效（插件无权代配） |
 
 ## 安装
 
@@ -193,7 +236,15 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **§v16 两门**（policy v16 生效锚后，存量项目不追溯）：① spec 前提质询门——spec draft→approved 必经 premiseGate，关键前提须有质询记录（小件可写「无关键前提」行 + 理由）；② 检查 29 回归清单执法者配对——防复发清单锚后新行的「执法者」列须指认「复发时谁会红」（hard，显式 `[prompt-only]` 为合法声明）。
 - **通用关单**：`scripts/closeout.mjs` 把 workflow-closeout §1–§5 固定序列收成 L0–L3 单命令（confirm-doc 落终态 → 索引重生成 → 定向 git add → 暂存区核对防夹带 → git commit，禁 `--no-verify`），取代 closeout-l1（单入口不并存）。
 - **兜底与自愈**：`check-secrets-lite.mjs` 在 gitleaks 三级定位（GITLEAKS_BIN / PATH / `.agents/tools`）全空时自动接续密钥扫描（纯 Node 零二进制零网络；强特征全文件执法且基线豁免不适用，宽泛特征只扫基线外文件）；verify 生成物漂移门（生效规则视图 / 引擎地图 / 工作流索引）首检漂移先原地重生成再复检，复检绿计通过并留自愈行（♻️ 可审计）；`check-doc-body-drift.mjs` 对已关单文档正文漂移在提交时刻打 advisory（执法面仍是关单时确认指纹对账，口径零变化）；`check-hook-wiring.mjs` 对账「接线宣称 ↔ 宿主实态」（hooks.json / 三宿主垫片 / MCP 入口），漂移红即挡推送。
-- **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。
+- **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。校错面：`dream-verify.mjs` 对知识文档（principles、regression-checklist 主档+分片、specs/plans 终态存档件）做引用完整性对拍——只标硬漂移（引用了不存在的东西），语义真伪不判；`node <插件根>/scripts/dream-verify.mjs --root <仓库根>`，报告落 `.agents/tmp/dream-verify-<日期>.md`，dream-run 报告 D 段引用其结果。
+
+## 确定性带监测（check-bands，advisory）
+
+无人触发闭环的确定性控制带监测：无人在场时由定时面发现指标越带并给出建议指令，**只出账不执行**——自治执行属 owner 另行授权的 runner 面（与「不自动唤起 agent」红线同源）。
+
+- **种子**：`config-templates/bands.json`（init-engine 播种进 `.agents/config/bands.json`），字段 `metric / baseline / rules / tiers` 四段；tier 动作枚举 `log / diagnose（只读工具白名单）/ propose（仅经 PR）`，档位随配置版本化；
+- **用法**：`node <插件根>/scripts/check-bands.mjs --root <仓库根>`——纯确定性读指标源（首版两内置源：`verifications.jsonl` 绿行、`gen-workflow-metrics` 输出），判定越带并按档输出**建议指令行**，绝不自动执行；外部指标源留 `--metric-source` 扩展位；
+- **与 CI 的搭配**：`config-templates/ci/` 的 workflow 模板附注释形态的 `schedule` 定时旁路样例——cron 定时跑 check-bands 出报告，处置走人工 / PR；不要把建议指令行直接接成自动执行步。
 
 ## 工程准入与验收
 
@@ -210,6 +261,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.2.1**
+
+闭环自治与记忆校错收口（设计稿 ai-native-closed-loop-and-memory 三批全量落地，开放问题 1/4 按建议裁决、2/3 维持）：**批次 1 闭环自治半场**——确定性带监测 check-bands（config-templates/bands.json 种子 + μ±kσ 简化判据，log/diagnose/propose 三档响应，建议指令只打印不执行）与 CI 适配参考模板（config-templates/ci/，无模型步可直接、可选诊断步注释样例；插件描述同步收口为「附带 CI 适配参考模板，接线属项目自治」）、检查 29 执法者可达性机检（路径形态执法者机检存在 + node --check 级可解析，[prompt-only] 维持放行但挂债计数进 verify 尾部摘要）；**批次 2 校错 pass**——dream-verify 引用完整性对拍（知识文档规则型断言行的确认指纹/证据文件/终态件对拍，只标硬漂移、宁漏报不误报，dream-run 报告新增 D 段引用）；**批次 3 收尾**——阶段流转指标（gen-workflow-metrics 第八表：intent→spec / spec→plan / plan→close 中位与最大 + build 后 spec/plan 修订提交数与返工族数，机制登记 [数据面] 至 59 行；非 git 仓出「数据不足」不误报）、INDEX 注入纪律（read_context 输出对超 200 行 INDEX 附分片/归档 advisory，指向 compact/archive 既有链，不改写不拦流程）、项目侧安全适配成文（README 新节：文件读取拒绝面 / 沙箱网络白名单 / 凭据剥离的宿主等价配置样例与三层分工边界表，零行为变更）。
 
 **0.2.0**
 

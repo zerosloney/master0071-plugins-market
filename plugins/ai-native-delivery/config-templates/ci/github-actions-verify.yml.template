@@ -1,0 +1,93 @@
+# ai-native-delivery · L-ci 项目适配模板（GitHub Actions 无模型守门示例）
+# ─────────────────────────────────────────────────────────────────────────────
+# 本文件是**参考模板**（随插件分发于 config-templates/ci/，不是运行配置，init-engine
+# 不播种——见同目录 README.md）。复制到使用项目的 .github/workflows/<名字>.yml，
+# 按下方【改这里】注释改完即可接线；插件不默认接线任何宿主。
+#
+# 三层拦截模型里的第三层：L-hook（PreToolUse）拦工具调用、L-git（.git/hooks 四钩子）
+# 拦提交/推送，本 job 在**合入面**（PR merge 前，服务端）把同一套确定性门再跑一遍——
+# 本机 --no-verify 或宿主不支持 PreToolUse 时的兜底。
+#
+# 双系统 matrix 写法参考模板所从出的市场仓 .github/workflows/ci.yml；windows 走 bash
+# shell：插件脚本与 git hooks 无 PowerShell 依赖，bash 语义两平台一致。
+
+name: ai-native-delivery-governance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 所有命令都在**仓库检出根**执行（Actions 默认 working-directory，与 cd 无关）：
+# check-loop / verify 自己锚定 git root——不要 cd 进插件目录，插件目录只是只读脚本源。
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 【改这里 1/4】插件根怎么解析（PLUGIN_ROOT 是项目自定 env 位，不是 Actions 内置变量）：
+  #   a. 托管 runner 无宿主安装缓存（最常见）——把插件所在市场仓随本仓一并检出（见下方
+  #      Checkout plugin marketplace 步），PLUGIN_ROOT 填相对检出路径（本文件的默认值）；
+  #   b. 自托管 runner 且插件已随宿主常驻安装——改填宿主缓存里的绝对安装路径（路径含
+  #      版本号段，插件升版后同步更新；插件 README 里 <插件根> 占位即指这个路径）；
+  #   c. 把插件目录 vendor 进本仓——改填仓内相对路径，并删除市场仓检出步。
+  PLUGIN_ROOT: vendor/master0071-plugins-market/plugins/ai-native-delivery
+  # 方案 a 的市场仓坐标（fork / 私有仓改成自己的只读地址）
+  MARKETPLACE_REPOSITORY: zerosloney/master0071-plugins-market
+
+jobs:
+  governance:
+    name: governance gates (deterministic)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 双系统对跑：门禁零二进制零网络，Windows / bash 下行为一致
+        os: [ubuntu-latest, windows-latest]
+        # 18 是插件声明的 Node 下限（运行期自检同口径）——下限档要真的跑，不是声明摆设
+        node: [18, 22]
+    steps:
+      # 【改这里 2/4】action 建议 pin 到 commit SHA（tag 可变，被投毒的 action 换 tag 即可
+      # 拿走 runner 上的 GITHUB_TOKEN；SHA pin + Dependabot 是官方推荐组合，升级走显式 PR）
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # 【改这里 3/4】方案 a 用这一步把市场仓检出到 PLUGIN_ROOT 指的相对路径；选方案 b/c
+      # 时删除本步并改 env.PLUGIN_ROOT。私有市场仓取消注释 token 行，凭据经 GitHub Actions
+      # secrets 注入——本模板与插件都不携带任何密钥样例值。
+      - name: Checkout plugin marketplace
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MARKETPLACE_REPOSITORY }}
+          path: vendor/master0071-plugins-market
+          # token: ${{ secrets.MARKETPLACE_TOKEN }}
+      # 部分门禁与测试会真实创建 git 提交，runner 需要可用身份
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "CI"
+      # ── 无模型步：插件自带确定性门，零凭据、零模型调用 ─────────────────────
+      # check-loop 硬门（判低 / 回归证据 / 验收勾验 / 确认指纹 / 收敛对账 / 执法者配对），
+      # --all = hard + hygiene 两车道全跑；与 git hooks 跑的是同一脚本，判据同源
+      - name: check-loop hard gates
+        run: node "${PLUGIN_ROOT}/scripts/check-loop.mjs" --all
+      # verify 静态门（架构红线 + build + test；缺适用性判据的门自动 SKIP 出账，不假红）。
+      # CI 接线用 --full 全量；默认档是 diff 面增量，留给本地关单用
+      - name: verify static gates
+        run: node "${PLUGIN_ROOT}/scripts/verify.mjs" --full
+      # 确定性带监测（advisory，见插件 README「确定性带监测」节）：越带只出**建议指令**，
+      # 绝不自动执行——自治执行属 owner 另行授权的 runner 面。定时旁路示例：
+      # - name: check-bands report (advisory)
+      #   if: github.event_name == 'schedule'
+      #   run: node "${PLUGIN_ROOT}/scripts/check-bands.mjs" --root .
+
+      # ── 可选诊断步（整段注释——项目自治面，默认不接线）─────────────────────
+      # 无交互模型调用（claude -p "…"）的形状示例。接不接、何时接，由项目自行裁决：
+      #   1. 自备凭据与授权：模型 API 密钥经 GitHub Actions secrets 注入（本模板不携带任何
+      #      密钥样例值），并确认项目授权面允许 CI 内模型调用；
+      #   2. 只读约束：提示词明确「不改任何文件」，诊断结论仍走人工 / PR 处置。
+      # - name: failure diagnosis (optional, unattended model)
+      #   if: failure()
+      #   run: |
+      #     claude -p "本仓 check-loop/verify 失败。读 .agents/tmp/ 最新告警明细与 workflow/ 台账，输出一页根因假设与最小修复建议；只读诊断，不改任何文件"

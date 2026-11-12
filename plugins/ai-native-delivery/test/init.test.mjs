@@ -78,6 +78,14 @@ const snapDiff = (a, b) => {
   check('首拷内容 = 插件种子原文（装户侧从种子起步）',
     fs.readFileSync(path.join(root, '.agents', 'config', 'mechanism-registry.md'), 'utf8')
       === fs.readFileSync(path.join(PLUGIN_ROOT, 'config-templates', 'mechanism-registry.md'), 'utf8'));
+  // 带监测种子首拷（2026-11-12 设计稿 ai-native-closed-loop-and-memory 步骤 A）：bands.json 随
+  // config-templates 通用复制机制自动落 .agents/config/（install/plan 无需专项条目——核实即此）。
+  // 示范口径随种子起步、项目自调；check-bands.mjs 消费（缺文件 exit 0 不误报）。
+  check('首跑种子 .agents/config/bands.json（带监测种子首拷）',
+    r1.created.includes('.agents/config/bands.json'), JSON.stringify(r1.created));
+  check('bands.json 首拷内容 = 插件种子原文',
+    fs.readFileSync(path.join(root, '.agents', 'config', 'bands.json'), 'utf8')
+      === fs.readFileSync(path.join(PLUGIN_ROOT, 'config-templates', 'bands.json'), 'utf8'));
   check('首跑种子 .agents/settings.json', r1.created.includes('.agents/settings.json'));
   check('首跑建确认主账与分片目录', r1.created.includes('.agents/confirmations.jsonl') && r1.created.includes('.agents/confirmations.d/'));
   check('首跑建 workflow 八子目录与 INDEX', r1.created.includes('workflow/INDEX.md') && r1.created.includes('workflow/archive/'));
