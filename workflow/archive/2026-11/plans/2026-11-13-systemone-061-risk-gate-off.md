@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 0a91b3877f3c922d
+确认指纹: cd8cc5568c05b617
 ---
 # PLAN — systemone-061-risk-gate-off——shell 命令风险闸整体下线
 
@@ -52,12 +52,15 @@
 
 - 静态门：`node <插件根>/scripts/verify.mjs --scope` 绿（涉前端改动另附实测证据）
 - 检索：粘贴第 2 步 kb-search 输出（无命中贴命令与空结果即可，免另写说明）
-- 验收：
-- [x] 代码面零残留：rg 'pretool-risk|risk-gate|hookRiskGate|RISK_GATE|emit-ask|askPayload' 除 README 历史变更条目外零命中
-- [x] hooks.json 只剩 UserPromptSubmit
-- [x] 三套冒烟全绿：hook.smoke / smoke / contract.smoke
-- [x] 版本位一致 0.6.1：4 清单 + mcp SERVER_INFO + marketplace 条目
-- [x] 仓库级门禁：manifest-lint PASS、release --check 一致
+- 验收：见「验收标准」节
+
+## 验收标准
+
+- [x] 代码面零残留：rg 'pretool-risk|risk-gate|hookRiskGate|RISK_GATE|emit-ask|askPayload' 除 README 历史变更条目外零命中（证据：rg 扫描输出仅 README 历史条目命中）
+- [x] hooks.json 只剩 UserPromptSubmit（证据：文件内容核对）
+- [x] 三套冒烟全绿：hook.smoke / smoke / contract.smoke（证据：node test/hook.smoke.mjs、node test/smoke.mjs、node test/contract.smoke.mjs 均输出「全部通过」）
+- [x] 版本位一致 0.6.1：4 清单 + mcp SERVER_INFO + marketplace 条目（证据：rg 版本位输出）
+- [x] 仓库级门禁：manifest-lint PASS、release --check 一致（证据：命令输出 PASS）
 
 > 关单前逐条勾验并补证据：`- [x] <判据>（证据：<commit SHA / 测试用例名 / 冒烟输出>）`。约束与风险以一句话并入改动方案条目。
 
