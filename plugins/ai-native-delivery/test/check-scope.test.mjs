@@ -69,6 +69,18 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// S3b 归档件豁免（关单归档后的 workflow/archive/** 是台账面，不是产品面）
+{
+  const { root } = mkRepo();
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'workflow', 'archive', '2026-11', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p4.md'), ['## 改动面', '- src-a.md：改', ''].join(String.fromCharCode(10)));
+  fs.writeFileSync(path.join(root, 'workflow', 'archive', '2026-11', 'plans', '2026-11-13-x.md'), ['---', '状态: done', '---', ''].join(String.fromCharCode(10)));
+  const r = run(root, ['workflow/plans/p4.md']);
+  check('S3b 归档件豁免（workflow/archive/** 不算越界）', r.status === 0 && !/workflow[\\/]archive/.test(r.stdout.split('未落件')[0]), JSON.stringify({ status: r.status, out: r.stdout.slice(0, 300) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 // S4 --strict 越界 exit 1；无越界 exit 0
 {
   const { root } = mkRepo();

@@ -64,10 +64,11 @@ export function extractDeclared(planAbs, root = process.cwd()) {
 // 白名单与匹配规则同为共享常量（check-scope-range / stage-gates 复用，口径单源）
 // 扩容（判据移植 4bbf75c3b，对齐引擎面豁免 / 台账豁免口径补三类非产品面）：
 //   ① 引擎面：.agents/ 全部、.zcode/、.githooks/、宿主适配目录、azure-pipelines.yml、根 AGENTS.md；
-//   ② 台账与凭证：workflow/ 根级台账、其 .d/ 月度分片、本机证据目录 workflow/evidence/；
+//   ② 台账与凭证：workflow/ 根级台账、其 .d/ 月度分片、本机证据目录 workflow/evidence/、
+//      归档目录 workflow/archive/（关单归档件，台账面非产品面）；
 //   ③ wiki 知识文档（内容调整同享豁免）。
 // 产品面判据不变：改了未声明仍按调用方的 strict 语义执法。
-export const WHITELIST_RE = /^(?:workflow\/(?:intents|specs|plans|incidents)\/|workflow\/INDEX\.md$|workflow\/[^/]+\.md$|workflow\/[^/]+\.d\/|workflow\/evidence\/|wiki\/|\.agents\/|\.zcode\/|\.githooks\/|\.opencode\/|\.trae\/|\.codebuddy\/|\.qwen\/|azure-pipelines\.yml$|AGENTS\.md$|package-lock\.json$)/;
+export const WHITELIST_RE = /^(?:workflow\/(?:intents|specs|plans|incidents)\/|workflow\/INDEX\.md$|workflow\/[^/]+\.md$|workflow\/[^/]+\.d\/|workflow\/evidence\/|workflow\/archive\/|wiki\/|\.agents\/|\.zcode\/|\.githooks\/|\.opencode\/|\.trae\/|\.codebuddy\/|\.qwen\/|azure-pipelines\.yml$|AGENTS\.md$|package-lock\.json$)/;
 // 2026-11-13 收紧匹配（原 f===df / 后缀 / 双向 includes；判据移植 8f6a22f84 B 件）：
 //   双向 includes 会让 `backend/.../Services` 之类前缀命中整个子树，也让声明方写半截路径即「覆盖」——
 //   改为：全等 / 带目录后缀 / `...` 段通配。声明方仍可用 `backend/.../Enums/OrderEnums.cs`
