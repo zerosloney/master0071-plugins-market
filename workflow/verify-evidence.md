@@ -1,0 +1,11 @@
+# 验证绿凭证摘要（生成物，勿手改）
+
+> 生成器 `node <插件根>/scripts/gen-verify-evidence.mjs`（verify.mjs 全绿尾部自动重生成，2026-10-11 C4 起；源 .agents/verifications.jsonl 为本地台账）。
+> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证；`head=<SHA>` 为该凭证行锚定的 HEAD 全 SHA、`src=<门>:<路径>` 为该门脚本的解析来源（项目侧 .agents/scripts 桩替换可对质，2026-11-05 closeout-anchor）。非签名链——诚实边界同 check-loop 检查 15。
+> 行来源 = 本地台账绿行 ∪ 本文件既有行（**追加保全**：跨机 / 换 worktree 不失历史；代价：错行不会被重生成自动纠正，须人工改正后重跑）。
+
+| 提交(短SHA) | 时间(UTC) | 门数 | 断言计数 | runId |
+|---|---|---|---|---|
+| `7104681` | 2026-11-13T07:14:42.654Z | 13 | — | scope=diff(base=7104681,skip=5) head=7104681f96be105fa0d42422b413abc671999882 src=scripts-syntax:plugins/ai-native-delivery/scripts/check-scripts-syntax.mjs+src=workflows-check:plugins/ai-native-delivery/scripts/workflows-check.mjs+src=rule-budget:plugins/ai-native-delivery/scripts/rule-budget.mjs+src=local-gate-config:plugins/ai-native-delivery/scripts/check-local-gate-config.mjs+src=effective-policy:plugins/ai-native-delivery/scripts/gen-effective-policy.mjs+src=engine-map:plugins/ai-native-delivery/scripts/gen-engine-map.mjs+src=workflow-index:plugins/ai-native-delivery/scripts/gen-workflow-index.mjs+src=workflow-metrics:plugins/ai-native-delivery/scripts/gen-workflow-metrics.mjs+src=check-loop:plugins/ai-native-delivery/scripts/check-loop.mjs+src=ledger-doc-presence:plugins/ai-native-delivery/scripts/check-ledger-doc-presence.mjs+src=ledger-invariant:plugins/ai-native-delivery/scripts/check-ledger-invariant.mjs+src=lane-surface-ci:plugins/ai-native-delivery/scripts/check-lane-surface.mjs+src=secrets-scan:plugins/ai-native-delivery/scripts/check-secrets.mjs |
+
+<!-- GENERATED:END — 共 1 行；gen-verify-evidence.mjs 生成（既有行追加保全，勿手改） -->
