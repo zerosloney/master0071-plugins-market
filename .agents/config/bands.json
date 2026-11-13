@@ -1,0 +1,31 @@
+{
+  "note": "确定性带监测种子（设计稿 ai-native-closed-loop-and-memory 步骤 A，2026-11-12）。四段结构：metric=指标源定义（source 只认内置源 verify-green=.agents/verifications.jsonl 验证行 / workflow-metrics=workflow/metrics.md 闭环漏斗表；value 选取值口径，window=滚动窗口行数；diagnoseCmd=diagnose 档建议的只读诊断命令模板，占位符 {scriptDir}=引擎脚本目录、{root}=项目根）；baseline=基线口径（判带宽用的均值/σ 取「判点之前」的 window 个历史点，不足 minPoints 个不判带）；rules=判带规则（band 名 → metric + k(σ 倍数) + side(upper=越上带/both=双侧) + streak(连续越带点数) + tier）；tiers=响应档（枚举 log=仅记录 / diagnose=只读诊断（readonlyTools=只读工具白名单）/ propose=仅经 PR（route=路由面））。判据为类 Western Electric 简化式：越带 = 判点超出 μ±kσ；σ=0（历史全平）时偏离均值即越带。消费方 scripts/check-bands.mjs：缺本文件 exit 0 不误报、损坏 exit 2 fail-loud；越带 exit 1。⚠️ 以下两个 band 是**示范口径**（窗口/倍数/基线窗均为首版示意值）——项目侧按自有节奏自调，建议先观察一段再收紧。本检查只打印建议指令，绝不自动执行（设计稿 §3「明确不做」红线）。无人闭环授权面（可选块，缺省=无授权）：tiers.<tier>.autoRunner = {\"enabled\": true, \"maxPerDay\": N}——配置后 scripts/loop-runner.mjs 对该 tier 的越带 band 自动拉 agent 只读诊断（Read/Grep/Glob 白名单）并由 runner 落 intent 草案（状态 draft，须人工评审；红线：不自动改代码、不自动开 PR），调用台账落 .agents/runs/loop-runner.jsonl（append-only + 当日限次）。本种子刻意不含 autoRunner——授权属项目自治显式配置；未配置时 loop-runner 行为与 check-bands 完全一致（只出建议指令）。",
+  "metric": {
+    "verify-green": {
+      "source": "verify-green",
+      "value": "recent-fail-rate",
+      "window": 20,
+      "diagnoseCmd": "node \"{scriptDir}/gen-workflow-metrics.mjs\" --dry-run",
+      "desc": "近期验证失败率：.agents/verifications.jsonl 的验证行（all-gates 绿行 + 任意 exitCode≠0 失败行）按窗口 W 滚动取红行占比；value 可换 green-count（窗口内绿行数）。diagnoseCmd 的 --dry-run 只打印明细不写盘（只读）。"
+    },
+    "workflow-metrics": {
+      "source": "workflow-metrics",
+      "value": "funnel-rework",
+      "diagnoseCmd": "node \"{scriptDir}/gen-workflow-metrics.mjs\" --dry-run",
+      "desc": "闭环漏斗返工件：workflow/metrics.md「闭环漏斗」表的「返工件」列（gen-workflow-metrics.mjs 月度快照），按月份升序逐点判带。"
+    }
+  },
+  "baseline": {
+    "verify-green": { "window": 10, "minPoints": 5 },
+    "workflow-metrics": { "window": 3, "minPoints": 2 }
+  },
+  "rules": {
+    "verify-fail-rate-2s": { "metric": "verify-green", "k": 2, "side": "upper", "streak": 1, "tier": "diagnose" },
+    "funnel-rework-2s": { "metric": "workflow-metrics", "k": 2, "side": "upper", "streak": 1, "tier": "propose" }
+  },
+  "tiers": {
+    "log": { "desc": "仅记录越带事实（workflow/papercuts.md 或机制台账月度对账），零工具授权" },
+    "diagnose": { "readonlyTools": ["Read", "Grep"] },
+    "propose": { "route": ["pull_request"] }
+  }
+}

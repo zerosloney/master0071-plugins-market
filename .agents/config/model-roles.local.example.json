@@ -1,0 +1,7 @@
+{
+  "roles": {
+    "code": { "model": "<你的快模型 ID>" },
+    "judgment": { "model": "<你的强推理模型 ID>" },
+    "review": { "model": "<与实现不同的模型 ID>" }
+  }
+}

@@ -27,3 +27,15 @@ artifacts/ocr/
 # `.qwen/skills/verify` 的运行证据（summary.json + 逐步骤日志），本地留证不入库
 artifacts/verify/
 .zcode/
+# BEGIN ai-native-delivery engine
+.agents/cache/
+.agents/judgments.jsonl
+.agents/verifications.jsonl
+.agents/tmp/
+.agents/config/model-roles.local.json
+.agents/notes/runtime-env.local.md
+workflow/**/*.lock
+.agents/confirmations.d/*.lock
+.agents/confirmations.jsonl.lock
+.agents/runs/
+# END ai-native-delivery engine

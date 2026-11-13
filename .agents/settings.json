@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "dotnet ef",
+      "git reset --hard",
+      "git push --force",
+      "git push -f",
+      "drop database"
+    ],
+    "ask": [
+      "git checkout",
+      "git clean",
+      "git branch -D",
+      "rm -rf"
+    ]
+  }
+}
