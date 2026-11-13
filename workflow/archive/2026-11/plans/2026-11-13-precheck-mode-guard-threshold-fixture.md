@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 27fa1b0209cf6c7a
+确认指纹: 8f7a549957dd8a44
 ---
 # PLAN — precheck-mode-guard-threshold-fixture——mode 缺省兜底与 0.35 门限边界 fixture
 
@@ -35,7 +35,10 @@
 
 - 静态门：`node <插件根>/scripts/verify.mjs --scope` 绿（涉前端改动另附实测证据）
 - 检索：粘贴第 2 步 kb-search 输出（无命中贴命令与空结果即可，免另写说明）
-- 验收：
+- 验收：见「验收标准」节
+
+## 验收标准
+
 - [x] mode 缺省调用不再抛错（证据：不传 opts.mode 的 precheck 调用返回 null 而非 TypeError）
 - [x] 门限边界两条断言绿：0.34 提醒 / 0.36 静默（证据：hook.smoke 输出的两条 PASS）
 - [x] 三套冒烟全绿（证据：hook.smoke / smoke / contract.smoke 均输出「全部通过」）
