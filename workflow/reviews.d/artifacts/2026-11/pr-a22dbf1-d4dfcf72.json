@@ -1,0 +1,1803 @@
+{
+  "schema": "pr-review/artifact@1",
+  "run": {
+    "schema": "pr-review/run@1",
+    "runId": "pr-a22dbf1-d4dfcf72",
+    "base": "7e030b51f06d6a3cb021187bb548df216e7ec0aa",
+    "head": "a22dbf103c8bb098a66a664bad09b42b68f726f4",
+    "baseRef": "7e030b5",
+    "headRef": "a22dbf1",
+    "diffHash": "d4dfcf723f29627715944ad4b992f2dfcd6a00ac9f3a1bb7782431689f08950d",
+    "promptVersion": "pr-review/v1",
+    "createdAt": "2026-11-13T15:51:22.754Z",
+    "files": [
+      {
+        "path": ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+        "status": "A",
+        "added": 1,
+        "deleted": 0
+      },
+      {
+        "path": ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+        "status": "A",
+        "added": 3,
+        "deleted": 0
+      },
+      {
+        "path": ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+        "status": "A",
+        "added": 5,
+        "deleted": 0
+      },
+      {
+        "path": "marketplace.json",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-scope.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/check-scope.test.mjs",
+        "status": "M",
+        "added": 12,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/systemone-decision/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 3,
+        "deleted": 10
+      },
+      {
+        "path": "plugins/systemone-decision/README.md",
+        "status": "M",
+        "added": 15,
+        "deleted": 25
+      },
+      {
+        "path": "plugins/systemone-decision/endpoint-config.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/clarity.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/decide-client.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/hook-io.mjs",
+        "status": "M",
+        "added": 10,
+        "deleted": 27
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/hooks.json",
+        "status": "M",
+        "added": 0,
+        "deleted": 12
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/precheck-quota.mjs",
+        "status": "M",
+        "added": 13,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/pretool-risk.mjs",
+        "status": "D",
+        "added": 0,
+        "deleted": 43
+      },
+      {
+        "path": "plugins/systemone-decision/hooks/risk-gate.mjs",
+        "status": "D",
+        "added": 0,
+        "deleted": 330
+      },
+      {
+        "path": "plugins/systemone-decision/mcp/question-types.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/mcp/server.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/systemone-decision/plugin.json",
+        "status": "M",
+        "added": 8,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/systemone-decision/test/hook.smoke.mjs",
+        "status": "M",
+        "added": 55,
+        "deleted": 538
+      },
+      {
+        "path": "plugins/systemone-decision/test/smoke.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 6
+      },
+      {
+        "path": "workflow/INDEX.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+        "status": "A",
+        "added": 54,
+        "deleted": 0
+      },
+      {
+        "path": "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+        "status": "A",
+        "added": 74,
+        "deleted": 0
+      },
+      {
+        "path": "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md",
+        "status": "A",
+        "added": 52,
+        "deleted": 0
+      }
+    ],
+    "lenses": [
+      {
+        "id": "correctness",
+        "focus": "逻辑、边界、错误路径、状态转换、并发交错、异常吞噬",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "security",
+        "focus": "信任边界、注入、鉴权、越权、敏感数据、输入解析",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "performance",
+        "focus": "查询/循环/渲染/内存/并发资源、N+1、无界集合",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "tests",
+        "focus": "行为断言、边界覆盖、测试是否会在实现全返回 undefined 时仍通过",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "spec",
+        "focus": "对照 spec/契约面的验收标准与承诺是否真正落地",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "data-integrity",
+        "focus": "数据丢失、事务边界、幂等、并发写、迁移可逆、审计字段、删除引用检查",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "quality",
+        "focus": "死代码、重复、抽象层数、可维护性（纯样式直接丢弃）",
+        "files": [
+          ".agents/confirmations.d/2026-11-13-precheck-mode-guard-threshold-fixture.jsonl",
+          ".agents/confirmations.d/2026-11-13-scope-archive-whitelist.jsonl",
+          ".agents/confirmations.d/2026-11-13-systemone-061-risk-gate-off.jsonl",
+          "marketplace.json",
+          "plugins/ai-native-delivery/scripts/check-scope.mjs",
+          "plugins/ai-native-delivery/test/check-scope.test.mjs",
+          "plugins/systemone-decision/.codex-plugin/plugin.json",
+          "plugins/systemone-decision/.omp-plugin/plugin.json",
+          "plugins/systemone-decision/.zcode-plugin/plugin.json",
+          "plugins/systemone-decision/README.md",
+          "plugins/systemone-decision/endpoint-config.mjs",
+          "plugins/systemone-decision/hooks/clarity.mjs",
+          "plugins/systemone-decision/hooks/decide-client.mjs",
+          "plugins/systemone-decision/hooks/hook-io.mjs",
+          "plugins/systemone-decision/hooks/hooks.json",
+          "plugins/systemone-decision/hooks/precheck-quota.mjs",
+          "plugins/systemone-decision/hooks/pretool-risk.mjs",
+          "plugins/systemone-decision/hooks/risk-gate.mjs",
+          "plugins/systemone-decision/mcp/question-types.mjs",
+          "plugins/systemone-decision/mcp/server.mjs",
+          "plugins/systemone-decision/plugin.json",
+          "plugins/systemone-decision/test/hook.smoke.mjs",
+          "plugins/systemone-decision/test/smoke.mjs",
+          "workflow/INDEX.md",
+          "workflow/archive/2026-11/plans/2026-11-13-scope-archive-whitelist.md",
+          "workflow/archive/2026-11/plans/2026-11-13-systemone-061-risk-gate-off.md",
+          "workflow/plans/2026-11-13-precheck-mode-guard-threshold-fixture.md"
+        ],
+        "truncated": false
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 19,
+    "confirmed": 19,
+    "rejected": 0,
+    "escalated": 0,
+    "unverified": 0,
+    "important": 2,
+    "nit": 17,
+    "preExisting": 13,
+    "styleDropped": 0
+  },
+  "findings": [
+    {
+      "id": "C-001",
+      "file": "plugins/systemone-decision/README.md",
+      "line": 288,
+      "claim": "0.6.1 版本变更断言「需求预检与 MCP 工具行为不变」，但同一 0.6.1 发布把需求预检 proceed 门限从 0.6 降到 0.35 并改写了结论文案，预检触发行为实质改变，版本史对此只字未提且反向声明不变",
+      "evidence": "同 diff 中 hooks/clarity.mjs:12 GATE = { clarityMax: 1, proceedMin: 0.35 }（base 为 0.6），clarity.mjs:54 结论文案改为『若返工成本低且可逆，说明假设后继续亦可』，README 正文 214 行也已写 0.35；proceed ∈ [0.35, 0.6) 的输入在 0.6.0 会注入提醒、0.6.1 静默放行——同版本号内行为改变与 288 行『行为不变』直接矛盾",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "release-notes-contradict-threshold-change",
+      "behaviorImpact": false,
+      "repro": "静态：sed -n '286,289p' plugins/systemone-decision/README.md 对照 hooks/clarity.mjs:12 与 README.md:214",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-001",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "README:288 0.6.1 条目（本 PR 新增）断言「需求预检与 MCP 工具行为不变」；同 diff 可证 clarity.mjs:12 proceedMin 0.6→0.35、:54 文案改写、README:214 已写 0.35、归档 plan 明列门限变更——changelog 隐瞒且反向声明",
+          "counterEvidence": "",
+          "repro": "git diff clarity.mjs 对照 README:288/:214",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "README:288 0.6.1 条目（本 PR 新增）断言「需求预检与 MCP 工具行为不变」；同 diff 可证 clarity.mjs:12 proceedMin 0.6→0.35、:54 文案改写、README:214 已写 0.35、归档 plan 明列门限变更——changelog 隐瞒且反向声明",
+          "counterEvidence": "",
+          "repro": "git diff clarity.mjs 对照 README:288/:214",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "README:288 0.6.1 条目（本 PR 新增）断言「需求预检与 MCP 工具行为不变」；同 diff 可证 clarity.mjs:12 proceedMin 0.6→0.35、:54 文案改写、README:214 已写 0.35、归档 plan 明列门限变更——changelog 隐瞒且反向声明",
+          "counterEvidence": "",
+          "repro": "git diff clarity.mjs 对照 README:288/:214",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:47.524Z"
+      }
+    },
+    {
+      "id": "C-002",
+      "file": "plugins/systemone-decision/test/hook.smoke.mjs",
+      "line": 429,
+      "claim": "测试注释称「实现里 bumpQuota(mode) 直接读 mode.mode——缺省会崩」「契约与实现的缺口另记 papercut」，两条在评审 head 均已不成立：同 PR 末次提交 a22dbf1 在 precheck-quota.mjs 加 modeOf() 守卫（缺省按 on 处理，不再崩溃），且 workflow/papercuts.md 并无对应条目",
+      "evidence": "a22dbf1:plugins/systemone-decision/hooks/precheck-quota.mjs 80-82 行 modeOf(mode) 把缺省/非对象归一为 {mode:'on'}，quotaAllows(88-93)/bumpQuota(99-101) 均经其守卫；git show a22dbf1:workflow/papercuts.md grep 'mode|缺省|precheck|预检' 零命中。注释与实现相反，会误导维护者",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "stale-comment-quota-mode-gap-fixed-in-same-pr",
+      "behaviorImpact": true,
+      "repro": "node -e import bumpQuota(undefined) 不再抛 TypeError；对照 precheck-quota.mjs:80-82 modeOf 守卫",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-002",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head precheck-quota.mjs:80-82 已有 modeOf 守卫；实测 bumpQuota(undefined,'s') 不抛、quotaAllows(undefined,'x')=true；papercuts.md 无对应条目——注释「缺省会崩/另记 papercut」两条均失实",
+          "counterEvidence": "",
+          "repro": "node -e import 实测 + grep papercuts",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head precheck-quota.mjs:80-82 已有 modeOf 守卫；实测 bumpQuota(undefined,'s') 不抛、quotaAllows(undefined,'x')=true；papercuts.md 无对应条目——注释「缺省会崩/另记 papercut」两条均失实",
+          "counterEvidence": "",
+          "repro": "node -e import 实测 + grep papercuts",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head precheck-quota.mjs:80-82 已有 modeOf 守卫；实测 bumpQuota(undefined,'s') 不抛、quotaAllows(undefined,'x')=true；papercuts.md 无对应条目——注释「缺省会崩/另记 papercut」两条均失实",
+          "counterEvidence": "",
+          "repro": "node -e import 实测 + grep papercuts",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:47.881Z"
+      }
+    },
+    {
+      "id": "C-003",
+      "file": "plugins/systemone-decision/test/hook.smoke.mjs",
+      "line": 62,
+      "claim": "caseVariants 助手函数成为死代码：唯一消费方（PreToolUse matcher 同宽断言）已随风险闸删除",
+      "evidence": "第 62-75 行定义 caseVariants（约 14 行）；对全文件 rg 'caseVariants' 仅命中定义行，无任何调用。base 版本中它只被已删除的『hooks.json 的 PreToolUse matcher 覆盖内核 SHELL_TOOL_NAMES』断言使用，该断言随风险闸删除一并移除，但助手漏删\n---\n第 10 行 import { PassThrough } from 'node:stream'，全文件 rg 仅命中该行；第 361 行 killerProbe 声明为无参箭头函数，第 394 行仍以 killerProbe(false) 调用——该参数是 base 版 killerProbe(emitAsk) 的 emit-ask 策略开关残留，现被静默忽略，误导读者以为仍有策略切换",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": false,
+      "repro": "rg -n caseVariants plugins/systemone-decision/test/hook.smoke.mjs → 仅第 62 行定义",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-003",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "caseVariants 定义后全文件无调用（base 中调用方已删）；同病：PassThrough import 无使用、killerProbe 无参定义却 killerProbe(false) 调用",
+          "counterEvidence": "",
+          "repro": "grep 三符号均仅残留",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "caseVariants 定义后全文件无调用（base 中调用方已删）；同病：PassThrough import 无使用、killerProbe 无参定义却 killerProbe(false) 调用",
+          "counterEvidence": "",
+          "repro": "grep 三符号均仅残留",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "caseVariants 定义后全文件无调用（base 中调用方已删）；同病：PassThrough import 无使用、killerProbe 无参定义却 killerProbe(false) 调用",
+          "counterEvidence": "",
+          "repro": "grep 三符号均仅残留",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:48.222Z"
+      }
+    },
+    {
+      "id": "C-004",
+      "file": "plugins/systemone-decision/hooks/hook-io.mjs",
+      "line": 58,
+      "claim": "runHook 的 JSDoc 仍在文档化已被本 PR 删除的 killPolicy 选项，参数表与正文自相矛盾",
+      "evidence": "第 56 行参数表写作 { budgetMs, now, killerMs }（已不含 killPolicy），但第 58-60 行仍以 killPolicy = killer 触发……时的自毁策略 起始整段说明；runHook 函数体（63-93 行）不再读取 opts.killPolicy。调用方若按文档传 killPolicy 将被静默忽略\n---\n第 88-90 行注释断言预算耗尽『不能直接放行……最需要闸门……由风险闸既有的 fail-closed 分支转人工确认』；但 truncated/NO_BUDGET_MS 哨兵现仅被 requirement-clarity.mjs:18-25 消费——记 stderr 一行后 return null。注释描述的 fail-closed 消费方已不存在，维护者会误判挂起场景的失败语义",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": true,
+      "repro": "对照 hooks/requirement-clarity.mjs:14-25（truncated → stderr + return null）与 hooks/hook-io.mjs:88-91 注释",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-004",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "JSDoc 参数表 {budgetMs,now,killerMs} 无 killPolicy，58-60 行仍整段文档化该选项；函数体不读 opts.killPolicy；base 的 throw 护栏已删",
+          "counterEvidence": "",
+          "repro": "sed -n 52-92p + git diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "JSDoc 参数表 {budgetMs,now,killerMs} 无 killPolicy，58-60 行仍整段文档化该选项；函数体不读 opts.killPolicy；base 的 throw 护栏已删",
+          "counterEvidence": "",
+          "repro": "sed -n 52-92p + git diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "JSDoc 参数表 {budgetMs,now,killerMs} 无 killPolicy，58-60 行仍整段文档化该选项；函数体不读 opts.killPolicy；base 的 throw 护栏已删",
+          "counterEvidence": "",
+          "repro": "sed -n 52-92p + git diff",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "dd74fe133016648e323d178e4877d97de3c7bf12",
+        "note": "锚文件补修（同一修复批的漏执行件）",
+        "at": "2026-11-13T16:24:32.763Z"
+      }
+    },
+    {
+      "id": "C-005",
+      "file": "plugins/systemone-decision/hooks/clarity.mjs",
+      "line": 7,
+      "claim": "文件头注释仍写『（与风险闸同一份）』，引用本 PR 已删除的 hooks/risk-gate.mjs",
+      "evidence": "第 7 行注释；risk-gate.mjs 已删除，同文件第 81 行的同类引用在本 PR 中已改为『与预检判据同口径』，唯独第 7 行漏改，按图索骥找不到该模块",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-005",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "clarity.mjs:7 仍写「（与风险闸同一份）」；hooks/ 无 risk-gate.mjs；同文件 :81 同类引用本 PR 已清",
+          "counterEvidence": "",
+          "repro": "grep + ls hooks/",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "clarity.mjs:7 仍写「（与风险闸同一份）」；hooks/ 无 risk-gate.mjs；同文件 :81 同类引用本 PR 已清",
+          "counterEvidence": "",
+          "repro": "grep + ls hooks/",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "clarity.mjs:7 仍写「（与风险闸同一份）」；hooks/ 无 risk-gate.mjs；同文件 :81 同类引用本 PR 已清",
+          "counterEvidence": "",
+          "repro": "grep + ls hooks/",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:48.999Z"
+      }
+    },
+    {
+      "id": "C-006",
+      "file": "plugins/systemone-decision/hooks/decide-client.mjs",
+      "line": 63,
+      "claim": "注释仍引用只存在于已删风险闸协议的 permissionDecisionReason 字段，及『风险闸静默失效』文案",
+      "evidence": "第 63 行注释提及 permissionDecisionReason（字段唯一产出方 pretool-risk.mjs 已删除）；第 40 行『stderr 留一条便于诊断为什么预检/风险闸静默失效』同样引用已下线的风险闸",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-006",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "permissionDecisionReason 全插件仅 decide-client.mjs:63 注释命中（产出方 pretool-risk.mjs 已删）；:40 「预检/风险闸静默失效」同病",
+          "counterEvidence": "",
+          "repro": "grep -rn permissionDecisionReason",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "permissionDecisionReason 全插件仅 decide-client.mjs:63 注释命中（产出方 pretool-risk.mjs 已删）；:40 「预检/风险闸静默失效」同病",
+          "counterEvidence": "",
+          "repro": "grep -rn permissionDecisionReason",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "permissionDecisionReason 全插件仅 decide-client.mjs:63 注释命中（产出方 pretool-risk.mjs 已删）；:40 「预检/风险闸静默失效」同病",
+          "counterEvidence": "",
+          "repro": "grep -rn permissionDecisionReason",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:49.389Z"
+      }
+    },
+    {
+      "id": "C-007",
+      "file": "plugins/systemone-decision/mcp/server.mjs",
+      "line": 87,
+      "claim": "「两个 hook 开关一并落盘」的现在时注释与代码矛盾：本 PR 后共享文件只落盘 hookPrecheck，hookRiskGate 已移除",
+      "evidence": "mcp/server.mjs:87-88 注释，其下 92-95 行 writeEndpointConfig 只传 hookPrecheck；endpoint-config.mjs:51 同病；test/hook.smoke.mjs:301 小节标题同病。三处均与本 PR 自己的变更声明矛盾",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-007",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "server.mjs:87「两个 hook 开关一并落盘」；:91-94 writeEndpointConfig 只传 hookPrecheck；endpoint-config 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 85-95p",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "server.mjs:87「两个 hook 开关一并落盘」；:91-94 writeEndpointConfig 只传 hookPrecheck；endpoint-config 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 85-95p",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "server.mjs:87「两个 hook 开关一并落盘」；:91-94 writeEndpointConfig 只传 hookPrecheck；endpoint-config 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 85-95p",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:49.767Z"
+      }
+    },
+    {
+      "id": "C-008",
+      "file": "plugins/systemone-decision/README.md",
+      "line": 268,
+      "claim": "架构树的 decide-client.mjs 行仍标『两个 hook 内核共用』——风险闸内核删除后仅剩 clarity.mjs 一个消费方",
+      "evidence": "第 268 行；rg 确认生产代码中 import decide-client 的仅 hooks/clarity.mjs:9。同一棵架构树在本 PR 中已同步更新，唯独此行漏改，同树内口径不一",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-residue",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-008",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268「（两个 hook 内核共用）」；生产代码仅 clarity.mjs:9 一处 import decide-client；同树相邻行已同步",
+          "counterEvidence": "",
+          "repro": "grep import + sed 264-276p",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268「（两个 hook 内核共用）」；生产代码仅 clarity.mjs:9 一处 import decide-client；同树相邻行已同步",
+          "counterEvidence": "",
+          "repro": "grep import + sed 264-276p",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268「（两个 hook 内核共用）」；生产代码仅 clarity.mjs:9 一处 import decide-client；同树相邻行已同步",
+          "counterEvidence": "",
+          "repro": "grep import + sed 264-276p",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:50.112Z"
+      }
+    },
+    {
+      "id": "C-009",
+      "file": "plugins/systemone-decision/hooks/hook-io.mjs",
+      "line": 90,
+      "claim": "协议壳注释仍声称预算耗尽/截断的不可信输入走『风险闸既有的 fail-closed 分支转人工确认』——该分支已随 0.6.1 删除，唯一剩余消费者 requirement-clarity 对 truncated 一律 fail-open 静默放行，注释与同文件已更新的 JSDoc 自相矛盾",
+      "evidence": "hook-io.mjs:88-91 注释；但风险闸已删除，truncated=true 的唯一去向是 requirement-clarity.mjs:18-25——stderr 一行后 return null（静默放行）。同文件 54-55 行 JSDoc 已改为『由调用方决定走向（预检放行）』，与 90 行注释直接冲突\n---\nhook-io.mjs:56-60 JSDoc 段落仍以参数口吻解释 killPolicy（虽注『silent 唯一策略』）；runHook 实现（63-92 行）只读 budgetMs/now/killerMs，无 killPolicy 分支；base 版本存在 throw new Error('kill-policy=emit-ask 需要配 askPayload 工厂') 的护栏（见 diff 删除段）。当前无调用方传入该选项，但恢复 PreToolUse 类入口的历史代码若带 killPolicy 复用，会静默降级",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-doc-residue",
+      "behaviorImpact": true,
+      "repro": "静态：hooks.json 仅 requirement-clarity 入口 → requirement-clarity.mjs:14-25 truncated 分支 return null；对照 hook-io.mjs:54-55 与 88-91 两处矛盾描述",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-009",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook-io.mjs:90 称 fail-closed 转人工；实际唯一消费方 requirement-clarity.mjs:18-25 stderr 后 return null（fail-open）；同文件 54-55/:69-70 与之矛盾",
+          "counterEvidence": "",
+          "repro": "对照两文件",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook-io.mjs:90 称 fail-closed 转人工；实际唯一消费方 requirement-clarity.mjs:18-25 stderr 后 return null（fail-open）；同文件 54-55/:69-70 与之矛盾",
+          "counterEvidence": "",
+          "repro": "对照两文件",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook-io.mjs:90 称 fail-closed 转人工；实际唯一消费方 requirement-clarity.mjs:18-25 stderr 后 return null（fail-open）；同文件 54-55/:69-70 与之矛盾",
+          "counterEvidence": "",
+          "repro": "对照两文件",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "dd74fe133016648e323d178e4877d97de3c7bf12",
+        "note": "锚文件补修（同一修复批的漏执行件）",
+        "at": "2026-11-13T16:24:33.079Z"
+      }
+    },
+    {
+      "id": "C-010",
+      "file": "plugins/systemone-decision/README.md",
+      "line": 288,
+      "claim": "0.6.1 变更条目声称「需求预检与 MCP 工具行为不变」，但本 PR 实际改变了需求预检行为：门限 proceed 0.6→0.35、注入文案改写、mode 缺省兜底，changelog 隐瞒并与自身矛盾",
+      "evidence": "同 PR 内 hooks/clarity.mjs:12 GATE = { clarityMax: 1, proceedMin: 0.35 }（base 为 0.6，diff 可证）；clarity.mjs:54 结论文案改为「…若返工成本低且可逆，说明假设后继续亦可」（base 为「不要直接动手」）；hooks/precheck-quota.mjs:80-92 新增 modeOf 缺省兜底（原 quotaAllows 会 TypeError）；README.md:214 自身已写「proceed < 0.35」；归档 plan 改动方案明列「需求明确度门限 proceed 0.6 → 0.35（减少不必要澄清）」。0.6.1 条目作为该版本唯一 changelog，对预检门限放宽只字未提，且「行为不变」一句与上述全部证据直接冲突",
+      "category": "contract",
+      "severityHint": "Important",
+      "rootCause": "changelog-behavior-invariance-claim",
+      "behaviorImpact": false,
+      "repro": "静态：README.md:288 对照 clarity.mjs:12/54、README.md:214 即见矛盾；升级用户按 changelog 判断影响面会漏掉预检提醒频率放宽这一行为变化",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-010",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "与 C-001 同一事实独立复核成立：0.6.1 唯一 changelog 声明「行为不变」vs proceedMin 0.6→0.35（diff）+ 文案改写 + modeOf 兜底 + plan 自证",
+          "counterEvidence": "",
+          "repro": "git diff + 归档 plan:34",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "与 C-001 同一事实独立复核成立：0.6.1 唯一 changelog 声明「行为不变」vs proceedMin 0.6→0.35（diff）+ 文案改写 + modeOf 兜底 + plan 自证",
+          "counterEvidence": "",
+          "repro": "git diff + 归档 plan:34",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "与 C-001 同一事实独立复核成立：0.6.1 唯一 changelog 声明「行为不变」vs proceedMin 0.6→0.35（diff）+ 文案改写 + modeOf 兜底 + plan 自证",
+          "counterEvidence": "",
+          "repro": "git diff + 归档 plan:34",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:50.790Z"
+      }
+    },
+    {
+      "id": "C-011",
+      "file": "plugins/systemone-decision/README.md",
+      "line": 268,
+      "claim": "架构树仍写 decide-client.mjs「（两个 hook 内核共用）」，0.6.1 已删除 risk-gate.mjs 内核只剩一个；同一棵树的相邻行（hook-io、hooks.json）都在本 PR 更新了，唯独这行漏改",
+      "evidence": "README.md:268 架构树行；head 的 hooks/ 目录只剩 clarity.mjs 一个判定内核；diff 中同树的 271/274 行（hook-io、hooks.json）均已同步",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-011",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268 仍写「两个 hook 内核共用」；head hooks/ 仅剩 clarity.mjs 一个内核；同树 271/274 行已同步",
+          "counterEvidence": "",
+          "repro": "sed 264-276p",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268 仍写「两个 hook 内核共用」；head hooks/ 仅剩 clarity.mjs 一个内核；同树 271/274 行已同步",
+          "counterEvidence": "",
+          "repro": "sed 264-276p",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:268 仍写「两个 hook 内核共用」；head hooks/ 仅剩 clarity.mjs 一个内核；同树 271/274 行已同步",
+          "counterEvidence": "",
+          "repro": "sed 264-276p",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:51.166Z"
+      }
+    },
+    {
+      "id": "C-012",
+      "file": "plugins/systemone-decision/hooks/clarity.mjs",
+      "line": 7,
+      "claim": "plan 对本文件的承诺是「注释去 risk-gate 指向」，但第 7 行注释仍写「（与风险闸同一份）」——同文件其他 risk-gate 指向已清，这一处漏清",
+      "evidence": "clarity.mjs:7 注释原文；plan（归档 2026-11-13-systemone-061-risk-gate-off）改动方案明列 hooks/clarity.mjs「注释去 risk-gate 指向」；head 无任何 risk-gate.mjs",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-012",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归档 plan:34 承诺 clarity.mjs「注释去 risk-gate 指向」；:7 仍写「（与风险闸同一份）」，:81 已清——漏改",
+          "counterEvidence": "",
+          "repro": "grep 风险闸 clarity.mjs",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归档 plan:34 承诺 clarity.mjs「注释去 risk-gate 指向」；:7 仍写「（与风险闸同一份）」，:81 已清——漏改",
+          "counterEvidence": "",
+          "repro": "grep 风险闸 clarity.mjs",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归档 plan:34 承诺 clarity.mjs「注释去 risk-gate 指向」；:7 仍写「（与风险闸同一份）」，:81 已清——漏改",
+          "counterEvidence": "",
+          "repro": "grep 风险闸 clarity.mjs",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:51.502Z"
+      }
+    },
+    {
+      "id": "C-013",
+      "file": "plugins/systemone-decision/hooks/decide-client.mjs",
+      "line": 40,
+      "claim": "plan 对本文件的承诺是「注释去 risk-gate 指向」，但第 40 行注释仍写「为什么预检/风险闸静默失效」，指向已删除的风险闸",
+      "evidence": "decide-client.mjs:40 注释原文；plan 改动方案明列 hooks/decide-client.mjs「注释去 risk-gate 指向」；rg 于 hooks/ 仅余注释命中",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-013",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plan:35 承诺 decide-client.mjs「注释去 risk-gate 指向」；:40 仍写「预检/风险闸静默失效」，:70 已清——漏改",
+          "counterEvidence": "",
+          "repro": "sed -n 40p;70p",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plan:35 承诺 decide-client.mjs「注释去 risk-gate 指向」；:40 仍写「预检/风险闸静默失效」，:70 已清——漏改",
+          "counterEvidence": "",
+          "repro": "sed -n 40p;70p",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plan:35 承诺 decide-client.mjs「注释去 risk-gate 指向」；:40 仍写「预检/风险闸静默失效」，:70 已清——漏改",
+          "counterEvidence": "",
+          "repro": "sed -n 40p;70p",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:51.823Z"
+      }
+    },
+    {
+      "id": "C-014",
+      "file": "plugins/systemone-decision/hooks/hook-io.mjs",
+      "line": 90,
+      "claim": "预算耗尽分支注释声称 truncated「由风险闸既有的 fail-closed 分支转人工确认」——该分支已随风险闸删除，head 唯一消费方 requirement-clarity.mjs 对 truncated 是静默放行（fail-open），注释描述的行为路径已不存在",
+      "evidence": "hook-io.mjs:90 注释原文；requirement-clarity.mjs truncated 分支 stderr 一行后 return null；同文件 69-70 行注释自认「风险闸下线后无『转人工』通道可承载 ask」，与 90 行自相矛盾",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-014",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-009 同点复核：注释指向的 fail-closed 分支已删，唯一消费方静默放行；69-70 行自认无转人工通道，同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "对照 hook-io:88-91 与 requirement-clarity:18-25",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-009 同点复核：注释指向的 fail-closed 分支已删，唯一消费方静默放行；69-70 行自认无转人工通道，同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "对照 hook-io:88-91 与 requirement-clarity:18-25",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-009 同点复核：注释指向的 fail-closed 分支已删，唯一消费方静默放行；69-70 行自认无转人工通道，同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "对照 hook-io:88-91 与 requirement-clarity:18-25",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "dd74fe133016648e323d178e4877d97de3c7bf12",
+        "note": "锚文件补修（同一修复批的漏执行件）",
+        "at": "2026-11-13T16:24:33.425Z"
+      }
+    },
+    {
+      "id": "C-015",
+      "file": "plugins/systemone-decision/mcp/server.mjs",
+      "line": 87,
+      "claim": "落盘注释仍写「两个 hook 开关一并落盘（2026-11-01 修复）」，0.6.1 起只落盘 hookPrecheck 一个开关，注释与紧随其后的实际调用不符",
+      "evidence": "server.mjs:87 注释；同文件 91-93 行 writeEndpointConfig 只传 hookPrecheck；endpoint-config.mjs writeEndpointConfig 载荷也只含 hookPrecheck",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-015",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-007 同点复核：注释「两个 hook 开关一并落盘」vs 调用只传 hookPrecheck（diff 删除 hookRiskGate 行）",
+          "counterEvidence": "",
+          "repro": "sed -n 87-95p + git diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-007 同点复核：注释「两个 hook 开关一并落盘」vs 调用只传 hookPrecheck（diff 删除 hookRiskGate 行）",
+          "counterEvidence": "",
+          "repro": "sed -n 87-95p + git diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "与 C-007 同点复核：注释「两个 hook 开关一并落盘」vs 调用只传 hookPrecheck（diff 删除 hookRiskGate 行）",
+          "counterEvidence": "",
+          "repro": "sed -n 87-95p + git diff",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:52.515Z"
+      }
+    },
+    {
+      "id": "C-016",
+      "file": "plugins/systemone-decision/endpoint-config.mjs",
+      "line": 51,
+      "claim": "readOne 注释仍写「现在 MCP 启动时把这两个开关的解析结果一并落盘」，本 PR 删掉 hookRiskGate 后只剩一个开关，注释未同步",
+      "evidence": "endpoint-config.mjs:51 注释「这两个开关」；同文件 53-57 行只解析/返回 hookPrecheck，writeEndpointConfig（75-76 行）载荷同样只含 hookPrecheck",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-016",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "endpoint-config.mjs:51「这两个开关」；readOne 53-57 只解析 hookPrecheck、writeEndpointConfig 71-72 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 49-56p;68-74p",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "endpoint-config.mjs:51「这两个开关」；readOne 53-57 只解析 hookPrecheck、writeEndpointConfig 71-72 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 49-56p;68-74p",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "endpoint-config.mjs:51「这两个开关」；readOne 53-57 只解析 hookPrecheck、writeEndpointConfig 71-72 载荷同",
+          "counterEvidence": "",
+          "repro": "sed -n 49-56p;68-74p",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:52.862Z"
+      }
+    },
+    {
+      "id": "C-017",
+      "file": "plugins/systemone-decision/test/hook.smoke.mjs",
+      "line": 301,
+      "claim": "8b 用例段注释仍写「设置页的两个 hook 开关走共享文件……把解析结果一并落盘」，本 PR 改了这段的 fixture（删 hookRiskGate，只喂 hookPrecheck）却留了「两个开关」的注释，注释与自身 fixture 不符",
+      "evidence": "hook.smoke.mjs:301-303 注释；紧随其后的 writeFileSync（308-314 行）只写 hookPrecheck: 'off'（diff 可证 hookRiskGate 行为本 PR 删除）",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "risk-gate-removal-leftover",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-017",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook.smoke.mjs:301-303「两个 hook 开关」；紧随 fixture 306-314 本 PR 已删 hookRiskGate 只写 hookPrecheck——注释与自身 fixture 不符",
+          "counterEvidence": "",
+          "repro": "sed -n 301-315p + diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook.smoke.mjs:301-303「两个 hook 开关」；紧随 fixture 306-314 本 PR 已删 hookRiskGate 只写 hookPrecheck——注释与自身 fixture 不符",
+          "counterEvidence": "",
+          "repro": "sed -n 301-315p + diff",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "hook.smoke.mjs:301-303「两个 hook 开关」；紧随 fixture 306-314 本 PR 已删 hookRiskGate 只写 hookPrecheck——注释与自身 fixture 不符",
+          "counterEvidence": "",
+          "repro": "sed -n 301-315p + diff",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:53.236Z"
+      }
+    },
+    {
+      "id": "C-018",
+      "file": "plugins/systemone-decision/test/hook.smoke.mjs",
+      "line": 209,
+      "claim": "门限 0.35 的边界断言只测了 0.34/0.36 两侧，未钉住精确值：门限漂到 0.36（或 0.341~0.36 任意值）套件仍然全绿，与注释「两侧都锁死，防止门限被改回 0.6 或漂到别的值」不符",
+      "evidence": "clarity.mjs:92 放行条件是 proceed.probability >= GATE.proceedMin。测试仅有 clearAt034（0.34 应提醒）与 clearAt036（0.36 应静默）：套件对 proceedMin T 的约束只有 T>0.34 且 T<=0.36，T=0.36 时 0.36>=0.36 仍静默、0.34 仍提醒，两用例照常通过；proceed 恰等于 0.35 的等值点（>= 号的分界行为）无任何断言",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "proceed-threshold-boundary-not-pinned",
+      "behaviorImpact": false,
+      "repro": "实测已复现：拷贝插件到临时目录、把 hooks/clarity.mjs 的 proceedMin: 0.35 改为 0.36 后跑 node test/hook.smoke.mjs → 全部 PASS；补一个 proceed=0.35 期望静默的用例即可把 T 钉在 <=0.35",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-018",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "放行条件 proceed >= proceedMin；仅 0.34/0.36 两探针 → 约束 T∈(0.34,0.36]，等值点 0.35 无断言；变异实测：proceedMin 改 0.36 后套件全 PASS exit 0（防回退 0.6 有效、防区间内漂移无效）",
+          "counterEvidence": "",
+          "repro": "临时副本 sed 0.35→0.36 跑 hook.smoke 全绿（实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-018",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "放行条件 proceed >= proceedMin；仅 0.34/0.36 两探针 → 约束 T∈(0.34,0.36]，等值点 0.35 无断言；变异实测：proceedMin 改 0.36 后套件全 PASS exit 0（防回退 0.6 有效、防区间内漂移无效）",
+          "counterEvidence": "",
+          "repro": "临时副本 sed 0.35→0.36 跑 hook.smoke 全绿（实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-018",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "放行条件 proceed >= proceedMin；仅 0.34/0.36 两探针 → 约束 T∈(0.34,0.36]，等值点 0.35 无断言；变异实测：proceedMin 改 0.36 后套件全 PASS exit 0（防回退 0.6 有效、防区间内漂移无效）",
+          "counterEvidence": "",
+          "repro": "临时副本 sed 0.35→0.36 跑 hook.smoke 全绿（实测）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b8be6117a1821f3676c4cc4e663429b8a6a4ba34",
+        "note": "0.6.2 面板评审收口",
+        "at": "2026-11-13T16:23:53.592Z"
+      }
+    },
+    {
+      "id": "C-019",
+      "file": "plugins/systemone-decision/hooks/precheck-quota.mjs",
+      "line": 80,
+      "claim": "本次新增的 modeOf() 规范化（quotaAllows/bumpQuota 容忍缺省或非对象 mode，缺省按 on no-op）没有任何测试覆盖，且 hook.smoke.mjs:429-430 的注释仍描述修复前行为「bumpQuota(mode) 直接读 mode.mode——缺省会崩……契约与实现的缺口另记 papercut」，与本 PR 自己的修复相矛盾",
+      "evidence": "diff 新增 modeOf 并在 quotaAllows/bumpQuota 使用（precheck-quota.mjs:80-82、89、100），但 rg 全 test/ 目录无任何直接调用 quotaAllows/bumpQuota 传非对象 mode 的用例；实测 bumpQuota(undefined,'s') 不崩、quotaAllows(undefined,'x') 返回 true——head 实现不再「缺省会崩」，测试文件里的描述已失实（生产入口 requirement-clarity.mjs:36 始终传 mode，故为覆盖缺口与注释失实，非产品缺陷）",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "modeof-normalization-untested-stale-comment",
+      "behaviorImpact": false,
+      "repro": "node -e import bumpQuota(undefined,'s') 不崩、quotaAllows(undefined,'x') 返回 true（实测）；rg bumpQuota|quotaAllows test/ 无测试调用",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-019",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "modeOf（a22dbf1 新增）零测试覆盖：test/ 无传非对象 mode 的用例（grep 仅注释）；实测缺省不崩；429-430 注释与修复矛盾（与 C-002 同注释不同维度）",
+          "counterEvidence": "",
+          "repro": "grep + node -e 实测",
+          "model": ""
+        },
+        {
+          "findingId": "C-019",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "modeOf（a22dbf1 新增）零测试覆盖：test/ 无传非对象 mode 的用例（grep 仅注释）；实测缺省不崩；429-430 注释与修复矛盾（与 C-002 同注释不同维度）",
+          "counterEvidence": "",
+          "repro": "grep + node -e 实测",
+          "model": ""
+        },
+        {
+          "findingId": "C-019",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "modeOf（a22dbf1 新增）零测试覆盖：test/ 无传非对象 mode 的用例（grep 仅注释）；实测缺省不崩；429-430 注释与修复矛盾（与 C-002 同注释不同维度）",
+          "counterEvidence": "",
+          "repro": "grep + node -e 实测",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "dd74fe133016648e323d178e4877d97de3c7bf12",
+        "note": "锚文件补修（同一修复批的漏执行件）",
+        "at": "2026-11-13T16:24:33.789Z"
+      }
+    }
+  ],
+  "dropped": [
+    {
+      "source": "correctness",
+      "reason": "file-not-in-diff",
+      "claim": "共装指引仍教用户设 SYSTEMONE_HOOK_RISK_GATE=off 来关 systemone 的命令闸，但本 PR 已整体删除该闸与环境变量，该指令是 no-op，208-221 节描述的「双风险闸」场景在 0.6.1 已不存在",
+      "file": "plugins/ai-native-delivery/README.md",
+      "line": 220
+    },
+    {
+      "source": "correctness",
+      "reason": "file-not-in-diff",
+      "claim": "仓库根 README「共装注意：两个 PreToolUse 风险闸」整节（13-24 行）在评审 head a22dbf1 仍声称 systemone 注册模型闸，并给出已删除的 SYSTEMONE_HOOK_RISK_GATE=off 指令（21 行）与「systemone 的模型闸」选项行（22 行）",
+      "file": "README.md",
+      "line": 15
+    },
+    {
+      "source": "quality",
+      "reason": "file-not-in-diff",
+      "claim": "TTL 坏值口径注释仍引用已删除的 riskGateEnabled 函数作为同口径基准",
+      "file": "plugins/systemone-decision/hooks/decision-cache.mjs",
+      "line": 27
+    },
+    {
+      "source": "quality",
+      "reason": "file-not-in-diff",
+      "claim": "随插件分发的用户文档仍写『预检与风险闸 hook 不读这份配置』——风险闸已整体下线",
+      "file": "plugins/systemone-decision/skills/systemone-decision/references/scenarios.md",
+      "line": 40
+    },
+    {
+      "source": "quality",
+      "reason": "file-not-in-diff",
+      "claim": "协议交叉契约测试注释仍称 hook 侧『与两个 hook 内核同一条路径』——现仅剩一个 hook 内核",
+      "file": "plugins/systemone-decision/test/contract.smoke.mjs",
+      "line": 123
+    },
+    {
+      "source": "security",
+      "reason": "file-not-in-diff",
+      "claim": "共装说明仍以现行口吻断言 systemone-decision 注册 PreToolUse 风险闸、并指导设 SYSTEMONE_HOOK_RISK_GATE=off——0.6.1 两者均已删除，且『反过来保留 systemone 模型闸』的分支执行后命令闸覆盖降为零",
+      "file": "plugins/ai-native-delivery/README.md",
+      "line": 220
+    },
+    {
+      "source": "security",
+      "reason": "file-not-in-diff",
+      "claim": "根 README『只留一道闸的办法』表仍把 SYSTEMONE_HOOK_RISK_GATE=off 列为 systemone 的现行开关、把『保留 systemone 模型闸』列为可选方案——该环境变量在 0.6.1 已无读取者、模型闸已整体删除",
+      "file": "README.md",
+      "line": 21
+    },
+    {
+      "source": "security",
+      "reason": "file-not-in-diff",
+      "claim": "skill 参考文档仍写『预检与风险闸 hook 不读这份配置』，暗示 shell 风险闸 hook 仍存在——0.6.1 已整体删除，读者会误以为命令仍有模型闸覆盖",
+      "file": "plugins/systemone-decision/skills/systemone-decision/references/scenarios.md",
+      "line": 40
+    },
+    {
+      "source": "spec",
+      "reason": "file-not-in-diff",
+      "claim": "随插件分发的 skill 参考文档仍告诉用户「预检与风险闸 hook 不读这份配置」，引用已被 0.6.1 整体下线的风险闸 hook；README 已清理但 skill 文档漏网",
+      "file": "plugins/systemone-decision/skills/systemone-decision/references/scenarios.md",
+      "line": 40
+    },
+    {
+      "source": "spec",
+      "reason": "file-not-in-diff",
+      "claim": "注释引用「riskGateEnabled」——该导出随 risk-gate.mjs 在本 PR 整体删除，head 代码库中已不存在此符号，维护者按注释找函数会落空",
+      "file": "plugins/systemone-decision/hooks/decision-cache.mjs",
+      "line": 27
+    },
+    {
+      "source": "spec",
+      "reason": "file-not-in-diff",
+      "claim": "注释写「与两个 hook 内核同一条路径」，0.6.1 删除 risk-gate 内核后只剩一个，注释在 head 已失真",
+      "file": "plugins/systemone-decision/test/contract.smoke.mjs",
+      "line": 123
+    }
+  ],
+  "writtenAt": "2026-11-13T16:24:39.931Z"
+}
