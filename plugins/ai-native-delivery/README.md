@@ -109,7 +109,7 @@ node <插件根>/scripts/init-engine.mjs --root <仓库根>   # 显式指定项�
 
 ### 安装引擎（0.1.19 重构：plan/apply 两段式 + sha256 台账）
 
-初始化拆两段：`install/plan.mjs` 把全部落盘行为描述为纯数据计划（零写盘副作用），`install/apply.mjs` 按安装台账 `.agents/install-manifest.json`（逐文件 CRLF 归一 sha256，入库共享，语义同 lock 文件）裁决落盘。两个新增通道：
+初始化拆两段：`install/plan.mjs` 把全部落盘行为描述为纯数据计划（零写盘副作用），`install/apply.mjs` 按安装台账 `.agents/install-manifest.json`（逐文件 CRLF 归一 sha256，入库共享，语义同 lock 文件）裁决落盘。台账对**运行时账本**（workflow/ 骨架文档、三本审计账主账）只记存在性（`mutable` 标记）——这些文件由引擎与用户共同写入，按哈希判定必然误报「用户改过」。两个新增通道：
 
 ```
 node <插件根>/scripts/init-engine.mjs --dry-run   # 只裁决不写盘：预览 create/update/conflict 清单
@@ -125,7 +125,7 @@ node <插件根>/scripts/doctor.mjs                  # 缺省锚定当前 git �
 node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 ```
 
-7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账哈希逐文件一致 / git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
+7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账逐文件一致（**运行时账本只核存在性**：workflow/ 骨架文档与三本审计账主账由引擎与用户共同写入，内容演进是常态，不按哈希判失配；其余种子件按 CRLF 归一 sha256 逐字节核对）/ git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
 
 ## MCP 工具（10 个）
 

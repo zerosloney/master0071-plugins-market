@@ -6,7 +6,7 @@
 //   pipelines        编排脚本种子（.agents/pipelines/ 专位，落位口径见下 ①b 注释）
 //   settings         settings.json（项目侧专位 .agents/settings.json，与 config/ 平级）
 //   runtime          空文件与运行时/台账目录（confirmations.jsonl、cache/、workflow/ 八子目录等）
-//   skeleton         workflow/ 内联骨架文档
+//   skeleton         workflow/ 内联骨架文档（运行时账本：引擎与用户共同写入 → 台账只追踪存在性，不比哈希）
 //   gitignore-block  .gitignore 标记块（块级合并，不进安装台账）
 //   githook          git 钩子（占位符渲染后的最终正文；台账记渲染后哈希）
 // category 用于 apply 报告分组（沿用旧 report 分组语义：hooks→report.hooks、gitignore→report.gitignore、
@@ -163,7 +163,7 @@ export function buildPlan(root) {
   // ② settings.json（项目侧专位）+ 确认账 + 运行时目录
   const settingsSrc = path.join(PLUGIN_CONFIG_TEMPLATES_DIR, 'settings.json');
   entries.push({ kind: 'settings', category: 'settings', srcAbs: settingsSrc, targetRel: '.agents/settings.json', hash: hashFile(settingsSrc) });
-  entries.push({ kind: 'runtime', category: 'runtime', targetRel: '.agents/confirmations.jsonl', content: '', hash: hashText('') });
+  entries.push({ kind: 'runtime', category: 'runtime', targetRel: '.agents/confirmations.jsonl', content: '', hash: hashText(''), mutable: true });
   for (const dir of ['confirmations.d', ...RUNTIME_DIRS]) {
     entries.push({ kind: 'runtime', category: 'runtime', targetRel: `.agents/${dir}/`, dir: true });
   }
@@ -172,7 +172,7 @@ export function buildPlan(root) {
     entries.push({ kind: 'runtime', category: 'workflow', targetRel: `workflow/${dir}/`, dir: true });
   }
   for (const [name, skeleton] of Object.entries(WORKFLOW_DOCS)) {
-    entries.push({ kind: 'skeleton', category: 'workflow', targetRel: `workflow/${name}`, content: skeleton, hash: hashText(skeleton) });
+    entries.push({ kind: 'skeleton', category: 'workflow', targetRel: `workflow/${name}`, content: skeleton, hash: hashText(skeleton), mutable: true });
   }
   // ④ .gitignore 标记块（不入安装台账——块级合并）
   entries.push({ kind: 'gitignore-block', category: 'gitignore', targetRel: '.gitignore' });

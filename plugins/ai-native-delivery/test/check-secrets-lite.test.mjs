@@ -37,8 +37,8 @@ const mkfix = ({ baseline = true, files = {} } = {}) => {
 
 const run = (root, args = []) => spawnSync(process.execPath, [LITE, '--root', root, ...args], { encoding: 'utf8', cwd: root });
 
-const AKIA = 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n'; # secrets-lite:allow 测试夹具
-const WEAK = 'token = "J8sK2mN9pQ4rS7tU1vW3xY5zA6bC8dE0"\n'; # secrets-lite:allow 测试夹具
+const AKIA = 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n';  // secrets-lite:allow 测试夹具
+const WEAK = 'token = "J8sK2mN9pQ4rS7tU1vW3xY5zA6bC8dE0"\n';  // secrets-lite:allow 测试夹具
 
 // ① 干净树 → 绿
 {
@@ -54,7 +54,7 @@ const WEAK = 'token = "J8sK2mN9pQ4rS7tU1vW3xY5zA6bC8dE0"\n'; # secrets-lite:allo
   const r = run(root);
   check('② AKIA 真特征 → exit 1', r.status === 1, `exit=${r.status}\n${r.stdout}${r.stderr}`);
   check('② 明细含规则名与 redact 后值（不回显全值）',
-    r.stderr.includes('aws-access-key-id') && r.stderr.includes('leak.txt:1') && r.stderr.includes('AKIA***') && !r.stderr.includes('AKIAIOSFODNN7EXAMPLE'), # secrets-lite:allow 测试夹具
+    r.stderr.includes('aws-access-key-id') && r.stderr.includes('leak.txt:1') && r.stderr.includes('AKIA***') && !r.stderr.includes('AKIAIOSFODNN7EXAMPLE'),  // secrets-lite:allow 测试夹具
     r.stderr);
   fs.rmSync(root, { recursive: true, force: true });
 }

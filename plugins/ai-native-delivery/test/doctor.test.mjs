@@ -93,11 +93,21 @@ const fixLineOf = (out, name) => {
 {
   const root = mkRepo();
   runInit(root);
-  const victim = path.join(root, 'workflow', 'INDEX.md');
+  const victim = path.join(root, '.agents', 'config', 'engine.json');
   fs.appendFileSync(victim, '\n<!-- 用户手改 -->\n');
   const r = runDoctorCli(root);
   check('④ exit 1 且一致性检查 ✗', r.status === 1 && /✗.*已装文件与台账一致/.test(r.stdout), `exit=${r.status} ${r.stdout}`);
-  check('④ detail 点名被改文件', failLine(r.stdout, '已装文件与台账一致').includes('workflow/INDEX.md'), failLine(r.stdout, '已装文件与台账一致'));
+  check('④ detail 点名被改文件', failLine(r.stdout, '已装文件与台账一致').includes('.agents/config/engine.json'), failLine(r.stdout, '已装文件与台账一致'));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ④b 运行时账本（workflow/ 骨架文档）被改写 → 只核存在性，不报失配（自举实证修口）----
+{
+  const root = mkRepo();
+  runInit(root);
+  fs.appendFileSync(path.join(root, 'workflow', 'INDEX.md'), '\n<!-- 引擎重生成 -->\n');
+  const r = runDoctorCli(root);
+  check('④b 运行时账本改写后 doctor 仍全绿', r.status === 0 && !/✗/.test(r.stdout), `exit=${r.status} ${r.stdout}`);
   fs.rmSync(root, { recursive: true, force: true });
 }
 

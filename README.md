@@ -4,7 +4,7 @@
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
-| [systemone-decision](plugins/systemone-decision/) | 0.6.0 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 16 个业务场景（工单分流、内容审核、Agent 路由、模型路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
+| [systemone-decision](plugins/systemone-decision/) | 0.6.1 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 16 个业务场景（工单分流、内容审核、Agent 路由、模型路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
 | [worktree-ops](plugins/worktree-ops/) | 0.4.16 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.27 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.25 | `skills/` + `qwen/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 66 个 skill，含 24 条 principle 原则、4 个子智能体（名单与上游一致）与会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包：共享 skill、同一组 4 个子智能体与 Qwen 专属 hook；扩展 skill 带 `pstack:` 命名空间，扩展子智能体保留 frontmatter 裸名 |
@@ -12,7 +12,7 @@
 
 ## 共装注意：两个 PreToolUse 风险闸
 
-`systemone-decision` 与 `ai-native-delivery` **都注册 PreToolUse shell 命令闸**，判据却不同：前者把命令文本交给带外决策模型做三问判定，后者是项目内静态 deny/ask 清单匹配（无网络、无模型）。宿主按插件各跑各的 hook，**两个闸之间没有仲裁通道**——同装时一条 shell 命令会被判两次，可能出现两道确认，或一个 `ask` 叠一个 `deny`（最终按宿主对多份 hook 输出的合并规则取严）。
+`systemone-decision` 0.6.1 起**已下线 shell 命令闸**（PreToolUse hook 与端点外发一并移除，只留需求明确度预检）——它曾把命令文本交给带外决策模型做三问判定，与 `ai-native-delivery` 的项目内静态 deny/ask 清单匹配同装时会双判。**当前同装只有一道命令闸**：`ai-native-delivery` 的静态清单闸（无网络、无模型）。若仍见到旧版 systemone（≤0.6.0）残留命令闸，升级到 0.6.1 即可消除双判。历史上两个闸之间本就没有仲裁通道——宿主按插件各跑各的 hook，同装时一条命令会被判两次（两道确认，或一个 `ask` 叠一个 `deny`，最终按宿主对多份 hook 输出的合并规则取严）。
 
 只留一道闸的办法（按你要的判据选）：
 

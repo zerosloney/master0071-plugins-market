@@ -137,7 +137,7 @@ const readStubArgs = (root) => JSON.parse(fs.readFileSync(outPath(root), 'utf8')
 // ⑨ 缺二进制 + 树内真特征 → lite 判红且透传 exit 1（恒执法不只对干净树成立）
 {
   const f = mkfix({ baseline: true, gitRepo: true });
-  fs.writeFileSync(path.join(f.root, 'leak.txt'), 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n', 'utf8'); # secrets-lite:allow 测试夹具
+  fs.writeFileSync(path.join(f.root, 'leak.txt'), 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n', 'utf8');  // secrets-lite:allow 测试夹具
   git(['add', '-A'], f.root);
   git(['commit', '-qm', 'leak'], f.root);
   const r = run(f.root, [], { GITLEAKS_BIN: path.join(f.root, 'no-such-gitleaks.exe'), STUB_OUT: outPath(f.root) });

@@ -53,15 +53,23 @@ function applyFile(root, e, report, manifest, adopt, force, dryRun) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       writeEntryContent(e, target);
     }
-    manifest.files[e.targetRel] = e.hash;
+    manifest.files[e.targetRel] = e.mutable ? { mutable: true } : e.hash;
     report.created.push(e.targetRel);
+    return;
+  }
+  // 运行时账本（workflow/ 骨架文档、三本审计账主账）：引擎与用户各自演进内容——存在即在位，
+  // 不按哈希判「用户改过」，也不覆盖（首次安装已建；缺失才重建）。自举实证的真缺陷：
+  // 引擎自己重生成 INDEX/metrics、追加 papercuts 后，台账按哈希比对必然失配 → doctor 恒红。
+  if (e.mutable) {
+    manifest.files[e.targetRel] = { mutable: true };
+    report.skipped.push(`${e.targetRel}（运行时账本·引擎自有，不比对哈希）`);
     return;
   }
   const curHash = hashFile(target);
   const mHash = manifest.files[e.targetRel];
   // 领养（台账整个缺失）：现状哈希记为新基线，不覆盖。台账在但无此记录：沿用旧语义 skip（不记账）。
   if (adopt || mHash === undefined) {
-    if (adopt) { manifest.files[e.targetRel] = curHash; report.adopted++; }
+    if (adopt) { manifest.files[e.targetRel] = e.mutable ? { mutable: true } : curHash; report.adopted++; }
     report.skipped.push(`${e.targetRel}（已存在）`);
     return;
   }

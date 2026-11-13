@@ -119,17 +119,22 @@ for (const rel of plansInRange) {
     declared.push(...extractDeclared(abs, ROOT));
     continue;
   }
-  // 归档回退：closeout 会把 plan 移入 workflow/archive/** 并从 live 路径删除，推送范围恰含归档提交时
-  // live 路径与 HEAD 树都查不到（自举首推实证：关单推送被自己的门拦住）。注意最后触过该路径的提交
-  // 恰是 rename 提交（旧路径已删）——遍历触过该路径的提交取第一个 show 成功的，落临时文件复用
-  // extractDeclared 判据不另立。
+  // 归档回退：closeout 把 plan 移入 workflow/archive/** 并从 live 路径删除，推送范围恰含归档提交时
+  // live 路径与 HEAD 树都查不到（自举首推实证：关单推送被自己的门拦住）。
+  // **只认真归档**：该路径在 git 历史里发生过 rename（--diff-filter=R）才回退到归档副本；若只是
+  // 工作区被删而树里没有归档副本，仍按「不可读」fail-loud——否则「被删即静默放行」会把一个
+  // fail-loud 保障变成静默通过（回归用例 ⑨ 实测）。
   const show = (treePath) => spawnSync('git', ['-C', ROOT, 'show', treePath], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-  const log = spawnSync('git', ['-C', ROOT, 'log', '--format=%H', '--', rel], { encoding: 'utf8' });
-  const shas = (log.stdout || '').split(/\r?\n/).filter(Boolean);
-  let content = null;
-  for (const h of shas) {
-    const c = show(`${h}:${rel}`);
-    if (c.status === 0 && c.stdout) { content = c; break; }
+  const ren = spawnSync('git', ['-C', ROOT, 'log', '--format=%H', '--diff-filter=R', '--name-status', '-M', '--', rel], { encoding: 'utf8' });
+  let archivedPath = null;
+  for (const line of (ren.stdout || '').split(/\r?\n/)) {
+    const m = line.match(/^R\d+\s+(.+?)\s+(.+)$/);
+    if (m && m[1] === rel) { archivedPath = m[2]; break; }
+  }
+  const content = archivedPath ? show(`HEAD:${archivedPath}`) : { status: 1, stdout: '' };
+  if (content.status !== 0 || !content.stdout) {
+    console.error(`check-scope-range: plan 不可读（live 缺失且无归档副本）: ${rel}`);
+    process.exit(2);
   }
   if (!content) {
     console.error(`check-scope-range: plan 不可读（live 与历史提交均未命中）: ${rel}`);

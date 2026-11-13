@@ -84,9 +84,12 @@ const snapDiff = (a, b) => {
   check('① 台账键一律 / 分隔（无反斜杠）', Object.keys(m.files).every((k) => !k.includes('\\')), Object.keys(m.files).filter((k) => k.includes('\\')).join(', '));
   check('① 种子件哈希可对上（CRLF 归一口径）',
     m.files['.agents/config/engine.json'] === normHash(path.join(root, '.agents', 'config', 'engine.json'))
-    && m.files['.agents/settings.json'] === normHash(path.join(root, '.agents', 'settings.json'))
-    && m.files['workflow/INDEX.md'] === normHash(path.join(root, 'workflow', 'INDEX.md'))
-    && m.files['.agents/confirmations.jsonl'] === normHash(path.join(root, '.agents', 'confirmations.jsonl')));
+    && m.files['.agents/settings.json'] === normHash(path.join(root, '.agents', 'settings.json')));
+  // 运行时账本（workflow/ 骨架文档 + 三本审计账主账）：引擎与用户共同写入 → 台账只追踪存在性，
+  // 不按哈希判定（自举实证：引擎重生成 INDEX/metrics 后 doctor 恒红、init 永远误判冲突）
+  check('① 运行时账本只追踪存在性（mutable 标记）',
+    m.files['workflow/INDEX.md'] && m.files['workflow/INDEX.md'].mutable === true
+    && m.files['.agents/confirmations.jsonl'] && m.files['.agents/confirmations.jsonl'].mutable === true);
   check('① git hooks 记渲染后正文哈希',
     m.files['.git/hooks/pre-commit'] === normHash(path.join(root, '.git', 'hooks', 'pre-commit'))
     && m.files['.git/hooks/pre-push'] === normHash(path.join(root, '.git', 'hooks', 'pre-push')));
@@ -224,10 +227,25 @@ const snapDiff = (a, b) => {
   check('⑥ 领养零新建（现状全保留）', /新建 0 项/.test(r.stdout), r.stdout);
   check('⑥ 用户改动不被覆盖', fs.readFileSync(metrics, 'utf8') === userContent);
   const m = readManifest(root);
-  check('⑥ 用户改动现状入账（成为新基线）', m.files['workflow/metrics.md'] === normHash(metrics));
+  check('⑥ 用户改动的运行时账本按 mutable 入账（不按哈希判冲突）', m.files['workflow/metrics.md'] && m.files['workflow/metrics.md'].mutable === true);
   check('⑥ 未改动种子件现状入账', m.files['.agents/config/engine.json'] === normHash(path.join(root, '.agents', 'config', 'engine.json')));
   check('⑥ 已装钩子现状入账（不覆盖用户钩子）', m.files['.git/hooks/pre-commit'] === normHash(path.join(root, '.git', 'hooks', 'pre-commit')));
   check('⑥ 台账 plugin/version 回填', m.plugin === PLUGIN.name && m.version === PLUGIN.version);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑥b 运行时账本被改写后重跑 init：走 mutable 通道（不报冲突、不覆盖内容）----
+{
+  const root = mkRepo();
+  runCli(root);
+  const metrics = path.join(root, 'workflow', 'metrics.md');
+  fs.appendFileSync(metrics, '\n<!-- 引擎重生成后的内容 -->\n');
+  const edited = fs.readFileSync(metrics, 'utf8');
+  const r = runCli(root);
+  const m = readManifest(root);
+  check('⑥b 运行时账本改写后不报冲突', r.status === 0 && !/冲突/.test(r.stdout), `exit=${r.status} ${r.stdout}`);
+  check('⑥b 运行时账本内容不被覆盖', fs.readFileSync(metrics, 'utf8') === edited);
+  check('⑥b 台账仍按 mutable 追踪', m.files['workflow/metrics.md'] && m.files['workflow/metrics.md'].mutable === true);
   fs.rmSync(root, { recursive: true, force: true });
 }
 

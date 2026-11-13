@@ -236,12 +236,19 @@ const fm = (extra = '') => `---\nname: t\ndescription: t\n${extra}---\n\n# w\n\n
   const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const r = lintWorkflows({ root: ROOT });
   const names = r.files.map((f) => f.file).join('、');
+  // 扫描面份数按目录实况自适应（2026-11-13 自举实证）：原断言硬编码「>= 3」是**源仓**的形状——
+  // 源仓是编排件作者仓（本仓不是，只播种引擎自带的 2 份种子），份数随仓而异。真意是
+  // 「扫到的每一份可执行编排件都 0 error」——份数门槛改为「与目录内非 _ 前缀 .md 份数相等」。
+  const pipelineDir = path.join(ROOT, '.agents', 'pipelines');
+  const expected = fs.existsSync(pipelineDir)
+    ? fs.readdirSync(pipelineDir).filter((f) => f.endsWith('.md') && !f.startsWith('_')).length
+    : 0;
   if (r.files.length === 0) {
     check('S14 真实仓库自扫 SKIP（本环境无 .agents/pipelines/ 可执行件——装户径，沿 doctor.test 同口径）', true);
   } else {
     check('S14 真实仓库 .agents/pipelines/ 自扫 0 error（扫描面：' + names + '）',
-      r.errorCount === 0 && r.files.length >= 3,
-      JSON.stringify(r.files.filter((f) => f.errors.length).map((f) => ({ f: f.file, e: f.errors }))));
+      r.errorCount === 0 && r.files.length === expected,
+      JSON.stringify({ files: r.files.length, expected, errs: r.files.filter((f) => f.errors.length).map((f) => ({ f: f.file, e: f.errors })) }));
   }
 }
 

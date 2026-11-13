@@ -143,6 +143,8 @@ export function runDoctor(root) {
     for (const [rel, hash] of Object.entries(manifest.files)) {
       const abs = path.join(root, ...rel.split('/'));
       if (!fs.existsSync(abs)) missing.push(rel);
+      // 运行时账本（引擎与用户共同写入）：只核存在性——内容演进是常态，不按哈希判失配
+      else if (hash && typeof hash === 'object' && hash.mutable) continue;
       else if (hashFile(abs) !== hash) modified.push(rel);
     }
     if (!missing.length && !modified.length) {

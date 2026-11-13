@@ -17,12 +17,24 @@
     ".agents/config/workflow-enums.txt": "8fd777eabaebd773da389d678df4bab88d6f28f391b5f7791d3d64ed82bfa490",
     ".agents/config/workflow-modules.txt": "c77a844c7f79c869932e3664ee91f4215007210ead9d9a3f9c3cd27cbf65724a",
     ".agents/settings.json": "0d176ffaea3882fcd448ad34e65ca7b34d4be1426300c833fb4e08de5d8c6e51",
-    ".agents/confirmations.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "workflow/INDEX.md": "2a4e5b5f1db7412a2a18ee31e3c3a9de06d3f1411f8e564adeb4ac3a79fa97a9",
-    "workflow/papercuts.md": "a15eec34f9ff85c9da291e1249f351134ccf5f9e38e7fe80a69483f3d739c5cf",
-    "workflow/delegations.md": "94093cbc2e017cd1d9e7cf4286e19b4f59940d41d9af3a24d466aea9685c148a",
-    "workflow/metrics.md": "5b52d541c8c5bc04dc1b3b9cc245c3087394a48512d7bf112cb50c4dbbcc427e",
-    "workflow/regression-checklist.md": "f7621c2dee6e558923569e73a9c12ac3cc6c3aa68419546b80c57a28facc0978",
+    ".agents/confirmations.jsonl": {
+      "mutable": true
+    },
+    "workflow/INDEX.md": {
+      "mutable": true
+    },
+    "workflow/papercuts.md": {
+      "mutable": true
+    },
+    "workflow/delegations.md": {
+      "mutable": true
+    },
+    "workflow/metrics.md": {
+      "mutable": true
+    },
+    "workflow/regression-checklist.md": {
+      "mutable": true
+    },
     ".git/hooks/pre-commit": "5c77abe4055c2cd9b285b88027c0b9e804ed2ddaf4f0d372b75a22f77723a0bb",
     ".git/hooks/pre-push": "82f4aed81c1d0c523eca26c8a8d1a22f675ca7ff19a60aee01c0eaf95fb581bb",
     ".git/hooks/post-commit": "e01b6515ddbe9a4661ea25c2c17ab5410f98589c8219e15de0c860c49fbd05cd",
