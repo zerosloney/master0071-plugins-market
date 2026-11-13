@@ -172,6 +172,8 @@ jobs:
           node test/doctor.test.mjs
           node test/mcp-tools.test.mjs
           node test/dev-tour-model.test.mjs
+          node test/pr-review.test.mjs
+          node test/pr-body.test.mjs
           node test/board-server.test.mjs
           node test/board-port.test.mjs
           node test/ensure-board.test.mjs

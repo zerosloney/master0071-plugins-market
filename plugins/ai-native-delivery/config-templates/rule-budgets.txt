@@ -30,7 +30,7 @@ AGENTS.md 8704
 # 两侧各自在旧上限内、并集超 45B——按轮惯例重定：上限 44144→47282B（余量 3093B ≈ 7.0%）。
 # 2026-11-13 判据移植：new-task.md §L1 关单步补「关单改动面门（taskScopeGate）」说明一句，峰值
 # new-task.md 实测 8844B（索引 LF）超单篇上限——按只升不降重定：单篇 8704→9728B（余量 884B ≈ 9.1%）。
-.agents/commands/ 47282
+.agents/commands/ 51200
 # 2026-10-15 规则面一进一出（减重手段②）：check-loop 段数上限——锚日升格只增不减的对冲面；
 # 超上限进门先退役一段（候选见 agg-judgments --retire-candidates；段编号承重不重排，退役 = 段体
 # 删除 + SECTIONS 行摘除，编号留疤）。

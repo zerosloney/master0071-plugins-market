@@ -10,7 +10,8 @@
 //
 // 判据：① 插件形态夹具（项目侧无引擎副本）默认跑 → 同标签多条折成「×N 条同类」单行，
 //         逐条明细完整落 .agents/tmp/check-loop-warn.log（折叠不得吞信息）；
-//       ② 同夹具带 CHECK_LOOP_VERBOSE=1 → 不折叠，逐条行数与落盘行数一致；
+//       ② 同夹具带 CHECK_LOOP_VERBOSE=1 → 不折叠，逐条告警数与落盘告警数一致（按 `- [` 前缀计，
+//         多行告警的续行不计——比的是告警不是行）；
 //       ③ 夹具必须**真的**没有项目侧引擎副本（否则测的就不是插件形态，① 会假通过）。
 // 零依赖，Node ≥ 18 直接运行：node test/warn-fold-plugin.test.mjs
 import fs from 'node:fs';
@@ -81,8 +82,11 @@ try {
   check('CHECK_LOOP_VERBOSE=1 → 不折叠（逐条出口在插件形态同样可用）',
     verbose.status === 0 && !/条同类/.test(verbose.stderr || '') && vLines.length >= merged,
     `exit=${verbose.status} 逐条=${vLines.length} 折叠残留=${/条同类/.test(verbose.stderr || '')}`);
+  // 按告警条数比（`- [` 前缀行），不按原始行数——多行告警（如常驻面超限带续行）下落盘行数 > 告警数，
+  // 原始行数比较会假红；折叠是呈现层，同源的对象是「告警」不是「行」。
+  const detailCount = detail.filter((l) => l.startsWith('- [')).length;
   check('两种形态的明细条数同源（折叠只是呈现层，不改判据）',
-    vLines.length === detail.length, `逐条 ${vLines.length} vs 明细 ${detail.length}`);
+    vLines.length === detailCount, `逐条 ${vLines.length} vs 明细 ${detailCount}`);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

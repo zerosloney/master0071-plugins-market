@@ -281,6 +281,23 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 文档数据契约与适用场景见 `skills/dev-tour/SKILL.md`
 - **实时看板（0.3.3 新增）**：`node <插件根>/scripts/auto-tour.mjs --root <仓库根>` 一键拉起（幂等复用、不开浏览器、只打印可点链接）；`scripts/board-server.mjs` 提供 `/tour`（实时页面）、`/api/tour`（全景模型，**每次请求现场重建**）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落本机 `.agents/cache/`，不外发）。端口口径：显式 `--port` > `engine.json` 的 `options.boardPort` > 基线 8933。安全面刻意收窄：只绑 127.0.0.1、Host 头校验、**不做任意静态文件服务**、文档白名单仅 `workflow/{plans,specs,intents}/**.md`。
 
+
+## PR 面板评审（pr-review，多镜头 + 投票 + 处置闭环）
+
+`/review` 分级评审是默认（机器门 + AI 自查 + 用户定性）；**面板评审是升级档**——多镜头独立 finder 并行找 bug、每条 finding 独立验证者投票定共识、裁决处置后才判清零。触发：diff 触及信任边界 / 合 main 前 / 疑难回归。
+
+- 脚本：`node <插件根>/scripts/pr-review.mjs`（8 子命令：plan → collect → verify → adjudicate → dispose → gate → summary → status；`--help` 看全量）
+- 7 镜头：correctness / security / performance / tests / spec / data-integrity / quality（纯样式自动丢弃）
+- 共识：3 验证者/finding，2/3 confirm 达标；单票 Important 带复现自动 escalate 到裁决
+- 门禁：gate shadow（默认，不阻断）/ enforce（P0/P1 未清零即 FAIL exit 1）
+- 台账：artifact 落 `workflow/reviews.d/artifacts/<月>/<runId>.json` + 月度一行进 `workflow/reviews.d/<月>.md`（与既有 scanReviews/metrics 口径兼容）
+- 角色：`agents/pr-finder.md`、`pr-verifier.md`、`pr-adjudicator.md`（模型按 model-roles.json 的 review 角色）
+- **forge-free**：「PR」= 一段固定的 base..head 评审范围；插件不碰 forge API/PAT——贴评论/babysit 由宿主 agent 做
+
+### PR 正文三件套（pr-body）
+
+评审清零后开 PR 用 `node <插件根>/scripts/pr-body.mjs --base <ref>` 生成三件套正文——Summary（来自真实 diff）/ Evidence（verify 绿行，取不到明写「未运行」）/ Merge Danger（Door / Blast Radius / Rollback）——每节标数据来源，禁编造。agent 复制贴任何 forge。
+
 ## 工程准入与验收
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 10 工具探测）；
@@ -296,6 +313,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.4**
+
+PR 评审回路（源仓 pr-review.mjs 1551 行判据级移植 + pr-body 插件原生新增，forge-free）：**pr-review.mjs**——8 子命令骨架（plan 固定 SHA→collect 去重样式丢弃→verify 共识投票 2/3→adjudicate 裁决→dispose 处置→gate shadow/enforce→summary 月度台账→status）；7 镜头 finder（correctness/security/performance/tests/spec/data-integrity/quality）+ 3 验证者/finding 共识 + Important waive 须用户书面原话（--quote）；台账落 workflow/reviews.d/artifacts/ + 月度行（与既有 scanReviews/metrics 兼容）；三新角色 pr-finder/pr-verifier/pr-adjudicator（agents/ 4→7）；命令 commands/pr-review.md（触发条件与 /review 分工）。**pr-body.mjs**——PR 体三件套生成器（Summary 来自 diff / Evidence 引 verify 绿行或明写未运行 / Merge Danger Door+Radius+Rollback，每节标数据源禁编造）。测试：pr-review 21 断言 + pr-body 7 断言全绿（源仓无测试，全部新写）。「PR」= 固定 base..head 评审范围——插件不碰 forge API/PAT（贴评论/babysit 由宿主 agent 做）。机制登记 2 行（[检出型]+[数据面]）；commands 预算上调 47282→51200B。
 
 **0.3.3**
 
