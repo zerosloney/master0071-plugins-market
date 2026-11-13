@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 1cda1642e044b9d6
+确认指纹: 8dccd8a1cf2ebbb0
 ---
 # PLAN — mutable-ledger-semantics——运行时账本只追踪存在性
 
@@ -32,8 +32,8 @@
 - `plugins/ai-native-delivery/test/doctor.test.mjs`：④ 改用非可变种子做失配断言 + 新增 ④b（账本被改写 → doctor 仍全绿）
 - `plugins/ai-native-delivery/README.md`：安装台账与 doctor 口径补「运行时账本只核存在性」
 - `plugins/ai-native-delivery/scripts/check-scope-range.mjs`：归档回退收紧为**只认真归档**（git 历史里发生过 rename 才回退到归档副本）；仅工作区被删而树里无归档副本时仍 fail-loud（修「被删即静默放行」的回归）
-- `plugins/ai-native-delivery/test/check-secrets-lite.test.mjs`、`check-secrets.test.mjs`：夹具 allow 标记由 `#` 改 `//`——ESM 里 `#` 不是注释符（此前用 `# secrets-lite:allow` 致文件语法破损，acceptance 恒红）；同时复原被误写的 `
-` 转义
+- `plugins/ai-native-delivery/test/check-secrets-lite.test.mjs`：夹具 allow 标记由 `#` 改 `//`——ESM 里 `#` 不是注释符（此前用 `# secrets-lite:allow` 致文件语法破损，acceptance 恒红）；同时复原被误写的转义
+- `plugins/ai-native-delivery/test/check-secrets.test.mjs`：同上（接续测试的夹具行同步标记）
 - `plugins/ai-native-delivery/test/workflows-check.test.mjs`：S14 扫描面份数改为按目录实况自适应（原硬编码「>= 3」是源仓形状；本仓非编排件作者仓，自举只播种 2 份种子）
 - `.omp-plugin/marketplace.json`、`README.md`：systemone-decision 版本位补齐到 0.6.1（.omp 市场清单与 README 插件表漏位）+ README「双命令闸」段按 0.6.1 事实改写（systemone 已无 shell 命令闸，当前同装只有一道闸）
 - `.agents/install-manifest.json`：本仓自举台账迁移（6 项转 mutable 追踪，入库共享）
@@ -49,7 +49,7 @@
 
 ## 验收标准
 
-- [x] doctor 7/7 全绿（本仓自举实测：台账迁移后一致性与其余 6 项全过）
+- [x] doctor 7/7 全绿（证据：本仓自举实测输出「doctor: 7 项检查全部通过」）
 - [x] install 套件 56/0（证据：套件输出合计 PASS 56 / FAIL 0，含新增 ⑥b）
 - [x] doctor 套件 39/0（证据：套件输出合计 PASS 39 / FAIL 0，含新增 ④b）
 - [x] acceptance 全量绿（证据：合计 PASS 126 / FAIL 0）
