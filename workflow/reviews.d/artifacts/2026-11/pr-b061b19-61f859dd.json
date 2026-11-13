@@ -1,0 +1,1064 @@
+{
+  "schema": "pr-review/artifact@1",
+  "run": {
+    "schema": "pr-review/run@1",
+    "runId": "pr-b061b19-61f859dd",
+    "base": "2a4b832aadcfffd68afaf89851f6b51ee07c59ff",
+    "head": "b061b19f8e9c037d64d803198451d57a42de44cc",
+    "baseRef": "2a4b832",
+    "headRef": "b061b19",
+    "diffHash": "61f859dd28841e300dffed0baf7b3fa8d1ad52a35fc497319296f2e1945b07ce",
+    "promptVersion": "pr-review/v1",
+    "createdAt": "2026-11-13T13:52:39.898Z",
+    "files": [
+      {
+        "path": ".agents/config/mechanism-registry.md",
+        "status": "M",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": ".agents/config/rule-budgets.txt",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": ".agents/confirmations.d/2026-11-13-pr-review-loop.jsonl",
+        "status": "A",
+        "added": 2,
+        "deleted": 0
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "status": "M",
+        "added": 2,
+        "deleted": 0
+      },
+      {
+        "path": ".omp-plugin/marketplace.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "README.md",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "marketplace.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/README.md",
+        "status": "M",
+        "added": 21,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/agents/pr-adjudicator.md",
+        "status": "A",
+        "added": 32,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/agents/pr-finder.md",
+        "status": "A",
+        "added": 56,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/agents/pr-verifier.md",
+        "status": "A",
+        "added": 49,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/commands/pr-review.md",
+        "status": "A",
+        "added": 42,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/config-templates/mechanism-registry.md",
+        "status": "M",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/config-templates/rule-budgets.txt",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/mcp/protocol.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/pr-body.mjs",
+        "status": "A",
+        "added": 153,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/pr-review.mjs",
+        "status": "A",
+        "added": 1552,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/pr-body.test.mjs",
+        "status": "A",
+        "added": 77,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/pr-review.test.mjs",
+        "status": "A",
+        "added": 171,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/warn-fold-plugin.test.mjs",
+        "status": "M",
+        "added": 6,
+        "deleted": 2
+      },
+      {
+        "path": "workflow/archive/2026-11/plans/2026-11-13-pr-review-loop.md",
+        "status": "A",
+        "added": 75,
+        "deleted": 0
+      }
+    ],
+    "lenses": [
+      {
+        "id": "correctness",
+        "focus": "逻辑、边界、错误路径、状态转换、并发交错、异常吞噬",
+        "files": [
+          ".agents/config/mechanism-registry.md",
+          ".agents/config/rule-budgets.txt",
+          ".agents/confirmations.d/2026-11-13-pr-review-loop.jsonl",
+          ".github/workflows/ci.yml",
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/pr-adjudicator.md",
+          "plugins/ai-native-delivery/agents/pr-finder.md",
+          "plugins/ai-native-delivery/agents/pr-verifier.md",
+          "plugins/ai-native-delivery/commands/pr-review.md",
+          "plugins/ai-native-delivery/config-templates/mechanism-registry.md",
+          "plugins/ai-native-delivery/config-templates/rule-budgets.txt",
+          "plugins/ai-native-delivery/mcp/protocol.mjs",
+          "plugins/ai-native-delivery/plugin.json",
+          "plugins/ai-native-delivery/scripts/pr-body.mjs",
+          "plugins/ai-native-delivery/scripts/pr-review.mjs",
+          "plugins/ai-native-delivery/test/pr-body.test.mjs",
+          "plugins/ai-native-delivery/test/pr-review.test.mjs",
+          "plugins/ai-native-delivery/test/warn-fold-plugin.test.mjs",
+          "workflow/archive/2026-11/plans/2026-11-13-pr-review-loop.md"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "spec",
+        "focus": "对照 spec/契约面的验收标准与承诺是否真正落地",
+        "files": [
+          ".agents/config/mechanism-registry.md",
+          ".agents/config/rule-budgets.txt",
+          ".agents/confirmations.d/2026-11-13-pr-review-loop.jsonl",
+          ".github/workflows/ci.yml",
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/pr-adjudicator.md",
+          "plugins/ai-native-delivery/agents/pr-finder.md",
+          "plugins/ai-native-delivery/agents/pr-verifier.md",
+          "plugins/ai-native-delivery/commands/pr-review.md",
+          "plugins/ai-native-delivery/config-templates/mechanism-registry.md",
+          "plugins/ai-native-delivery/config-templates/rule-budgets.txt",
+          "plugins/ai-native-delivery/mcp/protocol.mjs",
+          "plugins/ai-native-delivery/plugin.json",
+          "plugins/ai-native-delivery/scripts/pr-body.mjs",
+          "plugins/ai-native-delivery/scripts/pr-review.mjs",
+          "plugins/ai-native-delivery/test/pr-body.test.mjs",
+          "plugins/ai-native-delivery/test/pr-review.test.mjs",
+          "plugins/ai-native-delivery/test/warn-fold-plugin.test.mjs",
+          "workflow/archive/2026-11/plans/2026-11-13-pr-review-loop.md"
+        ],
+        "truncated": false
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 12,
+    "confirmed": 12,
+    "rejected": 0,
+    "escalated": 0,
+    "unverified": 0,
+    "important": 5,
+    "nit": 7,
+    "preExisting": 1,
+    "styleDropped": 0
+  },
+  "findings": [
+    {
+      "id": "C-001",
+      "file": "plugins/ai-native-delivery/scripts/pr-review.mjs",
+      "line": 408,
+      "claim": "对外宣称的「7 镜头」面板实际不可达：内置默认只启用 2 个镜头（correctness/spec），且即使项目配置 7 个 base 镜头也会被 maxFinders=6 静默截为 6 个，无任何告警",
+      "evidence": "pr-review.mjs:59 maxFinders: 6、:72 lenses.base: ['correctness', 'spec']、:408 .slice(0, Number(CFG.limits.maxFinders) || 6)（截断仅作用于镜头列表且不置任何 truncated/警告标志，truncated 字段只标每镜头文件截断）；全仓不存在 .agents/config/pr-review.json（源仓与 config-templates/ 均无模板），故 DEFAULTS 即插件用户实际配置；而 README.md:290 写「7 镜头：correctness / security / performance / tests / spec / data-integrity / quality」，config-templates/mechanism-registry.md 与 commands/pr-review.md 同口径宣称。可运行复现：临时仓 plan 默认只产出 finder-correctness.md + finder-spec.md（run.json lenses=[correctness,spec]）；写入 7 镜头配置后重跑 plan 输出 lenses: 6，quality 工单静默缺失",
+      "category": "contract",
+      "severityHint": "Important",
+      "rootCause": "lens-config-vs-advertised-panel",
+      "behaviorImpact": true,
+      "repro": "已验证：mktemp 仓两提交后 node scripts/pr-review.mjs plan --base <sha> --head <sha> → briefs 仅 2 份；追加 .agents/config/pr-review.json {\"lenses\":{\"base\":[7 个]}} 再 plan --force → 输出 lenses: 6，缺 finder-quality.md",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-001",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "独立核对 pr-review.mjs:59 maxFinders=6、:72 lenses.base=['correctness','spec']、:408 slice 无告警；全仓无 pr-review.json 模板故 DEFAULTS 即实际配置；README:290 宣称 7 镜头",
+          "counterEvidence": "",
+          "repro": "临时仓默认 plan → lenses:2；配 7 镜头再 plan --force → lenses:6 缺 quality 无警告",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "pr-review.mjs:59/:72/:408 实测同左；README.md:290 宣称 7 镜头",
+          "counterEvidence": "",
+          "repro": "临时仓 r1：默认 lenses:2；7 镜头配置 → lenses:6（quality 静默缺失）",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "独立核对 :59/:72/:408，config-templates 无 pr-review.json；README:290 宣称 7 镜头",
+          "counterEvidence": "",
+          "repro": "临时仓：默认 lenses:2；配置 7 → lenses:6，quality 被静默丢弃",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:00.047Z"
+      }
+    },
+    {
+      "id": "C-002",
+      "file": "plugins/ai-native-delivery/scripts/pr-review.mjs",
+      "line": 1064,
+      "claim": "adjudicate 落档后若重跑 verify（如迟到的 verifier 票补录），裁决记录被整体丢弃：findings.json 重建时只按 votes 重算共识，adjudicated finding 回退为 escalated，f.adjudication（含书面裁决理由）静默消失",
+      "evidence": "cmdVerify(:1060-1077) 对每条候选重算 consensusOf；状态保留分支 (:1064-1071) 仅在新 consensus==='confirmed' 且旧 status ∈ fixed/waived/deferred/recorded 时恢复处置字段，adjudication 字段任何分支都不继承——而裁决后 votes 未变，重算必然回到原 escalated 判定（如「单票 Important 且带复现」），adjudicate 的 confirm/reject --override 结果全部蒸发。可运行复现：plan→collect（Important 候选）→1 confirm(带复现)+2 uncertain 票→verify 输出 escalated→adjudicate --decision confirm（findings.json 记 adjudication）→再跑 verify→C-001 回到 consensus=escalated、adjudication=undefined；同理 adjudicate reject --override 也会被冲掉",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "reverify-drops-adjudication",
+      "behaviorImpact": true,
+      "repro": "已验证（临时仓完整命令序列见 evidence）；影响：裁决/重跑 verify 混序时人工裁决凭据丢失，需重新 adjudicate（finding 回到 escalated，adjudicate 恰好仍接受）",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-002",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "cmdVerify(:1051-1121) 重算共识，恢复分支只继承 fix/waiver/defer/record，adjudication 任何分支不继承；票不变重算必回 escalated",
+          "counterEvidence": "",
+          "repro": "临时仓：verify→escalated→adjudicate confirm→重跑 verify→adjudication=undefined",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "cmdVerify 旧 findings 恢复分支(:1062-1071)不继承 f.adjudication/f.misreport",
+          "counterEvidence": "",
+          "repro": "临时仓 r2：adjudicate 后再 verify → consensus 回 escalated、adjudication=null",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "cmdVerify consensusOf 重算 + 恢复分支不含 adjudication 字段",
+          "counterEvidence": "",
+          "repro": "临时仓完整跑通：裁决后重跑 verify，adjudication=undefined",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:00.378Z"
+      }
+    },
+    {
+      "id": "C-003",
+      "file": "plugins/ai-native-delivery/scripts/pr-review.mjs",
+      "line": 824,
+      "claim": "collect 的 diff 改动面校验可被绕过：line=0（finder 省略 line 字段时 normalizeFinding 归一为 0）的候选不受 file-not-in-diff 丢弃，任意不在评审 diff 内的文件可进入候选面板并派发 verifier",
+      "evidence": "cmdCollect(:824) if (n.line > 0 && !run.files.some((x) => x.path === n.file)) ——仅当 line>0 才比对 run.files；line=0 分支直接放行，后续 provenance 也只标 unknown（:859-861 分支同样要求 c.line>0），验证工单照常生成（该文件 diff 切片为空仅显「（该文件无 diff）」）。静态复现路径：finder 输出 {file:'unrelated/other.js', line 缺省, claim/evidence 齐全} → collect 不计 dropped、候选照常入 candidates.json；与 line>0 同输入被丢弃的行为不一致，违背「评审范围=固定 base..head 改动面」契约",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "collect-line0-scope-escape",
+      "behaviorImpact": true,
+      "repro": "静态复现（代码路径）：collect 喂入无 line 字段、file 不在 diff 的 finder JSON → 观察输出候选数含该条且无 file-not-in-diff 丢弃记录",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-003",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": ":824 守卫要求 n.line>0 才比对 run.files；normalizeFinding(:672) 缺省 line 归一 0 → 绕过",
+          "counterEvidence": "",
+          "repro": "临时仓：无 line 字段且不在 diff 的候选入 candidates，dropped 无记录，verifier 工单照常生成",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":824 仅 line>0 做 file-not-in-diff 丢弃；provenance 仅落 unknown",
+          "counterEvidence": "",
+          "repro": "临时仓 r3：同文件两候选，无 line 者入选、line=5 者正确丢弃——行为不对称",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "line = Number(raw.line)||0 归一后绕过 :824 改动面校验",
+          "counterEvidence": "",
+          "repro": "临时仓三候选对照：无 line 且不在 diff 者入选 C-002（line0），line=5 对照组正确丢弃",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:00.709Z"
+      }
+    },
+    {
+      "id": "C-004",
+      "file": "plugins/ai-native-delivery/scripts/pr-body.mjs",
+      "line": 54,
+      "claim": "pr-body.mjs 未禁用 core.quotepath，在 git 上游默认配置（quotepath=true，如 GitHub CI runner）下非 ASCII 路径被 C 转义，Summary 顶层区域名/Door 路径分类全部作用于乱码转义串，生成的 PR 正文显示损坏的文件名",
+      "evidence": "pr-body.mjs:53-54 git diff --numstat/--name-only 均未加 -c core.quotepath=off（姊妹脚本 pr-review.mjs 对所有路径输出命令一致加 -c core.quotepath=off，如 buildFiles/isReviewsOnlyRange/diff-tree，说明该防御是本 PR 已知口径）；nameOnly 经 .split('/')[0] 分组顶层区域，转义串被按真实斜杠切错且 Door 正则（config/auth/依赖等）匹配不到真实语义路径。可运行复现：临时仓含 文档/说明.md 改动 + git config core.quotepath true，pr-body.mjs --base HEAD~1 输出区域名乱码且被切残",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "pr-body-quotepath-not-disabled",
+      "behaviorImpact": true,
+      "repro": "已验证：mktemp 仓 + core.quotepath true + 非 ASCII 路径提交 → 对比 git diff --name-only（转义输出）与 pr-body Summary 行（同乱码）；本机因全局 quotepath=false 不复现，CI/默认环境即触发",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-004",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "pr-body.mjs:52-56 三个 gitOut 未加 -c core.quotepath=off；:66-68 分组与 :113-118 Door 正则作用在转义串上",
+          "counterEvidence": "",
+          "repro": "临时仓（quotepath=true）提交 文案/说明.md：Summary 区域输出乱码转义且被切错",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "pr-body.mjs 全文 0 处 quotepath；姊妹脚本 8 处 -c core.quotepath=off 证明是已知口径",
+          "counterEvidence": "",
+          "repro": "临时仓 r4：区域名输出 \\346\\226\\207... 转义串+引号残留",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "全文 0 处 quotepath 设置；git 上游默认 quotepath=true",
+          "counterEvidence": "",
+          "repro": "临时仓：name-only 转义输出，pr-body Summary 区域名乱码",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:01.014Z"
+      }
+    },
+    {
+      "id": "C-005",
+      "file": ".agents/config/mechanism-registry.md",
+      "line": 10,
+      "claim": "现状注宣称「本表 64 行全现役」，但登记表实际有 65 个现役行（本 diff 新写该注，数字与自表不符；两份拷贝同错）",
+      "evidence": "grep -c '现役 [' .agents/config/mechanism-registry.md = 65；'^| ' 行共 66 − 1 表头（第 18 行）= 65 数据行且全部含「现役 [」标记（无一行重复计）。base（2a4b832）已有 63 行（旧注尾部声称「至 62」本就少记 1，疑为未记账的「开发全景实时看板」行），本次补登 2 行后 63+2=65，而新注仍按 62+2=64 书写。plugins/ai-native-delivery/config-templates/mechanism-registry.md:10 同样宣称 64 行、同样实测 65 行",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "mechanism-registry-count-drift",
+      "behaviorImpact": false,
+      "repro": "cd <仓根> && grep -c '现役 [' .agents/config/mechanism-registry.md && grep -c '^| ' .agents/config/mechanism-registry.md  # 65 与 66（含 1 表头），对照第 10 行「本表 64 行全现役」",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-005",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep '^| '=66（含表头）→ 65 数据行全现役；注写 64；base 63 行（旧注本就少记 1）",
+          "counterEvidence": "",
+          "repro": "grep -c '现役 [' = 65 对照第 10 行「本表 64 行全现役」；两份拷贝同错",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "两份拷贝现役计数均 65、注均写 64；git show base=63 行",
+          "counterEvidence": "",
+          "repro": "grep 计数 65/66 对照注 64；base 实测 63",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head 实测 65 行全现役、注写 64；base 实测 63",
+          "counterEvidence": "",
+          "repro": "grep -c '现役 [' = 65 与 sed -n '10p' 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:01.331Z"
+      }
+    },
+    {
+      "id": "C-006",
+      "file": "plugins/ai-native-delivery/plugin.json",
+      "line": 5,
+      "claim": "本次新增第 9 个交付命令与 3 个 agent 角色后，4 处对外清单描述仍写「8 交付命令 / 4 角色委派」，与同 PR 的 0.3.4 发布注（agents/ 4→7、新增 commands/pr-review.md）自相矛盾",
+      "evidence": "实际 plugins/ai-native-delivery/commands/ = 9 个 .md（新增 pr-review.md），agents/ = 7 个 .md（新增 pr-finder/pr-verifier/pr-adjudicator）；而 plugin.json:5、marketplace.json:60、.omp-plugin/marketplace.json:63 的 description 均写「MCP 10 工具 + 8 交付命令 + 4 角色委派」，根 README.md:94 写「8 交付命令 / 4 角色委派」；本 diff 对这四个文件只改了版本号 0.3.3→0.3.4，未同步计数。同 PR 的 plugins/ai-native-delivery/README.md:319 明确宣称「三新角色…（agents/ 4→7）；命令 commands/pr-review.md」",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "manifest-count-stale",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-006",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "实测 commands/=9、agents/=7；plugin.json:5、marketplace.json:60、.omp marketplace:63、根 README:94 仍写 8 命令/4 角色；base 时点 8/4 为真，失效由本 PR 引入",
+          "counterEvidence": "",
+          "repro": "ls 计数 9/7；grep '8 交付命令' 四处命中",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head 实测 9 命令/7 角色；git ls-tree base=8/4；四处描述未同步",
+          "counterEvidence": "",
+          "repro": "ls + git ls-tree 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同左：9/7 实测，四处描述仍是 8/4，本 diff 仅改版本号",
+          "counterEvidence": "",
+          "repro": "ls plugins/ai-native-delivery/commands agents；grep 命中旧计数",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:01.630Z"
+      }
+    },
+    {
+      "id": "C-007",
+      "file": "plugins/ai-native-delivery/README.md",
+      "line": 290,
+      "claim": "README 与机制登记行宣称面板为「7 镜头 finder」，但默认配置只派 2 个镜头（correctness/spec），且 maxFinders=6 硬顶使 7 镜头同跑在任何配置下都不可能",
+      "evidence": "pr-review.mjs:72 DEFAULTS.lenses.base = ['correctness','spec']（extra 为空）；pr-review.mjs:59 DEFAULTS.limits.maxFinders = 6；pr-review.mjs:408 buildLenses 对镜头数组 slice(0, maxFinders)。插件不附带 .agents/config/pr-review.json 模板（config-templates/ 无此文件），文档亦未说明需同时调 maxFinders≥7。宣称面：README.md:290「7 镜头：correctness / …」、README.md:319「7 镜头 finder」、.agents/config/mechanism-registry.md:13「7 镜头 finder / 3 验证者/finding」",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "seven-lens-claim-unreachable",
+      "behaviorImpact": true,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-007",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": ":72 默认 2 镜头、:59 maxFinders=6、:408 硬截；README/registry 宣称 7 镜头；grep maxFinders 于文档 0 命中（未告知需调）",
+          "counterEvidence": "",
+          "repro": "同 C-001 复现：默认 2、配置 7 → 6",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "宣称面 README:290/:319 + registry 行；实现面默认 2 + 硬顶 6",
+          "counterEvidence": "",
+          "repro": "临时仓 r1 同 C-001",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":72/:59/:408 与宣称面对照，7 镜头任何配置下不可达",
+          "counterEvidence": "",
+          "repro": "静态对照 + 动态同 C-001",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:01.944Z"
+      }
+    },
+    {
+      "id": "C-008",
+      "file": "plugins/ai-native-delivery/scripts/pr-review.mjs",
+      "line": 515,
+      "claim": "plan 生成的 finder/verifier 工单把角色契约指向项目侧 .agents/roles/pr-*.md，该路径在本仓与典型项目均不存在（契约实际随插件分发于 <插件根>/agents/），与 commands/pr-review.md 的指路互相矛盾",
+      "evidence": "pr-review.mjs:515 finder 工单头写「角色契约：.agents/roles/pr-finder.md」、:596 verifier 工单写 .agents/roles/pr-verifier.md；实测本仓无 .agents/roles/ 目录（ls 失败），init-engine.mjs 无任何 roles 播种（grep 0 命中），workflows-check.mjs:197 的口径是「项目侧 .agents/roles/ ∪ 插件内 agents/（角色契约随插件分发）」；同 PR 的 commands/pr-review.md:27 指路为插件相对的 agents/pr-finder.md 等。本仓现场即复现：本镜头工单（briefs/finder-spec.md）头行同样引用该不存在路径，宿主只能另行重映射到 plugins/ai-native-delivery/agents/pr-finder.md",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "brief-role-path-dangling",
+      "behaviorImpact": true,
+      "repro": "node plugins/ai-native-delivery/scripts/pr-review.mjs plan --base <sha> --head <sha> 后查看 .agents/tmp/pr-review/<runId>/briefs/finder-*.md 第 5 行；ls .agents/roles/ → No such file or directory",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-008",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":515/:596 工单头指 .agents/roles/pr-*.md；本仓无该目录；init-engine 无 roles 播种；workflows-check:197 口径为项目侧 ∪ 插件内",
+          "counterEvidence": "",
+          "repro": "ls .agents/roles → 不存在；本次 run 的工单头同样引用该路径",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "briefs/finder-spec.md 第 3 行即引用不存在路径；commands/pr-review.md:27 指插件相对路径——互相矛盾",
+          "counterEvidence": "",
+          "repro": "ls .agents/roles 报错；head -5 工单证实",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "finderPrompt/verifierPrompt 写死 .agents/roles/ 路径；本仓与自己临时仓跑 plan 的工单均引用之",
+          "counterEvidence": "",
+          "repro": "sed -n '1,3p' 工单 + ls 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:02.267Z"
+      }
+    },
+    {
+      "id": "C-009",
+      "file": "plugins/ai-native-delivery/README.md",
+      "line": 292,
+      "claim": "文档把 enforce 门描述为「P0/P1 未清零即 FAIL」，但脚本没有任何 P0/P1 概念，且 enforce 对 open 的 Nit、escalated、无票、stale 等一切 violation 都 FAIL——实际拦截面大于文档承诺",
+      "evidence": "grep -c 'P0|P1' pr-review.mjs = 0（严重度只有 Important/Nit）；pr-review.mjs:1334-1351 gateFindings 对 confirmed Nit status=open 记 violation「Nit 未关闭」（:1350），另对 escalated（:1286）、unverified（:1293）、stale head/diffHash（:1258/:1271）、纯样式入账（:1282）均记 violation；cmdGate（:1392-1407）enforce 下任一 violation 即 exit 1。宣称面：README.md:292、commands/pr-review.md:28「gate（P0/P1 清零判定）」与 :33「enforce：P0/P1 未清零即 FAIL」——按文档理解 Nit 不挡合入，实际未处置的 Nit 同样 FAIL",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "gate-scope-overclaim",
+      "behaviorImpact": true,
+      "repro": "node plugins/ai-native-delivery/scripts/pr-review.mjs gate --run <run> --mode enforce，构造一条 confirmed Nit status=open 的 findings.json → exit 1",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-009",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep P0|P1 于脚本 0 命中；gateFindings 对 Nit open(:1350)、escalated(:1285)、无票、stale 均记 violation，enforce 任一即 exit 1",
+          "counterEvidence": "",
+          "repro": "临时仓：confirmed Nit open → gate enforce → FAIL exit 1",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同左：无 P0/P1 概念，实际拦截面大于文档；唯一 P0/P1 词表在 independent-reviewer.md:29 与 gate 无关",
+          "counterEvidence": "",
+          "repro": "静态 grep + violation 分支对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep 'P0' 0 命中；:1332/:1350 Important/Nit open 均 violation",
+          "counterEvidence": "",
+          "repro": "静态 grep -n 'P0' 三文件对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:02.577Z"
+      }
+    },
+    {
+      "id": "C-010",
+      "file": "plugins/ai-native-delivery/scripts/pr-body.mjs",
+      "line": 83,
+      "claim": "pr-body 注释宣称 Evidence 取自「最近 verify 绿行 / 最近关单凭证」两种来源，实现只读 .agents/verifications.jsonl，关单凭证来源完全未实现（README 与登记行的说法反而与实现一致）",
+      "evidence": "pr-body.mjs:5「从最近 verify 绿行/关单凭证取 Evidence」与 :83 节注释「---- Evidence：最近 verify 绿行 / 最近关单凭证…」；实现 :85 起 const verif = path.join(ROOT, '.agents', 'verifications.jsonl')，此后仅消费该文件（无 confirmations/关单面读取）。对照 .agents/config/mechanism-registry.md:14 与 README.md 的「Evidence 引 verify 绿行或明写未运行」均未提关单凭证",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "pr-body-evidence-comment-overclaim",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-010",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "pr-body.mjs:5/:83 注释宣称「关单凭证」来源；:85 起仅读 verifications.jsonl；对外文档与实现一致（未提关单凭证）——仅代码注释过度宣称",
+          "counterEvidence": "",
+          "repro": "grep '关单' 仅命中两处注释，无实现",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep confirmations 0 命中；README 与 registry 行均只写 verify 绿行——注释单方多宣称",
+          "counterEvidence": "",
+          "repro": "grep -n confirmations|verifications 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":85 之后只消费 verifications.jsonl；数据源标注(:140)也只提该文件",
+          "counterEvidence": "",
+          "repro": "grep '关单凭证' 仅 :5/:83",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:02.885Z"
+      }
+    },
+    {
+      "id": "C-011",
+      "file": "plugins/ai-native-delivery/README.md",
+      "line": 294,
+      "claim": "文档称面板角色「模型按 model-roles.json 的 review 角色」取，但代码默认把 finder 标为 code 角色而非 review，adjudicator 无任何 modelRole——宣称与 tasks.json 实际派发面不符",
+      "evidence": "pr-review.mjs:759 finder modelRole: CFG.modelRoles?.finder || 'code'，:917 verifier modelRole: CFG.modelRoles?.verifier || 'review'；DEFAULTS 无 modelRoles 节，项目未配置 modelRoles.finder 时 finder 一律按 'code' 派发。宣称面：README.md:294「agents/pr-finder.md、pr-verifier.md、pr-adjudicator.md（模型按 model-roles.json 的 review 角色）」与 commands/pr-review.md:27「模型按 model-roles.json 的 review 角色取」覆盖全部三种角色",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "finder-modelrole-doc-mismatch",
+      "behaviorImpact": true,
+      "repro": "node plugins/ai-native-delivery/scripts/pr-review.mjs plan --base <sha> --head <sha> 后读 .agents/tmp/pr-review/<runId>/tasks.json：finders[].modelRole=code ≠ 文档宣称的 review",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-011",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":759 finder modelRole||'code'、:917 verifier||'review'；DEFAULTS 无 modelRoles 节；adjudicator 无 modelRole；README:294/命令文档宣称三角色统一 review",
+          "counterEvidence": "",
+          "repro": "plan 后 tasks.json finders[].modelRole=code",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "modelRole 仅 :759/:917 两处；配置实际读 pr-review.json 非 model-roles.json；文档统一宣称 review",
+          "counterEvidence": "",
+          "repro": "临时仓 r1：tasks.json 6/6 finder=code",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep 'modelRoles' 仅两处默认；adjudicator 无任何条目",
+          "counterEvidence": "",
+          "repro": "临时仓 tasks.json 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "1dc4f21f637028b37e9e7d339cdf9f8f8ca1b5ae",
+        "note": "0.3.5 修复（面板自评审闭环）",
+        "at": "2026-11-13T14:45:03.225Z"
+      }
+    },
+    {
+      "id": "C-012",
+      "file": "workflow/archive/2026-11/plans/2026-11-13-pr-review-loop.md",
+      "line": 35,
+      "claim": "plan 改动方案承诺 commands 预算上调「47282→51200（新命令 pr-review.md 带日期理由）」，实际两份 rule-budgets.txt 只改了数值行，未新增任何带日期的理由注释，且该行紧邻的注释仍在解释旧的 47282 口径，配置自述与新值脱节",
+      "evidence": "diff 仅一处：.agents/config/rule-budgets.txt:33 与 plugins/ai-native-delivery/config-templates/rule-budgets.txt:33 的「.agents/commands/ 47282→51200」；其上方第 30-32 行注释仍是「按轮惯例重定：上限 44144→47282B…」与「2026-11-13 判据移植…单篇 8704→9728B」——均为旧变更的理由，grep 'pr-review' 两文件 0 命中。仓内惯例是每条预算行带日期理由注释（如 :35-37 的 2026-10-15 段）；plan 第 35 行明写「带日期理由」",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "budget-raise-missing-dated-reason",
+      "behaviorImpact": false,
+      "repro": "grep -n 'pr-review' .agents/config/rule-budgets.txt plugins/ai-native-delivery/config-templates/rule-budgets.txt → 无命中；sed -n '28,34p' 可见 51200 行上方无 51200/新命令相关注释",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-012",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "diff 实测两份 rule-budgets 仅改数值行；上方注释仍是 44144→47282（2026-10-22）与单篇 8704→9728 旧口径；grep 'pr-review' 0 命中",
+          "counterEvidence": "",
+          "repro": "git diff -- 两文件 + grep -n pr-review 无命中",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同左：plan:35 承诺「带日期理由」未兑现",
+          "counterEvidence": "",
+          "repro": "git diff 唯一改动 47282→51200；sed -n '28,34p' 无新注释",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "diffstat 各 2 行即仅数值行；无 51200/pr-review 相关日期注释",
+          "counterEvidence": "",
+          "repro": "grep -n pr-review 无命中；sed -n '26,40p' 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "waived",
+      "waiver": {
+        "reason": "锚文件为已归档终态 plan（doc-body-drift 硬门禁改正文）；实质修复已落 1dc4f21——两份 rule-budgets.txt 已补 2026-11-13 日期理由（实测 50304B）",
+        "owner": "dc",
+        "quote": "",
+        "at": "2026-11-13T14:46:38.122Z"
+      }
+    }
+  ],
+  "dropped": [],
+  "writtenAt": "2026-11-13T14:47:07.174Z"
+}

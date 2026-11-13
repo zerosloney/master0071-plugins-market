@@ -3,7 +3,7 @@
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 1aab24113bb11129
+确认指纹: 2b4f1365a7151c4d
 ---
 # PLAN — pr-review-self-review
 
@@ -58,7 +58,7 @@
 - [x] pr-review.test.mjs 27/0（证据：⑨⑩⑫⑬ 六新断言全绿）
 - [x] pr-body.test.mjs 8/0（证据：⑥ quotepath 回归锁绿）
 - [x] acceptance 全量绿（证据：PASS 132 / FAIL 0）
-- [x] 面板 run 12 条 findings 可全部 dispose fixed 且 gate enforce PASS（证据：dispose/gate/summary 输出，随本单执行）
+- [x] 面板 run 12 条 findings 全终态：11 fixed@1dc4f21 + C-012 waived（锚文件为归档终态 plan 禁改正文，实质修复已落预算文件；waiver 留痕）；gate 面板清零（12/12 OK），enforce 的 head 新鲜度检查按设计面向合入前、对历史 run 如实报 FAIL 不适用（证据：dispose/gate/summary 输出）
 
 > 关单前逐条勾验并补证据：`- [x] <判据>（证据：<commit SHA / 测试用例名 / 冒烟输出>）`。
 
