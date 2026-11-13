@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // 取 CLI 路径须走 fileURLToPath：`new URL(...).pathname` 对非 ASCII 检出路径会百分号编码
 // （如 worktree `MTO变更-1017-01` → `MTO%E5%8F%98%E6%9B%B4-1017-01`），子进程按坏路径启动 → status 1 / 空 stdout，
@@ -196,6 +196,37 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   check('S11 `...` 通配命中中段省略：src/a/b/ok.md 不越界', r.status === 1 && !/越界件[\s\S]*src\/a\/b\/ok\.md/.test(r.stdout), `exit=${r.status}\n${r.stdout}`);
   check('S11b 通配不跨文件名：src/a/b/ok2.md 仍越界', r.status === 1 && /越界件[\s\S]*src\/a\/b\/ok2\.md/.test(r.stdout), r.stdout);
   check('S11c 通配声明已落件（未落件不出现在报告）', !/未落件/.test(r.stdout), r.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// S12 声明形态早期反馈（papercut 根修 2026-11-13）：suspiciousDeclarations 直接单测——
+// 缩写/会被丢弃的 token 暴露，散文/URL/版本号/合法声明不误报
+{
+  const { suspiciousDeclarations, declAccepted } = await import(pathToFileURL(CLI).href);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-sus-'));
+  fs.writeFileSync(path.join(root, 'src-a.md'), '# A\n', 'utf8'); // 根真实文件（裸名接受判据夹具）
+  const plan = path.join(root, 'p.md');
+  fs.writeFileSync(plan, [
+    '## 改动方案',
+    '- `plugins/x/plugin.json`：版本位（带目录+已知扩展名，合法）',
+    '- `.codex/.omp/.zcode` 三宿主缩写（形似路径但会被丢弃——应被标记）',
+    '- `src/.../ok.md`：通配声明（合法）',
+    '- 引用 `v1.2.2` 与 `https://github.com/x/y`（散文 token，不应误报）',
+    '正文段落里出现的 `.codex/.omp/.zcode` 不在 bullet 行，不判',
+    '',
+    '## 其他节',
+    '- `.codex/.omp/.zcode` 非声明节不判',
+  ].join('\n'), 'utf8');
+  const sus = suspiciousDeclarations(plan, root);
+  check('S12 缩写 token 被标记（含行号）', sus.length === 1 && sus[0].token === '.codex/.omp/.zcode' && sus[0].line === 3, JSON.stringify(sus));
+  check('S12b 合法声明/通配/散文/URL/版本号/非 bullet 均不误报',
+    !sus.some((s) => /plugin\.json|ok\.md|v1\.2\.2|github/.test(s.token)), JSON.stringify(sus));
+  check('S12c declAccepted 单源判据：带目录+已知扩展名 / 真实文件 / 裸名+未知扩展 的三态',
+    declAccepted('a/b.json', root) === true
+    && declAccepted('src-a.md', root) === true
+    && declAccepted('v1.2.2', root) === false
+    && declAccepted('.codex/.omp/.zcode', root) === false,
+    '');
   fs.rmSync(root, { recursive: true, force: true });
 }
 

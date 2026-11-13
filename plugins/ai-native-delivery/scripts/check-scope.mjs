@@ -50,15 +50,46 @@ export function extractDeclared(planAbs, root = process.cwd()) {
     if (!inSec) continue;
     for (const m of line.matchAll(/([a-zA-Z0-9._\/\\-]+\.[a-zA-Z0-9]+)/g)) {
       const tok = m[1].replace(/\\/g, '/');
-      const ext = tok.slice(tok.lastIndexOf('.')).toLowerCase();
-      const qualified = tok.includes('/');
-      const realFile = fs.existsSync(path.join(root, tok));
-      if (!qualified && !realFile) continue;         // 裸文件名：只认仓库根真实文件
-      if (!KNOWN_EXT.has(ext) && !realFile) continue; // 无扩展名目录前缀：只认真实文件
-      declared.push(tok);
+      if (declAccepted(tok, root)) declared.push(tok);
     }
   }
   return declared;
+}
+
+// 单 token 接受判据（从 extractDeclared 内联逻辑抽出单源，供 suspiciousDeclarations 复用同口径）：
+// 裸文件名只认仓库根真实文件；无已知扩展名只认真实文件；带目录 + 已知扩展名 → 接受。
+export function declAccepted(tok, root = process.cwd()) {
+  tok = tok.replace(/\\/g, '/');
+  const ext = tok.slice(tok.lastIndexOf('.')).toLowerCase();
+  const qualified = tok.includes('/');
+  const realFile = fs.existsSync(path.join(root, tok));
+  return (qualified || realFile) && (KNOWN_EXT.has(ext) || realFile);
+}
+
+// 声明形态早期反馈（papercut 根修 2026-11-13，两天两次推送被范围门拦的实证）：
+// 作者在声明节 bullet 里用反引号写了「形似路径但按判据会被丢弃」的 token（如 `.codex/.omp/.zcode`
+// 三宿主缩写——带目录无已知扩展名非真实文件）——extractDeclared 静默丢弃 → 范围对账到 push 才炸。
+// 本函数把这类 token 在**确认时刻**暴露：bullet 行（`- ` 开头）反引号内容整体形如路径（锚定整串
+// 匹配，冒号/中文/`~` 等即不匹配）、含目录分隔、且 !declAccepted → 可疑。
+// 刻意不判裸文件名（无 `/`）：version 号（v1.2.2）等散文 token 误报率高于收益。
+export function suspiciousDeclarations(planAbs, root = process.cwd()) {
+  const suspicious = [];
+  const lines = fs.readFileSync(planAbs, 'utf8').split(/\r?\n/);
+  let inSec = false;
+  let lineNo = 0;
+  for (const line of lines) {
+    lineNo++;
+    if (/^##\s+(改动面|任务拆解|改动方案|验证计划)/.test(line)) { inSec = true; continue; }
+    if (inSec && /^##\s+/.test(line)) { inSec = false; continue; }
+    if (!inSec || !/^\s*-\s+/.test(line)) continue;
+    for (const m of line.matchAll(/`([^`]+)`/g)) {
+      const tok = m[1].trim();
+      if (!/^[a-zA-Z0-9._\/\\-]+\.[a-zA-Z0-9]+$/.test(tok)) continue; // 非整串路径形态（URL/散文/命令）
+      if (!tok.includes('/')) continue;                                // 裸名不判（误报 > 收益）
+      if (!declAccepted(tok, root)) suspicious.push({ line: lineNo, token: tok.replace(/\\/g, '/') });
+    }
+  }
+  return suspicious;
 }
 
 // 白名单与匹配规则同为共享常量（check-scope-range / stage-gates 复用，口径单源）

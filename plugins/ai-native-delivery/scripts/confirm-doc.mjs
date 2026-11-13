@@ -50,6 +50,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { confirmGateFor, doneGateFor, taskScopeGate, acceptanceEvidenceGate, laneOfDoc, specConfirmed, planConfirmedFor, reviewLineFor, commitmentFingerprint } from './stage-gates.mjs';
+import { suspiciousDeclarations } from './check-scope.mjs';
 import { loadKitPolicy, hasFreshVerifyLine } from './policy.mjs';
 import { groundQuote, resolveFamilyTexts, GROUND_ANCHOR_MIN } from './quote-grounding.mjs';
 
@@ -404,6 +405,16 @@ if (isMain) {
         refused++;
         continue;
       }
+      // 声明形态门同适于重确认（承诺面改写常含改动方案修订——同判据单源，见上方门注）
+      if (doc.startsWith('workflow/plans/')) {
+        const rsus = suspiciousDeclarations(abs, root);
+        if (rsus.length) {
+          console.error(`❌ ${doc} 未过声明形态门（reconfirm）：改动面/改动方案节存在会被范围判据丢弃的反引号 token`);
+          for (const s of rsus) console.error(`   L${s.line}：\`${s.token}\`——改写为精确路径再重新点头（本份未落账、未写盘）`);
+          refused++;
+          continue;
+        }
+      }
       if (!famCache.has(doc)) famCache.set(doc, resolveFamilyTexts(root, doc));
       const grounding = groundQuote({
         quote: delegatedQuote, docText: text, familyTexts: famCache.get(doc),
@@ -451,6 +462,19 @@ if (isMain) {
       if (!gate.ok) {
         console.error(`❌ ${doc} 未过逐阶段前置门（stage-gates）：${gate.reason}`);
         console.error(`   ${gate.hint}（本份未落账、未写盘）`);
+        refused++;
+        continue;
+      }
+    }
+    // 声明形态早期反馈门（papercut 根修 2026-11-13）：plan 声明节的反引号路径 token 若按
+    // check-scope 判据会被静默丢弃（缩写/无扩展名目录串），范围对账要到关单/推送才炸——两天两次
+    // 实证。前移到确认时刻拦（判据单源 check-scope.suspiciousDeclarations）。spec/intent 无改动面不检。
+    if (target === 'approved' && doc.startsWith('workflow/plans/')) {
+      const sus = suspiciousDeclarations(abs, root);
+      if (sus.length) {
+        console.error(`❌ ${doc} 未过声明形态门：改动面/任务拆解/改动方案/验证计划节存在「形似路径但按范围判据会被丢弃」的反引号 token`);
+        for (const s of sus) console.error(`   L${s.line}：\`${s.token}\`——不是精确路径（带目录+已知扩展名，或仓库真实文件）`);
+        console.error('   缩写写法（如「.codex/.omp/.zcode 三宿主」）须逐个写全精确路径，否则推送范围门会拦（本份未落账、未写盘）');
         refused++;
         continue;
       }

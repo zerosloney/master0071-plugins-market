@@ -314,6 +314,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.6**
+
+毛刺清理（papercut 根修，两天两次推送被范围门拦的实证）：**check-scope.mjs** 新增 `declAccepted`（单 token 接受判据抽单源）+ `suspiciousDeclarations`（声明节 bullet 反引号 token「形似路径但按判据会被静默丢弃」的早期暴露——如 `.codex/.omp/.zcode` 式缩写）；**confirm-doc.mjs** 确认/重确认双路径接「声明形态门」——缩写声明在**确认时刻**被拦（exit 2 + 逐 token 行号 + 修法提示），不再等到推送范围门。测试：check-scope S12 三断言（缩写标记/散文 URL 版本号不误报/三态判据）+ confirm-doc S72 两断言（缩写拒绝且不落账 / 写全精确路径后通过）。papercuts 登记 2 条（缩写无早期反馈——已修；承诺面占位符替换触发 reconfirm——与既有「勾验收不应触发」线程合并，owner 复评）。
+
 **0.3.5**
 
 面板评审自评审闭环（pr-review 首跑对 0.3.4 自身：2 finder 12 候选 → 3 验证者 36 票全 confirm → 全 12 条修复）：①默认面板 2→7 镜头 + maxFinders 6→7 + 截断显式告警（宣称面=默认派发面，C-001/C-007）②人工裁决是该票面终裁——重跑 verify 不冲掉（票面漂移只告警，C-002）③collect 改动面校验不再以 line>0 为前提（无行号越界候选照拦，C-003）④pr-body 三处路径输出补 -c core.quotepath=off（与 pr-review 同口径，C-004）⑤工单角色契约指路自锚插件 agents/（原指不存在的项目侧 .agents/roles/，C-008）⑥文档口径三修：enforce 拦截面如实列（原写不存在的 P0/P1，C-009）、modelRole 默认如实写（finder=code/verifier=review，C-011）、pr-body 注释去掉未实现的关单凭证来源（C-010）⑦清单计数四处同步 9 命令/7 角色（C-006）+ 登记表现状注 64→65（C-005）+ 预算 51200 行补带日期理由（C-012）。回归锁：pr-review 26 断言 + pr-body 8 断言（新增 ⑨⑩⑫⑬/⑥ 六断言锁死上述行为面）。

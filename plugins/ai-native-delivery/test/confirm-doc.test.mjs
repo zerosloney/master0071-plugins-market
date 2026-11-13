@@ -1754,5 +1754,44 @@ const intentDoc = (acceptBody) => `---\n状态: approved\n级别: L1\n日期: 20
   }
 }
 
+
+// ---- S72 声明形态早期反馈门（papercut 根修 2026-11-13）：改动方案缩写 token 在确认时刻被拦 ----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-decl-'));
+  const docP = path.join(root, 'workflow', 'plans');
+  fs.mkdirSync(docP, { recursive: true });
+  // 入口夹具口径同 S11（L1 + 锚前日期免台账）
+  fs.mkdirSync(path.join(root, 'workflow', 'intents'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'intents', '2026-11-13-s72.md'),
+    '---\n状态: approved\n级别: L1\n日期: 2026-01-01\n---\n# I（S72 入口夹具）\n', 'utf8');
+  fs.writeFileSync(path.join(docP, '2026-11-13-s72.md'), [
+    '---', '状态: draft', '级别: L1', '---', '# P', '',
+    '## 改动方案', '',
+    '- `plugins/ai-native-delivery/plugin.json`：版本位',
+    '- `.codex/.omp/.zcode` 三宿主 plugin.json：同上（缩写——应被拦）', '',
+  ].join('\n'), 'utf8');
+  const r1 = spawnSync(process.execPath, [CLI, 'workflow/plans/2026-11-13-s72.md', '--delegated', 'S72 缩写声明应被拦'], { cwd: root, encoding: 'utf8' });
+  const after1 = fs.readFileSync(path.join(docP, '2026-11-13-s72.md'), 'utf8');
+  check('S72 缩写声明确认被拒（exit 2 + 声明形态门 + 状态仍 draft + 未落台账）',
+    r1.status === 2 && /声明形态门/.test(r1.stderr) && /\.codex\/\.omp\/\.zcode/.test(r1.stderr)
+    && after1.includes('状态: draft') && readLedgerOf(root).length === 0,
+    JSON.stringify({ s: r1.status, e: String(r1.stderr).slice(0, 300) }));
+  // 改写为精确路径后同命令通过
+  fs.writeFileSync(path.join(docP, '2026-11-13-s72.md'), [
+    '---', '状态: draft', '级别: L1', '---', '# P', '',
+    '## 改动方案', '',
+    '- `plugins/ai-native-delivery/plugin.json`：版本位',
+    '- `plugins/ai-native-delivery/.codex-plugin/plugin.json`：同上',
+    '- `plugins/ai-native-delivery/.omp-plugin/plugin.json`：同上',
+    '- `plugins/ai-native-delivery/.zcode-plugin/plugin.json`：同上', '',
+  ].join('\n'), 'utf8');
+  const r2 = spawnSync(process.execPath, [CLI, 'workflow/plans/2026-11-13-s72.md', '--delegated', 'S72 精确路径声明应通过'], { cwd: root, encoding: 'utf8' });
+  check('S72b 逐个写全精确路径后确认通过（approved + 台账落行）',
+    r2.status === 0 && fs.readFileSync(path.join(docP, '2026-11-13-s72.md'), 'utf8').includes('状态: approved')
+    && readLedgerOf(root).some((j) => j.doc === 'workflow/plans/2026-11-13-s72.md' && j.stage === 'approved'),
+    JSON.stringify({ s: r2.status, e: String(r2.stderr).slice(0, 300) }));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);
