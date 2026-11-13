@@ -67,7 +67,7 @@ const LEGEND_MAX_CHARS = 80;
 export function scoreOf(a) {
   if (!a || a.type !== 'score' || typeof a.score !== 'number' || !Number.isFinite(a.score)) return null;
   // 界外值不可解释，按「无法判断」处理（2026-11-05，与 noulOf 及 question-types.mjs 的越界归 null
-  // 同口径）：旧实现只验有限性，`score: -5` 配 verdict=allow 会在 risk-gate 的门限比较里
+  // 同口径）：旧实现只验有限性，`score: -5` 配 verdict=allow 会在预检的门限比较里
   // 被当成最低风险放行——越界分值不是「更低的风险」，是端点给了不可解释的东西。
   const idx = Math.round(a.score);
   if (idx < 0 || idx > SCORE_SCALE_MAX_INDEX) return null;

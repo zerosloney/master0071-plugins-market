@@ -42,8 +42,6 @@ const POLLUTING_ENV_KEYS = [
   'SYSTEMONE_PLUGIN_BATCH_BUDGET_MS',
   'SYSTEMONE_HOOK_PRECHECK',
   'SYSTEMONE_PLUGIN_HOOK_PRECHECK',
-  'SYSTEMONE_HOOK_RISK_GATE',
-  'SYSTEMONE_PLUGIN_HOOK_RISK_GATE',
 ];
 const cleanEnv = (extra = {}) => {
   const base = { ...process.env };
@@ -1855,14 +1853,14 @@ const main = async () => {
     // （设置页值胜出）；API Key 绝不落盘。
     const endpointFile = JSON.parse(readFileSync(path.join(runRoot, '.endpoint.json'), 'utf8'));
     check('启动时落盘已解析端点（设置页优先，不含 API Key）', () => {
-      // 2026-11-01：共享文件新增两个 hook 开关（设置页那两个开关此前只进 MCP 子进程 env、
-      // hook 进程收不到，等于承诺"off 就停掉外发"却关不掉）。本夹具没设开关 → 落盘为 null。
-      assert.deepEqual(Object.keys(endpointFile).sort(), ['baseUrl', 'hookPrecheck', 'hookRiskGate', 'model', 'timeoutMs']);
+      // 2026-11-01：共享文件承载 hook 开关（设置页那个开关此前只进 MCP 子进程 env、hook 进程
+      // 收不到，等于承诺"off 就停掉外发"却关不掉）。0.6.1 起只余 precheck 一个开关。本夹具没设
+      // 开关 → 落盘为 null。
+      assert.deepEqual(Object.keys(endpointFile).sort(), ['baseUrl', 'hookPrecheck', 'model', 'timeoutMs']);
       assert.equal(endpointFile.baseUrl, `http://127.0.0.1:${port}/v1`);
       assert.equal(endpointFile.model, 'alt-decision');
       assert.equal(endpointFile.timeoutMs, 30000, 'PLUGIN_TIMEOUT_MS 留空应落盘默认值');
       assert.equal(endpointFile.hookPrecheck, null, '未设开关 → null（hook 侧据此回退环境变量/默认 on）');
-      assert.equal(endpointFile.hookRiskGate, null);
       assert.ok(!JSON.stringify(endpointFile).includes('test-key'), 'Key 不得出现在共享文件里');
     });
   } finally {

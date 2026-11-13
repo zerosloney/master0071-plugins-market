@@ -1,7 +1,7 @@
-// hook-io.mjs — 两个 hook 入口（requirement-clarity / pretool-risk）共用的 stdin/stdout 协议壳。
+// hook-io.mjs — hook 入口（requirement-clarity）的 stdin/stdout 协议壳。
 // 契约与各自内核一致：stdin = hook JSON；handle 返回 null 时静默 exit 0（fail-open），
 // 返回对象时序列化为 stdout；异常写 stderr 后 exit 0，绝不阻塞用户输入或工具调用。
-// 判定内核不在这里（clarity.mjs / risk-gate.mjs），本文件只做读取、deadline 与退出协议。
+// 判定内核不在这里（clarity.mjs），本文件只做读取、deadline 与退出协议。
 
 /** stdin 字符上限：与 MCP 侧 server.mjs 的 state 上限（STATE_MAX_CHARS = 100K）对齐。 */
 export const STDIN_MAX_CHARS = 100_000;
@@ -52,40 +52,23 @@ export function readStdin() {
  *
  * @param {(input: object, timeoutMs: number, truncated: boolean) => Promise<object|null>} handle
  *   truncated = 输入不可信（stdin 超限**或**时间预算耗尽），由调用方决定走向
- *   （预检放行、风险闸 fail-closed）
- * @param {object} [opts] - { budgetMs, now, killerMs, killPolicy, askPayload }
+ *   （预检放行）
+ * @param {object} [opts] - { budgetMs, now, killerMs }
  *   预算上限与取时函数（测试注入用，生产取默认值）；killerMs 同为测试注入（生产固定为预算值）。
- *   killPolicy = killer 触发（stdin 挂起/滴流吃满预算）时的自毁策略，按入口分：
- *     'silent'（默认）exit 0 无输出——UserPromptSubmit 通道故意 fail-open，输出
- *       permissionDecision 反而是协议违规；
- *     'emit-ask' 先向 stdout 输出 askPayload() 的 JSON（须与预算耗尽分支同形）、stderr 留一行
- *       诊断再退：把「挂起=静默放行」变成「挂起=人工确认」，并赶在宿主 15s 超时前送达。
- *   askPayload = kill-policy=emit-ask 必配的兜底载荷工厂（由入口注入，协议壳不认识具体事件格式）
+ *   killPolicy = killer 触发（stdin 挂起/滴流吃满预算）时的自毁策略：
+ *     'silent'（唯一策略）exit 0 无输出——UserPromptSubmit 通道故意 fail-open，输出
+ *       permissionDecision 反而是协议违规；0.6.1 起风险闸整体下线，killer 回归纯 silent 自毁。
  * @returns {Promise<object|null>} handle 的返回值；handle 判定放行时为 null（fail-open）
  */
 export async function runHook(handle, opts = {}) {
   const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : HOOK_BUDGET_MS;
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const killerMs = Number.isFinite(opts.killerMs) && opts.killerMs > 0 ? opts.killerMs : HOOK_BUDGET_MS;
-  if (opts.killPolicy === 'emit-ask' && typeof opts.askPayload !== 'function') {
-    // 配置错误不许静默降级：emit-ask 少了载荷工厂会退化回 silent，恰是本次要消灭的「挂起=静默放行」
-    throw new Error('kill-policy=emit-ask 需要配 askPayload 工厂（killer 触发时的兜底载荷）');
-  }
-  const emitAsk = opts.killPolicy === 'emit-ask';
   const startedAt = now();
   const killer = setTimeout(() => {
-    if (!emitAsk) {
-      process.exit(0);
-      return;
-    }
-    // 同步写完再退（复用 main 的 drain 手法）：宿主 15s 超时前必须送达 ask
-    const text = JSON.stringify(opts.askPayload());
-    const diagThenExit = () => {
-      process.stderr.write('[systemone-decision hook] stdin 未在共享预算内完成读取，kill-policy=emit-ask 兜底输出 ask 转人工\n');
-      process.exit(0);
-    };
-    if (process.stdout.write(text)) diagThenExit();
-    else process.stdout.once('drain', diagThenExit);
+    // 纯 silent 自毁：0.6.1 起 killer 不再输出任何载荷（挂起=静默放行，与 UserPromptSubmit 的
+    // fail-open 现状一致；风险闸下线后无「转人工」通道可承载 ask）
+    process.exit(0);
   }, killerMs);
   let stdin;
   try {

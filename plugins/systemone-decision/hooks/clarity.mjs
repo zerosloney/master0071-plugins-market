@@ -2,14 +2,14 @@
 // 同时生效。Claude 式 UserPromptSubmit 的 stdin/stdout 协议留在 hooks/requirement-clarity.mjs。
 // 契约：precheck(text, env) 返回结论文本，判定为"明确"/寒暄/缺 Key 时返回 null，
 // 网络或响应异常一律 throw —— 由调用方 fail-open，绝不阻塞用户输入。
-// 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.6。
+// 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.35。
 // 低置信度不改门限，只在命中的结论里附注——硬信号归 hook，软怀疑归 Agent。
 // 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与风险闸同一份）。
 
 import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
 import { bumpQuota } from './precheck-quota.mjs';
 
-export const GATE = { clarityMax: 1, proceedMin: 0.6 };
+export const GATE = { clarityMax: 1, proceedMin: 0.35 };
 const CASUAL = /^(好的?|好吧|可以|是的?|对滴?|行|嗯+|哦+|不了|不用了?|再见|收到|继续|谢谢|多谢|麻烦了|辛苦了|ok|okay|yes|thanks?|thank you)[!。.，,～~！?\s]*$/i;
 
 const QUESTIONS = {
@@ -51,7 +51,7 @@ function verdictLine(clarity, missing, proceed) {
   return (
     `[SystemOne 需求预检] 该需求判定为不明确：明确度 ${clarity.score.toFixed(1)}/3${clarity.level ? `（${clarity.level}）` : ''}；` +
     `${miss}；不澄清就推进的可接受概率 ${proceed.probability.toFixed(2)}。` +
-    `建议先按上述维度向用户澄清，再开始实现，不要直接动手。${low}`
+    `建议先按上述维度向用户澄清，再开始实现；若返工成本低且可逆，说明假设后继续亦可。${low}`
   );
 }
 
@@ -78,7 +78,7 @@ export async function precheck(text, env = process.env, opts = {}) {
   const clarity = answers ? scoreOf(answers.clarity) : null;
   const missing = answers ? choiceOf(answers.missing) : null;
   const proceed = answers ? noulOf(answers.proceed) : null;
-  // 幻觉选项与 risk-gate 的 verdict 判定同口径：Object.hasOwn 校验判据表，模型吐出
+  // 幻觉选项与预检判据同口径：Object.hasOwn 校验判据表，模型吐出
   // 判据表外的选项（含沿原型链蒙对的 "constructor" 之类）时结论文案不可信，
   // 按响应不完整 fail-open 静默跳过，不渲染「最需要澄清：foo（）」这类空心结论
   if (

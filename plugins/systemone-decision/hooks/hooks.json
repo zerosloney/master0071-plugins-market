@@ -10,18 +10,6 @@
           }
         ]
       }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "[bB][aA][sS][hH]|[sS][hH][eE][lL][lL]|[tT][eE][rR][mM][iI][nN][aA][lL]|[cC][oO][mM][mM][aA][nN][dD]|[cC][mM][dD]|[eE][xX][eE][cC]|[pP][rR][oO][cC][eE][sS][sS]|[rR][uU][nN]|[pP][oO][wW][eE][rR][sS][hH][eE][lL][lL]|[pP][wW][sS][hH]|[zZ][sS][hH]|[fF][iI][sS][hH]",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretool-risk.mjs\"",
-            "timeout": 15
-          }
-        ]
-      }
     ]
   }
 }

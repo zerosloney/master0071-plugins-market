@@ -34,7 +34,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.6.0' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.6.1' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -91,7 +91,6 @@ for (const problem of [...scenarioLoadProblems, ...scenarioProblems]) {
 writeEndpointConfig({
   ...config(),
   hookPrecheck: process.env.SYSTEMONE_PLUGIN_HOOK_PRECHECK || process.env.SYSTEMONE_HOOK_PRECHECK || null,
-  hookRiskGate: process.env.SYSTEMONE_PLUGIN_HOOK_RISK_GATE || process.env.SYSTEMONE_HOOK_RISK_GATE || null,
 });
 
 /** 结构化错误码（与 README「错误码」一节一一对应）。 */

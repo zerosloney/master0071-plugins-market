@@ -7,7 +7,7 @@
 
 零依赖 MCP 服务器（stdio），要求 Node ≥ 18。场景库是纯数据（`mcp/scenarios.mjs`），新增场景无需改工具 schema。
 
-> **⚠ 数据外流提示（装前必读）**：一切判定都发生在你配置的 SystemOne 端点上。MCP 工具按调用把 `state` 发往端点；**配置 API Key 后，两个预检 hook 还会自动把每次用户输入（≥10 字符、非寒暄）与每条非只读 shell 命令的全文发往同一端点**——编码会话里的提示与命令常含私有路径、分支名或凭据引用，请只在你信任的端点上启用 hook，不需要时按[「预检 hook」](#预检-hook随插件自动安装)一节的说明关闭（需求预检 `SYSTEMONE_HOOK_PRECHECK=off`、shell 风险闸 `SYSTEMONE_HOOK_RISK_GATE=off`，各一键停用）。hook 判定带 5 分钟本地缓存：TTL 内重复的相同输入不再重复外发（`SYSTEMONE_CACHE_TTL_MS=0` 关闭）。
+> **⚠ 数据外流提示（装前必读）**：一切判定都发生在你配置的 SystemOne 端点上。MCP 工具按调用把 `state` 发往端点；**配置 API Key 后，需求预检 hook 还会自动把每次用户输入（≥10 字符、非寒暄）发往同一端点**——编码会话里的提示常含私有路径、分支名或凭据引用，请只在你信任的端点上启用 hook，不需要时设 `SYSTEMONE_HOOK_PRECHECK=off` 一键停用（详见[「预检 hook」](#预检-hook随插件自动安装)一节）。hook 判定带 5 分钟本地缓存：TTL 内重复的相同输入不再重复外发（`SYSTEMONE_CACHE_TTL_MS=0` 关闭）。
 
 ## 前置条件
 
@@ -144,7 +144,7 @@ systemone_scenario(action: "run",
 
 **ZCode 兼容垫片**：`.zcode-plugin/plugin.json` 额外提供内联 `mcpServers` 与 `userConfig` 设置页，配合仓库根 `marketplace.json` 使用，ZCode 的 `/plugin marketplace add` 装法不变。这两份是**非标准**的（规范要求一个包内有且仅有一个根 `plugin.json`），保留它们是为不破坏 ZCode 现有安装方式的自觉取舍。Agent Plugins 客户端会忽略。两处版本必须一致（`node scripts/release.mjs --check` 校验）。
 
-**Codex 兼容垫片**：`.codex-plugin/plugin.json` 声明 `skills` 与 `mcpServers: "./mcp.json"`，配合仓库根 `.agents/plugins/marketplace.json` 使用。同样是非标准的。Codex 侧的 `hooks/` 未在垫片里声明——本机 Codex 插件样本中的 hook 只有 `mcp_tool` 类型，Claude 式的 `command` hook 是否被接受无法离线确认，所以不写进去：Codex 上少两个预检 hook（需求明确度、shell 风险闸），MCP 判定与 skill 不受影响。
+**Codex 兼容垫片**：`.codex-plugin/plugin.json` 声明 `skills` 与 `mcpServers: "./mcp.json"`，配合仓库根 `.agents/plugins/marketplace.json` 使用。同样是非标准的。Codex 侧的 `hooks/` 未在垫片里声明——本机 Codex 插件样本中的 hook 只有 `mcp_tool` 类型，Claude 式的 `command` hook 是否被接受无法离线确认，所以不写进去：Codex 上少需求明确度预检 hook，MCP 判定与 skill 不受影响。
 
 **Oh My Pi 兼容垫片**：`.omp-plugin/plugin.json` 声明 `skills` 与内联 `mcpServers`（`node ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`），配合仓库根 `.omp-plugin/marketplace.json` 使用。这份写法沿用 omp 侧已验证的 0.3.1 清单形状（`~/.omp/plugins/cache/plugins/` 里的旧安装可直接比对）。omp 不加载 `hooks/`，预检 hook 同样缺失。
 
@@ -167,13 +167,12 @@ systemone_scenario(action: "run",
 | Scenarios File | 自定义场景 JSON 文件路径（便于纳入版本管理），优先级低于上面的 JSON | 不用场景文件 |
 | Decision Log (JSONL) | 审计日志文件路径，每次决策逐条追加，`action=stats` 消费 | 不记录 |
 | Hook: Requirement Precheck | 需求明确度预检开关：`on` / `off` / `first:N`（每会话仅前 N 条输入做预检），环境变量入口 `SYSTEMONE_HOOK_PRECHECK`（hook 侧经共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸 env 三级取值，见下文「hook 端点与开关共享」） | 留空按 `on` |
-| Hook: Shell Risk Gate | shell 命令风险闸开关：`on` / `off`（`off` = 一律放行且不发判定请求），环境变量入口 `SYSTEMONE_HOOK_RISK_GATE`（hook 侧经共享文件 > `SYSTEMONE_PLUGIN_HOOK_*` > 裸 env 三级取值，见下文「hook 端点与开关共享」） | 留空按 `on` |
 
 优先级：**设置页 > 环境变量 > 内置默认**；改动后重启 ZCode 生效。
 
 **API Key 例外**：ZCode 目前没有安全凭据存储，插件设置页不支持保存敏感值，Key 仍只能走环境变量 `SYSTEMONE_API_KEY`（或 `UNISOUND_API_KEY`）。
 
-**hook 端点与开关共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）**以及两个 hook 开关的解析结果**（`hookPrecheck` / `hookRiskGate`）落盘到共享文件；需求预检与风险闸都优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商或关闸后，hook 自动跟随，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为（此时设置页的开关不生效，需改用裸环境变量）。**开关取值顺序**：共享文件里的设置页值 > hook 进程自身的 `SYSTEMONE_PLUGIN_HOOK_*` > 裸 `SYSTEMONE_HOOK_*` > 默认 `on`。2026-11-01 修复：此前只落盘端点、不落盘开关，于是设置页上那两个"一举停掉外发"的开关在 hook 侧没有任何通道。
+**hook 端点与开关共享**：hook 进程拿不到设置页注入的变量，但 MCP 服务每次启动会把「已解析」的端点（Base URL / Model / Timeout，不含 API Key）**以及需求预检开关的解析结果**（`hookPrecheck`）落盘到共享文件；需求预检优先读这份文件、缺失或损坏时回退环境变量——通过设置页切换供应商或关掉预检后，hook 自动跟随，无需再设环境变量（改动设置后重启生效，与 MCP 一致）。API Key 仍只能走环境变量；若插件目录只读导致落盘失败，hook 回退纯环境变量行为（此时设置页的开关不生效，需改用裸环境变量）。**开关取值顺序**：共享文件里的设置页值 > hook 进程自身的 `SYSTEMONE_PLUGIN_HOOK_*` > 裸 `SYSTEMONE_HOOK_*` > 默认 `on`。2026-11-01 修复：此前只落盘端点、不落盘开关，于是设置页上那个"一举停掉外发"的开关在 hook 侧没有任何通道。
 
 **共享文件位置**：Agent Plugins 规范的客户端会提供 `PLUGIN_DATA`（跨插件更新保留的可写数据目录），此时文件落在 `$PLUGIN_DATA/endpoint.json`——插件更新后端点配置不丢，也不会把运行时产物留在包目录里。没有 `PLUGIN_DATA` 的宿主（Claude Code / ZCode 等）沿用插件根的 `.endpoint.json`。读时两处都看、`PLUGIN_DATA` 优先；写时只写 `PLUGIN_DATA`（存在时）并清掉插件根的旧文件，避免同一份配置留两个副本、日后回退旧文件时读到过期端点。**注意：无 `PLUGIN_DATA` 时 `.endpoint.json` / `decision-cache.json` / `precheck-quota.json` 会回退写入插件安装目录，目录只读时各写入路径自行降级——端点共享文件失败会 stderr 告警，判定缓存与预检配额静默跳过，均不影响主流程。**
 
@@ -191,7 +190,6 @@ systemone_scenario(action: "run",
 | `SYSTEMONE_LOG_FILE` | 否 | — | 审计日志 JSONL 路径，`action=stats` 消费。**须为绝对路径、`.jsonl` 扩展名，且不在插件安装目录或任何 `.git` 内**（插件安装目录跨项目共享、且随插件更新被覆盖）。超过 5 MB 时**轮转**为 `<文件>.1` 保留上一段，不再原地清空 |
 | `SYSTEMONE_CACHE_TTL_MS` | 否 | `300000` | 决策缓存 TTL（毫秒），0 关闭；非法/负值 stderr 告警后按默认 `300000` 处理，不静默取更激进缓存（MCP 与 hook 两侧同口径）；**同时作用于 MCP 工具缓存与 hook 判定缓存** |
 | `SYSTEMONE_HOOK_PRECHECK` | 否 | `on` | 需求预检开关：`on` / `off` / `first:N`（每会话仅前 N 条被判定输入做预检，用尽后静默跳过；裸数字等同 `first:N`） |
-| `SYSTEMONE_HOOK_RISK_GATE` | 否 | `on` | shell 风险闸总开关：`on` / `off`（`off` 时一律放行且不发判定请求，比删 `hooks.json` 注册温和）。非法值告警后按 `on`，不静默关灯 |
 
 Windows 设置示例（设置后重启 ZCode）：
 
@@ -211,29 +209,19 @@ setx SYSTEMONE_API_KEY "对应的Key"
 
 ## 预检 hook（随插件自动安装）
 
-插件通过 hook 清单声明了两个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义按 hook 分开说：**需求预检纯 fail-open**——stdin 截断、stdin 读取错误、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入；**风险闸的 fail-open 覆盖**：网络故障 / 超时、缺 Key、端点非加密（http 且非本机回环——拒绝携带 API Key 外发，stderr 留一行说明）、stdin 读取错误（协议壳读输入异常，stderr 留一行诊断后 exit 0），以及**拿不到有效判定**的响应（非 2xx、响应体不是 JSON、200 但缺 `answers` 字段）——这五类都按"没有可用判定"放行；只有**拿到有效判定**时才按判定走。此前这里写成"只覆盖网络故障/超时与缺 Key（拿到响应就按判定走）"，与实现不符：那三类响应级坏消息同样走 fail-open。另有 6 条刻意 fail-closed 转 `ask` 的路径：stdin 截断、stdin 挂起/滴流吃满 14s 共享预算（killer 兜底 emit-ask——赶在宿主 15s 超时前输出 ask 转人工，不停留在静默放行）、stdin 不是合法 JSON（识别不了工具名，不外发判定请求）、命令超 100K 上限、三答残缺（幻觉选项、题型错乱或 score 越出量表——界外分值不可解释，按响应不完整处理）、宿主未用标准命令字段——输入不可信时不自动放行，详见下文「非标准命令字段的处置」：
+插件通过 hook 清单声明了一个 hook（`hooks/hooks.json`，判定内核与配置解析共用 `hooks/decide-client.mjs`）。失败语义：**需求预检纯 fail-open**——stdin 截断、stdin 读取错误、时间预算耗尽、开关关闭、配额用尽、网络失败、缺 Key 一律静默放行，绝不阻塞输入。
 
-**① 需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.6）时把结论注入对话上下文，提醒 Agent 先澄清再动手。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
-
-**② shell 命令风险闸（PreToolUse）**：工具调用前，对 shell 类工具的非只读命令做风险判定（放行/确认/拒绝三问）。判定为拒绝（模型判 `deny` 单独成立，或高风险且不可逆双条件同时满足）时输出 `permissionDecision: "deny"`，判定为需确认（中风险以上或不可逆）时输出 `"ask"` 并附理由；**deny 是自动拦截的硬动作，三问最低置信度 < 0.7 时降级为 `"ask"` 交还用户**（偏低注记保留在理由里）；放行、只读命令捷径（ls / git status 等）或缺 Key 时静默放行。
-
-**非标准命令字段的处置（2026-10-28 加固）**：命令字段只认 `command` / `cmd` / `script` / `execution_input`。宿主若用别的字段承载命令（如把命令塞进 `args` 数组），判定模型只会收到「字段名 + 截断值摘要」，**看不到命令内容**——此时模型判「放行」不构成安全信号，故一律升级为 `"ask"` 转人工确认，不自动放行（判定为拒绝/需确认的照常生效，拦截不会因看不到命令而漏）。摘要路径只发字段名、不外发整个 `tool_input`（防把大段文件内容或凭据片段送到端点）。
-
-`hooks.json` 的 matcher 与内核的 `SHELL_TOOL_NAMES` **必须同宽**（由 `test/hook.smoke.mjs` 对账锁死）：过去 matcher 只写 `Bash|Shell|Terminal`，而内核认 12 个名字，宿主把命令交给 `cmd` / `exec` / `run_*` / `pwsh` 类工具时 hook 根本不被调用——闸门对着这些调用完全失效。
-
-已知未覆盖的窄口子：`git log` / `git diff` / `git show` 仍算只读捷径，但仓库自带配置里的 `core.pager` / `pager.log` / `diff.external` 是**仓库可控**的，恶意仓库可借它在 `git diff` 时执行外部程序。把这三条移出白名单会让每次 git 读取都付一次判定请求，代价过大，故交由宿主自身的目录信任与权限系统兜底，这里如实标注而非声称已覆盖。
+**需求明确度预检（UserPromptSubmit）**：每次用户提交输入时，先用决策模型对需求做一次明确度判定（clarity / missing / proceed 三问），仅在判定为"不明确"（clarity ≤ 1 或 proceed < 0.35）时把结论注入对话上下文，提醒 Agent 先澄清再动手（返工成本低且可逆时可直接推进）。需求明确、寒暄捷径（如"好的""继续"）或预检失败时静默放行。
 
 安装插件即自动生效，卸载即自动移除，无需手动注册；复用 `SYSTEMONE_*` 环境变量与 `.endpoint.json` 共享端点，未配置 Key 时自动跳过。
 
-**与 ai-native-delivery 共装时（双风险闸，2026-10-28 说明）**：同一市场里的 `ai-native-delivery` 也注册 PreToolUse 风险闸，matcher 同为 shell 类。宿主按插件各跑各的 hook，两个闸之间没有仲裁通道——本插件的 hook 进程看不到另一个插件是否在场。共装的实际行为：危险命令被两个闸各判一次（可能两道确认，或一个 `ask` 叠一个 `deny`），且两套清单彼此独立（本插件读自己的场景判据，对方读项目侧 `.agents/settings.json`）。**约定只保留一道闸**：保留对方（它同时管 git hooks）时设 `SYSTEMONE_HOOK_RISK_GATE=off`；保留本插件则删对方的 hooks 注册段。不做自动让位——靠猜安装布局检测对方会让行为随目录结构漂移，比双提示更难排查。
-
 内部时间预算：hook 请求超时按优先级取小——先取 `.endpoint.json` 落盘的 `timeoutMs`（MCP 服务启动时写入，来自设置页或 `SYSTEMONE_TIMEOUT_MS`；无落盘文件时直接用环境变量，再缺省 8 秒），再与 12 秒硬上限、共享 deadline 剩余（进程自毁 14 秒 − stdin 耗时 − 1 秒收尾）取最小值。落盘默认值为 30000，因此常态下实际请求超时是 12 秒 < 14 秒 < hooks.json 的 handler 15 秒上限。实测真实接口延迟约 0.1 秒，仍有百倍以上余量。
 
-**隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）；风险闸会把 shell 命令文本发送到决策服务接口（跳过只读命令）。判定为"明确"/"放行"时静默返回，但请求本身已经发出。不需要某个 hook 时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
+**隐私提示**：需求预检 hook 会把你每次提交的输入发送到决策服务接口（跳过少于 10 字的输入与寒暄短语）。判定为"明确"时静默返回，但请求本身已经发出。不需要时，删除（或改名）`hooks/hooks.json` 里对应的注册段即可，插件其余能力不受影响。
 
-**hook 判定缓存**：两个 hook 共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——代理循环里反复执行的同一批命令、重发的同一提示都吃这条捷径，这是对"每条提示/命令都打一次远端"的延迟与外发面的直接削减。条目上限 100，超出按写入时间淘汰最旧。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
+**hook 判定缓存**：hook 判定共用一个跨进程文件缓存，与 MCP 侧同一个 `SYSTEMONE_CACHE_TTL_MS` 开关（默认 5 分钟，`0` 关闭）：相同「端点 + 模型 + 输入 + 问题」在 TTL 内直接复用本地答案，不再发远端请求——重发的同一提示都吃这条捷径，这是对"每条提示都打一次远端"的延迟与外发面的直接削减。条目上限 100，超出按写入时间淘汰最旧。缓存文件落在 `$PLUGIN_DATA/decision-cache.json`（无该变量的宿主落在插件根，已被 `.gitignore` 覆盖）；文件损坏一律当未命中，不影响 fail-open 契约。
 
-**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，风险闸不受影响，立即停止提示外发）；`SYSTEMONE_HOOK_RISK_GATE=off` 是同等的另一把闸，单独停掉 shell 命令风险闸且不发判定请求；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；会话桶上限 100，超出按最近使用淘汰最旧会话；非法值告警后按默认 `on` 处理。配额计数在判定请求成功往返之后才落盘，判定失败（网络故障/超时）不扣额度。
+**预检开关与会话配额**：`SYSTEMONE_HOOK_PRECHECK=off` 一键停掉需求预检（比删 `hooks.json` 注册温和，立即停止提示外发）；`=first:N` 则每个会话只对前 N 条被判定输入做预检，用尽后静默跳过——适合「先试用几轮再决定留不留」，也是削减常态延迟税的档位。配额按 hook 输入的 `session_id` 分桶计数（宿主不传则共用一个桶），落在 `$PLUGIN_DATA/precheck-quota.json`（无该变量的宿主落插件根，已被 `.gitignore` 覆盖），删除该文件即重置全部会话配额；会话桶上限 100，超出按最近使用淘汰最旧会话；非法值告警后按默认 `on` 处理。配额计数在判定请求成功往返之后才落盘，判定失败（网络故障/超时）不扣额度。
 
 **无 `PLUGIN_DATA` 的宿主（多实例共装注意）**：判定缓存、会话配额与端点共享文件（`decision-cache.json` / `precheck-quota.json` / `.endpoint.json`）此时回退落在插件安装目录（见「共享文件位置」）——同一份安装目录被本机多个宿主实例共用时，这三类文件**互相覆盖**：缓存与配额 last-writer-wins，端点共享文件以后启动的 MCP 服务为准。计数与缓存在实例间串用不构成正确性问题（配额只是节流手段，缓存丢的只是一次命中机会），但配额额度不按实例隔离、缓存可能命中别的实例刚写的答案，排查行为差异时不要假设各宿主独立。
 
@@ -265,7 +253,7 @@ node test/hook.smoke.mjs
 node test/contract.smoke.mjs
 ```
 
-冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错 / 批量 / 精简模式 / 缓存 / 审计统计 / 场景文件），不需要真实 API Key。`hook.smoke.mjs` 覆盖需求预检与风险闸两个 hook 的全部行为路径。
+冒烟测试启动本地 mock 端点，对 MCP 服务器做端到端验证（initialize / tools/list / 场景 list-describe-run / params 覆盖 / 输出整形 / 自定义场景新增-覆盖-容错 / 参数校验 / 缺 Key 报错 / 批量 / 精简模式 / 缓存 / 审计统计 / 场景文件），不需要真实 API Key。`hook.smoke.mjs` 覆盖需求预检 hook 的全部行为路径。
 
 ## 架构
 
@@ -280,12 +268,10 @@ hooks/
 ├── decide-client.mjs        配置解析 + 判定请求（含跨进程缓存）+ 答案归一化（两个 hook 内核共用）
 ├── decision-cache.mjs       hook 判定的跨进程文件缓存（TTL 同 MCP 侧，损坏当未命中）
 ├── precheck-quota.mjs       需求预检的开关与会话配额（off 短路 / first:N 按 session_id 计数）
-├── hook-io.mjs              stdin 读取（100K 字符上限）+ 共享 deadline + stdout 退出协议（两个入口脚本共用）
+├── hook-io.mjs              stdin 读取（100K 字符上限）+ 共享 deadline + stdout 退出协议（入口脚本共用）
 ├── clarity.mjs              需求明确度预检内核（门限 / 三问 / 结论文案，全端共用）
 ├── requirement-clarity.mjs  UserPromptSubmit 入口脚本（stdin/stdout 协议壳在 hook-io.mjs）
-├── risk-gate.mjs            shell 命令风险闸内核（放行 / 确认 / 拒绝的门限与理由文案）
-├── pretool-risk.mjs         PreToolUse 脚本（permissionDecision deny/ask 输出协议）
-└── hooks.json               事件清单（UserPromptSubmit 需求预检 + PreToolUse 风险闸，${CLAUDE_PLUGIN_ROOT}，timeout 15）
+└── hooks.json               事件清单（UserPromptSubmit 需求预检，${CLAUDE_PLUGIN_ROOT}，timeout 15）
 skills/            使用指引与场景文档（skills/systemone-decision/SKILL.md）
 plugin.json        Agent Plugins 标准清单（版本权威来源）
 mcp.json           Agent Plugins 标准 MCP 声明（mcpServers / type: stdio）
@@ -296,6 +282,10 @@ icon.png           界面 logo
 ```
 
 ## 版本变更
+
+**0.6.1**
+
+移除 shell 命令风险闸（PreToolUse hook）：实际使用中触发频次过高，按用户反馈整体下线。`hooks/hooks.json` 只保留 UserPromptSubmit 需求预检；`hooks/pretool-risk.mjs` / `hooks/risk-gate.mjs` 删除；hook-io 协议壳移除仅风险闸使用的 `emit-ask` kill 策略（killer 回归纯 silent 自毁）；共享端点文件不再落盘 `hookRiskGate`，设置页 Shell Risk Gate 配置项与 `SYSTEMONE_HOOK_RISK_GATE` 环境变量一并移除。需求预检与 MCP 工具行为不变。
 
 **0.6.0**
 

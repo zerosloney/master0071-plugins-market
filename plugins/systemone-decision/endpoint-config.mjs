@@ -50,9 +50,8 @@ function readOne(file) {
     // MCP 子进程的 env，hook 进程拿不到；而 README 曾承诺设置页开关"等价环境变量"。
     // 现在 MCP 启动时把这两个开关的解析结果一并落盘，hook 读这里——与端点共用同一条已验证通道。
     const hookPrecheck = typeof cfg.hookPrecheck === 'string' && cfg.hookPrecheck.trim() !== '' ? cfg.hookPrecheck : null;
-    const hookRiskGate = typeof cfg.hookRiskGate === 'string' && cfg.hookRiskGate.trim() !== '' ? cfg.hookRiskGate : null;
-    return baseUrl || model || timeoutMs || hookPrecheck || hookRiskGate
-      ? { baseUrl, model, timeoutMs, hookPrecheck, hookRiskGate }
+    return baseUrl || model || timeoutMs || hookPrecheck
+      ? { baseUrl, model, timeoutMs, hookPrecheck }
       : null;
   } catch {
     return null;
@@ -69,8 +68,8 @@ export function sharedHookSwitch(name) {
 
 /** best-effort 落盘：失败仅 stderr 告警（hook 回退环境变量），绝不影响服务启动。
  *  写 PLUGIN_DATA（存在时）优先；它不可写就退回插件根，两处都失败才告警。 */
-export function writeEndpointConfig({ baseUrl, model, timeoutMs, hookPrecheck = null, hookRiskGate = null }) {
-  const payload = `${JSON.stringify({ baseUrl, model, timeoutMs, hookPrecheck, hookRiskGate }, null, 2)}\n`;
+export function writeEndpointConfig({ baseUrl, model, timeoutMs, hookPrecheck = null }) {
+  const payload = `${JSON.stringify({ baseUrl, model, timeoutMs, hookPrecheck }, null, 2)}\n`;
   const targets = DATA_FILE ? [DATA_FILE, LEGACY_FILE] : [LEGACY_FILE];
   const sleepMs = (ms) => {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
