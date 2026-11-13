@@ -251,6 +251,16 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **用法**：`node <插件根>/scripts/check-bands.mjs --root <仓库根>`——纯确定性读指标源（首版两内置源：`verifications.jsonl` 绿行、`gen-workflow-metrics` 输出），判定越带并按档输出**建议指令行**，绝不自动执行；外部指标源留 `--metric-source` 扩展位；
 - **与 CI 的搭配**：`config-templates/ci/` 的 workflow 模板附注释形态的 `schedule` 定时旁路样例——cron 定时跑 check-bands 出报告，处置走人工 / PR；不要把建议指令行直接接成自动执行步。定时巡检可套用 ci/ 模板：`config-templates/ci/github-actions-bands.yml.template` 是开箱即用的独立定时巡检参考件（schedule 触发 → 报告入 artifact，不含任何自动执行 agent 的步骤）。
 
+## 提示面 eval 套件（test/eval.mjs）
+
+改命令 / skills / agents 正文（提示面）后的**行为回归**：夹具任务 + 无交互 runner（`claude -p`）+
+确定性终态判据，测提示面能否把 agent 指挥到达标。
+
+- **用例**：`test/fixtures/eval/cases.json` 四条——E1 L0 极简道（单文件文案修正免立档、commit 带非空 `L0:` 判据行）、E2 L1 快速道（立 plan 含三节形态 + 委托确认行）、E3 L2 防御道（共享契约触达走 intent / spec / plan 三件套、spec 含「前提质询」节、确认行含 sha256 指纹）、E4 越界防护（诱导改引擎配置并强推——终态必须不被破坏）。checks 全部是确定性算子（pathExists / fileContains / dirFileCountGrew / gitLogMatches / jsonlRowMatches 等，逐条以临时仓 setup 后基线为对照面），DSL 成文在 cases.json 的 `dslDoc` 字段；
+- **判据哲学**：只断言**终态工件**（workflow 档案 / 确认台账 / git 历史 / 引擎配置），不判过程合规、不用裁判模型；每条 transcript（claude json 输出 + 用例元数据 + checks 明细）落系统临时目录 `eval-logs/<id>-<时间戳>.json` 留档复盘，不污染仓内；
+- **跑法**：`node test/eval.mjs --dry-run` 先审各条拼装 prompt（命令正文剥 frontmatter 整文件注入、`<插件根>` 实化为插件绝对路径）→ `--eval E4` 单条真跑（成本最低、断言最硬）→ 不带参数全量；`--bail` 首红即停，`--runner` 换 runner。claude 不在场或 spawn 失败按 SKIP 出账，不误报 FAIL；runner 在 PATH 找不到时 exit 2 fail-loud；
+- **成本口径与 CI 豁免**：每条 `maxTurns` / `timeoutMs` 封顶（cases.json 逐条声明）；模型 spawn 只允许出现在 eval.mjs（scripts / mcp / hooks 面零命中）；**不进仓级 CI**（模型调用需凭据，豁免理由见市场仓 `.github/workflows/ci.yml` 头注）——本地手动跑，或复制 `config-templates/ci/github-actions-eval.yml.template`（workflow_dispatch + 自备 secrets）。
+
 ## 工程准入与验收
 
 - 冒烟：`node test/smoke.mjs`（清单版本位 + MCP 10 工具探测）；
@@ -266,6 +276,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.2.3**
+
+提示面 eval 套件（「配置即被测对象」补齐）：test/eval.mjs 无交互 runner（claude -p print 模式，--dry-run 零成本审拼装 / --bail / transcript 落临时目录复盘）+ 4 条种子用例（L0/L1/L2 三车道终态工件断言 + E4 越界诱导防护，真实双跑实证：诱导改 policyVersion 与 force push 均被拦、终态 sha256 未变）；checks DSL 11 个确定性算子；acceptance §10.10 照 e2e-fixture 先例排除 eval.mjs 裸跑（无 runner 环境必红 + 防意外模型调用）；ci.yml 头注豁免（零凭据纪律，不进默认 CI），另附 workflow_dispatch 手动触发模板 config-templates/ci/github-actions-eval.yml.template；补登 regr-enforcer-scan.mjs 间接覆盖（0.2.1 遗留覆盖门红转绿）。
 
 **0.2.2**
 

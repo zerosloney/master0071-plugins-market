@@ -1,0 +1,106 @@
+# ai-native-delivery · L-ci 项目适配模板（提示面 eval 套件 · workflow_dispatch 手动触发示例）
+# ─────────────────────────────────────────────────────────────────────────────
+# 本文件是**参考模板**（随插件分发于 config-templates/ci/，不是运行配置，init-engine
+# 不播种——见同目录 README.md）。复制到使用项目的 .github/workflows/<名字>.yml，
+# 按下方【改这里】注释改完即可接线；插件不默认接线任何宿主。
+#
+# 定位：提示面 eval 套件（test/eval.mjs）的**手动触发车道**——测 commands/skills/agents
+# 正文（提示面）指挥 agent 行为的达标性：夹具任务 + 无交互 runner（claude -p）+ 确定性
+# 终态判据。与 verify / bands 两模板的分工：那两份跑确定性门（零凭据零模型），本模板
+# **真实调用模型**，需要凭据与授权、每次触发都产生 token 费用，属项目自治面——所以只有
+# workflow_dispatch 手动触发，不挂 push / PR 自动车道（仓级 CI 零凭据纪律装不下它，
+# 豁免理由同市场仓 .github/workflows/ci.yml 头注）。
+#
+# 边界说明：eval 在 eval.mjs 自建的临时夹具仓（mkdtemp）里跑，本 workflow 检出的代码
+# 只当只读插件源——不会改动主仓任何文件；transcript 落 runner 临时目录 eval-logs/，
+# 由下方 artifact 步收档留复盘。
+
+name: ai-native-delivery-eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      eval_id:
+        description: '单条用例 id（E1-E4，如 E4）；留空跑全量四条'
+        required: false
+        default: ''
+        type: string
+
+# 所有命令都在**仓库检出根**执行（与 verify 模板同口径）：eval.mjs 自锚定插件根，
+# 夹具仓建在 runner 临时目录——不要 cd 进插件目录
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 【改这里 1/4】插件根怎么解析（口径同 github-actions-verify.yml.template 的【改这里 1/4】）：
+  #   a. 市场仓随本仓一并检出（见下方 Checkout plugin marketplace 步，本文件的默认值）；
+  #   b. 自托管 runner 且插件已随宿主常驻安装——改填安装路径；
+  #   c. 把插件目录 vendor 进本仓——改填仓内相对路径，并删除市场仓检出步。
+  PLUGIN_ROOT: vendor/master0071-plugins-market/plugins/ai-native-delivery
+  # 方案 a 的市场仓坐标（fork / 私有仓改成自己的只读地址）
+  MARKETPLACE_REPOSITORY: zerosloney/master0071-plugins-market
+
+jobs:
+  eval:
+    name: prompt-surface eval (manual, model calls)
+    runs-on: ubuntu-latest
+    # 成本护栏：单条用例 timeoutMs 封顶 300s（cases.json 逐条声明），全量四条留冗余
+    timeout-minutes: 30
+    steps:
+      # 【改这里 2/4】action 建议 pin 到 commit SHA（tag 可变，被投毒的 action 换 tag 即可
+      # 拿走 runner 上的 GITHUB_TOKEN；SHA pin + Dependabot 是官方推荐组合，升级走显式 PR）
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 18 是插件声明的 Node 下限；eval 面单平台单版本即可，项目自调
+          node-version: 22
+      # 【改这里 3/4】方案 a 用这一步把市场仓检出到 PLUGIN_ROOT 指的相对路径；选方案 b/c
+      # 时删除本步并改 env.PLUGIN_ROOT。私有市场仓取消注释 token 行，凭据经 GitHub Actions
+      # secrets 注入——本模板与插件都不携带任何密钥样例值。
+      - name: Checkout plugin marketplace
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MARKETPLACE_REPOSITORY }}
+          path: vendor/master0071-plugins-market
+          # token: ${{ secrets.MARKETPLACE_TOKEN }}
+      # eval 夹具仓会真实创建 git 提交（每个用例一个独立临时仓），runner 需要可用身份
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "CI"
+      # 装 claude（模型 spawn 只发生在 test/eval.mjs——零模型纪律，scripts/mcp/hooks 面零命中）
+      - name: Install claude
+        run: npm i -g @anthropic-ai/claude-code
+      # 【改这里 4/4】模型凭据（整段注释——解开才算接线，属项目自治裁决）：
+      #   托管 runner 无宿主 ~/.claude/settings.json，无交互调用必须走 secrets 注入；
+      #   模板与插件都不携带任何密钥样例值。不注入时 eval.mjs 对 spawn 失败按 SKIP 出账
+      #   （不误报 FAIL），但四条全 SKIP 等于没跑。
+      # env:
+      #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # 提示面 eval：--eval 传单条 id（workflow_dispatch inputs.eval_id），留空全量四条。
+      # 退出码：0=全 PASS/SKIP；1=有 FAIL（提示面回归——改了命令/skills 文案后行为不达标）；
+      # 2=runner 不在场（fail-loud，装完 claude 再跑）。transcript 落 runner 临时目录
+      # /tmp/eval-logs/，下一把它们收进 artifact；pipefail 让套件退出码穿过 tee 不被吞掉。
+      - name: prompt-surface eval
+        run: |
+          set -o pipefail
+          ARGS=""
+          if [ -n "${{ github.event.inputs.eval_id }}" ]; then
+            ARGS="--eval ${{ github.event.inputs.eval_id }}"
+          fi
+          node "${PLUGIN_ROOT}/test/eval.mjs" $ARGS | tee eval-report.txt
+      - name: collect eval transcripts
+        if: always()
+        run: |
+          mkdir -p eval-transcripts
+          cp -r /tmp/eval-logs/. eval-transcripts/ 2>/dev/null || true
+          cp eval-report.txt eval-transcripts/ 2>/dev/null || true
+      - name: upload eval transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-transcripts
+          path: eval-transcripts
+          # 保留天数项目自调（示意 30 天；GitHub 免费档上限 90）
+          retention-days: 30

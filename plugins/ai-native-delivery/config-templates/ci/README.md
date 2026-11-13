@@ -10,6 +10,7 @@ CI 层不新增判据。
 
 - `github-actions-verify.yml.template` — GitHub Actions 示例（无模型步 + 注释形态的可选诊断步）
 - `github-actions-bands.yml.template` — check-bands 定时巡检示例（schedule cron 触发 → advisory 报告入 artifact）
+- `github-actions-eval.yml.template` — 提示面 eval 套件手动触发示例（workflow_dispatch；真实调用模型，自备凭据）
 - 本 README — 用法与授权边界
 
 ## 为何不默认接线
@@ -43,6 +44,26 @@ PR / push 合入面的门禁车道，这份管**周期观测**：schedule（cron
 边界重申：越带只出**建议指令**，处置走人工或 owner 另行授权的 runner 面；退出码 1
 （有越带）会让 job 红出来当信号——想只记录不红，模板里附了 `|| true` 的替代形态
 （注释形态，默认不接线）。本模板不含任何自动执行 agent 的步骤（插件红线）。
+
+## 提示面 eval 套件（手动触发）
+
+`github-actions-eval.yml.template` 是提示面 eval 套件（`test/eval.mjs`）的独立手动
+触发参考件——与 verify / bands 两模板的分工：那两份跑**确定性门**（零凭据零模型），
+这份**真实调用模型**（`claude -p` 驱动夹具任务）：改命令 / skills / agents 正文后的
+行为回归，判据只看终态工件（不用裁判模型，判据哲学与跑法见插件 README「提示面 eval
+套件」节）。因为模型调用需凭据、每次触发都有 token 费用，只有 `workflow_dispatch`
+手动触发，不挂 push / PR 自动车道（仓级 CI 零凭据纪律装不下它）。三步接入：
+
+1. 复制模板到使用项目 `.github/workflows/ai-native-delivery-eval.yml`；
+2. 按【改这里 1/4–4/4】改四处：`env.PLUGIN_ROOT`（与 verify 模板同三方案）、action
+   pin、市场仓检出步（选 vendor / 常驻安装方案时删改）、模型凭据（解开 `ANTHROPIC_API_KEY`
+   注释行，secrets 注入，模板不携带样例值）；
+3. `workflow_dispatch` 手动触发验证：inputs.eval_id 填单条 id（如 E4）先跑一条，
+   全绿后再跑全量四条。
+
+边界重申：eval 在 runner 临时夹具仓里跑，不改主仓任何文件；transcript 落 runner 临时
+目录、由模板收进 artifact 留复盘。runner 不在场时套件按 SKIP 出账不误报 FAIL，但
+四条全 SKIP 等于没跑——先确认凭据与 claude 安装步都绿。
 
 ## 授权边界
 

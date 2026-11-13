@@ -30,3 +30,5 @@ indirect | .agents/scripts/install/plan.mjs | .agents/scripts/install.test.mjs |
 indirect | .agents/scripts/install/apply.mjs | .agents/scripts/install.test.mjs | 装户层执行器（按台账裁决落盘 + sha256 记账）：经 install.test.mjs 台账升级/领养/--force 用例黑盒覆盖
 indirect | .agents/scripts/install/manifest.mjs | .agents/scripts/install.test.mjs | 安装台账读写（CRLF 归一 sha256）：经 install.test.mjs 台账核验用例黑盒覆盖
 indirect | .agents/scripts/hosts.mjs | .agents/scripts/gen-host-manifests.test.mjs | 宿主注册表单源（三垫片渲染 + hook 接线）：经 gen-host-manifests.test.mjs 生成/漂移门用例黑盒覆盖
+# 2026-11-13 0.2.1 遗留补登：执法者扫描单源模块由 s29 与 verify 挂债摘要双消费方测试覆盖
+indirect | .agents/scripts/regr-enforcer-scan.mjs | .agents/scripts/check-loop.test.mjs | 执法者行扫描单源（未指认/指认失效/可达性）：经 check-loop.test.mjs 检查 29 组与 verify.test.mjs 挂债摘要用例双消费方覆盖

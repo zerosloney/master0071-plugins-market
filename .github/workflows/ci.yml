@@ -4,6 +4,9 @@
 #   3. 五个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
 # pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
 #（见 plugins/pstack/extras/README.md），待其适配后再纳入。
+# ai-native-delivery 的提示面 eval 套件（test/eval.mjs）不进 CI：真实调用模型（claude -p）
+# 需凭据，触碰本仓 CI 零凭据纪律——本地手动跑，或复制 config-templates/ci/
+# github-actions-eval.yml.template（workflow_dispatch + 自备 secrets）。
 # windows 用 bash shell：sheet-parity 依赖 awk（Git Bash 自带），node 命令本身无 shell 依赖。
 name: CI
 
