@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 5d02c74528b15fc9
+确认指纹: 2177a44d5fd49e9b
 ---
 # PLAN — readme-scope-note
 
