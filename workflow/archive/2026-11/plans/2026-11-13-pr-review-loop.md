@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 879d29e5ee4f3a95
+确认指纹: 07e4931e03c39e48
 ---
 # PLAN — pr-review-loop
 
