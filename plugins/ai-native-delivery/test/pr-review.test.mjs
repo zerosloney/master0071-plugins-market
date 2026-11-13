@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // pr-review.test.mjs — PR 面板评审骨架黑盒测试（2026-11-13 插件化移植新增；源仓无测试，全部新写）
 // 手法同 doctor.test.mjs：mkdtemp 临时 git 仓 + spawn 真实 CLI。断言：
-// ①plan 固定 SHA + 生成 run.json/tasks.json/finder 工单 ②collect 夹具 findings（去重/样式丢弃/provenance）
+// ①plan 固定 SHA + 生成 run.json/tasks.json/finder 工单 ⑨默认 7 镜头（宣称面=默认派发面）+ 截断告警
+// ②collect 夹具 findings（去重/样式丢弃/provenance；line=0 越界候选照拦）
 // ③verify 共识数学（2/3 confirm → confirmed；单 Important repro → escalated）④adjudicate 落裁决
 // ⑤dispose 状态机（fixed/waived/deferred/recorded）⑥gate shadow 不阻断 / enforce 清零后 PASS
 // ⑦summary 写 artifact + 月度台账行（8 列自洽：意见数=采纳+拒绝+误报）⑧status 摘要
+// ⑬重跑 verify 不冲掉人工裁决（面板自评审 C-002 回归锁）
 // 零依赖，Node ≥ 18 直接运行：node test/pr-review.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -58,6 +60,24 @@ check('① run.json 固定 SHA（base/head 不可回退为分支名）', runJson
 const tasksJson = runDir && fs.existsSync(path.join(runDir, 'tasks.json')) ? JSON.parse(fs.readFileSync(path.join(runDir, 'tasks.json'), 'utf8')) : null;
 check('① tasks.json 含 finder 派发面（镜头列表）', tasksJson && Array.isArray(tasksJson.finders) && tasksJson.finders.length >= 1, JSON.stringify(tasksJson && tasksJson.finders));
 
+// ⑨ 默认面板 = 7 镜头（C-001/C-007 回归锁：文档/登记行宣称面 = 默认派发面）
+const lensIds = tasksJson ? tasksJson.finders.map((f) => f.lens) : [];
+check('⑨ 默认 7 镜头（correctness..quality 全在）',
+  lensIds.length === 7 && ['correctness', 'security', 'performance', 'tests', 'spec', 'data-integrity', 'quality'].every((id) => lensIds.includes(id)),
+  JSON.stringify(lensIds));
+{
+  // ⑩ maxFinders 截断须告警（禁静默丢镜头）
+  fs.mkdirSync(path.join(d, '.agents', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(d, '.agents', 'config', 'pr-review.json'), JSON.stringify({ limits: { maxFinders: 3 } }), 'utf8');
+  const tr = run(['plan', '--base', baseSha, '--head', headSha, '--force'], d);
+  const activeLenses = JSON.parse(fs.readFileSync(path.join(runDir, 'tasks.json'), 'utf8')).finders.map((f) => f.lens);
+  check('⑩ maxFinders=3 截断且显式告警（非静默）',
+    /镜头数超 maxFinders=3/.test(tr.stderr || tr.stdout) && activeLenses.length === 3,
+    `lenses=${JSON.stringify(activeLenses)} err=${(tr.stderr || '').slice(0, 120)}`);
+  fs.rmSync(path.join(d, '.agents', 'config', 'pr-review.json'), { force: true }); // 还原默认
+  run(['plan', '--base', baseSha, '--head', headSha, '--force'], d); // 重建 7 镜头态，后续步骤不受影响
+}
+
 // ② collect：给 tasks.json 里每个 finder 工单都补一份产出（collect 校验完整性——缺一份即 exit 2）
 if (runDir && tasksJson) {
   const fdir = path.join(runDir, 'findings');
@@ -76,6 +96,7 @@ if (runDir) {
     findings: [
       { file: 'src/app.js', line: 1, claim: 'f 返回值从 1 改为 10，调用方未同步', evidence: 'diff 行 1：return 1 → return 10；src/util.js 同批改动但无调用方核对', category: 'correctness', severityHint: 'Important', behaviorImpact: true, repro: 'node -e "assert(f()===1)" 改前过改后挂' },
       { file: 'src/app.js', line: 1, claim: '函数名 f 太短', evidence: '命名偏好', category: 'style', severityHint: 'Nit', behaviorImpact: false },
+      { file: 'outside/zzz.js', claim: '越界文件级意见（无行号）——改动面校验应拦下', evidence: '不在 base..head diff 内', category: 'correctness', severityHint: 'Nit', behaviorImpact: false },
     ],
   }), 'utf8');
   fs.writeFileSync(path.join(fdir, 'tests.json'), JSON.stringify({
@@ -92,6 +113,10 @@ const candidates = candFile ? JSON.parse(fs.readFileSync(candFile, 'utf8')) : nu
 const candList = candidates && (Array.isArray(candidates) ? candidates : candidates.candidates || candidates.findings);
 check('② 去重后候选数 = 2（同义合并 1 条 + 独立 1 条；纯样式丢弃不计）', Array.isArray(candList) && candList.length === 2, `候选=${Array.isArray(candList) ? candList.length : JSON.stringify(candidates).slice(0, 200)}`);
 check('② 纯样式已丢弃（候选中无 category=style）', Array.isArray(candList) && !candList.some((c) => c.category === 'style'), JSON.stringify(candList && candList.map((c) => c.category)));
+const droppedList = candidates && Array.isArray(candidates.dropped) ? candidates.dropped : [];
+check('② line=0 越界候选被拦（改动面校验不看行号——C-003 回归锁）',
+  droppedList.some((x) => x.reason === 'file-not-in-diff' && x.file === 'outside/zzz.js') && !candList.some((c) => c.file === 'outside/zzz.js'),
+  JSON.stringify(droppedList));
 
 // ③ verify：给候选 1 三票 confirm / 候选 2 两票 reject 一票 confirm
 const votesDir = runDir && path.join(runDir, 'votes');
@@ -165,6 +190,44 @@ if (rows.length) {
 // ⑧ status
 const stR = run(['status', '--run', runDir], d);
 check('⑧ status exit 0 且有摘要输出', stR.status === 0 && stR.stdout.trim().length > 0, `status=${stR.status} out=${stR.stdout.slice(0, 120)}`);
+
+// ⑬ 重跑 verify 不冲掉人工裁决（面板自评审 C-002 回归锁）：escalated → adjudicate → 再 verify
+{
+  fs.writeFileSync(path.join(d, 'src', 'app.js'), 'function f(){ return 100 }\n', 'utf8');
+  g('add', '-A'); g('commit', '-qm', 'head2');
+  const head2 = gitOut(g, ['rev-parse', 'HEAD']);
+  const p2 = run(['plan', '--base', headSha, '--head', head2], d);
+  const rid2 = fs.readdirSync(tmpBase).find((x) => x !== runId);
+  const rd2 = rid2 ? path.join(tmpBase, rid2) : null;
+  const t2 = rd2 ? JSON.parse(fs.readFileSync(path.join(rd2, 'tasks.json'), 'utf8')) : null;
+  if (rd2 && t2) {
+    fs.mkdirSync(path.join(rd2, 'findings'), { recursive: true });
+    for (const t of t2.finders || []) {
+      const outName = t.output ? path.basename(t.output) : `${t.lens}.json`;
+      fs.writeFileSync(path.join(rd2, 'findings', outName), JSON.stringify({ lens: t.lens, findings: [] }), 'utf8');
+    }
+    fs.writeFileSync(path.join(rd2, 'findings', 'correctness.json'), JSON.stringify({
+      lens: 'correctness',
+      findings: [{ file: 'src/app.js', line: 1, claim: 'f 返回值再改为 100，单票 Important 带复现', evidence: 'diff 行 1', category: 'correctness', severityHint: 'Important', behaviorImpact: true, repro: 'node -e "assert(f()===10)"' }],
+    }), 'utf8');
+    run(['collect', '--run', rd2], d);
+    fs.mkdirSync(path.join(rd2, 'votes'), { recursive: true });
+    fs.writeFileSync(path.join(rd2, 'votes', 'C-001-v1.json'), JSON.stringify({ findingId: 'C-001', verifier: 'v1', verdict: 'confirm', severity: 'Important', introduced: 'introduced', evidence: '证据', repro: 'node -e x' }), 'utf8');
+    fs.writeFileSync(path.join(rd2, 'votes', 'C-001-v2.json'), JSON.stringify({ findingId: 'C-001', verifier: 'v2', verdict: 'uncertain', evidence: '无法验证' }), 'utf8');
+    fs.writeFileSync(path.join(rd2, 'votes', 'C-001-v3.json'), JSON.stringify({ findingId: 'C-001', verifier: 'v3', verdict: 'uncertain', evidence: '无法验证' }), 'utf8');
+    run(['verify', '--run', rd2], d);
+    const es1 = JSON.parse(fs.readFileSync(path.join(rd2, 'findings.json'), 'utf8')).findings[0];
+    check('⑬ 单票 Important 带复现 → escalated', es1.consensus === 'escalated', JSON.stringify({ c: es1.consensus }));
+    const adjR = run(['adjudicate', '--run', rd2, '--id', 'C-001', '--decision', 'confirm', '--reason', '回归测试裁决', '--adjudicator', 'test'], d);
+    const adjF = JSON.parse(fs.readFileSync(path.join(rd2, 'findings.json'), 'utf8')).findings[0];
+    check('⑬ adjudicate confirm 落裁决', adjR.status === 0 && adjF.consensus === 'confirmed' && adjF.adjudication?.decision === 'confirm', `status=${adjR.status} err=${adjR.stderr.slice(0, 120)}`);
+    const rv2 = run(['verify', '--run', rd2], d);
+    const after = JSON.parse(fs.readFileSync(path.join(rd2, 'findings.json'), 'utf8')).findings[0];
+    check('⑬ 重跑 verify 裁决保留（C-002 回归锁）', rv2.status === 0 && after.adjudication?.decision === 'confirm' && after.consensus === 'confirmed', JSON.stringify({ c: after.consensus, a: after.adjudication }));
+  } else {
+    check('⑬ 二号 run 建立失败（前置缺失）', false, `plan=${p2.status} rd2=${rd2}`);
+  }
+}
 
 fs.rmSync(d, { recursive: true, force: true });
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

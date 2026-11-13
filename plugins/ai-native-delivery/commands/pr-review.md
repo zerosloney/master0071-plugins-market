@@ -24,13 +24,13 @@ next: gate PASS 后回 commands/review.md 用户定性合入；SHADOW/FAIL 时�
 脚本：`node <插件根>/scripts/pr-review.mjs`（子命令细节 `--help`；`--base` 默认 `origin/main`，`--head` 默认 `HEAD`）。按序执行，禁跳步：
 
 1. `plan --base <ref> --head <ref>`：固定 base..head 为 SHA，生成 run.json / finder 工单（每镜头一份，内嵌 diff 切片）/ tasks.json。高风险快检加 `--fast`（镜头裁为仅 correctness，共识阈值降为单票）。
-2. 按 `tasks.json` 并行派 finder / verifier 子代理（角色契约见 `agents/pr-finder.md`、`agents/pr-verifier.md`、`agents/pr-adjudicator.md`）。模型按 `model-roles.json` 的 `review` 角色取（本地覆盖 `.local.json` 优先，皆空 = 宿主默认）；派发禁传 `model` 参数——口径见 `model-roles.json` 的 `dispatch` 段。
-3. 依序执行：`collect`（读 findings/*.json，归一化/去重/样式丢弃/标 provenance，生成 verifier 工单）→ `verify`（读 votes/*.json，按配置阈值算共识）→ `adjudicate`（对 escalated finding 落裁决）→ `dispose`（修复/豁免/延后/记录）→ `gate`（P0/P1 清零判定）→ `summary`（写 artifact + 月度台账行）。
+2. 按 `tasks.json` 并行派 finder / verifier 子代理（角色契约见 `agents/pr-finder.md`、`agents/pr-verifier.md`、`agents/pr-adjudicator.md`）。模型默认 finder=code / verifier=review（`.agents/config/pr-review.json` 的 modelRoles 可覆盖；adjudicator 不标注——宿主默认）；派发禁传 `model` 参数——口径见 `model-roles.json` 的 `dispatch` 段。
+3. 依序执行：`collect`（读 findings/*.json，归一化/去重/样式丢弃/标 provenance，生成 verifier 工单）→ `verify`（读 votes/*.json，按配置阈值算共识）→ `adjudicate`（对 escalated finding 落裁决；裁决是该票面终裁，重跑 verify 不冲掉）→ `dispose`（修复/豁免/延后/记录）→ `gate`（清零判定）→ `summary`（写 artifact + 月度台账行）。
 
 ## gate 两档
 
 - **shadow**（默认）：findings 未清零只报 `SHADOW`，不阻断——适合评审进行中随时查状态。
-- **enforce**：P0/P1 未清零即 `FAIL`（exit 1）——合入前最后一步用。
+- **enforce**：任一 violation 即 `FAIL`（exit 1）——Important/Nit 未关闭、escalated 未裁决、无票、head/diffHash 过期、纯样式入账都算；合入前最后一步用。
 
 ## 落账
 

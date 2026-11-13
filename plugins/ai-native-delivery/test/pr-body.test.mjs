@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // pr-body.test.mjs — PR 体三件套生成器黑盒测试（2026-11-13 新增）
 // 断言：①Summary 来自真实 diff（文件数/行数/提交列表）②Evidence 取不到时明写「未运行」③Danger
-// 三要素齐全（Door/Rollback）④有 verifications.jsonl 绿行时引用之 ⑤空 diff 拒生成 exit 1。
+// 三要素齐全（Door/Rollback）④有 verifications.jsonl 绿行时引用之 ⑤空 diff 拒生成 exit 1
+// ⑥core.quotepath=true 下非 ASCII 路径原样输出（C-004 回归锁——git 上游默认会 C 转义）。
 // 零依赖，Node ≥ 18 直接运行：node test/pr-body.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -70,6 +71,24 @@ const run = (args, cwd) => spawnSync(process.execPath, [CLI, ...args], { cwd, en
   const d = mkRepo(false);
   const r = run(['--base', 'HEAD'], d);
   check('⑤ 空 diff 拒生成 exit 1', r.status === 1 && /没有文件变更/.test(r.stderr), `status=${r.status} err=${r.stderr.slice(0, 120)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
+// ⑥ core.quotepath=true 下非 ASCII 路径不转义（C-004 回归锁）
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-body-qp-'));
+  const g = (...a) => spawnSync(GIT, a, { cwd: d, encoding: 'utf8' });
+  g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
+  g('config', 'core.quotepath', 'true'); // git 上游默认；本机全局常为 false 故显式设 true
+  fs.writeFileSync(path.join(d, 'README.md'), '# base\n', 'utf8');
+  g('add', '-A'); g('commit', '-qm', 'base');
+  fs.mkdirSync(path.join(d, '文档'), { recursive: true });
+  fs.writeFileSync(path.join(d, '文档', '说明.md'), '# 说明\n', 'utf8');
+  g('add', '-A'); g('commit', '-qm', 'add 文档');
+  const r = run(['--base', 'HEAD~1'], d);
+  check('⑥ quotepath=true 下中文路径原样输出（无 C 转义、区域分组正确）',
+    r.status === 0 && /文档\(1\)/.test(r.stdout) && !/\\3[0-9]{2}/.test(r.stdout),
+    `status=${r.status} out=${r.stdout.slice(0, 200)}`);
   fs.rmSync(d, { recursive: true, force: true });
 }
 

@@ -289,9 +289,9 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 脚本：`node <插件根>/scripts/pr-review.mjs`（8 子命令：plan → collect → verify → adjudicate → dispose → gate → summary → status；`--help` 看全量）
 - 7 镜头：correctness / security / performance / tests / spec / data-integrity / quality（纯样式自动丢弃）
 - 共识：3 验证者/finding，2/3 confirm 达标；单票 Important 带复现自动 escalate 到裁决
-- 门禁：gate shadow（默认，不阻断）/ enforce（P0/P1 未清零即 FAIL exit 1）
+- 门禁：gate shadow（默认，不阻断）/ enforce（任一 violation 即 FAIL exit 1：Important/Nit 未关闭、escalated 未裁决、无票、head/diffHash 过期、纯样式入账）
 - 台账：artifact 落 `workflow/reviews.d/artifacts/<月>/<runId>.json` + 月度一行进 `workflow/reviews.d/<月>.md`（与既有 scanReviews/metrics 口径兼容）
-- 角色：`agents/pr-finder.md`、`pr-verifier.md`、`pr-adjudicator.md`（模型按 model-roles.json 的 review 角色）
+- 角色：`agents/pr-finder.md`、`pr-verifier.md`、`pr-adjudicator.md`（模型默认 finder=code / verifier=review，可在 `.agents/config/pr-review.json` 的 modelRoles 覆盖；adjudicator 不标注——宿主默认）
 - **forge-free**：「PR」= 一段固定的 base..head 评审范围；插件不碰 forge API/PAT——贴评论/babysit 由宿主 agent 做
 
 ### PR 正文三件套（pr-body）
@@ -313,6 +313,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.5**
+
+面板评审自评审闭环（pr-review 首跑对 0.3.4 自身：2 finder 12 候选 → 3 验证者 36 票全 confirm → 全 12 条修复）：①默认面板 2→7 镜头 + maxFinders 6→7 + 截断显式告警（宣称面=默认派发面，C-001/C-007）②人工裁决是该票面终裁——重跑 verify 不冲掉（票面漂移只告警，C-002）③collect 改动面校验不再以 line>0 为前提（无行号越界候选照拦，C-003）④pr-body 三处路径输出补 -c core.quotepath=off（与 pr-review 同口径，C-004）⑤工单角色契约指路自锚插件 agents/（原指不存在的项目侧 .agents/roles/，C-008）⑥文档口径三修：enforce 拦截面如实列（原写不存在的 P0/P1，C-009）、modelRole 默认如实写（finder=code/verifier=review，C-011）、pr-body 注释去掉未实现的关单凭证来源（C-010）⑦清单计数四处同步 9 命令/7 角色（C-006）+ 登记表现状注 64→65（C-005）+ 预算 51200 行补带日期理由（C-012）。回归锁：pr-review 26 断言 + pr-body 8 断言（新增 ⑨⑩⑫⑬/⑥ 六断言锁死上述行为面）。
 
 **0.3.4**
 

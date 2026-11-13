@@ -2,7 +2,7 @@
 // pr-body.mjs — PR 体三件套生成器（2026-11-13 插件原生新增，forge-free）
 //
 // 把 commands/review.md 既有「PR 体三件套」约定（Summary / Evidence / Merge Danger）变成可执行
-// 生成器：从真实 diff 提 Summary、从最近 verify 绿行/关单凭证取 Evidence、从变更面推 Merge Danger。
+// 生成器：从真实 diff 提 Summary、从最近 verify 绿行取 Evidence、从变更面推 Merge Danger。
 // 输出 stdout（agent 复制贴任何 forge——GitHub / TFS / 任何形态）；**禁编造**——每节标数据来源，
 // 取不到的数据明写「未运行」或「未取得」，不填占位修辞。
 //
@@ -49,9 +49,10 @@ if (!baseSha || !headSha) {
 }
 const mergeBase = gitOut(['merge-base', baseSha, headSha]) || baseSha;
 
-const statRaw = gitOut(['diff', '--stat', `${mergeBase}..${headSha}`]) || '';
-const numstat = gitOut(['diff', '--numstat', `${mergeBase}..${headSha}`]) || '';
-const nameOnly = (gitOut(['diff', '--name-only', `${mergeBase}..${headSha}`]) || '')
+// core.quotepath=off：非 ASCII 路径不转义（git 上游默认 true 会输出 C 转义串，区域分组/Door 分类全失效）
+const statRaw = gitOut(['-c', 'core.quotepath=off', 'diff', '--stat', `${mergeBase}..${headSha}`]) || '';
+const numstat = gitOut(['-c', 'core.quotepath=off', 'diff', '--numstat', `${mergeBase}..${headSha}`]) || '';
+const nameOnly = (gitOut(['-c', 'core.quotepath=off', 'diff', '--name-only', `${mergeBase}..${headSha}`]) || '')
   .split(/\r?\n/).filter(Boolean);
 const commitLog = (gitOut(['log', '--oneline', `${mergeBase}..${headSha}`]) || '')
   .split(/\r?\n/).filter(Boolean);
@@ -80,7 +81,7 @@ const summaryLines = [
 ];
 if (commitLog.length > 5) summaryLines.push(`- …等 ${commitLog.length} 个提交`);
 
-// ---- Evidence：最近 verify 绿行 / 最近关单凭证（取不到明写「未运行」）----
+// ---- Evidence：最近 verify 绿行（取不到明写「未运行」）----
 let evidenceLines = [];
 const verif = path.join(ROOT, '.agents', 'verifications.jsonl');
 if (fs.existsSync(verif)) {
