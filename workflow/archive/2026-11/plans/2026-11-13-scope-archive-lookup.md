@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: b1dc6537215d59e1
+确认指纹: 26fa74984dbcd891
 ---
 # PLAN — scope-archive-lookup——归档回退按归档树同名定位
 
