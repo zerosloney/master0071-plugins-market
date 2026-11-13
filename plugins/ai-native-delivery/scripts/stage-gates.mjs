@@ -27,6 +27,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { loadKitPolicy } from './policy.mjs';
+// 2026-11-13 关单改动面门（判据移植 8f6a22f84 A 件）：声明提取/匹配/白名单与推送级对账单源复用
+//（check-scope.mjs），L0 判据与上限与提交时刻门单源复用（check-confirm-order.mjs）。
+import { extractDeclared, WHITELIST_RE, matches } from './check-scope.mjs';
+import { L0_MAX, isProductPath, l0JudgementFromText } from './check-confirm-order.mjs';
 
 export const ENTRY_STATUSES = ['approved', 'done'];
 export const INCIDENT_STATUSES = ['open', 'fixed', 'closed'];
@@ -677,6 +681,60 @@ export function doneGateFor(root, abs, rel) {
     };
   }
   return { ok: true, hit };
+}
+
+// taskScopeGate：plan →done 前的「改动面回填」门（2026-11-13 判据移植，源引擎 8f6a22f84 A 件）。
+// 背景：提交时刻 check-confirm-order 的覆盖口径 = 「路径出现在**任意** approved plan 正文」，历史 plan 一提过
+// 就等于永久白名单（热文件尤其明显）；而推送时刻 check-scope-range 只认**本次推送范围**内的声明——
+// 同一条改动提交时放行、推送时爆炸，且 done plan 指纹绑定不可回填，只能另立「补记」plan 空转。
+// 本门把关单当作对账时点：取**引用本 plan 短名**的提交（消息内出现短名，与 check-commit-plan-ref
+// 同一约定），并集其改动文件，与本 plan 声明对账；越界即拒关单。
+// 判据单源：声明提取/匹配/白名单 = check-scope.mjs；L0 豁免（消息含 L0: 行且产品件 ≤5）= check-confirm-order.mjs。
+// 逃生口沿 doneGateFor：流程: legacy / 行首存量确认态豁免声明（LEGACY_DECLARED_RE）/ 非 git /
+// git 调用失败 → 跳过（不误拦）。仅 plan 适用（intent/spec 无改动面）。
+export function taskScopeGate(root, abs, rel) {
+  if (!/^workflow\/plans\/.+\.md$/.test(rel)) return { ok: true, skipped: 'not-plan' };
+  const body = readBody(abs);
+  if (body.split(/\r?\n/).some((l) => /^流程: legacy/.test(l))) return { ok: true, skipped: 'legacy' };
+  if (body.split(/\r?\n/).some((l) => LEGACY_DECLARED_RE.test(l))) return { ok: true, skipped: 'declared' };
+  if (!gitReady(root)) return { ok: true, skipped: 'no-git' };
+  const slug = path.basename(rel, '.md');
+  const log = gitRun(root, ['log', '--first-parent', '--format=%H', '--fixed-strings', `--grep=${slug}`]);
+  if (log === null) return { ok: true, skipped: 'git-error' };
+  const shas = log.split(/\r?\n/).filter(Boolean);
+  if (!shas.length) return { ok: true, skipped: 'no-commit' };
+
+  const changedSet = new Set();
+  for (const sha of shas) {
+    const parents = (gitRun(root, ['rev-list', '--parents', '-n', '1', sha]) || '').trim().split(/\s+/).slice(1);
+    const dt = gitRun(root, parents.length > 1
+      ? ['diff-tree', '-c', '--no-commit-id', '--name-only', '--no-renames', '-r', sha]
+      : ['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', sha]);
+    if (dt === null) return { ok: true, skipped: 'git-error' };
+    const files = dt.split(/\r?\n/).map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean);
+    const l0 = parents.length === 1
+      ? l0JudgementFromText(gitRun(root, ['show', '-s', '--format=%B', sha]) || '')
+      : null;
+    const products = files.filter(isProductPath);
+    if (l0 && products.length > 0 && products.length <= L0_MAX) {
+      // L0 极简道：产品件免声明（与推送级 check-scope-range 同口径），非产品件仍入对账
+      for (const f of files) if (!isProductPath(f)) changedSet.add(f);
+      continue;
+    }
+    for (const f of files) changedSet.add(f);
+  }
+  const changed = [...changedSet];
+  if (!changed.length) return { ok: true, skipped: 'no-change' };
+  const declared = extractDeclared(abs, root);
+  const outOfScope = changed.filter((f) => !WHITELIST_RE.test(f) && !declared.some((df) => matches(f, df)));
+  if (!outOfScope.length) return { ok: true, commits: shas.length };
+  const shown = outOfScope.slice(0, 8).join('、');
+  return {
+    ok: false,
+    files: outOfScope,
+    reason: `本 plan 名下 ${shas.length} 个提交改了 ${outOfScope.length} 个未声明文件：${shown}${outOfScope.length > 8 ? ` 等 ${outOfScope.length} 条` : ''}`,
+    hint: '把这些文件补进本 plan「改动方案」节（属别的任务就写进那份 plan），`confirm-doc --reconfirm --delegated "<用户原话>"` 重录承诺面后重试关单',
+  };
 }
 
 // acceptanceEvidenceGate：→done 关单格式门（done-evidence-gate）——关单是最后一次写入，

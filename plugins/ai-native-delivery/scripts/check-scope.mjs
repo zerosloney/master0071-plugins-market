@@ -5,7 +5,8 @@
 //   只做单向交集（提交须触及至少一个声明文件），夹带 plan 外文件不报——本件补越界方向。
 // 语义与红线：只读裁决（判红绿，不改任何状态——命名规约 check- 前缀）；默认 advisory（exit 0 出报告），
 //   --strict 时越界件非空 exit 1（供门禁化调用方使用）；plan 不可读 exit 2（fail-loud，不静默放行）。
-//   文件匹配沿检查 8 宽松规则（f===df / 后缀 / 双向 includes）——声明粒度粗（写目录或部分路径）不误报越界；
+//   文件匹配收紧为「全等 / 带目录后缀 / `...` 段通配」（裸文件名只认全等；声明粒度纪律见
+//   extractDeclared 头注 2026-11-13 段）；
 //   白名单豁免：workflow/ 台账（intents/specs/plans/incidents/INDEX）、.agents/confirmations.jsonl、
 //   .agents/confirmations.d/ 分片、package-lock.json——闭环随行件不算越界。
 // 测试：node <插件根>/test/check-scope.test.mjs（tmp git 仓 fixture：越界 / 未落 / 白名单 / strict / 无 plan）
@@ -15,6 +16,8 @@
 // 沿革：2026-10-09 立档（缺口实证=检查 8 单向交集不拦夹带）。
 // 2026-11-12 判据移植：声明提取 / 白名单 / 匹配规则抽为共享导出（推送级对账 check-scope-range.mjs
 //   复用，正则单源不复制第三份；本件 CLI 报告语义逐字节不变）。
+// 2026-11-13 判据移植（源 8f6a22f84 B 件）：声明粒度收紧 + 匹配收紧——推送门（check-scope-range）
+//   与关单门（stage-gates.taskScopeGate）共用本单源，收紧一处两侧同效。
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,7 +32,15 @@ import { GIT_TIMEOUT_MS } from './git-core.mjs';
 //   全成「未声明」——一行并列多文件的声明只认首个，其余假越界；②补扫「验证计划」节——新增测试
 //   文件常只在该节点名，计划点名即算声明，产品面判据本身不放宽。
 export const KNOWN_EXT = new Set(['.md', '.mjs', '.js', '.ts', '.json', '.txt', '.cs', '.csproj', '.sln', '.vue', '.ps1', '.sh', '.yml', '.yaml', '.sql', '.cjs']);
-export function extractDeclared(planAbs) {
+// 2026-11-13 收紧（声明粒度纪律，判据移植 8f6a22f84 B 件）：
+//   ① 裸文件名（`DataDtos.cs`）不再算声明——同名文件可能散落多模块，等于永久白名单；
+//      唯一例外是**仓库根真实存在**的文件（`AGENTS.md` 这类根件）。
+//   ② 无扩展名的目录前缀（`backend/app/Services`）不再算声明——一个前缀能覆盖整个子树，
+//      声明退化成通配。例外同上：真实存在的文件（如 `frontend/.env`）。
+//   ③ 带目录 + 已知扩展名 → 保留；`...` 省略写法 → 保留（matches 按段通配解析，见下）。
+// root 参数：仓库根（check-scope CLI 传 --root 解析值；check-scope-range / stage-gates 传各自 ROOT）——
+// 「真实存在」判据锚仓库根，不锚 cwd。
+export function extractDeclared(planAbs, root = process.cwd()) {
   const declared = [];
   const lines = fs.readFileSync(planAbs, 'utf8').split(/\r?\n/);
   let inSec = false;
@@ -39,21 +50,39 @@ export function extractDeclared(planAbs) {
     if (!inSec) continue;
     for (const m of line.matchAll(/([a-zA-Z0-9._\/\\-]+\.[a-zA-Z0-9]+)/g)) {
       const tok = m[1].replace(/\\/g, '/');
-      const ext = tok.slice(tok.lastIndexOf('.'));
-      if (tok.includes('/') || KNOWN_EXT.has(ext.toLowerCase())) declared.push(tok);
+      const ext = tok.slice(tok.lastIndexOf('.')).toLowerCase();
+      const qualified = tok.includes('/');
+      const realFile = fs.existsSync(path.join(root, tok));
+      if (!qualified && !realFile) continue;         // 裸文件名：只认仓库根真实文件
+      if (!KNOWN_EXT.has(ext) && !realFile) continue; // 无扩展名目录前缀：只认真实文件
+      declared.push(tok);
     }
   }
   return declared;
 }
 
-// 白名单与宽松匹配规则同为共享常量（check-scope-range 复用，口径单源）
+// 白名单与匹配规则同为共享常量（check-scope-range / stage-gates 复用，口径单源）
 // 扩容（判据移植 4bbf75c3b，对齐引擎面豁免 / 台账豁免口径补三类非产品面）：
 //   ① 引擎面：.agents/ 全部、.zcode/、.githooks/、宿主适配目录、azure-pipelines.yml、根 AGENTS.md；
 //   ② 台账与凭证：workflow/ 根级台账、其 .d/ 月度分片、本机证据目录 workflow/evidence/；
 //   ③ wiki 知识文档（内容调整同享豁免）。
 // 产品面判据不变：改了未声明仍按调用方的 strict 语义执法。
 export const WHITELIST_RE = /^(?:workflow\/(?:intents|specs|plans|incidents)\/|workflow\/INDEX\.md$|workflow\/[^/]+\.md$|workflow\/[^/]+\.d\/|workflow\/evidence\/|wiki\/|\.agents\/|\.zcode\/|\.githooks\/|\.opencode\/|\.trae\/|\.codebuddy\/|\.qwen\/|azure-pipelines\.yml$|AGENTS\.md$|package-lock\.json$)/;
-export const matches = (f, df) => f === df || f.endsWith(`/${df}`) || f.includes(df) || df.includes(f);
+// 2026-11-13 收紧匹配（原 f===df / 后缀 / 双向 includes；判据移植 8f6a22f84 B 件）：
+//   双向 includes 会让 `backend/.../Services` 之类前缀命中整个子树，也让声明方写半截路径即「覆盖」——
+//   改为：全等 / 带目录后缀 / `...` 段通配。声明方仍可用 `backend/.../Enums/OrderEnums.cs`
+//   省略中段，但必须落到具体文件（`...` 只跨路径段，不跨文件名）。
+const ESC_RE = /[.*+?^${}()|[\]\\]/g;
+export const matches = (f, df) => {
+  if (f === df) return true;
+  // 裸文件名只认全等（根件）：同名文件可能散落多模块，后缀匹配等于永久白名单
+  if (!df.includes('/')) return false;
+  if (df.includes('...')) {
+    const pattern = df.replace(ESC_RE, '\\$&').split('\\.\\.\\.').join('[^/]+(?:/[^/]+)*');
+    return new RegExp(`^${pattern}$`).test(f);
+  }
+  return f.endsWith(`/${df}`);
+};
 const norm = (p) => p.replace(/\\/g, '/');
 
 function main() {
@@ -72,7 +101,7 @@ function main() {
   const planAbs = path.isAbsolute(planRel) ? planRel : path.join(ROOT, planRel);
   if (!fs.existsSync(planAbs)) { console.error(`plan 不可读: ${planRel}`); process.exit(2); }
 
-  const declared = extractDeclared(planAbs);
+  const declared = extractDeclared(planAbs, ROOT);
 
   // git 调用统一注入 -c core.quotepath=off（对齐 verify-scope.mjs 同款参数；M2 事故同款）：
   // 默认 core.quotepath=true 的机器上非 ASCII 路径被引号+八进制转义（"workflow/incidents/\344\270\255..."）——

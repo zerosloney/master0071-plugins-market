@@ -6,19 +6,19 @@
 // 新增宿主 = 本表加一行 + gen-host-manifests.mjs 无需改动（渲染器按本表数据驱动）。
 
 // 宿主垫片共用的短描述（三份垫片现文案逐字相同，原样搬入；改文案请同步重生成垫片）
-export const SHORT_DESCRIPTION = 'AI-Native 交付治理引擎：三层闭环（任务级硬闭环 / 状态收敛闭环 / 治理进化闭环）——L1/L2/L3 风险泳道 + check-loop 硬门 5 段 + 台账三件套 + 判定账进化；台账为项目级资产，一律落使用项目 git 仓库根。';
+export const SHORT_DESCRIPTION = 'AI-Native 交付治理引擎：三层闭环（任务级硬闭环 / 状态收敛闭环 / 治理进化闭环）——L0/L1/L2/L3 风险泳道 + check-loop 硬门 6 段 + 台账三件套 + 判定账进化；台账为项目级资产，一律落使用项目 git 仓库根。';
 
 // codex 宿主 interface 块（市场展示面，原样搬自 .codex-plugin/plugin.json，不改文案）
 const INTERFACE_CODEX = {
   displayName: 'AI-Native Delivery',
   shortDescription: 'AI-Native 交付治理：风险泳道定级 + 硬门关单闸 + 台账审计',
-  longDescription: '把交付治理做成三层闭环：任务级硬闭环（两问定级进 L1/L2/L3 泳道、check-loop 硬门 5 段、关单与 pre-push 物理闸门）、状态收敛闭环（台账三件套 + INDEX + 收敛对账 + 台账卫生）、治理进化闭环（judgment-ledger 计数、退役候选、门禁段数棘轮、实测墙钟预算）。台账与三本审计账为项目级资产，一律落使用项目 git 仓库根。',
+  longDescription: '把交付治理做成三层闭环：任务级硬闭环（L0 极简道与两问定级进 L1/L2/L3 泳道、check-loop 硬门 6 段、关单与 pre-push 物理闸门）、状态收敛闭环（台账三件套 + INDEX + 收敛对账 + 台账卫生）、治理进化闭环（judgment-ledger 计数、退役候选、门禁段数棘轮、实测墙钟预算）。台账与三本审计账为项目级资产，一律落使用项目 git 仓库根。',
   developerName: 'master0071',
   category: 'Developer Tools',
   capabilities: ['Read', 'Write'],
   websiteURL: 'https://github.com/zerosloney/master0071-plugins-market',
   defaultPrompt: [
-    '先给这个任务做两问定级（L1/L2/L3）再开工',
+    '先给这个任务定级（≤5 文件小改走 L0 极简道，否则两问定级 L1/L2/L3）再开工',
     '关单前跑一遍硬门校验与收敛对账',
   ],
 };

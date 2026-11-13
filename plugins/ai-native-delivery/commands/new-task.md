@@ -64,7 +64,7 @@ next: 按阶段路由
 3. **立 plan**：`node <插件根>/scripts/fill-plan.mjs --level L1 --topic <主题> --output workflow/plans/<YYYY-MM-DD>-<主题>.md`。可加 `--lite`（三节：入口 / 改动方案 / 验证与验收；条件：第 2 步检索无 incident 命中且红线全不勾），缺省仍为五节。填实入口（来源、目标、红线）、改动方案、约束与风险、验证计划、验收标准，并把第 2 步的检索结果写进自查。frontmatter `模块` 改成主导模块。不写 intent，不写预判字段。完成标准：所选模板各节有正文（五节或 lite 三节），检索结论已在 plan 里；验收标准写不出可测试判据就停；红线要么勾中并升到 L2/L3，要么明确不勾。
 4. **确认后动手**：`node <插件根>/scripts/confirm-doc.mjs <plan> --delegated "<用户原话>"` 把 draft 收到 approved，然后再改代码。只改 plan 列出的文件。四条红线：不提交密钥或 `.env`、不用 `--no-verify`、最小改动、偏离 plan 先停。**承诺面锁定（2026-10-27）**：approved 之后改「承诺面」（验收判据文本 / 红线 / 目标 / 改动方案）须先让用户重新点头——跑 `confirm-doc.mjs <plan> --reconfirm --delegated "<用户原话>"` 重录承诺面指纹；否则关单被拒、推送被检查 15 hard 拦（勾验收 + 证据回填不算改承诺）。改完后把 approved 的 plan 和代码放进同一笔提交，这一笔不把 plan 标成 done。完成标准：该提交已入库，plan 仍是 approved。
 5. **验证**：`node <插件根>/scripts/verify.mjs --scope`。有前端改动再打开 `.agents/skills/verify-ui/SKILL.md`（插件形态读 `<插件根>/skills/verify-ui/SKILL.md`）。失败就改代码，不在本页改门禁。完成标准：命令退出码 0，前端改动另有实测证据。
-6. **关单**：打开 `.agents/skills/workflow-closeout/SKILL.md`（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。L1 只关这份 plan。完成标准：plan 为 done，关单提交已入库。
+6. **关单**：打开 `.agents/skills/workflow-closeout/SKILL.md`（插件形态读 `<插件根>/skills/workflow-closeout/SKILL.md`）。L1 只关这份 plan。关单前机器对账（2026-11-13 判据移植）：confirm-doc 在 plan→done 前跑 `taskScopeGate`——取**引用本 plan 短名**的提交并集，与「改动方案」声明对账，越界即拒关单，漏列不再拖到推送才炸。完成标准：plan 为 done，关单提交已入库。
 
 下面才打开别的文件：委派 implementer → `build.md` §3；改了库连接 → `test.md` §2；全量首跑红、隔离重跑转绿 → `test.md` §1；L2/L3 独立复核 → `test.md` §4。
 

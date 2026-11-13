@@ -240,7 +240,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **L1–L3 立档道（顺序门）**：改动先立 intent / spec / plan。commit-msg 钩子执法「先确认后改代码」（`check-confirm-order.mjs`）——暂存产品路径须出现在本次提交可见的 approved plan 正文里（done 历史 plan 不算覆盖；豁免 B：覆盖 plan 与产品同批暂存）；合并 / squash 族与未暂存产品路径跳过。pre-push 由 `check-scope-range.mjs` 对整段推送范围（old..new）再对账 plan 声明并集：只判越界（改了未声明）为 hard，未落件仅 advisory；范围内无 plan 变更则跳过并补盲面警告。`check-commit-plan-ref.mjs` 提示提交消息含覆盖 plan 短名（文件名去 `.md`，advisory 观察期）。
 - **L0 极简道（提交时豁免通道）**：产品件 ≤5 的小改，提交消息体带非空 `L0: <判据>` 行即免 intent / spec / plan 立档——顺序门与推送对账按同一判据放行并打印明细（合并提交不适用；无消息参数 fail-closed），judgments 落 L0 观测计数。配套 `fill-plan --lite`（L1 三节最小 plan）与 `closeout.mjs --l0 "<判据>"` 单命令关单。
 - **§v16 两门**（policy v16 生效锚后，存量项目不追溯）：① spec 前提质询门——spec draft→approved 必经 premiseGate，关键前提须有质询记录（小件可写「无关键前提」行 + 理由）；② 检查 29 回归清单执法者配对——防复发清单锚后新行的「执法者」列须指认「复发时谁会红」（hard，显式 `[prompt-only]` 为合法声明）。
-- **通用关单**：`scripts/closeout.mjs` 把 workflow-closeout §1–§5 固定序列收成 L0–L3 单命令（confirm-doc 落终态 → 索引重生成 → 定向 git add → 暂存区核对防夹带 → git commit，禁 `--no-verify`），取代 closeout-l1（单入口不并存）。
+- **通用关单**：`scripts/closeout.mjs` 把 workflow-closeout §1–§5 固定序列收成 L0–L3 单命令（confirm-doc 落终态 → 索引重生成 → 定向 git add → 暂存区核对防夹带 → git commit，禁 `--no-verify`），取代 closeout-l1（单入口不并存）。plan→done 关单前 confirm-doc 另由 `taskScopeGate` 机器对账（2026-11-13 判据移植）：取**引用本 plan 短名**的提交并集，与「改动方案」声明对账，越界即拒关单——漏列不再拖到推送才炸。
 - **兜底与自愈**：`check-secrets-lite.mjs` 在 gitleaks 三级定位（GITLEAKS_BIN / PATH / `.agents/tools`）全空时自动接续密钥扫描（纯 Node 零二进制零网络；强特征全文件执法且基线豁免不适用，宽泛特征只扫基线外文件）；verify 生成物漂移门（生效规则视图 / 引擎地图 / 工作流索引）首检漂移先原地重生成再复检，复检绿计通过并留自愈行（♻️ 可审计）；`check-doc-body-drift.mjs` 对已关单文档正文漂移在提交时刻打 advisory（执法面仍是关单时确认指纹对账，口径零变化）；`check-hook-wiring.mjs` 对账「接线宣称 ↔ 宿主实态」（hooks.json / 三宿主垫片 / MCP 入口），漂移红即挡推送。
 - **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。校错面：`dream-verify.mjs` 对知识文档（principles、regression-checklist 主档+分片、specs/plans 终态存档件）做引用完整性对拍——只标硬漂移（引用了不存在的东西），语义真伪默认不判；`node <插件根>/scripts/dream-verify.mjs --root <仓库根>`，报告落 `.agents/tmp/dream-verify-<日期>.md`，dream-run 报告 D 段引用其结果。语义复评档（opt-in，默认关）：`--model` 对扫描闭集里含路径/指纹引用的规则断言行（含已判硬漂移的存疑行）做模型语义对拍，三态裁决（仍成立=引用虽断但结论仍有据 / 存疑=需人工核 / 失效=结论已无支撑）进报告 E 段；模型调用经 `scripts/model-call.mjs` 单源（`--runner` / `MODEL_CALL_RUNNER` 可换 claude 兼容 runner），advisory 语义不变——退出码恒 0，不因模型升级改变存疑注记判定面。**成本口径**：仅显式 `--model` 时产生模型调用，逐条独立调用（不合并上下文防串扰）、一轮最多送评 20 条（超出截断并在 E 段注明）、单条失败不阻塞其余、模型缺席/全部失败 E 段出「语义复评不可用」一行；无任何调用进门禁 / CI / init 默认路径。
 
@@ -295,6 +295,14 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.2**
+
+同步源引擎 8f6a22f84（判据级移植，A+B）：**A｜关单改动面门 taskScopeGate**——confirm-doc 把 plan 转 done 前置对账：取引用本 plan 短名的提交（--first-parent --grep）并集改动文件，与「改动方案」声明比对，越界即拒关单并点名（堵"历史 plan 提过即永久白名单、提交放行推送爆炸"洞）；L0 提交同口径豁免；逃生口沿插件 doneGateFor 既有口径（存量豁免用插件行首锚 LEGACY_DECLARED_RE，较源旧形态更严）。**B｜声明匹配收紧**（check-scope，推送门与关单门共用）——裸文件名不再算声明（唯一例外：仓库根真实文件）、无扩展名目录前缀只认真实文件；匹配由「全等/后缀/双向 includes」收紧为「全等/带目录后缀/`...` 段通配」。新测试 task-scope-gate 11 断言（越界拒/补声明过/L0 豁免/三逃生口）+ check-scope S8–S11；登记表 62 行（[检出型]）；new-task.md 触实测单篇上限按只升不降上调 8704→9728B。
+
+**0.3.1**
+
+对外文案收口（机制无变更）：四处对外描述（plugin.json / 双 marketplace / 根 README 表行）与 hosts.mjs 短描述、codex longDescription、defaultPrompt 补 L0 极简道声称（≤5 文件 + 判据行免立档）——L0/L1 快速道机制自 0.2.0 已在（check-confirm-order / fill-plan --lite / commit-msg 钩子），本次仅让对外声称与实现一致；顺带修正 hosts.mjs 自 0.2.0 起残留的旧硬门段数声称（S2 起 hard 实为 6 段，垫片经生成器重渲染）。核验记录：源仓 L0/lite 相关（含 a6aec6064 后补测试）均已同步；另报备一个快照后新引擎提交 8f6a22f84（关单改动面门 + 声明匹配收紧）未同步，待裁决。
 
 **0.3.0**
 

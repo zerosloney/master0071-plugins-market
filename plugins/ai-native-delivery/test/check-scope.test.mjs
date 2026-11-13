@@ -1,5 +1,8 @@
 // check-scope.test.mjs — tmp git 仓 fixture（2026-10-09）
 // 覆盖：越界检出 / 未落检出 / 白名单豁免 / --strict 退出码 / 无 plan exit 2 / 版本号 token 过滤
+// 2026-11-13 判据移植（源 8f6a22f84 B 件）：S8-S11 声明粒度收紧（裸名非根件不算声明 /
+// 根真实文件例外 / 带目录后缀 / `...` 段通配）；S2 夹具声明改带目录形态（裸名声明按新判据失效——
+// 属判据收紧的正确行为，修夹具不为绿放水）。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -43,13 +46,13 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-// S2 未落检出（声明未变更）
+// S2 未落检出（声明未变更）——声明用带目录形态（2026-11-13 收紧后裸名非根件不再算声明）
 {
   const { root } = mkRepo();
   fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p2.md'), '## 改动面\n- src-ghost.md：计划改但没改\n');
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p2.md'), '## 改动面\n- src/ghost.md：计划改但没改\n');
   const r = run(root, ['workflow/plans/p2.md']);
-  check('S2 未落件检出（src-ghost.md）', r.status === 0 && /未落件/.test(r.stdout) && /src-ghost\.md/.test(r.stdout), JSON.stringify({ status: r.status, out: r.stdout.slice(0, 300) }));
+  check('S2 未落件检出（src/ghost.md）', r.status === 0 && /未落件/.test(r.stdout) && /src[\\/]ghost\.md/.test(r.stdout), JSON.stringify({ status: r.status, out: r.stdout.slice(0, 300) }));
   fs.rmSync(root, { recursive: true, force: true });
 }
 
@@ -127,6 +130,60 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   const r2 = run(root, ['workflow/plans/zh.md', '--strict']);
   check('S7 工作区未声明中文新文件 → 真越界仍被拦（quotepath=off 不放水）且路径原样可读',
     r2.status === 1 && r2.stdout.includes('docs/中文说明.md'), `exit=${r2.status}\n${r2.stdout}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S8–S11 声明粒度收紧（2026-11-13 判据移植，源 8f6a22f84 B 件）----
+
+// S8 裸文件名（非仓库根）不算声明：嵌套同名新文件不再被裸名声明兜住
+{
+  const { root } = mkRepo();
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p8.md'), '## 改动面\n- nested-file.md：新建\n');
+  fs.writeFileSync(path.join(root, 'docs', 'nested-file.md'), '# 新建\n');
+  const r = run(root, ['workflow/plans/p8.md', '--strict']);
+  check('S8 裸名声明失效：docs/nested-file.md 计越界 --strict exit 1', r.status === 1 && r.stdout.includes('越界件') && r.stdout.includes('docs/nested-file.md'), `exit=${r.status}\n${r.stdout}`);
+  check('S8b 裸名不再入声明清单（未落件不点名 nested-file.md）', !/未落件[\s\S]*nested-file/.test(r.stdout), r.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// S9 仓库根真实文件例外：裸名声明只认根上真实存在的文件
+{
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), '{}\n');
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p9.md'), '## 改动面\n- tsconfig.json：改\n');
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), '{"a":1}\n');
+  const r = run(root, ['workflow/plans/p9.md', '--strict']);
+  check('S9 根真实文件例外：裸名 tsconfig.json 仍算声明，双向对齐 exit 0', r.status === 0 && r.stdout.includes('双向对齐'), `exit=${r.status}\n${r.stdout}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// S10 带目录后缀仍匹配：声明 deep/ok.md 覆盖 src/deep/ok.md
+{
+  const { root } = mkRepo();
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src', 'deep'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p10.md'), '## 改动面\n- deep/ok.md：改\n');
+  fs.writeFileSync(path.join(root, 'src', 'deep', 'ok.md'), '# ok\n');
+  const r = run(root, ['workflow/plans/p10.md', '--strict']);
+  check('S10 带目录后缀：src/deep/ok.md 命中声明 deep/ok.md，双向对齐 exit 0', r.status === 0 && r.stdout.includes('双向对齐'), `exit=${r.status}\n${r.stdout}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// S11 `...` 段通配：省略中段但必须落到具体文件（不跨文件名、不整树覆盖）
+{
+  const { root } = mkRepo();
+  fs.mkdirSync(path.join(root, 'workflow', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src', 'a', 'b'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'plans', 'p11.md'), '## 改动面\n- src/.../ok.md：改\n');
+  fs.writeFileSync(path.join(root, 'src', 'a', 'b', 'ok.md'), '# ok\n');
+  fs.writeFileSync(path.join(root, 'src', 'a', 'b', 'ok2.md'), '# 未声明\n');
+  const r = run(root, ['workflow/plans/p11.md', '--strict']);
+  check('S11 `...` 通配命中中段省略：src/a/b/ok.md 不越界', r.status === 1 && !/越界件[\s\S]*src\/a\/b\/ok\.md/.test(r.stdout), `exit=${r.status}\n${r.stdout}`);
+  check('S11b 通配不跨文件名：src/a/b/ok2.md 仍越界', r.status === 1 && /越界件[\s\S]*src\/a\/b\/ok2\.md/.test(r.stdout), r.stdout);
+  check('S11c 通配声明已落件（未落件不出现在报告）', !/未落件/.test(r.stdout), r.stdout);
   fs.rmSync(root, { recursive: true, force: true });
 }
 

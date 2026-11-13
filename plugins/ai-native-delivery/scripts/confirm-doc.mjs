@@ -49,7 +49,7 @@ import readline from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { confirmGateFor, doneGateFor, acceptanceEvidenceGate, laneOfDoc, specConfirmed, planConfirmedFor, reviewLineFor, commitmentFingerprint } from './stage-gates.mjs';
+import { confirmGateFor, doneGateFor, taskScopeGate, acceptanceEvidenceGate, laneOfDoc, specConfirmed, planConfirmedFor, reviewLineFor, commitmentFingerprint } from './stage-gates.mjs';
 import { loadKitPolicy, hasFreshVerifyLine } from './policy.mjs';
 import { groundQuote, resolveFamilyTexts, GROUND_ANCHOR_MIN } from './quote-grounding.mjs';
 
@@ -502,6 +502,17 @@ if (isMain) {
       if (!evGate.ok) {
         console.error(`❌ ${doc} 未过关单格式门：${evGate.reason}`);
         console.error(`   ${evGate.hint}（本份未落账、未写盘）`);
+        refused++;
+        continue;
+      }
+      // 关单改动面门（2026-11-13 判据移植，源 8f6a22f84 A 件）：取引用本 plan 短名的提交并集，
+      // 与「改动方案」声明对账——把「提交时被历史 approved plan 兜住、推送时才炸」的漏列，前移到
+      // 关单这一刻暴露（判据单源见 stage-gates.taskScopeGate；L0 提交同口径豁免）。仅 plan 适用
+      //（intent/spec 无改动面）。
+      const scGate = taskScopeGate(root, abs, doc);
+      if (!scGate.ok) {
+        console.error(`❌ ${doc} 未过关单改动面门：${scGate.reason}`);
+        console.error(`   ${scGate.hint}（本份未落账、未写盘）`);
         refused++;
         continue;
       }
