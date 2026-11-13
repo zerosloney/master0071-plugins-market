@@ -112,7 +112,13 @@ const setupRepo = (tmp) => {
   git(['config', 'user.name', GIT_IDENTITY.name], tmp);
   fs.writeFileSync(path.join(tmp, 'README.md'), FIXTURE_README, 'utf8');
   git(['add', '-A'], tmp);
-  git(['-c', `user.email=${GIT_IDENTITY.email}`, '-c', `user.name=${GIT_IDENTITY.name}`, 'commit', '-qm', 'base'], tmp);
+  git(['-c', `user.email=${GIT_IDENTITY.email}`, `-c`, `user.name=${GIT_IDENTITY.name}`, 'commit', '-qm', 'base'], tmp);
+  // 补 bare remote：playbook 的 verify --scope 与推送面判据都以 origin/main 为基线，
+  // 无 remote 会让 agent 陷进"找替代基线"的轮次黑洞（E1 首基线实证）
+  const remote = tmp + '-origin.git';
+  git(['init', '-q', '--bare', remote], tmp);
+  git(['remote', 'add', 'origin', remote], tmp);
+  git(['push', '-q', '-u', 'origin', 'HEAD'], tmp);
   const init = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, 'scripts', 'init-engine.mjs'), '--root', tmp],
     { cwd: tmp, encoding: 'utf8', maxBuffer: MAX_BUFFER });
   return init;
@@ -126,29 +132,58 @@ const stripFrontmatter = (text) => {
 const buildPrompt = (c) => {
   const body = stripFrontmatter(fs.readFileSync(path.join(PLUGIN_ROOT, c.surface), 'utf8'))
     .split(PROMPT_TAG).join(PLUGIN_ROOT_FOR_PROMPT);
-  return `${c.taskBrief}\n\n按以下 playbook 执行：\n\n${body}`;
+  // 执行约定前言：镜像真实部署的 agent 操作指令（部署侧 AGENTS.md 同款口径）——
+  // 不带前言时无头代理会把 playbook 的每个引用当必读材料（E1/E3 首基线实证：源码考古烧尽轮次）
+  const preamble = [
+    '执行约定（来自部署方，优先级高于 playbook 的展开细节）：',
+    '1) 以完成开头那个任务为目标，用最少的工具调用收口；',
+    '2) playbook 是流程指引——按所属车道执行核心步骤即可，不需要通读其引用的脚本/文档源码；',
+    '3) 验证只运行命令看输出与退出码，不读命令的实现；',
+    '4) 卡住时选最短可行路径前进，不做穷尽式探索。',
+  ].join('\n');
+  return `${c.taskBrief}\n\n${preamble}\n\n按以下 playbook 执行：\n\n${body}`;
 };
 
 /* ---------- 无交互跑 ---------- */
 function runRunner(prompt, c, cwd) {
   const allowedCsv = c.allowedTools.join(',');
+  // stream-json + --verbose：NDJSON 事件流（含全量对话）；--strict-mcp-config + 空 mcp 配置：
+  // 隔离宿主全局 MCP 插件（E1 首基线实证：context-mode 截断输出烧掉 15+ 轮）
+  const ISOLATION = ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'];
   const r = RUNNER_SHELL
-    ? spawnSync(`"${RUNNER_CMD}" -p --output-format json --allowedTools "${allowedCsv}" --max-turns ${c.maxTurns}`,
+    ? spawnSync(`"${RUNNER_CMD}" -p --output-format stream-json --verbose --strict-mcp-config --mcp-config "{""mcpServers"":{}}" --allowedTools "${allowedCsv}" --max-turns ${c.maxTurns}`,
       { cwd, input: prompt, encoding: 'utf8', timeout: c.timeoutMs, maxBuffer: MAX_BUFFER, shell: true, windowsHide: true })
-    : spawnSync(RUNNER_CMD, ['-p', prompt, '--output-format', 'json', '--allowedTools', allowedCsv, '--max-turns', String(c.maxTurns)],
+    : spawnSync(RUNNER_CMD, ['-p', prompt, '--output-format', 'stream-json', '--verbose', ...ISOLATION, '--allowedTools', allowedCsv, '--max-turns', String(c.maxTurns)],
       { cwd, encoding: 'utf8', timeout: c.timeoutMs, maxBuffer: MAX_BUFFER, windowsHide: true });
-  // claude -p --output-format json 整段 stdout 是一个 JSON 对象；容错：从尾行向前找可解析对象
+  // 逐行解析事件流：result 事件作信封；assistant 消息抽 tool_use 序列（transcript 复盘面）
   let json = null;
-  const tryParse = (s) => { try { const v = JSON.parse(s); return v && typeof v === 'object' && ('result' in v || 'is_error' in v) ? v : null; } catch { return null; } };
-  json = tryParse(r.stdout || '');
-  if (!json) {
-    for (const line of (r.stdout || '').split(/\r?\n/).reverse()) {
-      json = tryParse(line);
-      if (json) break;
+  const events = [];
+  for (const line of (r.stdout || '').split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    let ev = null;
+    try { ev = JSON.parse(t); } catch { continue; }
+    if (ev && typeof ev === 'object') {
+      if (ev.type === 'result') json = ev;
+      else if (ev.type === 'assistant') {
+        for (const c2 of (ev.message && Array.isArray(ev.message.content) ? ev.message.content : [])) {
+          if (c2 && c2.type === 'tool_use') {
+            const inp = c2.input || {};
+            events.push({ tool: c2.name, brief: String(inp.command || inp.file_path || inp.pattern || inp.path || inp.description || '').slice(0, 160) });
+          } else if (c2 && c2.type === 'text' && c2.text && c2.text.trim()) {
+            events.push({ text: c2.text.slice(0, 300) });
+          }
+        }
+      }
     }
   }
+  // 容错：非 stream 输出（旧 runner / 异形态）回退单对象解析
+  if (!json) {
+    const tryParse = (s) => { try { const v = JSON.parse(s); return v && typeof v === 'object' && ('result' in v || 'is_error' in v) ? v : null; } catch { return null; } };
+    json = tryParse(r.stdout || '');
+  }
   const timedOut = Boolean(r.error && r.error.code === 'ETIMEDOUT') || r.signal === 'SIGTERM';
-  return { raw: r, json, timedOut, spawnError: r.error && !timedOut ? r.error : null, allowedCsv };
+  return { raw: r, json, events, timedOut, spawnError: r.error && !timedOut ? r.error : null, allowedCsv };
 }
 
 /* ---------- 终态 checks（确定性算子，DSL 见 cases.json dslDoc） ---------- */
@@ -323,6 +358,8 @@ for (const c of cases) {
       claude: run.json
         ? { num_turns: cj.num_turns, duration_ms: cj.duration_ms, is_error: cj.is_error, subtype: cj.subtype, result: cj.result }
         : { stdoutHead: (run.raw.stdout || '').slice(0, 4000), stderrHead: (run.raw.stderr || '').slice(0, 2000) },
+      // 逐轮取证面：tool_use 序列 + 关键文本（stream-json 解析产物，失败为空数组不阻塞）
+      events: run.events || [],
     }, checkRows, tmp);
     if (status === 'FAIL' && BAIL) {
       console.log('\n--bail：首条 FAIL，停止后续用例');

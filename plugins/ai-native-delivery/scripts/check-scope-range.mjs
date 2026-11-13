@@ -19,6 +19,7 @@
 // 白名单与宽松匹配规则与 check-scope.mjs 单源（import 复用，不复制正则）。
 // 用法：node <插件根>/scripts/check-scope-range.mjs <oldSha> <newSha> [--strict] [--root <dir>]
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { extractDeclared, WHITELIST_RE, matches } from './check-scope.mjs';
@@ -114,8 +115,29 @@ if (!plansInRange.length) {
 const declared = [];
 for (const rel of plansInRange) {
   const abs = path.join(ROOT, rel);
-  if (!fs.existsSync(abs)) { console.error(`check-scope-range: plan 不可读: ${rel}`); process.exit(2); }
-  declared.push(...extractDeclared(abs, ROOT));
+  if (fs.existsSync(abs)) {
+    declared.push(...extractDeclared(abs, ROOT));
+    continue;
+  }
+  // 归档回退：closeout 会把 plan 移入 workflow/archive/** 并从 live 路径删除，推送范围恰含归档提交时
+  // live 路径与 HEAD 树都查不到（自举首推实证：关单推送被自己的门拦住）。注意最后触过该路径的提交
+  // 恰是 rename 提交（旧路径已删）——遍历触过该路径的提交取第一个 show 成功的，落临时文件复用
+  // extractDeclared 判据不另立。
+  const show = (treePath) => spawnSync('git', ['-C', ROOT, 'show', treePath], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  const log = spawnSync('git', ['-C', ROOT, 'log', '--format=%H', '--', rel], { encoding: 'utf8' });
+  const shas = (log.stdout || '').split(/\r?\n/).filter(Boolean);
+  let content = null;
+  for (const h of shas) {
+    const c = show(`${h}:${rel}`);
+    if (c.status === 0 && c.stdout) { content = c; break; }
+  }
+  if (!content) {
+    console.error(`check-scope-range: plan 不可读（live 与历史提交均未命中）: ${rel}`);
+    process.exit(2);
+  }
+  const snap = path.join(os.tmpdir(), `scope-range-plan-${Date.now()}-${path.basename(rel)}`);
+  fs.writeFileSync(snap, content.stdout, 'utf8');
+  try { declared.push(...extractDeclared(snap, ROOT)); } finally { fs.rmSync(snap, { force: true }); }
 }
 
 const outOfScope = changed.filter((f) => !WHITELIST_RE.test(norm(f)) && !declared.some((df) => matches(norm(f), df)));
