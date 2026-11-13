@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 5c867ae50ac2f303
+确认指纹: 0484c08fe27bae32
 ---
 # PLAN — scope-archive-whitelist——归档件白名单收口
 
@@ -35,7 +35,10 @@
 
 - 静态门：`node <插件根>/scripts/verify.mjs --scope` 绿（涉前端改动另附实测证据）
 - 检索：粘贴第 2 步 kb-search 输出（无命中贴命令与空结果即可，免另写说明）
-- 验收：
+- 验收：见「验收标准」节
+
+## 验收标准
+
 - [x] check-scope 套件 20/0（证据：S3b PASS + 合计 PASS 20 / FAIL 0）
 - [x] 归档件不再出现在推送越界清单（证据：git push 输出「双向对齐 ✅」）
 
