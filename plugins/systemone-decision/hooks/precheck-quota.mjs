@@ -76,6 +76,7 @@ function sessionKey(sessionId) {
 /**
  * mode 规范化：契约上「缺省 = on」（precheck 的 opts.mode 可缺省），
  * 缺省或非对象一律按 on 处理——on/off 是 no-op，不限流也不写盘。
+ * 兜底行为由 test/hook.smoke.mjs 8d 直连用例锁死（quotaAllows/bumpQuota 缺省与非对象入参）。
  */
 function modeOf(mode) {
   return mode && typeof mode === 'object' && typeof mode.mode === 'string' ? mode : { mode: 'on' };

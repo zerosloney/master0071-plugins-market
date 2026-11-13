@@ -55,9 +55,8 @@ export function readStdin() {
  *   （预检放行）
  * @param {object} [opts] - { budgetMs, now, killerMs }
  *   预算上限与取时函数（测试注入用，生产取默认值）；killerMs 同为测试注入（生产固定为预算值）。
- *   killPolicy = killer 触发（stdin 挂起/滴流吃满预算）时的自毁策略：
- *     'silent'（唯一策略）exit 0 无输出——UserPromptSubmit 通道故意 fail-open，输出
- *       permissionDecision 反而是协议违规；0.6.1 起风险闸整体下线，killer 回归纯 silent 自毁。
+ *   killer 触发（stdin 挂起/滴流吃满预算）即 silent 自毁（exit 0 无输出）——UserPromptSubmit
+ *   通道故意 fail-open，有输出反而是协议违规；0.6.1 起 emit-ask 策略随风险闸下线删除。
  * @returns {Promise<object|null>} handle 的返回值；handle 判定放行时为 null（fail-open）
  */
 export async function runHook(handle, opts = {}) {
@@ -85,9 +84,9 @@ export async function runHook(handle, opts = {}) {
     }
   }
   const left = budgetMs - (now() - startedAt) - 1_000;
-  // 预算耗尽**不能**直接放行：这里 return null 会让宿主收到空输出 = 静默放行，
-  // 而「stdin 到达过慢」恰恰是宿主管道背压/超大上下文的那一次，最需要闸门。
-  // 仍然走 handle，把 truncated 置 true，由风险闸既有的 fail-closed 分支转人工确认。
+  // 预算耗尽**不能**在这里直接吞掉：把 truncated 置 true 交给 handle——由调用方决定走向
+  // （当前唯一调用方 requirement-clarity 对 truncated 是 stderr 留痕后 fail-open 放行，
+  // 无转人工通道；与上方 JSDoc 的 truncated 语义同一口径）。
   if (left <= 0) return handle(input, NO_BUDGET_MS, true);
   return handle(input, left, stdin.truncated);
 }
