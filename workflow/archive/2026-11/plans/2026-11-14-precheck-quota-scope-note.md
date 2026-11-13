@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 4c92acf75d90044f
+确认指纹: b36f5aab0741b2f8
 ---
 # PLAN — precheck-quota-scope-note
 
