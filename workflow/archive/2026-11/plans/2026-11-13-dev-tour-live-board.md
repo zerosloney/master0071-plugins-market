@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: f79590d9e3a68669
+确认指纹: 77508e8b70d1ad20
 ---
 # PLAN — dev-tour-live-board——开发全景实时看板
 
