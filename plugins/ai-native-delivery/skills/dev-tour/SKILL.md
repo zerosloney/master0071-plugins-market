@@ -3,7 +3,7 @@ name: dev-tour
 description: 把 spec/plan 的步骤与改动文件生成可交互开发全景图静态快照（全景/时序/数据流/流程图 + 文件树 + 右侧变更说明），file:// 直接打开。用于 AI-Native 开发中「文档说明了但看不到改哪些文件」的断点。
 ---
 
-# dev-tour — 开发全景图（静态快照）
+# dev-tour — 开发全景图（静态快照 + 实时看板）
 
 ## 触发
 
@@ -54,6 +54,24 @@ node <插件根>/scripts/gen-dev-tour.mjs workflow/plans/<name>.md --strict
 - 每次生成会打印「解析命中：直认 X/Y 步 … · 路径猜测 Z 处」行——直认率 <100% 先看是不是标题失约，再决定是否接受兜底归集；命中行之后逐条打印「⚠ 第 N 行：<标题>：<原因>」，把失约定位到行（步骤无对齐文件块 / 文件块锚点未对齐任何步骤 / 依赖引用未解析 / 层兜底触发，对应模型 `parseHealth.issues` 的 `{line,title,kind}`；`pathGuess` 与 issues 一律 advisory，不参与 `--strict` 拒产）。页面顶部警告条消费同一份 issues：按 `kind` 归并成「文件块未对齐 / 步骤缺文件 / 依赖未解析」几类，组内再展开逐行；`step-no-files` 中标题含「验证步骤/单测/UI 实测/静态门」的条目单列为“验证步骤”，不计入待修。
 - 快照是单文件 HTML，浏览器 `file://` 直接打开即可联动（点站点/文件/步骤卡/时序消息同步左侧树与右侧说明；`←/→` 切步骤，`Esc` 清除；「跟着流程走」自动播放）。
 
+## 实时看板（board-server，0.3.3 起随插件分发）
+
+静态快照是「一次生成、静态打开」；实时看板是「本地服务 + 变更即刷新」——文档改动后页面自动重绘。
+
+```bash
+# 一键拉起（幂等：端口已在跑就复用；不开浏览器，只打印可点链接）
+node <插件根>/scripts/auto-tour.mjs --root <仓库根>
+
+# 或显式起服务（前台，日志可见）
+node <插件根>/scripts/board-server.mjs --port 8933 --root <仓库根>
+```
+
+- 链接：`http://127.0.0.1:<port>/tour?file=workflow/plans/<name>.md`（不带 file → 302 到最新 plan）
+- 接口：`/api/tour`（全景模型 JSON，**每次请求现场重建** → 恒最新）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落 `.agents/cache/tour-usage.jsonl`，本机数据不外发）、`/api/health`（就绪探针）
+- 端口口径（`scripts/board-port.mjs` 单源）：显式 `--port` > 项目侧 `.agents/config/engine.json` 的 `options.boardPort` > 基线 8933
+- 停服务：pid 落 `.agents/cache/board-server.pid`（删该文件即停服信号；进程本身用 Ctrl-C / kill 停止）
+- 安全面（刻意比源仓更窄）：只绑 127.0.0.1；Host 头只认 `127.0.0.1:<port>` / `localhost:<port>`；**不做任意静态文件服务**（除模板外不吐任何仓内文件）；文档白名单只认 `workflow/{plans,specs,intents}/**.md`（拒绝对路径、拒 `..`、拒 archive 与 `_` 前缀）；唯一写面是用量埋点（cache 目录已 gitignore）
+
 ## 视图
 
 - **全景图**：默认网格（每站一张大卡，按编号阅读）；右上「布局」可切横向时间线；「专注全景」隐藏左右栏，6 站通常两行看完。
@@ -78,7 +96,7 @@ node <插件根>/scripts/gen-dev-tour.mjs workflow/plans/<name>.md --strict
 - 文档是计划面，git 是实际面；两者冲突时图上会分栏显示（计划 / 文档外）。
 - 不替代 plan 的验收判据与 `check-scope.mjs`；它只是把同一份事实可视化，不新增真相源。
 - 生成物默认在 `<项目>/.agents/cache/tours/`，不提交；要留档用 `--out wiki/...` 或截图，不把 HTML 塞进 workflow/。
-- **实时版暂未随插件分发**：源仓的看板服务（`/tour` 实时视图、文档保存自动重绘）、`auto-tour` 自动拉起与用量遥测（`/api/tour/usage`）不在 v1 分发面内——本技能 v1 只产 file:// 静态快照；分发前不写依赖实时面的自动化，也不建轮询兜底。
+- **实时看板已随 0.3.0 分发**（见上节）：本地服务 + SSE 变更推送 + 用量埋点。仍**不写依赖实时面的自动化**（不建 CI/钩子依赖它）——实时看板是人看的观测面，不是执法面；执法判据仍以 check-loop/verify 为准。
 - 引擎脚本改动照常走 `check-scripts-syntax` 等门（插件形态经 check-loop 接线）；本技能不豁免任何门禁。
 
 ## 验收

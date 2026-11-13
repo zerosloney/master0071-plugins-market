@@ -272,13 +272,14 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 开发全景图（dev-tour，快照版）
 
-从 plan/spec/todo 文档与 git 实际面解析出 schema:2 全景模型（步骤×文件双向绑定、序列图、数据流、依赖弧、验证门、需求链路上游），注入单文件 HTML 模板生成静态快照——`file://` 双击即用，零外部请求、零依赖实时服务（实时版 board-server 暂未随插件分发）。
+从 plan/spec/todo 文档与 git 实际面解析出 schema:2 全景模型（步骤×文件双向绑定、序列图、数据流、依赖弧、验证门、需求链路上游），注入单文件 HTML 模板生成静态快照——`file://` 双击即用，零外部请求、零依赖。
 
 - 生成：`node <插件根>/scripts/gen-dev-tour.mjs workflow/plans/<name>.md`（`--root` 可显式；产物落使用项目 `.agents/cache/tours/`，已 gitignore）
 - 六视图：全景 / 序列 / 流程图（含依赖旁路弧）/ 数据流 / 需求链路 / 验证门禁
 - **每步文件门**：`--strict` 对缺文件条目的实现步骤拒产（exit 1）——已接 `commands/build.md` §3（实现前先过门）；解析命中计量（parseHealth 命中率/路径猜测徽标）随报告输出
 - 规模边界：≤60 步 / 300 diff 文件（超限降级为附录归集；压测工具 `test/fixtures/dev-tour/synthetic-plan.mjs --bench`）
 - 文档数据契约与适用场景见 `skills/dev-tour/SKILL.md`
+- **实时看板（0.3.3 新增）**：`node <插件根>/scripts/auto-tour.mjs --root <仓库根>` 一键拉起（幂等复用、不开浏览器、只打印可点链接）；`scripts/board-server.mjs` 提供 `/tour`（实时页面）、`/api/tour`（全景模型，**每次请求现场重建**）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落本机 `.agents/cache/`，不外发）。端口口径：显式 `--port` > `engine.json` 的 `options.boardPort` > 基线 8933。安全面刻意收窄：只绑 127.0.0.1、Host 头校验、**不做任意静态文件服务**、文档白名单仅 `workflow/{plans,specs,intents}/**.md`。
 
 ## 工程准入与验收
 
@@ -295,6 +296,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.3**
+
+dev-tour 实时看板（快照版之上新增，源仓实时面按插件口径重做）：`scripts/board-server.mjs` 本地只读服务——`/tour` 实时页面（模板注入 MODE=live）、`/api/tour`（全景模型**每次请求现场重建**，恒最新）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落本机 .agents/cache/ 不外发）、`/api/health`（就绪探针）；`scripts/ensure-board.mjs` 幂等拉起（端口已在跑就复用）+ `scripts/auto-tour.mjs` 一键链接（恒 exit 0，失败不阻断）+ `scripts/board-port.mjs` 端口单源（显式 --port > engine.json options.boardPort > 基线 8933）。安全面刻意比源仓收窄：只绑 127.0.0.1、Host 头校验、**不做任意静态文件服务**、文档白名单仅 workflow/{plans,specs,intents}/**、唯一写面是用量埋点。新增 4 套黑盒测试（board-server 13 / board-port 6 / ensure-board 5 / auto-tour 4，全绿）+ pid 文件（.agents/cache/board-server.pid）供停服与测试清理。
 
 **0.3.2**
 

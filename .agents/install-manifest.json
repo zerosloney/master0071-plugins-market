@@ -4,10 +4,10 @@
   "files": {
     ".agents/config/bands.json": "db1a16fe7557719c052a4e1b09d57fcb14b0b61d356080265a2890d06280faac",
     ".agents/config/commit-msg-rules.json": "eb186793d5def5f50bab38db6c1a50ca03e38710ee37876a0057ae7fab2bc8f6",
-    ".agents/config/engine.json": "5ab65776a6ba7d2592009f0495d777aa67547b522abf67be40697eaf10b9c25c",
+    ".agents/config/engine.json": "735c6a7ff9e293c6b6769674c3f33bb47a558d2dfe15dd930efdb3e61b90f75d",
     ".agents/config/gate-budgets.json": "463f237f0884db9838777de352d51f4dc11fedb6250d809f0c4c97e4144607a2",
     ".agents/config/lane-surfaces.txt": "895ed004b999e54087d09e64a104fe551808df77191381ad6d16b6cfbc339aab",
-    ".agents/config/mechanism-registry.md": "95eba6af1f02f417586e4d3473fda61fd5c2a3de81e64a59aedba77933d3af69",
+    ".agents/config/mechanism-registry.md": "706ffe084edc1939e7fae6e941ce799002852b58bc19a3ffa189e7b963f4e142",
     ".agents/config/model-roles.json": "8bdcb677a1053dc8167f4f1e3ec7ed1b0aedd96fbae12aa73eeeef38b0ac974f",
     ".agents/config/model-roles.local.example.json": "12522763bb5a0fe8ce1c09027e483537fd3d2f9baeea3dddfa28869631c7f02e",
     ".agents/config/pr-budget.json": "794db193875f6e3c4dad95b382e66dcfa4c7f3fbdb1dfc37cd20b8914205964a",
