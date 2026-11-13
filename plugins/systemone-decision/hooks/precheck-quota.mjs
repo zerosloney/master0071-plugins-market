@@ -74,13 +74,22 @@ function sessionKey(sessionId) {
 }
 
 /**
+ * mode 规范化：契约上「缺省 = on」（precheck 的 opts.mode 可缺省），
+ * 缺省或非对象一律按 on 处理——on/off 是 no-op，不限流也不写盘。
+ */
+function modeOf(mode) {
+  return mode && typeof mode === 'object' && typeof mode.mode === 'string' ? mode : { mode: 'on' };
+}
+
+/**
  * 该会话是否还允许做预检。仅 first 模式受限；任何读取失败都放行（fail-open）。
  * @returns {boolean}
  */
 export function quotaAllows(mode, sessionId) {
-  if (mode.mode !== 'first') return true;
+  const m = modeOf(mode);
+  if (m.mode !== 'first') return true;
   const entry = loadSessions(quotaFile())[sessionKey(sessionId)];
-  return !(entry && typeof entry === 'object' && typeof entry.count === 'number' && entry.count >= mode.n);
+  return !(entry && typeof entry === 'object' && typeof entry.count === 'number' && entry.count >= m.n);
 }
 
 /**
@@ -88,7 +97,8 @@ export function quotaAllows(mode, sessionId) {
  * 在确认将要发出判定请求的路径上调用（寒暄/短输入/缺 Key 的捷径不计入）。
  */
 export function bumpQuota(mode, sessionId) {
-  if (mode.mode !== 'first') return;
+  const m = modeOf(mode);
+  if (m.mode !== 'first') return;
   const file = quotaFile();
   const key = sessionKey(sessionId);
   const sessions = loadSessions(file);

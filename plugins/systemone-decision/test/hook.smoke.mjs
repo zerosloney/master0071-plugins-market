@@ -86,6 +86,17 @@ const SCENARIOS = {
     missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
     proceed: { type: 'noul', noul: 0.91 },
   },
+  // 门限边界场景（0.6.1 起 proceed 门限 0.35）：clarity 高 + proceed 卡在 0.35 两侧
+  clearAt034: {
+    clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 3, confidence: 0.95 },
+    missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
+    proceed: { type: 'noul', noul: 0.34 },
+  },
+  clearAt036: {
+    clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 3, confidence: 0.95 },
+    missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
+    proceed: { type: 'noul', noul: 0.36 },
+  },
   // 幻觉 missing：choice 值不在判据表（goal/scope/acceptance/constraint/none）内，
   // confidence 再高结论文案也不可信——按响应不完整 fail-open 静默跳过
   //（与 MCP 侧 isBorderlineAnswer 同口径）
@@ -193,6 +204,24 @@ const main = async () => {
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.equal(received.length, 1, '静默发生在判定之后');
+  });
+
+  // 门限边界（0.6.1 起 proceed 门限 0.35）：clarity 高（> clarityMax）时，proceed 落在 0.35 两侧
+  // 行为相反——0.34 仍要提醒，0.36 静默放行。两侧都锁死，防止门限被改回 0.6 或漂到别的值。
+  scenario = 'clearAt034';
+  received = [];
+  r = await run('帮我把这个项目优化一下，尽快弄好');
+  check('门限边界：clarity 高 + proceed 0.34（< 0.35）仍给出提醒', () => {
+    assert.equal(received.length, 1, '应发出判定请求');
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  scenario = 'clearAt036';
+  received = [];
+  r = await run('帮我把这个项目优化一下，尽快弄好');
+  check('门限边界：clarity 高 + proceed 0.36（≥ 0.35）静默放行（零噪音）', () => {
+    assert.equal(received.length, 1, '判定请求照发（结论不注入）');
+    assert.equal(String(r.stdout).trim(), '', '明确度够时不得注入任何上下文');
   });
 
   // 2b. missing 幻觉出判据表外的选项 → 结论文案不可信，按响应不完整 fail-open 静默跳过
