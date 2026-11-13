@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 4cf337e1f25c3eb1
+确认指纹: 1b88fc27f38a7026
 ---
 # PLAN — decl-shape-early-gate
 
