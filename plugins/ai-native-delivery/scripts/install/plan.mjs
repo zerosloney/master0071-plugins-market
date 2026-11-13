@@ -49,6 +49,9 @@ export const GITIGNORE_ENTRIES = [
   // confirmations.jsonl.lock 同属「进程被 kill 可短暂残留」的临时锁，不该污染 git status。
   '.agents/confirmations.d/*.lock',
   '.agents/confirmations.jsonl.lock',
+  // 无人闭环 runner 调用台账（2026-11-13 工单 D）：append-only 运行态（ts/band/tier/结果），
+  // 与 judgments/verifications 同类「本机机器事实不入库」；.agents/runs/ 整目录运行态。
+  '.agents/runs/',
 ];
 
 const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];
@@ -61,7 +64,9 @@ const WORKFLOW_DOCS = {
 };
 // 运行时目录单源（2026-11-12 写前门判据移植 export）：hooks/pre-write-guard.mjs 的「执法面自保护
 // 可写例外」复用同一份名单——init-engine 落什么运行时目录，写前门就放什么目录，两处永不漂移。
-export const RUNTIME_DIRS = ['cache', 'loop', 'notes', 'board', 'tmp'];
+// 2026-11-13 增 runs/：无人闭环 runner 的调用台账位（.agents/runs/loop-runner.jsonl，append-only
+// 运行态；gitignore 本机不入库）——init-engine 落目录 + 写前门放行同走本名单。
+export const RUNTIME_DIRS = ['cache', 'loop', 'notes', 'board', 'runs', 'tmp'];
 
 function walkFiles(dir, base = dir) {
   const out = [];

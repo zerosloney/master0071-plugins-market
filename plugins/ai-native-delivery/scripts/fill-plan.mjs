@@ -40,7 +40,7 @@ const L1_ACCEPTANCE = {
 };
 const L1_SECTIONS = [
   L1_ENTRY,
-  { title: '改动方案', hint: '- <文件/组件>：<做什么；判据细节直接写进条目，如「L771 message.success 改『更新成功』」>\n\n> build.md §2 确认的改动清单确认后回填本节落盘（对话留痕仅供当次）——改动面 + 任务勾选态 + git status = 会话重入三锚（session-context）。' },
+  { title: '改动方案', hint: '- <文件/组件>：<做什么；判据细节直接写进条目，如「L771 message.success 改『更新成功』」>\n\n> L2/L3：本节作总清单；任务拆解每步再写「- 文件：…」与判据，否则全景图只能把文件归到附录。\n> build.md §2 确认的改动清单确认后回填本节落盘（对话留痕仅供当次）——改动面 + 任务勾选态 + git status = 会话重入三锚（session-context）。' },
   { title: '约束与风险', hint: '- 约束：<对照 AGENTS.md 红线，说明如何满足；不许动什么>\n- 风险：<潜在影响 / 破坏性风险>' },
   { title: '验证计划', hint: '- 静态门：项目构建命令（+ 项目测试命令，测试项目就绪后）\n- 前端：cd frontend && npm run build（vue-tsc）\n- UI：.agents/commands/test.md（涉及页面改动必走，headless Chrome 实测）\n- L2 追加：<契约 / 规则面比对：编码结果抽样 / 接口契约断言 / 口径对账>\n- L3 追加：<含 schema 变更：备份 + 回滚 SQL 就绪后执行；仅运行时 / 管线：回退上一 release tag + 配置开关预案>' },
   L1_ACCEPTANCE,
@@ -59,7 +59,7 @@ const L1_LITE_SECTIONS = [
 
 const FULL_SECTIONS = [
   L1_SECTIONS[1],
-  { title: '任务拆解（L2/L3 必填；L1 仅多文件多步骤时用，单任务微改动删本节）', hint: '- [ ] 1. <任务>\n   - 判据：<怎样算完成；尽量对应一个测试或可复现操作>\n   - 风险：低 / 中 / 高（<原因>）\n   - 留痕：（勾选时回填 commit SHA / 测试名 / 实测输出）\n- [ ] 2. <任务>\n   - 判据：…\n   - 风险：…\n   - 留痕：…\n\n> 任务即勾选态（session-context）：完成一项立刻勾选并回填留痕；压缩 / 新会话续作先读本表勾选态 + git status 重建进度，禁凭记忆补勾。' },
+  { title: '任务拆解（L2/L3 必填；L1 仅多文件多步骤时用，单任务微改动删本节）', hint: '- [ ] 1. <任务>\n   - 文件：<本步会改的文件路径；每步至少一个；纯验证步骤写「验证步骤：无代码文件」>\n   - 判据：<怎样算完成；尽量对应一个测试或可复现操作>\n   - 风险：低 / 中 / 高（<原因>）\n   - 留痕：（勾选时回填 commit SHA / 测试名 / 实测输出）\n- [ ] 2. <任务>\n   - 文件：…\n   - 判据：…\n   - 风险：…\n   - 留痕：…\n\n> 每步「文件」是开发全景图 步骤×文件 对齐的单源；实现步骤缺文件条目会被 `gen-dev-tour --strict` 拒绝，纯验证步骤请在标题写明「验证步骤」。\n> 任务即勾选态（session-context）：完成一项立刻勾选并回填留痕；压缩 / 新会话续作先读本表勾选态 + git status 重建进度，禁凭记忆补勾。' },
   { title: '执行顺序（L2/L3 必填；L1 单文件微改动删本节）', hint: '<1 → 2 → 3；标注依赖关系>' },
   L1_SECTIONS[3],
 ];
@@ -81,7 +81,7 @@ export function renderPlan({ topic, level = 'L1', date = TODAY, lite = false }) 
   for (const { title, hint } of sections) {
     body += '## ' + title + '\n\n' + hint + '\n\n';
   }
-  body += '## 确认与复核\n\n> 确认 = 用户在对话内一句话通过；确认后本 plan 状态 draft → approved 并回填本节（确认环节的机器可见态），done 只在关单出现——禁从 draft 直跳 done（papercut）。\n- 确认结果：approved（YYYY-MM-DD 用户对话内确认）；done（YYYY-MM-DD 关单，随入口文档置终态）\n- 确认门记录：plan 草稿全文过目 + 改动清单确认（build.md 两道门，逐次，不合并）\n- 复核：L1 不要求独立复核\n';
+  body += '## 确认与复核\n\n> 确认 = 用户在对话内一句话通过；确认后本 plan 状态 draft → approved 并回填本节（确认环节的机器可见态），done 只在关单出现——禁从 draft 直跳 done（papercut）。\n- 确认结果：approved（YYYY-MM-DD 用户对话内确认）；done（YYYY-MM-DD 关单，随入口文档置终态）\n- 确认门记录：plan 草稿全文过目 + 改动清单确认（build.md 两道门，逐次，不合并）\n- 复核：L1 不要求独立复核\n\n> 开发全景：`node <插件根>/scripts/gen-dev-tour.mjs <本文件>`。步骤取「任务拆解/步骤」，文件取任务每步「- 文件：…」或「改动方案」，git 工作树补实际改动（口径 <插件根>/skills/dev-tour/SKILL.md；实时看板暂未随插件分发）。\n';
   return { frontmatter: fm, body: fm + body, sections: sections.map((s) => s.title) };
 }
 

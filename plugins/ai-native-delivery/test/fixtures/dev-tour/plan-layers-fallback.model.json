@@ -1,0 +1,207 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-layers-fallback.md",
+    "type": "DOC",
+    "title": "解析失败样例：零散主题调整",
+    "status": "起草中",
+    "level": "L1",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 3,
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 3,
+    "tests": 1,
+    "additions": 0,
+    "deletions": 0,
+    "docs": 0,
+    "steps": 3
+  },
+  "parseHealth": {
+    "total": 3,
+    "direct": 0,
+    "bySource": {
+      "layers": 3
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": true,
+    "hitRate": 0,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": [
+      {
+        "line": 1,
+        "title": "未发现结构化步骤标题（## 步骤 / ## 任务拆解 / ### 批次 N）",
+        "kind": "layers-fallback"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "S1",
+      "index": 1,
+      "title": "前端",
+      "summary": "1 个文件",
+      "detail": [],
+      "files": [
+        "frontend/src/styles/catalog/theme.scss"
+      ],
+      "status": "todo",
+      "source": "layers"
+    },
+    {
+      "id": "S2",
+      "index": 2,
+      "title": "应用层",
+      "summary": "1 个文件",
+      "detail": [],
+      "files": [
+        "backend/Catalog/ThemeOptions.cs"
+      ],
+      "status": "todo",
+      "source": "layers"
+    },
+    {
+      "id": "S3",
+      "index": 3,
+      "title": "测试",
+      "summary": "1 个文件",
+      "detail": [],
+      "files": [
+        "tests/Catalog/ThemeTests.cs"
+      ],
+      "status": "todo",
+      "source": "layers"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/ThemeOptions.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/styles/catalog/theme.scss",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "tests/Catalog/ThemeTests.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": true,
+      "layer": "test",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "test",
+        "label": "测试"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "S1",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "前端",
+        "self": true
+      },
+      {
+        "stepId": "S2",
+        "from": "app",
+        "to": "app",
+        "label": "应用层",
+        "self": true
+      },
+      {
+        "stepId": "S3",
+        "from": "test",
+        "to": "test",
+        "label": "测试",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}

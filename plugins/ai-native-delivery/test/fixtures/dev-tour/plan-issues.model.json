@@ -1,0 +1,225 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-issues.md",
+    "type": "DOC",
+    "title": "解析失约样例：部件标签微调",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 3,
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 3,
+    "tests": 0,
+    "additions": 0,
+    "deletions": 0,
+    "docs": 0,
+    "steps": 3
+  },
+  "parseHealth": {
+    "total": 3,
+    "direct": 2,
+    "bySource": {
+      "tasks": 2,
+      "blocks": 1
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 0.6666666666666666,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": [
+      {
+        "line": 14,
+        "title": "- 依赖：9（未排批次）",
+        "kind": "dep-unresolved"
+      },
+      {
+        "line": 23,
+        "title": "T9：幽灵批次",
+        "kind": "block-unmatched"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "T1",
+      "index": 1,
+      "title": "标签服务调整：文案字段",
+      "summary": "编译通过",
+      "detail": [
+        "- 依赖：9（未排批次）",
+        "`backend/Catalog/LabelService.cs`：字段调整"
+      ],
+      "files": [
+        "backend/Catalog/LabelService.cs"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "T2",
+      "index": 2,
+      "title": "标签页面：字段展示",
+      "summary": "",
+      "detail": [
+        "`frontend/src/views/catalog/label.vue`：字段展示"
+      ],
+      "files": [
+        "frontend/src/views/catalog/label.vue"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "A",
+      "index": 3,
+      "title": "改动面（未分步）",
+      "summary": "任务拆解未覆盖的文件清单，按文档原样归集",
+      "detail": [
+        "`backend/Catalog/GhostBatch.cs`：未对齐锚点"
+      ],
+      "files": [
+        "backend/Catalog/GhostBatch.cs"
+      ],
+      "status": "todo",
+      "source": "blocks"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/GhostBatch.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "A"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/LabelService.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/views/catalog/label.vue",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "db",
+        "label": "数据库"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "T1",
+        "from": "app",
+        "to": "app",
+        "label": "标签服务调整：文案字段",
+        "self": true
+      },
+      {
+        "stepId": "T2",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "标签页面：字段展示",
+        "self": true
+      },
+      {
+        "stepId": "A",
+        "from": "app",
+        "to": "app",
+        "label": "改动面（未分步）",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "task-rows",
+    "unresolved": 1,
+    "unresolvedItems": [
+      {
+        "line": 14,
+        "title": "- 依赖：9（未排批次）"
+      }
+    ]
+  },
+  "gates": [],
+  "note": ""
+}

@@ -48,7 +48,7 @@ export function renderSpec({ topic, level = 'L2', date = TODAY }) {
     // 表头签名固定，作者只填行——占位行被对应门拦收。
     if (table) body += `| ${table.join(' | ')} |\n|${table.map(() => '---').join('|')}|\n| ${ph.join(' | ')} |\n\n`;
   }
-  body += `## 确认与复核\n\n- 确认日期：\n- 复核：L3 必须独立复核（independent-reviewer，新会话）；L2 推荐独立复核；L1 可省\n`;
+  body += `## 确认与复核\n\n- 确认日期：\n- 复核：L3 必须独立复核（independent-reviewer，新会话）；L2 推荐独立复核；L1 可省\n\n> 开发全景：\`node <插件根>/scripts/gen-dev-tour.mjs <本文件>\`。步骤取「系统改动」的模块/文件分组，git 工作树补实际改动（口径 <插件根>/skills/dev-tour/SKILL.md；实时看板暂未随插件分发）。\n`;
   return { frontmatter: fm, body: fm + body, sections: SECTIONS.map((s) => s.title) };
 }
 

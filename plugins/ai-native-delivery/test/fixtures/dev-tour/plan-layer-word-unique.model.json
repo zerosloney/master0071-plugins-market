@@ -1,0 +1,266 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-layer-word-unique.md",
+    "type": "DOC",
+    "title": "层词臂样例：录入单列微调",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 5,
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 5,
+    "tests": 0,
+    "additions": 0,
+    "deletions": 0,
+    "docs": 0,
+    "steps": 4
+  },
+  "parseHealth": {
+    "total": 4,
+    "direct": 3,
+    "bySource": {
+      "tasks": 3,
+      "fallback": 1
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 0.75,
+    "pathGuesses": {
+      "total": 1,
+      "items": [
+        {
+          "path": "backend/Catalog/OrphanAlign.sql",
+          "step": "T3",
+          "candidates": 1
+        }
+      ]
+    },
+    "issues": []
+  },
+  "steps": [
+    {
+      "id": "T1",
+      "index": 1,
+      "title": "列表新列：前端列表加来源列",
+      "summary": "前端构建通过",
+      "detail": [
+        "`frontend/src/views/catalog/entry-list.vue`：新列"
+      ],
+      "files": [
+        "frontend/src/views/catalog/entry-list.vue"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "T2",
+      "index": 2,
+      "title": "抽屉对齐：前端抽屉字段顺序调整",
+      "summary": "前端构建通过",
+      "detail": [
+        "`frontend/src/views/catalog/entry-drawer.vue`：字段顺序"
+      ],
+      "files": [
+        "frontend/src/views/catalog/entry-drawer.vue"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "T3",
+      "index": 3,
+      "title": "备注列落地：数据库补备注列",
+      "summary": "数据库脚本幂等",
+      "detail": [
+        "`backend/Catalog/EntryAlign.sql`：对齐脚本"
+      ],
+      "files": [
+        "backend/Catalog/EntryAlign.sql",
+        "backend/Catalog/OrphanAlign.sql"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "U",
+      "index": 4,
+      "title": "未分步文件",
+      "summary": "文档提到了，但无法归入具体步骤",
+      "detail": [],
+      "files": [
+        "frontend/src/views/catalog/orphan-page.vue"
+      ],
+      "status": "todo",
+      "source": "fallback"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/EntryAlign.sql",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "db",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/OrphanAlign.sql",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "db",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": true
+    },
+    {
+      "path": "frontend/src/views/catalog/entry-drawer.vue",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/views/catalog/entry-list.vue",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/views/catalog/orphan-page.vue",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "U"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "db",
+        "label": "数据库"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "T1",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "列表新列：前端列表加来源列",
+        "self": true
+      },
+      {
+        "stepId": "T2",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "抽屉对齐：前端抽屉字段顺序调整",
+        "self": true
+      },
+      {
+        "stepId": "T3",
+        "from": "db",
+        "to": "db",
+        "label": "备注列落地：数据库补备注列",
+        "self": true
+      },
+      {
+        "stepId": "U",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "未分步文件",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}

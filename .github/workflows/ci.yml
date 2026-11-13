@@ -171,6 +171,7 @@ jobs:
           node test/gen-host-manifests.test.mjs
           node test/doctor.test.mjs
           node test/mcp-tools.test.mjs
+          node test/dev-tour-model.test.mjs
           # INDEX 注入纪律 advisory（步骤 F，read_context 输出容量纪律）
           node test/read-context.test.mjs
           node skills/session-resume/scripts/worktree-audit.test.mjs

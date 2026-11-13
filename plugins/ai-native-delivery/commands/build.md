@@ -46,11 +46,12 @@ L1 不在本文件起草 plan。「开始写吧」「动手吧」「起个 plan�
 **Input**: `workflow/plans/{name}.md` (Approved，含落盘的改动面与任务清单)
 **Process**:
 1. **会话重入**（压缩 / 新会话 / 交接续作必走）: 读 plan 任务清单勾选态 + `git status` / `git diff` 现场比对 $\rightarrow$ 重建进度再继续。勾选态与工作树不符（勾了未提交 / 提交了未勾）$\rightarrow$ 先对齐再写新代码；改动清单只在对话里时，以 plan 改动面 + 工作树为准并回填 plan
-2. **推进实现**: 按依赖执行任务——**frontier = 任务拆解中「依赖」行无未决阻塞的任务**，可并行派发（多 worktree 各自分支 / 委派「新开+合并范围」），纯顺序链即自上而下；**每完成一项立刻回填任务清单勾选与留痕**（commit SHA / 测试名 / 实测输出），并解锁依赖它的下游任务。满足 `agents/implementer.md` 边界时可委派 `implementer`（模型取 `model-roles.json`，本地覆盖优先，皆空 = 宿主默认）
-3. **架构约束**: 严禁自创旁路数据访问，必须遵循根/目录级 `AGENTS.md` 红线
-4. **L3 专项**: Schema 变更必须走项目约定维护方式，禁擅自引入迁移机制
-5. **变更管控**: 若需偏离 plan (改公共接口 / 动未列文件 / 引新依赖) $\rightarrow$ **HALT** $\rightarrow$ 确认后继续
-6. **自验闭环**: 运行 [项目构建 / 类型检查 / 自动化测试] (详见 `test.md` §1)；范围对账 `node <插件根>/scripts/check-scope.mjs workflow/plans/{name}.md`——越界件即收口（回填 plan 或回滚），`--strict` 供门禁化调用
+2. **每步文件门**: 实现前 `node <插件根>/scripts/gen-dev-tour.mjs workflow/plans/{name}.md --strict` 过每步文件门——exit 0（打印 `解析命中：直认 N/N 步`）才动代码；exit 1（层兜底 / 无步骤 / 实现步骤无文件条目）按 stderr 文案回 plan 补「- 文件：路径」或在标题标「验证步骤」后重跑；advisory 行（依赖未解析 / 锚点失约 / 路径猜测）按行号回 plan 修。数据契约与口径见 `skills/dev-tour/SKILL.md`
+3. **推进实现**: 按依赖执行任务——**frontier = 任务拆解中「依赖」行无未决阻塞的任务**，可并行派发（多 worktree 各自分支 / 委派「新开+合并范围」），纯顺序链即自上而下；**每完成一项立刻回填任务清单勾选与留痕**（commit SHA / 测试名 / 实测输出），并解锁依赖它的下游任务。满足 `agents/implementer.md` 边界时可委派 `implementer`（模型取 `model-roles.json`，本地覆盖优先，皆空 = 宿主默认）
+4. **架构约束**: 严禁自创旁路数据访问，必须遵循根/目录级 `AGENTS.md` 红线
+5. **L3 专项**: Schema 变更必须走项目约定维护方式，禁擅自引入迁移机制
+6. **变更管控**: 若需偏离 plan (改公共接口 / 动未列文件 / 引新依赖) $\rightarrow$ **HALT** $\rightarrow$ 确认后继续
+7. **自验闭环**: 运行 [项目构建 / 类型检查 / 自动化测试] (详见 `test.md` §1)；范围对账 `node <插件根>/scripts/check-scope.mjs workflow/plans/{name}.md`——越界件即收口（回填 plan 或回滚），`--strict` 供门禁化调用
 **Output**: 实现的代码变更 + 自验通过证据
 
 ## 4. 确认后收尾

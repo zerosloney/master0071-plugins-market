@@ -136,7 +136,7 @@ const snapDiff = (a, b) => {
   const body = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   check('块内旧条目被替换', !body.includes('.agents/old-stale-entry/'), body);
   check('块外内容原样保留', body.includes('node_modules/') && body.includes('dist/') && body.includes('keep-me-custom.txt'), body);
-  check('块内含七条本机不入库项', ['.agents/cache/', '.agents/judgments.jsonl', '.agents/verifications.jsonl', '.agents/tmp/', '.agents/config/model-roles.local.json', '.agents/notes/runtime-env.local.md', 'workflow/**/*.lock'].every((e) => body.includes(e)), body);
+  check('块内含本机不入库项（七条既有 + runs 台账运行态）', ['.agents/cache/', '.agents/judgments.jsonl', '.agents/verifications.jsonl', '.agents/tmp/', '.agents/config/model-roles.local.json', '.agents/notes/runtime-env.local.md', 'workflow/**/*.lock', '.agents/runs/'].every((e) => body.includes(e)), body);
 
   const snap1 = snapshot(root);
   const r2 = initEngine(root);

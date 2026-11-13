@@ -1,0 +1,362 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-task-checkboxes.md",
+    "type": "DOC",
+    "title": "任务拆解样例：工单字段微调",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "让工单新增备注字段且不改历史行。",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 7,
+    "new": 1,
+    "modified": 2,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 4,
+    "tests": 0,
+    "additions": 64,
+    "deletions": 6,
+    "docs": 0,
+    "steps": 5
+  },
+  "parseHealth": {
+    "total": 4,
+    "direct": 3,
+    "bySource": {
+      "tasks": 3,
+      "fallback": 1
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 0.75,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": [
+      {
+        "line": 26,
+        "title": "- 依赖：4（联调批次）",
+        "kind": "dep-unresolved"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "T1",
+      "index": 1,
+      "title": "建立工单模型：新增实体与 DTO",
+      "summary": "字段齐全并通过编译",
+      "detail": [
+        "- 留痕：实体迁移脚本执行记录",
+        "`backend/Catalog/WorkorderItem.cs`：工单明细实体",
+        "`backend/Catalog/WorkorderItemDto.cs`：传输对象"
+      ],
+      "files": [
+        "backend/Catalog/WorkorderItem.cs",
+        "backend/Catalog/WorkorderItemDto.cs"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "T2",
+      "index": 2,
+      "title": "工单服务编排：实现保存逻辑",
+      "summary": "单测覆盖保存主分支",
+      "detail": [
+        "- 依赖：T1",
+        "`backend/Catalog/WorkorderService.cs`：保存编排"
+      ],
+      "files": [
+        "backend/Catalog/WorkorderService.cs"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "T3",
+      "index": 3,
+      "title": "页面接入：前端表单与提交",
+      "summary": "页面提交工单成功",
+      "detail": [
+        "- 依赖：T1、T2",
+        "- 依赖：4（联调批次）",
+        "`frontend/src/views/catalog/workorder-edit.vue`：表单提交",
+        "`frontend/src/api/catalog/workorder.ts`：接口封装"
+      ],
+      "files": [
+        "frontend/src/views/catalog/workorder-edit.vue",
+        "frontend/src/api/catalog/workorder.ts"
+      ],
+      "status": "done",
+      "source": "tasks"
+    },
+    {
+      "id": "X",
+      "index": 4,
+      "title": "文档外实际改动",
+      "summary": "git 工作树里有、plan 改动面未登记——优先核对 scope",
+      "detail": [
+        "这些文件不在文档改动清单内，可能是范围漂移，也可能是文档该回填。"
+      ],
+      "files": [
+        "scripts/zz-catalog/rogue-sync.ps1"
+      ],
+      "status": "warn",
+      "source": "git"
+    },
+    {
+      "id": "U",
+      "index": 5,
+      "title": "未分步文件",
+      "summary": "文档提到了，但无法归入具体步骤",
+      "detail": [],
+      "files": [
+        "backend/Catalog/UntouchedService.cs"
+      ],
+      "status": "todo",
+      "source": "fallback"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/UntouchedService.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "U"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/WorkorderItem.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/WorkorderItemDto.cs",
+      "status": "new",
+      "badge": "新增",
+      "additions": 38,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/WorkorderService.cs",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 21,
+      "deletions": 4,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/api/catalog/workorder.ts",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/views/catalog/workorder-edit.vue",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "scripts/zz-catalog/rogue-sync.ps1",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 5,
+      "deletions": 2,
+      "binary": false,
+      "test": false,
+      "layer": "other",
+      "planned": false,
+      "actual": true,
+      "steps": [
+        "X"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "domain",
+        "label": "领域层"
+      },
+      {
+        "id": "db",
+        "label": "数据库"
+      },
+      {
+        "id": "test",
+        "label": "测试"
+      },
+      {
+        "id": "other",
+        "label": "其他"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "T1",
+        "from": "app",
+        "to": "app",
+        "label": "建立工单模型：新增实体与 DTO",
+        "self": true
+      },
+      {
+        "stepId": "T2",
+        "from": "app",
+        "to": "app",
+        "label": "工单服务编排：实现保存逻辑",
+        "self": true
+      },
+      {
+        "stepId": "T3",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "页面接入：前端表单与提交",
+        "self": true
+      },
+      {
+        "stepId": "X",
+        "from": "app",
+        "to": "app",
+        "label": "文档外实际改动",
+        "self": true
+      },
+      {
+        "stepId": "U",
+        "from": "app",
+        "to": "app",
+        "label": "未分步文件",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [
+      {
+        "from": "T1",
+        "to": "T2"
+      },
+      {
+        "from": "T2",
+        "to": "T3"
+      }
+    ],
+    "source": "task-rows",
+    "unresolved": 1,
+    "unresolvedItems": [
+      {
+        "line": 26,
+        "title": "- 依赖：4（联调批次）"
+      }
+    ]
+  },
+  "gates": [
+    "手工：页面提交一条带备注的工单"
+  ],
+  "note": ""
+}

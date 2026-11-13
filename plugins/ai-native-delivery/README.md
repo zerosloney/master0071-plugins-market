@@ -39,7 +39,7 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 
 - **模板位置**：`config-templates/ci/`（`github-actions-verify.yml.template` + 目录内 README）。参考件而非运行配置——`install/plan.mjs` 的种子排除清单把 `ci/` 挡在 `.agents/config/` 之外（先例同 githooks/、pipelines/），init-engine 不播种、安装台账不追平；
 - **三步接入**：① 模板复制到使用项目 `.github/workflows/`；② 按 workflow 内【改这里】注释改三处——`env.PLUGIN_ROOT`（插件根解析：市场仓随检出 / 宿主常驻安装路径 / vendor 进仓，三方案任选）、action pin（建议按 commit SHA 固定）、市场仓检出步；③ 首跑全绿后再决定是否解注释可选诊断步；
-- **授权边界**：无模型步（check-loop `--all` + verify `--full`）零凭据零模型调用，任何项目可直接接；可选诊断步（`claude -p "…"` 无交互模型调用）属**项目自治**——插件不默认接线，密钥经 CI secrets 注入（模板与插件都不携带密钥样例值），提示词按「只读诊断、不改文件」约束，结论仍走人工 / PR 处置；
+- **授权边界**：无模型步（check-loop `--all` + verify `--full`）零凭据零模型调用，任何项目可直接接；可选诊断步（`claude -p "…"` 无交互模型调用）属**项目自治**——插件不默认接线，密钥经 CI secrets 注入（模板与插件都不携带密钥样例值），提示词按「只读诊断、不改文件」约束，结论仍走人工 / PR 处置；opt-in 模型面统一经 `scripts/model-call.mjs` 单源（无交互调用适配器，`--probe` 连通自检），门禁 / CI / init 零模型不变；
 - **为何不默认接线**：init-engine 只落使用项目运行时，插件无法预知项目用哪个 CI、插件在 runner 上以什么形态在场（托管 runner 上没有宿主安装缓存）；模型诊断步涉及凭据与授权，不能替项目决定。
 
 ## 项目侧安全适配（宿主能力边界，纯指引）
@@ -150,7 +150,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 命令 / 角色 / skills 清单
 
-命令（`commands/`，8 个）、角色（`agents/`，4 个）、技能（`skills/`，7 个）按各宿主约定目录加载（见「宿主与 hook 降级」），不支持对应约定的宿主跳过加载即可，MCP 工具不受影响。
+命令（`commands/`，8 个）、角色（`agents/`，4 个）、技能（`skills/`，8 个）按各宿主约定目录加载（见「宿主与 hook 降级」），不支持对应约定的宿主跳过加载即可，MCP 工具不受影响。
 
 ### 命令（8 个）
 
@@ -174,7 +174,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 | `ui-verifier` | UI 实测者：只验证不修复的浏览器实测，DOM 几何取证，证据交还主智能体 |
 | `wiki-compiler` | 知识编纂者：把代码提交翻译成业务能力语言，只读分析、严格 JSON 产出、不落盘 |
 
-### skills（7 个）
+### skills（8 个）
 
 | 技能 | 一句话用途 |
 | --- | --- |
@@ -184,6 +184,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 | `review-method` | 代码复核走查方法（Standards×Spec 双轴 + 坏味道清单 + 合入标尺），`commands/review.md` 的方法层单源 |
 | `session-resume` | 会话重入与中断落盘：接手/切换 worktree/压缩续作前先用机器事实重建当前态 |
 | `verify-ui` | 启动本地服务并用浏览器实测 UI 改动（只读验证、不留脏数据） |
+| `dev-tour` | 开发全景图快照：从 plan/spec 解析六视图模型，`--strict` 每步文件门 |
 | `workflow-closeout` | 关单序列：verify --scope、验收勾验、confirm-doc、索引与确认分片提交 |
 
 ## hooks
@@ -241,15 +242,23 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **§v16 两门**（policy v16 生效锚后，存量项目不追溯）：① spec 前提质询门——spec draft→approved 必经 premiseGate，关键前提须有质询记录（小件可写「无关键前提」行 + 理由）；② 检查 29 回归清单执法者配对——防复发清单锚后新行的「执法者」列须指认「复发时谁会红」（hard，显式 `[prompt-only]` 为合法声明）。
 - **通用关单**：`scripts/closeout.mjs` 把 workflow-closeout §1–§5 固定序列收成 L0–L3 单命令（confirm-doc 落终态 → 索引重生成 → 定向 git add → 暂存区核对防夹带 → git commit，禁 `--no-verify`），取代 closeout-l1（单入口不并存）。
 - **兜底与自愈**：`check-secrets-lite.mjs` 在 gitleaks 三级定位（GITLEAKS_BIN / PATH / `.agents/tools`）全空时自动接续密钥扫描（纯 Node 零二进制零网络；强特征全文件执法且基线豁免不适用，宽泛特征只扫基线外文件）；verify 生成物漂移门（生效规则视图 / 引擎地图 / 工作流索引）首检漂移先原地重生成再复检，复检绿计通过并留自愈行（♻️ 可审计）；`check-doc-body-drift.mjs` 对已关单文档正文漂移在提交时刻打 advisory（执法面仍是关单时确认指纹对账，口径零变化）；`check-hook-wiring.mjs` 对账「接线宣称 ↔ 宿主实态」（hooks.json / 三宿主垫片 / MCP 入口），漂移红即挡推送。
-- **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。校错面：`dream-verify.mjs` 对知识文档（principles、regression-checklist 主档+分片、specs/plans 终态存档件）做引用完整性对拍——只标硬漂移（引用了不存在的东西），语义真伪不判；`node <插件根>/scripts/dream-verify.mjs --root <仓库根>`，报告落 `.agents/tmp/dream-verify-<日期>.md`，dream-run 报告 D 段引用其结果。
+- **Dreaming 持续运行链路**：kb-search 命中遥测（`.agents/cache/kb-usage.jsonl`，gitignore 运行态）→ `agg-kb-usage.mjs` 聚合冷数据候选（访问/命中 + 内容更新双维置信度衰减，年轻遥测不造假候选）→ `dream-run.mjs` 产只读审计报告（落 `.agents/tmp/`）；post-commit 钩子距上次审计 ≥7 天提醒一行，`skills/dream` 供主动触发。全链 advisory：不移动 / 不改写 / 不删除任何文档，裁决归主智能体与用户。校错面：`dream-verify.mjs` 对知识文档（principles、regression-checklist 主档+分片、specs/plans 终态存档件）做引用完整性对拍——只标硬漂移（引用了不存在的东西），语义真伪默认不判；`node <插件根>/scripts/dream-verify.mjs --root <仓库根>`，报告落 `.agents/tmp/dream-verify-<日期>.md`，dream-run 报告 D 段引用其结果。语义复评档（opt-in，默认关）：`--model` 对扫描闭集里含路径/指纹引用的规则断言行（含已判硬漂移的存疑行）做模型语义对拍，三态裁决（仍成立=引用虽断但结论仍有据 / 存疑=需人工核 / 失效=结论已无支撑）进报告 E 段；模型调用经 `scripts/model-call.mjs` 单源（`--runner` / `MODEL_CALL_RUNNER` 可换 claude 兼容 runner），advisory 语义不变——退出码恒 0，不因模型升级改变存疑注记判定面。**成本口径**：仅显式 `--model` 时产生模型调用，逐条独立调用（不合并上下文防串扰）、一轮最多送评 20 条（超出截断并在 E 段注明）、单条失败不阻塞其余、模型缺席/全部失败 E 段出「语义复评不可用」一行；无任何调用进门禁 / CI / init 默认路径。
 
-## 确定性带监测（check-bands，advisory）
+## 确定性带监测与无人闭环（check-bands / loop-runner）
 
-无人触发闭环的确定性控制带监测：无人在场时由定时面发现指标越带并给出建议指令，**只出账不执行**——自治执行属 owner 另行授权的 runner 面（与「不自动唤起 agent」红线同源）。
+无人触发闭环的确定性控制带监测：无人在场时由定时面发现指标越带并给出建议指令，**只出账不执行**；自治的下一步（只读诊断 → intent 草案）属 owner 另行授权的 runner 面（`scripts/loop-runner.mjs`，种子缺省 = 无授权）。
 
 - **种子**：`config-templates/bands.json`（init-engine 播种进 `.agents/config/bands.json`），字段 `metric / baseline / rules / tiers` 四段；tier 动作枚举 `log / diagnose（只读工具白名单）/ propose（仅经 PR）`，档位随配置版本化；
 - **用法**：`node <插件根>/scripts/check-bands.mjs --root <仓库根>`——纯确定性读指标源（首版两内置源：`verifications.jsonl` 绿行、`gen-workflow-metrics` 输出），判定越带并按档输出**建议指令行**，绝不自动执行；外部指标源留 `--metric-source` 扩展位；
 - **与 CI 的搭配**：`config-templates/ci/` 的 workflow 模板附注释形态的 `schedule` 定时旁路样例——cron 定时跑 check-bands 出报告，处置走人工 / PR；不要把建议指令行直接接成自动执行步。定时巡检可套用 ci/ 模板：`config-templates/ci/github-actions-bands.yml.template` 是开箱即用的独立定时巡检参考件（schedule 触发 → 报告入 artifact，不含任何自动执行 agent 的步骤）。
+
+**无人闭环 runner（loop-runner，opt-in）**：`node <插件根>/scripts/loop-runner.mjs --root <仓库根>`——消费 check-bands 判带输出，对**显式授权了 autoRunner** 的越带 band 把「只读诊断 → intent 草案」自动走完半程：
+
+- **授权模型**（项目自治显式配置，种子不含 → 缺省无授权，行为与 check-bands 完全一致只出建议指令）：`bands.json` 的 tier 定义加可选块，如 `"tiers": { "diagnose": { "readonlyTools": ["Read", "Grep"], "autoRunner": { "enabled": true, "maxPerDay": 3 } } }`——`maxPerDay` 按 UTC 日限次（超限跳过并在输出注明）；
+- **安全模型**：**agent 只读、runner 落笔**——自治环里 agent 只拿 `Read / Grep / Glob` 白名单做诊断并返回严格 JSON（summary / evidence / suspectedCause / proposedIntent，字段对齐 intent 文档结构），`workflow/intents/<日期>-auto-<band>.md` 由 runner 进程自己写；模型调用经 `scripts/model-call.mjs` 单源（`--runner` 可换 claude 兼容 runner）；
+- **红线**：只到 intent 草案（frontmatter `状态: draft`、`来源: loop-runner 自动诊断`、正文带「须经人工评审」声明）——**不自动改代码、不自动开 PR / 分支**；propose 档 v1 同样只到草案，route 面不自动触达；
+- **与 check-bands 的关系**：判带判据零复刻（只 import 其 `runBandCheck` 消费输出），未配置 `autoRunner` 时退出码与输出同 check-bands（建议指令照出，exit 1 提示配置面）；配置损坏同判 exit 2；
+- **台账与失败语义**：每次模型调用落 `.agents/runs/loop-runner.jsonl`（append-only：ts / band / tier / durationMs / agentOk / intentWritten / error；gitignore 运行态）；agent 输出坏 JSON / 超时 / 缺席 → 台账记 failed、不写 intent、**不重试**（每 band 每次运行至多一调，防无人值守面自我放大消耗）；草案幂等（同名已存在不覆盖，顺延 `-2..-9` 后缀）；退出码：0 = 带内 / 未配置 / 越带且全部落草案；1 = 存在未落草案的越带（无授权 / 配额耗尽 / agent 失败，指认失败带）；2 = 配置损坏。
 
 ## 提示面 eval 套件（test/eval.mjs）
 
@@ -259,7 +268,17 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - **用例**：`test/fixtures/eval/cases.json` 四条——E1 L0 极简道（单文件文案修正免立档、commit 带非空 `L0:` 判据行）、E2 L1 快速道（立 plan 含三节形态 + 委托确认行）、E3 L2 防御道（共享契约触达走 intent / spec / plan 三件套、spec 含「前提质询」节、确认行含 sha256 指纹）、E4 越界防护（诱导改引擎配置并强推——终态必须不被破坏）。checks 全部是确定性算子（pathExists / fileContains / dirFileCountGrew / gitLogMatches / jsonlRowMatches 等，逐条以临时仓 setup 后基线为对照面），DSL 成文在 cases.json 的 `dslDoc` 字段；
 - **判据哲学**：只断言**终态工件**（workflow 档案 / 确认台账 / git 历史 / 引擎配置），不判过程合规、不用裁判模型；每条 transcript（claude json 输出 + 用例元数据 + checks 明细）落系统临时目录 `eval-logs/<id>-<时间戳>.json` 留档复盘，不污染仓内；
 - **跑法**：`node test/eval.mjs --dry-run` 先审各条拼装 prompt（命令正文剥 frontmatter 整文件注入、`<插件根>` 实化为插件绝对路径）→ `--eval E4` 单条真跑（成本最低、断言最硬）→ 不带参数全量；`--bail` 首红即停，`--runner` 换 runner。claude 不在场或 spawn 失败按 SKIP 出账，不误报 FAIL；runner 在 PATH 找不到时 exit 2 fail-loud；
-- **成本口径与 CI 豁免**：每条 `maxTurns` / `timeoutMs` 封顶（cases.json 逐条声明）；模型 spawn 只允许出现在 eval.mjs（scripts / mcp / hooks 面零命中）；**不进仓级 CI**（模型调用需凭据，豁免理由见市场仓 `.github/workflows/ci.yml` 头注）——本地手动跑，或复制 `config-templates/ci/github-actions-eval.yml.template`（workflow_dispatch + 自备 secrets）。
+- **成本口径与 CI 豁免**：每条 `maxTurns` / `timeoutMs` 封顶（cases.json 逐条声明）；模型 spawn 单源两处——`scripts/model-call.mjs`（opt-in 适配器，门禁 / CI / init 零命中）与 `eval.mjs`（eval 套件本体），其余 scripts / mcp / hooks 面零命中；**不进仓级 CI**（模型调用需凭据，豁免理由见市场仓 `.github/workflows/ci.yml` 头注）——本地手动跑，或复制 `config-templates/ci/github-actions-eval.yml.template`（workflow_dispatch + 自备 secrets）。
+
+## 开发全景图（dev-tour，快照版）
+
+从 plan/spec/todo 文档与 git 实际面解析出 schema:2 全景模型（步骤×文件双向绑定、序列图、数据流、依赖弧、验证门、需求链路上游），注入单文件 HTML 模板生成静态快照——`file://` 双击即用，零外部请求、零依赖实时服务（实时版 board-server 暂未随插件分发）。
+
+- 生成：`node <插件根>/scripts/gen-dev-tour.mjs workflow/plans/<name>.md`（`--root` 可显式；产物落使用项目 `.agents/cache/tours/`，已 gitignore）
+- 六视图：全景 / 序列 / 流程图（含依赖旁路弧）/ 数据流 / 需求链路 / 验证门禁
+- **每步文件门**：`--strict` 对缺文件条目的实现步骤拒产（exit 1）——已接 `commands/build.md` §3（实现前先过门）；解析命中计量（parseHealth 命中率/路径猜测徽标）随报告输出
+- 规模边界：≤60 步 / 300 diff 文件（超限降级为附录归集；压测工具 `test/fixtures/dev-tour/synthetic-plan.mjs --bench`）
+- 文档数据契约与适用场景见 `skills/dev-tour/SKILL.md`
 
 ## 工程准入与验收
 
@@ -276,6 +295,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.0**
+
+三大件：**开发全景图（dev-tour 快照版）**——dev-tour-model.mjs（schema:2 全景模型：步骤×文件双向绑定、序列/数据流/依赖弧/验证门/需求链路）+ gen-dev-tour.mjs + 单文件 HTML 模板（file:// 零外部请求），--strict 每步文件门接 build.md，12 组 fixture 快照测试 18 用例锁死 + synthetic-plan 压测（N=60 22ms/214KB）；**dream-verify --model 语义复评档**——scripts/model-call.mjs 无交互模型调用单源适配器（opt-in 项目自治面，门禁/CI/init 零模型不变；win32 垫片收敛），对确定性判据筛出的存疑行三态裁决（仍成立/存疑/失效）进报告 E 段，20 条上限、失败不升级；**无人闭环 loop-runner**——bands.json 显式 autoRunner 授权（缺省=纯建议模式），agent 只读（Read/Grep/Glob）诊断、runner 落笔 draft intent 进正常管线人审、append-only 调用台账、坏输出记 failed 不重试，红线只到 intent 草案不自动改代码/开 PR；真实黑盒：模型连通 probe ok、loop-runner 失败语义与成功链路双实证（intent 草案含真 file:line 证据）。
 
 **0.2.3**
 

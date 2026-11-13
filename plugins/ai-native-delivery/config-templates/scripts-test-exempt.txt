@@ -32,3 +32,7 @@ indirect | .agents/scripts/install/manifest.mjs | .agents/scripts/install.test.m
 indirect | .agents/scripts/hosts.mjs | .agents/scripts/gen-host-manifests.test.mjs | 宿主注册表单源（三垫片渲染 + hook 接线）：经 gen-host-manifests.test.mjs 生成/漂移门用例黑盒覆盖
 # 2026-11-13 0.2.1 遗留补登：执法者扫描单源模块由 s29 与 verify 挂债摘要双消费方测试覆盖
 indirect | .agents/scripts/regr-enforcer-scan.mjs | .agents/scripts/check-loop.test.mjs | 执法者行扫描单源（未指认/指认失效/可达性）：经 check-loop.test.mjs 检查 29 组与 verify.test.mjs 挂债摘要用例双消费方覆盖
+# 2026-11-13 dev-tour 移植（工单 B）：CLI 薄壳（解析参数 + 模板注入 + 落盘）——模型面由直接测试的
+# buildTour 用例覆盖，CLI 面（退出码 / stderr 文案 / JSON 可解析 / 锚点替换）经
+# dev-tour-model.test.mjs 的 gen-dev-tour 子进程用例覆盖，按本表语义走 indirect
+indirect | .agents/scripts/gen-dev-tour.mjs | .agents/scripts/dev-tour-model.test.mjs | CLI 壳经 dev-tour-model.test.mjs 的 gen-dev-tour 子进程用例覆盖（--json / --strict / advisory 文案 / HTML 锚点）

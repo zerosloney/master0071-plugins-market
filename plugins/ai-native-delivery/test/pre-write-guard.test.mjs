@@ -2,7 +2,7 @@
 // pre-write-guard.test.mjs — PreToolUse 写前门黑盒测试（2026-11-12 写前门移植配套；spawn hook 进程喂 stdin JSON）
 // 断言分组：
 //   A 执法面自保护：.agents/ 门禁面写 → deny（config/scripts/settings 形态）；RUNTIME_DIRS 运行时目录
-//     → 放（口径单源 install/plan.mjs，五目录全过）；Edit 删改门禁面同拒；仓外路径不管辖。
+//     → 放（口径单源 install/plan.mjs，六目录全过）；Edit 删改门禁面同拒；仓外路径不管辖。
 //   B 三本审计账 append-only：追加（Write / Edit 末行扩展 / MultiEdit）→ 放；整写 / 删改 → 拒；
 //     分片 confirmations.d/* 直编即拒（不在追例外）；缺文件首次追加 → 放。
 //   C fail-closed：file_path 缺失 / 坏 JSON / 空 stdin / 非对象 JSON / 输入截断 / 内部故障注入口 /
@@ -85,8 +85,8 @@ const editPayload = (file_path, old_string, new_string) => ({ tool_name: 'Edit',
   check('A3 写 .agents/scripts/ 门禁脚本位 → deny', shapeOk(runGuard(writePayload('.agents/scripts/check-loop.mjs', '#!/usr/bin/env node\n'), root), 'deny'), '');
   // 反问锚：Edit 删空门禁面文件内容同样拒（Edit 形态同判据）
   check('A4 Edit 清空 .agents/config/engine.json → deny', shapeOk(runGuard(editPayload('.agents/config/engine.json', '{"gate":"on"}\n', ''), root), 'deny'), '');
-  // 运行时目录（RUNTIME_DIRS 单源：cache/loop/notes/board/tmp）可写——init-engine 落什么放什么
-  for (const dir of ['cache', 'loop', 'notes', 'board', 'tmp']) {
+  // 运行时目录（RUNTIME_DIRS 单源：cache/loop/notes/board/runs/tmp）可写——init-engine 落什么放什么
+  for (const dir of ['cache', 'loop', 'notes', 'board', 'runs', 'tmp']) {
     check(`A5 写 .agents/${dir}/x → 静默放行（RUNTIME_DIRS 例外）`,
       silentPermit(runGuard(writePayload(`.agents/${dir}/x.txt`, 'data\n'), root)), '');
   }

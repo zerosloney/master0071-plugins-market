@@ -1,0 +1,207 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-h3-batches.md",
+    "type": "DOC",
+    "title": "批次小标题样例：部件库整理",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 4,
+    "new": 0,
+    "modified": 1,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 3,
+    "tests": 0,
+    "additions": 12,
+    "deletions": 3,
+    "docs": 0,
+    "steps": 2
+  },
+  "parseHealth": {
+    "total": 2,
+    "direct": 2,
+    "bySource": {
+      "headings": 2
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 1,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": []
+  },
+  "steps": [
+    {
+      "id": "1",
+      "index": 1,
+      "title": "领域模型整理",
+      "summary": "- backend/Catalog/Part.cs：部件实体",
+      "detail": [
+        "- `backend/Catalog/Part.cs`：部件实体",
+        "- `backend/Catalog/PartItem.cs`：部件明细实体"
+      ],
+      "files": [
+        "backend/Catalog/Part.cs",
+        "backend/Catalog/PartItem.cs"
+      ],
+      "status": "todo",
+      "source": "headings"
+    },
+    {
+      "id": "2",
+      "index": 2,
+      "title": "查询服务",
+      "summary": "- backend/Catalog/PartQueryService.cs：查询编排",
+      "detail": [
+        "- `backend/Catalog/PartQueryService.cs`：查询编排",
+        "- `frontend/src/api/catalog/part.ts`：前端接口封装"
+      ],
+      "files": [
+        "backend/Catalog/PartQueryService.cs",
+        "frontend/src/api/catalog/part.ts"
+      ],
+      "status": "todo",
+      "source": "headings"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/Part.cs",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 12,
+      "deletions": 3,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/PartItem.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/PartQueryService.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/api/catalog/part.ts",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "domain",
+        "label": "领域层"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "1",
+        "from": "app",
+        "to": "app",
+        "label": "领域模型整理",
+        "self": true
+      },
+      {
+        "stepId": "2",
+        "from": "frontend",
+        "to": "app",
+        "label": "查询服务"
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}

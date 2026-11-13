@@ -1,0 +1,359 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-numbered-steps.md",
+    "type": "DOC",
+    "title": "编号步骤样例：工单计划跟踪",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "把工单计划页做成可跟踪的最小闭环。",
+    "links": [
+      {
+        "label": "2020-01-01-catalog-demo.md",
+        "path": "workflow/intents/2020-01-01-catalog-demo.md"
+      }
+    ],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 7,
+    "new": 1,
+    "modified": 2,
+    "deleted": 1,
+    "renamed": 0,
+    "planned": 3,
+    "tests": 1,
+    "additions": 141,
+    "deletions": 73,
+    "docs": 0,
+    "steps": 5
+  },
+  "parseHealth": {
+    "total": 4,
+    "direct": 4,
+    "bySource": {
+      "steps": 4
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 1,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": [
+      {
+        "line": 35,
+        "title": "88 依赖 1",
+        "kind": "dep-unresolved"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "T1",
+      "index": 1,
+      "title": "后端接口",
+      "summary": "新增工单计划查询与保存接口",
+      "detail": [
+        "`backend/Catalog/WorkorderController.cs`：工单计划接口"
+      ],
+      "files": [
+        "backend/Catalog/WorkorderController.cs"
+      ],
+      "status": "todo",
+      "source": "steps"
+    },
+    {
+      "id": "T2",
+      "index": 2,
+      "title": "应用服务",
+      "summary": "工单计划的保存编排与旧服务下线",
+      "detail": [
+        "`backend/Catalog/WorkorderAppService.cs`：保存编排",
+        "`backend/Catalog/OldWorkorderService.cs`：旧服务删除"
+      ],
+      "files": [
+        "backend/Catalog/WorkorderAppService.cs",
+        "backend/Catalog/OldWorkorderService.cs"
+      ],
+      "status": "todo",
+      "source": "steps"
+    },
+    {
+      "id": "T3",
+      "index": 3,
+      "title": "前端页面",
+      "summary": "工单计划列表与表单",
+      "detail": [
+        "`frontend/src/views/catalog/workorder-plan.vue`：列表页",
+        "`frontend/src/api/catalog/workorderPlan.ts`：接口封装"
+      ],
+      "files": [
+        "frontend/src/views/catalog/workorder-plan.vue",
+        "frontend/src/api/catalog/workorderPlan.ts"
+      ],
+      "status": "todo",
+      "source": "steps"
+    },
+    {
+      "id": "T4",
+      "index": 4,
+      "title": "全链路验证",
+      "summary": "接口到页面的回归",
+      "detail": [],
+      "files": [
+        "tests/Catalog/WorkorderPlanTests.cs"
+      ],
+      "status": "todo",
+      "source": "steps"
+    },
+    {
+      "id": "X",
+      "index": 5,
+      "title": "文档外实际改动",
+      "summary": "git 工作树里有、plan 改动面未登记——优先核对 scope",
+      "detail": [
+        "这些文件不在文档改动清单内，可能是范围漂移，也可能是文档该回填。"
+      ],
+      "files": [
+        "scripts/zz-catalog/rogue-sync.ps1"
+      ],
+      "status": "warn",
+      "source": "git"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/OldWorkorderService.cs",
+      "status": "deleted",
+      "badge": "删除",
+      "additions": 0,
+      "deletions": 64,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/WorkorderAppService.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/WorkorderController.cs",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 42,
+      "deletions": 8,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "T1"
+      ],
+      "diff": "diff --git a/backend/Catalog/WorkorderController.cs b/backend/Catalog/WorkorderController.cs\n@@ -12,6 +12,14 @@",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/api/catalog/workorderPlan.ts",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "frontend/src/views/catalog/workorder-plan.vue",
+      "status": "new",
+      "badge": "新增",
+      "additions": 96,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "frontend",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "T3"
+      ],
+      "diff": "diff --git a/frontend/src/views/catalog/workorder-plan.vue b/frontend/src/views/catalog/workorder-plan.vue\nnew file mode 100644\n--- /dev/null\n+++ b/frontend/src/views/catalog/workorder-plan.vue",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "scripts/zz-catalog/rogue-sync.ps1",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 3,
+      "deletions": 1,
+      "binary": false,
+      "test": false,
+      "layer": "other",
+      "planned": false,
+      "actual": true,
+      "steps": [
+        "X"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "tests/Catalog/WorkorderPlanTests.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": true,
+      "layer": "test",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T4"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "frontend",
+        "label": "前端"
+      },
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "test",
+        "label": "测试"
+      },
+      {
+        "id": "other",
+        "label": "其他"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "T1",
+        "from": "app",
+        "to": "app",
+        "label": "后端接口",
+        "self": true
+      },
+      {
+        "stepId": "T2",
+        "from": "app",
+        "to": "app",
+        "label": "应用服务",
+        "self": true
+      },
+      {
+        "stepId": "T3",
+        "from": "frontend",
+        "to": "frontend",
+        "label": "前端页面",
+        "self": true
+      },
+      {
+        "stepId": "T4",
+        "from": "test",
+        "to": "test",
+        "label": "全链路验证",
+        "self": true
+      },
+      {
+        "stepId": "X",
+        "from": "app",
+        "to": "app",
+        "label": "文档外实际改动",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [
+      {
+        "from": "T1",
+        "to": "T3"
+      },
+      {
+        "from": "T2",
+        "to": "T3"
+      },
+      {
+        "from": "T3",
+        "to": "T4"
+      }
+    ],
+    "source": "exec-order",
+    "unresolved": 1,
+    "unresolvedItems": [
+      {
+        "line": 35,
+        "title": "88 依赖 1"
+      }
+    ]
+  },
+  "gates": [
+    "`tests/Catalog/WorkorderPlanTests.cs` 全绿",
+    "手工：页面提交一条工单计划"
+  ],
+  "note": ""
+}

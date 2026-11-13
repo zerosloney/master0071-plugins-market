@@ -1,0 +1,179 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-bare-mid-path.md",
+    "type": "DOC",
+    "title": "裸中段路径样例：安装流程联动",
+    "status": "起草中",
+    "level": "L1",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 3,
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 3,
+    "tests": 0,
+    "additions": 0,
+    "deletions": 0,
+    "docs": 0,
+    "steps": 2
+  },
+  "parseHealth": {
+    "total": 2,
+    "direct": 2,
+    "bySource": {
+      "steps": 2
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 1,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": []
+  },
+  "steps": [
+    {
+      "id": "T1",
+      "index": 1,
+      "title": "安装流程联动",
+      "summary": "改造 install/plan.mjs 计划栏，收敛 if/else 分支，Success/Error 提示对齐 install/apply.mjs",
+      "detail": [
+        "- 判据：构建通过"
+      ],
+      "files": [
+        "scripts/install/plan.mjs",
+        "scripts/install/apply.mjs"
+      ],
+      "status": "todo",
+      "source": "steps"
+    },
+    {
+      "id": "T2",
+      "index": 2,
+      "title": "清单常量调整",
+      "summary": "抽共享常量到 install/manifest.mjs",
+      "detail": [
+        "- 判据：单测通过"
+      ],
+      "files": [
+        "scripts/install/manifest.mjs"
+      ],
+      "status": "todo",
+      "source": "steps"
+    }
+  ],
+  "files": [
+    {
+      "path": "scripts/install/apply.mjs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "other",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "scripts/install/manifest.mjs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "other",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "scripts/install/plan.mjs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "other",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "T1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "other",
+        "label": "其他"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "T1",
+        "from": "app",
+        "to": "app",
+        "label": "安装流程联动",
+        "self": true
+      },
+      {
+        "stepId": "T2",
+        "from": "app",
+        "to": "app",
+        "label": "清单常量调整",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}

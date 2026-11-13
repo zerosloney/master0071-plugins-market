@@ -1,0 +1,160 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-l1-single-file.md",
+    "type": "DOC",
+    "title": "L1 单文件样例：修复订单推送重试",
+    "status": "起草中",
+    "level": "L1",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 2,
+    "new": 0,
+    "modified": 1,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 1,
+    "tests": 0,
+    "additions": 9,
+    "deletions": 1,
+    "docs": 0,
+    "steps": 2
+  },
+  "parseHealth": {
+    "total": 2,
+    "direct": 0,
+    "bySource": {
+      "blocks": 2
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 0,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": []
+  },
+  "steps": [
+    {
+      "id": "S1",
+      "index": 1,
+      "title": "SampleSyncService.cs",
+      "summary": "`backend/Catalog/SampleSyncService.cs`：失败后重试 3 次",
+      "detail": [
+        "`backend/Catalog/SampleSyncService.cs`：失败后重试 3 次"
+      ],
+      "files": [
+        "backend/Catalog/SampleSyncService.cs"
+      ],
+      "status": "todo",
+      "source": "blocks"
+    },
+    {
+      "id": "S2",
+      "index": 2,
+      "title": "SampleSyncOptions.cs",
+      "summary": "`backend/Catalog/SampleSyncOptions.cs`：新增重试间隔配置",
+      "detail": [
+        "`backend/Catalog/SampleSyncOptions.cs`：新增重试间隔配置"
+      ],
+      "files": [
+        "backend/Catalog/SampleSyncOptions.cs"
+      ],
+      "status": "todo",
+      "source": "blocks"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/SampleSyncOptions.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S2"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/SampleSyncService.cs",
+      "status": "modified",
+      "badge": "修改",
+      "additions": 9,
+      "deletions": 1,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": true,
+      "steps": [
+        "S1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "app",
+        "label": "应用层"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "S1",
+        "from": "app",
+        "to": "app",
+        "label": "SampleSyncService.cs",
+        "self": true
+      },
+      {
+        "stepId": "S2",
+        "from": "app",
+        "to": "app",
+        "label": "SampleSyncOptions.cs",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}

@@ -1,0 +1,224 @@
+{
+  "schema": 2,
+  "generatedAt": "2020-01-01T00:00:00.000Z",
+  "rootLabel": "ai-native-delivery",
+  "doc": {
+    "path": "test/fixtures/dev-tour/plan-union-label.md",
+    "type": "DOC",
+    "title": "并集标签样例：代用行重排",
+    "status": "起草中",
+    "level": "L2",
+    "module": "订单",
+    "date": "2099-12-31",
+    "purpose": "",
+    "links": [],
+    "upstream": []
+  },
+  "evidence": {
+    "windowStart": "2099-12-31",
+    "rows": [],
+    "totalInWindow": 0
+  },
+  "base": {
+    "ref": "HEAD",
+    "sha": "a1b2c3d4e5f6",
+    "available": true,
+    "note": ""
+  },
+  "stats": {
+    "files": 2,
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "renamed": 0,
+    "planned": 2,
+    "tests": 0,
+    "additions": 0,
+    "deletions": 0,
+    "docs": 2,
+    "steps": 3
+  },
+  "parseHealth": {
+    "total": 3,
+    "direct": 3,
+    "bySource": {
+      "tasks": 3
+    },
+    "zeroFileSteps": 0,
+    "layersFallback": false,
+    "hitRate": 1,
+    "pathGuesses": {
+      "total": 0,
+      "items": []
+    },
+    "issues": []
+  },
+  "steps": [
+    {
+      "id": "S1",
+      "index": 1,
+      "title": "删除冗余分支",
+      "summary": "编译通过",
+      "detail": [
+        "`backend/Catalog/UnionService.cs`",
+        "`backend/Catalog/UnionService.cs`"
+      ],
+      "files": [
+        "backend/Catalog/UnionService.cs"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "S3",
+      "index": 2,
+      "title": "调整列序",
+      "summary": "构建通过",
+      "detail": [
+        "`backend/Catalog/UnionColumn.cs`（**S3**）：列序"
+      ],
+      "files": [
+        "backend/Catalog/UnionColumn.cs"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    },
+    {
+      "id": "S4",
+      "index": 3,
+      "title": "收口：回归清单与文档",
+      "summary": "收口完成",
+      "detail": [
+        "`skills/dev-tour/SKILL.md`（**S4**）：注解",
+        "`skills/review-method/golden-set.md`（**S5**）：清单"
+      ],
+      "files": [
+        "skills/dev-tour/SKILL.md",
+        "skills/review-method/golden-set.md"
+      ],
+      "status": "todo",
+      "source": "tasks"
+    }
+  ],
+  "files": [
+    {
+      "path": "backend/Catalog/UnionColumn.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S3"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "backend/Catalog/UnionService.cs",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "app",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S1"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "skills/dev-tour/SKILL.md",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "doc",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S4"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    },
+    {
+      "path": "skills/review-method/golden-set.md",
+      "status": "planned",
+      "badge": "计划",
+      "additions": 0,
+      "deletions": 0,
+      "binary": false,
+      "test": false,
+      "layer": "doc",
+      "planned": true,
+      "actual": false,
+      "steps": [
+        "S4"
+      ],
+      "diff": "",
+      "oldPath": "",
+      "pathGuess": false
+    }
+  ],
+  "sequence": {
+    "participants": [
+      {
+        "id": "app",
+        "label": "应用层"
+      },
+      {
+        "id": "doc",
+        "label": "文档"
+      }
+    ],
+    "messages": [
+      {
+        "stepId": "S1",
+        "from": "app",
+        "to": "app",
+        "label": "删除冗余分支",
+        "self": true
+      },
+      {
+        "stepId": "S3",
+        "from": "app",
+        "to": "app",
+        "label": "调整列序",
+        "self": true
+      },
+      {
+        "stepId": "S4",
+        "from": "app",
+        "to": "app",
+        "label": "收口：回归清单与文档",
+        "self": true
+      }
+    ]
+  },
+  "dataflow": {
+    "objects": [],
+    "flows": []
+  },
+  "deps": {
+    "edges": [],
+    "source": "",
+    "unresolved": 0,
+    "unresolvedItems": []
+  },
+  "gates": [],
+  "note": ""
+}
