@@ -37,7 +37,7 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
   const cached = cacheGet(key);
   if (cached) return cached;
   // 不安全端点（非 https 且非本机回环）拒绝携带 Bearer Key 外发；抛错由调用方按 fail-open 契约放行，
-  // stderr 留一条便于诊断为什么预检/风险闸静默失效
+  // stderr 留一条便于诊断为什么预检静默失效
   if (isInsecureBaseUrl(cfg.baseUrl)) {
     // 与 server.mjs 同口径：stderr 只留 scheme://host[:port]，不把含内嵌口令的完整 URL 写进日志
     process.stderr.write(`[systemone-decision] baseUrl ${endpointLabel(cfg.baseUrl)} 不是加密端点（https 或本机回环），拒绝携带 API Key 请求，本次判定跳过。\n`);
@@ -60,7 +60,7 @@ export async function decide(state, cfg, questions, timeoutMsOverride) {
 // SCORE_MIN_LEVELS / SCORE_MAX_LEVELS，未导出且 mcp/* 不在本文件依赖内，本地镜像同口径，
 // 改协议量表时与该文件两处同步），可解释的取整分值域即 [0, 254]。
 const SCORE_SCALE_MAX_INDEX = 254;
-// legend 文本进 permissionDecisionReason / 结论文案前的截断长度
+// legend 文本进结论文案前的截断长度
 const LEGEND_MAX_CHARS = 80;
 
 // 归一化：字段缺失或题型不符一律返回 null，由调用方 fail-open

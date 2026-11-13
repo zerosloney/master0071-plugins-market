@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { PassThrough } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,22 +57,6 @@ const hookPath = path.join(runRoot, 'hooks', 'requirement-clarity.mjs');
 
 const LEVELS = ['模糊：目标都不清楚', '偏低：目标清楚但范围或关键约束不明', '较高：目标范围清楚，细节可自行决策', '明确：目标、范围、验收都清楚'];
 
-// 一个名字的全部大小写变体（工具名的大小写由宿主决定，插件挑不了）
-const caseVariants = (name) => {
-  const out = [];
-  const walk = (i, acc) => {
-    if (i === name.length) {
-      out.push(acc);
-      return;
-    }
-    const ch = name[i];
-    walk(i + 1, acc + ch.toLowerCase());
-    walk(i + 1, acc + ch.toUpperCase());
-  };
-  walk(0, '');
-  return out;
-};
-
 // 按场景固定三问答案；测试进程切换 scenario 变量，hook 子进程通过 HTTP 感知
 const SCENARIOS = {
   unclear: {
@@ -86,7 +69,7 @@ const SCENARIOS = {
     missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
     proceed: { type: 'noul', noul: 0.91 },
   },
-  // 门限边界场景（0.6.1 起 proceed 门限 0.35）：clarity 高 + proceed 卡在 0.35 两侧
+  // 门限边界场景（0.6.1 起 proceed 门限 0.35）：clarity 高 + proceed 卡在 0.35 两侧与等值点
   clearAt034: {
     clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 3, confidence: 0.95 },
     missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
@@ -96,6 +79,11 @@ const SCENARIOS = {
     clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 3, confidence: 0.95 },
     missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
     proceed: { type: 'noul', noul: 0.36 },
+  },
+  clearAt035: {
+    clarity: { type: 'score', legend: Object.fromEntries(LEVELS.map((c, i) => [String(i), c])), score: 3, confidence: 0.95 },
+    missing: { type: 'choice', choice: 'none', probabilities: { none: 0.9, goal: 0.1 }, confidence: 0.9 },
+    proceed: { type: 'noul', noul: 0.35 },
   },
   // 幻觉 missing：choice 值不在判据表（goal/scope/acceptance/constraint/none）内，
   // confidence 再高结论文案也不可信——按响应不完整 fail-open 静默跳过
@@ -206,14 +194,22 @@ const main = async () => {
     assert.equal(received.length, 1, '静默发生在判定之后');
   });
 
-  // 门限边界（0.6.1 起 proceed 门限 0.35）：clarity 高（> clarityMax）时，proceed 落在 0.35 两侧
-  // 行为相反——0.34 仍要提醒，0.36 静默放行。两侧都锁死，防止门限被改回 0.6 或漂到别的值。
+  // 门限边界（0.6.1 起 proceed 门限 0.35，放行判据 proceed >= proceedMin）：0.34 提醒 / 0.35 等值静默 /
+  // 0.36 静默——三点把门限钉在 (0.34, 0.35]：回退 0.6 或漂到区间外任意值都会被抓（面板评审 C-018 补等值点）。
   scenario = 'clearAt034';
   received = [];
   r = await run('帮我把这个项目优化一下，尽快弄好');
   check('门限边界：clarity 高 + proceed 0.34（< 0.35）仍给出提醒', () => {
     assert.equal(received.length, 1, '应发出判定请求');
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
+  });
+
+  scenario = 'clearAt035';
+  received = [];
+  r = await run('帮我把这个项目优化一下，尽快弄好');
+  check('门限边界：clarity 高 + proceed 0.35（= 门限，≥ 判定）静默放行', () => {
+    assert.equal(received.length, 1, '判定请求照发（结论不注入）');
+    assert.equal(String(r.stdout).trim(), '', '等值点按 >= 放行，不得注入任何上下文');
   });
 
   scenario = 'clearAt036';
@@ -298,9 +294,9 @@ const main = async () => {
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /需求预检/);
   });
 
-  // 8b. 设置页的两个 hook 开关走共享文件（2026-11-01 修复）。
+  // 8b. 设置页的 hook 开关走共享文件（2026-11-01 立；0.6.1 风险闸下线后仅 hookPrecheck 一项）。
   // 设置页注入的 SYSTEMONE_PLUGIN_HOOK_* 只进 MCP 子进程 env，hook 进程读不到；旧实现里
-  // 这两个开关在 hook 侧**没有任何通道**，而 README 把它们写成"等价环境变量""off = 停掉外发"。
+  // 开关在 hook 侧**没有任何通道**，而 README 把它们写成"等价环境变量""off = 停掉外发"。
   // 现在 MCP 启动时把解析结果一并落盘，hook 读共享文件——本用例是那条通道的端到端证据。
   received = [];
   writeFileSync(
@@ -318,6 +314,18 @@ const main = async () => {
     assert.equal(received.length, 0, 'off 意味着一个判定请求都不该发');
     assert.equal(String(r.stdout).trim(), '', 'off 时不应注入任何上下文');
   });
+
+  // 8d. precheck-quota 的 modeOf 兜底（a22dbf1 修复：opts.mode 契约「可缺省」）——直连锁死，
+  // 防守卫回退（面板评审 C-019：此前该分支零覆盖）。
+  {
+    const { quotaAllows, bumpQuota } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'precheck-quota.mjs')).href);
+    check('8d modeOf 兜底：mode 缺省/非对象不崩，缺省按 on（配额生效）', () => {
+      assert.equal(quotaAllows(undefined, 'q-scope'), true, '缺省 mode 按 on：允许判定');
+      assert.equal(quotaAllows('junk', 'q-scope'), true, '非对象 mode 同样归一 on');
+      assert.doesNotThrow(() => bumpQuota(undefined, 'q-scope'), '缺省 bumpQuota 不得抛');
+      assert.equal(quotaAllows({ mode: 'off' }, 'q-scope'), true, 'on/off 对配额是 no-op（仅 first 模式限流，开关语义在 hook 入口不在配额层）');
+    });
+  }
 
   // 8. 共享文件损坏 → 回退环境变量（即落盘机制不存在时的旧行为）
   received = [];
@@ -391,7 +399,7 @@ const main = async () => {
       });
     });
 
-  let kr = await killerProbe(false);
+  let kr = await killerProbe();
   check('killer 兜底 silent 策略：挂起时 exit 0 无输出（UserPromptSubmit 通道 fail-open，现状钉住）', () => {
     assert.equal(kr.status, 0, `应静默自毁（status=${kr.status}，stderr=${kr.stderr.trim()}）`);
     assert.equal(kr.stdout, '', 'silent 策略不得有任何输出（该通道输出 permissionDecision 是协议违规）');
@@ -426,8 +434,8 @@ const main = async () => {
   const { precheck } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'clarity.mjs')).href);
   const { precheckMode } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'precheck-quota.mjs')).href);
   const preEnv = { SYSTEMONE_API_KEY: 'test-key', UNISOUND_API_KEY: '', SYSTEMONE_BASE_URL: `http://127.0.0.1:${port}/v1` };
-  // precheck 的 opts.mode 契约上「可缺省」，但实现里 bumpQuota(mode) 直接读 mode.mode——缺省会崩。
-  // 本处按契约显式传入（生产路径的 hook 入口本就传），契约与实现的缺口另记 papercut。
+  // precheck 的 opts.mode 契约上「可缺省」：a22dbf1 起 precheck-quota 的 modeOf() 把缺省/非对象
+  // 按 on 兜底（不再崩）。本处按生产路径形态显式传入；缺省兜底行为由 8d 直连用例锁死。
   const preOpts = { mode: precheckMode(preEnv) };
 
 

@@ -34,7 +34,7 @@ import {
   validateCriteria,
 } from './question-types.mjs';
 
-const SERVER_INFO = { name: 'systemone-decision', version: '0.6.1' };
+const SERVER_INFO = { name: 'systemone-decision', version: '0.6.2' };
 
 // 本服务端实现的 MCP 协议版本，按新到旧排列。initialize 时若客户端报的是列表外的
 // 版本，回落到列表首个（最新的），而不是原样回显——回显等于对任意版本都声称支持
@@ -84,7 +84,8 @@ for (const problem of [...scenarioLoadProblems, ...scenarioProblems]) {
 }
 // 把已解析端点（设置页 > 环境变量 > 默认）落盘共享给需求预检 hook——hook 进程拿不到
 // SYSTEMONE_PLUGIN_* 注入，不落盘的话设置页切换供应商后 hook 会打旧端点并静默失效。
-// 两个 hook 开关一并落盘（2026-11-01 修复）：否则设置页的 off 开关到不了 hook 进程，
+// hook 开关随端点一并落盘（2026-11-01 立；2026-11-13 0.6.1 风险闸下线后仅剩 hookPrecheck 一项）：
+// 否则设置页的 off 开关到不了 hook 进程，
 // 而 README 承诺它"等价环境变量"、"off = 停掉外发"。开关优先级与端点同口径：
 // 设置页注入的 SYSTEMONE_PLUGIN_HOOK_* > 裸环境变量 > 未配置（按默认 on）。
 // config() 是函数声明，已提升，此处可先调用。

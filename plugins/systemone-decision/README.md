@@ -265,7 +265,7 @@ mcp/
 └── format.mjs     结果归一化（逐题明细 + decision/labels）、派生字段、建议模板渲染、Markdown 摘要
 endpoint-config.mjs MCP 与 hook 的端点共享文件（MCP 启动落盘、hook 读取，不含 API Key）
 hooks/
-├── decide-client.mjs        配置解析 + 判定请求（含跨进程缓存）+ 答案归一化（两个 hook 内核共用）
+├── decide-client.mjs        配置解析 + 判定请求（含跨进程缓存）+ 答案归一化（hook 内核共用）
 ├── decision-cache.mjs       hook 判定的跨进程文件缓存（TTL 同 MCP 侧，损坏当未命中）
 ├── precheck-quota.mjs       需求预检的开关与会话配额（off 短路 / first:N 按 session_id 计数）
 ├── hook-io.mjs              stdin 读取（100K 字符上限）+ 共享 deadline + stdout 退出协议（入口脚本共用）
@@ -283,9 +283,13 @@ icon.png           界面 logo
 
 ## 版本变更
 
+**0.6.2**
+
+面板评审跨插件首跑（pr-review 面板对 0.6.1 范围 7e030b5..a22dbf1：7 镜头 finder → 3 验证者 57 票全 confirm → 19 条 findings 全修）收口：①0.6.1 版本史「需求预检与 MCP 工具行为不变」改为如实披露——同版本内预检门限 0.6→0.35、结论文案改写、配额 mode 缺省兜底（Important，changelog 与自身矛盾）②测试补强：门限等值点 0.35 用例（0.34/0.35/0.36 三点钉死门限区间，防漂移）+ modeOf 兜底直连用例 8d（缺省/非对象不崩、按 on；此前零覆盖）③死代码清理：caseVariants 死助手、PassThrough 死 import、killerProbe(false) 残参④十二处「风险闸/两个内核/两个开关」过期注释与架构树口径同步（hook-io/clarity/decide-client/server/endpoint-config/hook.smoke 等）⑤带外盲区四处：共装说明（ai-native-delivery README 双闸节改写为 0.6.1 后现状）、skill scenarios、decision-cache 注释、contract.smoke 注释。三套冒烟全绿（hook 34 PASS 含 2 新用例）。
+
 **0.6.1**
 
-移除 shell 命令风险闸（PreToolUse hook）：实际使用中触发频次过高，按用户反馈整体下线。`hooks/hooks.json` 只保留 UserPromptSubmit 需求预检；`hooks/pretool-risk.mjs` / `hooks/risk-gate.mjs` 删除；hook-io 协议壳移除仅风险闸使用的 `emit-ask` kill 策略（killer 回归纯 silent 自毁）；共享端点文件不再落盘 `hookRiskGate`，设置页 Shell Risk Gate 配置项与 `SYSTEMONE_HOOK_RISK_GATE` 环境变量一并移除。需求预检与 MCP 工具行为不变。
+移除 shell 命令风险闸（PreToolUse hook）：实际使用中触发频次过高，按用户反馈整体下线。`hooks/hooks.json` 只保留 UserPromptSubmit 需求预检；`hooks/pretool-risk.mjs` / `hooks/risk-gate.mjs` 删除；hook-io 协议壳移除仅风险闸使用的 `emit-ask` kill 策略（killer 回归纯 silent 自毁）；共享端点文件不再落盘 `hookRiskGate`，设置页 Shell Risk Gate 配置项与 `SYSTEMONE_HOOK_RISK_GATE` 环境变量一并移除。**同版本内需求预检行为亦有调整**：proceed 门限 0.6→0.35（可行动度中等的输入不再打断提醒，减少不必要澄清）、注入结论文案同步改写、precheck 配额对 `opts.mode` 缺省改为按 on 兜底（原实现缺省会崩）。MCP 工具行为不变。
 
 **0.6.0**
 

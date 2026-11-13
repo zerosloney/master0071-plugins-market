@@ -48,7 +48,7 @@ function readOne(file) {
     const timeoutMs = Number.isFinite(t) && t > 0 ? t : null;
     // hook 开关也走这条共享通道（2026-11-01 修复）：设置页注入的 SYSTEMONE_PLUGIN_HOOK_* 只进
     // MCP 子进程的 env，hook 进程拿不到；而 README 曾承诺设置页开关"等价环境变量"。
-    // 现在 MCP 启动时把这两个开关的解析结果一并落盘，hook 读这里——与端点共用同一条已验证通道。
+    // 现在 MCP 启动时把 hook 开关的解析结果一并落盘，hook 读这里——与端点共用同一条已验证通道（0.6.1 起仅 hookPrecheck 一项）。
     const hookPrecheck = typeof cfg.hookPrecheck === 'string' && cfg.hookPrecheck.trim() !== '' ? cfg.hookPrecheck : null;
     return baseUrl || model || timeoutMs || hookPrecheck
       ? { baseUrl, model, timeoutMs, hookPrecheck }

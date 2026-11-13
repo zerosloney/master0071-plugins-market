@@ -4,7 +4,7 @@
 // 网络或响应异常一律 throw —— 由调用方 fail-open，绝不阻塞用户输入。
 // 门限与插件 README「需求明确度预检」一致：clarity ≤ 1 或 proceed < 0.35。
 // 低置信度不改门限，只在命中的结论里附注——硬信号归 hook，软怀疑归 Agent。
-// 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs（与风险闸同一份）。
+// 配置解析 / 请求 / 归一化共用 hooks/decide-client.mjs。
 
 import { config, decide, scoreOf, choiceOf, noulOf } from './decide-client.mjs';
 import { bumpQuota } from './precheck-quota.mjs';

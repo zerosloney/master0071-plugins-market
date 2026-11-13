@@ -24,7 +24,7 @@ function sleepMs(ms) {
 // SYSTEMONE_PLUGIN_CACHE_TTL_MS 优先（hook 进程通常拿不到它），常态走 SYSTEMONE_CACHE_TTL_MS，
 // 默认 5 分钟；0 = 关闭（读写都跳过）。
 // 坏值不静默（2026-11-05）：非法/负值旧实现悄悄取默认——静默的方向恰好是更激进缓存
-//（如设 -1 想关缓存，结果按 5 分钟照常缓存）。与 precheckMode / riskGateEnabled 同口径：
+//（如设 -1 想关缓存，结果按 5 分钟照常缓存）。与 precheckMode 同口径：
 // stderr 告警后取默认；两个变量都未设置不算坏值，安静取默认，不给每次 hook 运行刷告警。
 export function hookCacheTtlMs() {
   const rawText = process.env.SYSTEMONE_PLUGIN_CACHE_TTL_MS || process.env.SYSTEMONE_CACHE_TTL_MS;

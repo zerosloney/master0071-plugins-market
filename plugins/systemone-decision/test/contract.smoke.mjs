@@ -120,7 +120,7 @@ const main = async () => {
     assert.equal(received.length, 1, 'MCP 侧应发出一次请求');
     const mcpReq = received[0];
 
-    // hook 侧：走 hooks/decide-client.mjs 的 decide()——与两个 hook 内核同一条路径
+    // hook 侧：走 hooks/decide-client.mjs 的 decide()——与 hook 内核（clarity.mjs）同一条路径
     const { decide, config } = await import(pathToFileURL(path.join(runRoot, 'hooks', 'decide-client.mjs')).href);
     const hookCfg = config({
       SYSTEMONE_API_KEY: 'contract-key',

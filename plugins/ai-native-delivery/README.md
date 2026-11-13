@@ -205,20 +205,12 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 三平台 hook 注册差异（机制事实）：`.zcode` 读插件 `./hooks/hooks.json` 拉起 PreToolUse 风险闸与写前门（双 PreToolUse 段）；`.codex` 由 `.codex-plugin/plugin.json` 内联同一段 PreToolUse；`.omp-plugin/` 仅为市场清单，未注册任何 hook——`.omp` 宿主不拉起 PreToolUse 面（风险闸与写前门都不生效），拦截靠 init-engine 装入 `.git/hooks/` 的四钩子兜底（即上句的单层拦截形态）。
 
-### 与 systemone-decision 共装时（双风险闸，2026-10-28 说明）
+### 与 systemone-decision 共装时（2026-11-14 更新：双闸已成历史）
 
-同一市场里的 `systemone-decision` 也注册 PreToolUse 风险闸，matcher 同为 shell 类、判定同样输出
-`ask` / `deny`。宿主按插件各跑各的 hook，**两个闸之间没有仲裁通道**——插件内部看不到另一个插件
-是否在场，也没有宿主 API 能让一个 hook 让位于另一个。所以共装时的实际行为是：
-
-- 危险命令会被**两个闸各判一次**，可能出现两道确认提示，或一个 `ask` 叠一个 `deny`（最终按宿主
-  对多个 hook 输出的合并规则取严）；
-- 两套拒/允清单彼此独立（本插件读项目侧 `.agents/settings.json`，systemone 读自己的设置页），
-  同一个命令在两边可能得到不同结论。
-
-**约定**：只保留一道闸。保留本插件（它同时管 git hooks，语义更完整）时，把 systemone 的闸关掉
-（`SYSTEMONE_HOOK_RISK_GATE=off`）；反过来则删除本插件 `hooks/hooks.json` 的 PreToolUse 段。
-不做自动让位——靠猜安装布局去检测对方会让行为随目录结构漂移，比双提示更难排查。
+`systemone-decision` 0.6.1（2026-11-13）已整体下线其 PreToolUse 风险闸（触发频次过高，按用户反馈
+移除；`SYSTEMONE_HOOK_RISK_GATE` 环境变量与设置项一并删除）。共装现状：**PreToolUse 命令闸只剩
+本插件一道**（含写前门），不存在双提示或双清单仲裁问题；systemone 保留的 UserPromptSubmit 需求
+预检与本插件无面重叠。0.6.1 之前的共装双闸说明见历史版本（git 史可查）。
 
 ### 门禁的适用性判据（`verify.mjs`，2026-10-28）
 
