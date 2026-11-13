@@ -3,7 +3,7 @@
 级别: L1
 日期: 2026-11-13
 模块: pipeline
-确认指纹: 190657a319574228
+确认指纹: ddaa5b65b1545755
 ---
 # PLAN — eval 基线后修复补记（关单后回归修复与基线资产）
 
@@ -28,6 +28,8 @@
 - `plugins/ai-native-delivery/scripts/check-scope-range.mjs`：归档回退——closeout 移 plan 后推送范围含 rename 提交，live 与 HEAD 树均无旧路径；遍历触该路径提交取首个 show 成功者（跳过 rename 提交），落临时文件复用 extractDeclared
 - `.gitleaks-baseline.json`：本仓密钥扫描豁免基线起步（[] 起步，lite 扫描 fail-closed 前提）
 - `plugins/ai-native-delivery/test/check-secrets-lite.test.mjs`、`check-secrets.test.mjs`：AKIA 样例夹具行加 secrets-lite:allow（自检型误报的行内豁免机制）
+- `plugins/ai-native-delivery/test/eval.mjs`、`test/fixtures/eval/cases.json`：harness 五修与轮次预算（归属前序 eval-e2e-baseline，其归档态声明经历史重写不可达，在本补记显式声明）
+- `workflow/archive/2026-11/plans/2026-11-13-eval-e2e-baseline.md`：closeout 归档移动本身（随关单发生）
 
 > L2/L3：本节作总清单；任务拆解每步再写「- 文件：…」与判据，否则全景图只能把文件归到附录。
 > build.md §2 确认的改动清单确认后回填本节落盘（对话留痕仅供当次）——改动面 + 任务勾选态 + git status = 会话重入三锚（session-context）。
