@@ -783,6 +783,29 @@ function cmdPlan(p) {
   return 0;
 }
 
+// blast-radius 因果判定（collect 用）：finding 锚文件不在 diff 时，其 claim/evidence 是否明确
+// 引用 diff 内路径（在改文件全路径/基名，或本 PR 删除的文件）——引用即属 PR 爆炸半径，入账。
+let deletedFilesCache = null;
+function deletedFilesOf(run) {
+  if (deletedFilesCache) return deletedFilesCache;
+  const out = gitOut(['-c', 'core.quotepath=off', 'diff', '--name-only', '--diff-filter=D', `${run.base}..${run.head}`]);
+  deletedFilesCache = out ? out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [];
+  return deletedFilesCache;
+}
+function diffReferenceTokens(run, n) {
+  const text = `${n.claim || ''}\n${n.evidence || ''}`;
+  const refs = [];
+  for (const f of run.files) {
+    const base = f.path.split('/').pop();
+    if (text.includes(f.path) || (base.length > 4 && text.includes(base))) refs.push(f.path);
+  }
+  for (const d of deletedFilesOf(run)) {
+    const base = d.split('/').pop();
+    if (text.includes(d) || (base.length > 4 && text.includes(base))) refs.push(`${d}（本 PR 已删除）`);
+  }
+  return refs;
+}
+
 function cmdCollect(p) {
   const runDir = resolveRunDir(p.opt('--run', ''));
   const run = loadRun(runDir);
@@ -831,9 +854,19 @@ function cmdCollect(p) {
         dropped.push({ source: f, reason: 'missing-evidence', claim: raw?.claim || '' });
         continue;
       }
-      // 改动面校验不看 line——line=0（finder 省略行号的文件级意见）同样不得越出 base..head 范围
+      // 改动面校验不看 line——line=0（finder 省略行号的文件级意见）同样不得越出 base..head 范围。
+      // 例外（blast-radius 政策，2026-11-14 三连跑实证：两轮共 15 条真 finding 被此丢弃、含 3 条
+      // Important）：锚文件虽不在 diff，但 claim/evidence 明确引用 diff 内路径（如「PR 删除 risk-gate
+      // 后未触碰文件里的过期注释」）——这是 PR 的爆炸半径而非范围蔓延，入账标 blast-radius
+      //（provenance 另判；处置面与 introduced 同——须修或豁免，不得 recorded）。
       if (!run.files.some((x) => x.path === n.file)) {
-        dropped.push({ source: lens, reason: 'file-not-in-diff', claim: n.claim, file: n.file, line: n.line });
+        const refs = diffReferenceTokens(run, n);
+        if (refs.length) {
+          n.blastRadius = refs;
+          candidates.push(n);
+        } else {
+          dropped.push({ source: lens, reason: 'file-not-in-diff', claim: n.claim, file: n.file, line: n.line });
+        }
         continue;
       }
       if (isStyleFinding(n)) {
@@ -846,9 +879,10 @@ function cmdCollect(p) {
 
   const byKey = new Map();
   for (const c of candidates) {
-    const key = c.rootCause
-      ? `${c.file}|${c.rootCause}`
-      : `${c.file}|${c.line}|${normalizeClaim(c.claim)}`;
+    // 去重键（2026-11-14 收紧，三连跑实证跨镜头改写全进候选白耗验证票）：rootCause 相同同文件合并
+    // （跨行同因）；否则**同文件同行**即合并——claim 文本归一抓不住改写（两轮共 11 对同点重复）。
+    // 合并侧把互异 claim 并进 evidence 链，信息零丢失；镜头归属进 sources。
+    const key = `${c.file}|${c.rootCause || c.line}`;
     const prev = byKey.get(key);
     if (!prev) {
       byKey.set(key, { ...c, sources: [c.sourceLens], evidence: [c.evidence] });
@@ -856,6 +890,7 @@ function cmdCollect(p) {
     }
     if (!prev.sources.includes(c.sourceLens)) prev.sources.push(c.sourceLens);
     if (!prev.evidence.includes(c.evidence)) prev.evidence.push(c.evidence);
+    if (normalizeClaim(c.claim) !== normalizeClaim(prev.claim)) prev.evidence.push(`claim（${c.sourceLens}）：${c.claim}`);
     if (severityRank(c.severityHint) > severityRank(prev.severityHint)) prev.severityHint = c.severityHint;
     if (c.behaviorImpact) prev.behaviorImpact = true;
     if (!prev.repro && c.repro) prev.repro = c.repro;
@@ -876,6 +911,7 @@ function cmdCollect(p) {
       if (!rangeCache.has(c.file)) rangeCache.set(c.file, addedRanges(run.base, run.head, c.file));
       provenance = inRanges(c.line, rangeCache.get(c.file)) ? 'introduced' : 'pre-existing-candidate';
     }
+    if (c.blastRadius) provenance = 'blast-radius'; // 锚在 diff 外但因果指向本 PR——按须处置面流转（非 recorded）
     out.push({
       id,
       file: c.file,
@@ -888,6 +924,7 @@ function cmdCollect(p) {
       behaviorImpact: c.behaviorImpact,
       repro: c.repro,
       sources: c.sources,
+      blastRadius: c.blastRadius,
       provenanceCandidate: provenance,
     });
     if (out.length >= Number(CFG.limits.maxCandidates || 40)) {
@@ -938,7 +975,7 @@ function cmdCollect(p) {
   });
 
   console.log(`pr-review: collect 完成 ${run.runId}`);
-  console.log(`  候选 ${out.length}（finder 原始 ${candidates.length}，丢弃 ${dropped.length}）`);
+  console.log(`  候选 ${out.length}（finder 原始 ${candidates.length}，丢弃 ${dropped.length}${out.some((c) => c.blastRadius) ? `，其中 blast-radius ${out.filter((c) => c.blastRadius).length}（锚在 diff 外、因果指向本 PR）` : ''}）`);
   console.log(`  verifier 工单 ${verifiers.length}（默认 ${CFG.verifiersPerFinding} 票；Important/security 追加 ${CFG.verifierEscalation || 0} 票）`);
   console.log(`  下一步: 按 tasks.json 并行派发 verifier；子代理返回 JSON，主智能体写入 votes/，然后 verify`);
   return 0;
@@ -1040,7 +1077,9 @@ function consensusOf(c, votes) {
         ? 'pre-existing'
         : c.provenanceCandidate === 'introduced'
           ? 'introduced'
-          : 'unknown';
+          : c.blastRadius
+            ? 'blast-radius' // 票面未判存量且候选标爆炸半径——按须处置面（verify 后 status=open，禁 recorded）
+            : 'unknown';
 
   return {
     ...c,

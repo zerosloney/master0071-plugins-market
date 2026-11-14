@@ -97,12 +97,15 @@ if (runDir) {
       { file: 'src/app.js', line: 1, claim: 'f 返回值从 1 改为 10，调用方未同步', evidence: 'diff 行 1：return 1 → return 10；src/util.js 同批改动但无调用方核对', category: 'correctness', severityHint: 'Important', behaviorImpact: true, repro: 'node -e "assert(f()===1)" 改前过改后挂' },
       { file: 'src/app.js', line: 1, claim: '函数名 f 太短', evidence: '命名偏好', category: 'style', severityHint: 'Nit', behaviorImpact: false },
       { file: 'outside/zzz.js', claim: '越界文件级意见（无行号）——改动面校验应拦下', evidence: '不在 base..head diff 内', category: 'correctness', severityHint: 'Nit', behaviorImpact: false },
+      { file: 'outside/zzz.js', claim: '完全无关的带外意见（claim/evidence 不引用任何 diff 内文件）', evidence: '与 diff 无因果', category: 'correctness', severityHint: 'Nit', behaviorImpact: false },
     ],
   }), 'utf8');
   fs.writeFileSync(path.join(fdir, 'tests.json'), JSON.stringify({
     lens: 'tests',
     findings: [
       { file: 'src/app.js', line: 1, claim: 'f 返回值从 1 改为 10，调用方未同步（与 correctness 镜头同义——应去重合并）', evidence: '同上', category: 'test', severityHint: 'Important', behaviorImpact: true },
+      { file: 'src/app.js', line: 1, claim: '同一行的另一种表述：常量 1 被改成 10 且调用方茫然', evidence: 'src/util.js 与本行同批变更；两镜头撞点应并为一候选', category: 'test', severityHint: 'Nit', behaviorImpact: false },
+      { file: 'untouched/stale-doc.md', line: 3, claim: '本文件未被 PR 触碰，但其第 3 行引用了本 PR 变更的 src/app.js——PR 爆炸半径', evidence: '对 src/app.js 变更的残留引用（diff 内路径因果命中）', category: 'correctness', severityHint: 'Nit', behaviorImpact: false },
     ],
   }), 'utf8');
 }
@@ -111,9 +114,11 @@ check('② collect exit 0', collectR.status === 0, `status=${collectR.status} er
 const candFile = runDir && ['candidates.json', 'findings.candidates.json'].map((f) => path.join(runDir, f)).find((f) => fs.existsSync(f));
 const candidates = candFile ? JSON.parse(fs.readFileSync(candFile, 'utf8')) : null;
 const candList = candidates && (Array.isArray(candidates) ? candidates : candidates.candidates || candidates.findings);
-check('② 去重后候选数 = 2（同义合并 1 条 + 独立 1 条；纯样式丢弃不计）', Array.isArray(candList) && candList.length === 2, `候选=${Array.isArray(candList) ? candList.length : JSON.stringify(candidates).slice(0, 200)}`);
-check('② 纯样式已丢弃（候选中无 category=style）', Array.isArray(candList) && !candList.some((c) => c.category === 'style'), JSON.stringify(candList && candList.map((c) => c.category)));
 const droppedList = candidates && Array.isArray(candidates.dropped) ? candidates.dropped : [];
+check('② 去重后候选数 = 2（同行跨镜头改写并为一候选；纯样式丢弃不计）', Array.isArray(candList) && candList.length === 2, `候选=${Array.isArray(candList) ? candList.length : JSON.stringify(candidates).slice(0, 200)}`);
+check('② 合并候选保留多镜头归属与互异 claim 链', Array.isArray(candList) && candList[0].sources && candList[0].sources.length === 2 && /另一种表述/.test(String(candList[0].evidence)), JSON.stringify(candList && candList[0] && { sources: candList[0].sources, ev: String(candList[0].evidence).slice(0, 120) }));
+check('② blast-radius 入账（锚在 diff 外但引用被删文件）', Array.isArray(candList) && candList.some((c) => c.file === 'untouched/stale-doc.md' && Array.isArray(c.blastRadius) && c.blastRadius.length >= 1), JSON.stringify(candList && candList.map((c) => [c.file, c.blastRadius])));
+check('② 纯样式已丢弃（候选中无 category=style）', Array.isArray(candList) && !candList.some((c) => c.category === 'style'), JSON.stringify(candList && candList.map((c) => c.category)));
 check('② line=0 越界候选被拦（改动面校验不看行号——C-003 回归锁）',
   droppedList.some((x) => x.reason === 'file-not-in-diff' && x.file === 'outside/zzz.js') && !candList.some((c) => c.file === 'outside/zzz.js'),
   JSON.stringify(droppedList));

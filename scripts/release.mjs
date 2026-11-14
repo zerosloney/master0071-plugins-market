@@ -305,3 +305,10 @@ try {
 }
 
 console.log(`\n完成。[${name}] 已发布 v${next}，提交推送后客户端更新插件即拉到新版。`);
+// 触碰面清单（2026-11-14 管线观察：范围门漏列补记单已开 4 次的根因对冲）——
+// plan 改动方案可直接粘贴，声明齐则推送范围门首过。
+console.log(`\n本次 release 触碰面（plan「改动方案」可粘贴声明）：`);
+const touchFace = [...cfg.jsonFiles, ...cfg.markets];
+if (cfg.serverInfo) touchFace.push(cfg.serverInfo);
+for (const f of touchFace) console.log(`- ${f}`);
+console.log('- README.md（根，市场表版本格 writeReadmeEntry）');

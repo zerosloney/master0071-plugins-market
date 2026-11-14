@@ -50,7 +50,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { confirmGateFor, doneGateFor, taskScopeGate, acceptanceEvidenceGate, laneOfDoc, specConfirmed, planConfirmedFor, reviewLineFor, commitmentFingerprint } from './stage-gates.mjs';
-import { suspiciousDeclarations } from './check-scope.mjs';
+import { suspiciousDeclarations, extractDeclared } from './check-scope.mjs';
 import { loadKitPolicy, hasFreshVerifyLine } from './policy.mjs';
 import { groundQuote, resolveFamilyTexts, GROUND_ANCHOR_MIN } from './quote-grounding.mjs';
 
@@ -477,6 +477,30 @@ if (isMain) {
         console.error('   缩写写法（如「.codex/.omp/.zcode 三宿主」）须逐个写全精确路径，否则推送范围门会拦（本份未落账、未写盘）');
         refused++;
         continue;
+      }
+      // release 触碰面 advisory（2026-11-14 管线观察：漏列补记单已开 4 次）：声明面含 plugins/<X>/
+      // 产品件但缺 release.mjs 的版本位触碰面——若本单会升版，推送范围门会拦。仅提醒不拒绝
+      //（版本是否升、何时升是计划内容，不归确认门判定）。
+      const declared = extractDeclared(abs, root);
+      const pluginNames = new Set(declared.filter((d) => d.startsWith('plugins/')).map((d) => d.split('/')[1]));
+      const missingTouch = [];
+      for (const name of pluginNames) {
+        const face = [
+          `plugins/${name}/plugin.json`,
+          `plugins/${name}/.zcode-plugin/plugin.json`,
+          `plugins/${name}/.codex-plugin/plugin.json`,
+          `plugins/${name}/.omp-plugin/plugin.json`,
+          'marketplace.json',
+          '.omp-plugin/marketplace.json',
+          'README.md',
+        ];
+        if (fs.existsSync(path.join(root, 'plugins', name, 'mcp', 'protocol.mjs'))) face.push(`plugins/${name}/mcp/protocol.mjs`);
+        for (const f of face) if (!declared.includes(f)) missingTouch.push(f);
+      }
+      if (missingTouch.length) {
+        console.warn(`⚠️  ${doc}：声明面含插件产品件，但 release.mjs 触碰面未全声明（若本单会升版，推送范围门会拦）：`);
+        for (const f of [...new Set(missingTouch)]) console.warn(`   - ${f}`);
+        console.warn('   release.mjs 运行后打印完整触碰面清单，可粘贴进改动方案（advisory，不阻断确认）');
       }
     }
     // done 前置门（confirm-gate-approved-history）：→done 须 git 历史已留 approved 态

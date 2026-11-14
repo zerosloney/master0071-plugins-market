@@ -1793,5 +1793,31 @@ const intentDoc = (acceptBody) => `---\n状态: approved\n级别: L1\n日期: 20
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+
+// ---- S73 release 触碰面 advisory（2026-11-14 管线观察）：声明面含插件产品件但缺版本位触碰面 → 提醒不阻断 ----
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-release-adv-'));
+  const docP = path.join(root, 'workflow', 'plans');
+  fs.mkdirSync(docP, { recursive: true });
+  fs.mkdirSync(path.join(root, 'workflow', 'intents'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'workflow', 'intents', '2026-11-14-s73.md'), '---\n状态: approved\n级别: L1\n日期: 2026-01-01\n---\n# I（S73 入口夹具）\n', 'utf8');
+  // 夹具声明面：只声明产品件，不声明 release 版本位触碰面（marketplace 等根件在夹具仓不存在也无妨——advisory 按路径名判）
+  fs.writeFileSync(path.join(docP, '2026-11-14-s73.md'), [
+    '---', '状态: draft', '级别: L1', '---', '# P', '',
+    '## 改动方案', '',
+    '- `plugins/systemone-decision/README.md`：版本段', '',
+  ].join('\n'), 'utf8');
+  const r = spawnSync(process.execPath, [CLI, 'workflow/plans/2026-11-14-s73.md', '--delegated', 'S73 advisory 应提醒不阻断'], { cwd: root, encoding: 'utf8' });
+  const all = String(r.stderr) + String(r.stdout);
+  check('S73 触碰面 advisory 打出（列 marketplace.json 等未声明件）',
+    r.status === 0 && /release\.mjs 触碰面未全声明/.test(all) && /marketplace\.json/.test(all),
+    JSON.stringify({ s: r.status, e: String(r.stderr).slice(0, 400) }));
+  check('S73b advisory 不阻断确认（approved 落账）',
+    fs.readFileSync(path.join(docP, '2026-11-14-s73.md'), 'utf8').includes('状态: approved')
+      && readLedgerOf(root).some((j) => j.doc === 'workflow/plans/2026-11-14-s73.md'),
+    '');
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

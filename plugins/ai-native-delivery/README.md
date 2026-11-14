@@ -306,6 +306,11 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.8**
+
+管线观察改进（三连跑 48 条 finding 的实证缺口三修）：①**去重簇聚**——collect 去重键改 file|rootCause|行号（原含 claim 归一，跨镜头改写抓不住：systemone 7 对、pstack 4 条同点重复全进候选白耗验证票）；同点合并保留多镜头 sources + 互异 claim 并进 evidence 链（信息零丢失）。②**blast-radius 带外锚政策**——锚文件不在 diff 但 claim/evidence 引用 diff 内路径（含本 PR 删除文件）的 finding 不再被 file-not-in-diff 丢弃（两轮共丢 15 条含 3 条 Important：如「PR 删 risk-gate 后未触碰文件里的过期注释」），入账标 blastRadius、provenance=blast-radius——处置面与 introduced 同（须修或豁免，禁 recorded）。③**release 触碰面对冲**——release.mjs 运行后打印可粘贴触碰面清单（漏列补记单已开 4 次的根因）；confirm-doc 声明形态门加 advisory（声明面含插件产品件但缺版本位触碰面 → 提醒不阻断）。测试：pr-review +3（簇聚合并/blast-radius 入账/无因果仍拦）、confirm-doc +2（S73 advisory 打出且不阻断）。acceptance 132/0。
+
+
 **0.3.7**
 
 面板评审带出两修（pr-review 对 pstack 0.1.25 弧范围命中本插件两文件）：①verify.mjs M10 桩越界判据加路径分隔符边界——插件目录名的兄弟前缀项目不再被误判为插件内（envSkips 如实记 stub、凭证锚资格不再虚高）②pretool-risk.mjs SAFE_FORCE 中和收窄为仅内置地板规则——项目侧点名 `--force-with-lease`/`--force-if-includes` 的 deny/ask 规则恢复生效（豁免不再覆盖用户清单），hook.test ⑱ 块加两条回归断言（点名即拦/未点名照放）。hook 160/0 全绿。
