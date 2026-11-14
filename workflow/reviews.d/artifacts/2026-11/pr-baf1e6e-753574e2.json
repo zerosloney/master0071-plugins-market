@@ -1,0 +1,1330 @@
+{
+  "schema": "pr-review/artifact@1",
+  "run": {
+    "schema": "pr-review/run@1",
+    "runId": "pr-baf1e6e-753574e2",
+    "base": "46f1468f22d007d92852544e20b5d8ce363b69b5",
+    "head": "baf1e6e46be260df613ccacbcde785f782c109fb",
+    "baseRef": "46f1468",
+    "headRef": "baf1e6e",
+    "diffHash": "753574e2e89d55d7154b34b5482926e804cac58d6671251fd8dcb82fa268efdb",
+    "promptVersion": "pr-review/v1",
+    "createdAt": "2026-11-14T05:36:20.796Z",
+    "files": [
+      {
+        "path": ".omp-plugin/marketplace.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "README.md",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "marketplace.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/README.md",
+        "status": "M",
+        "added": 15,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/mcp/core.mjs",
+        "status": "M",
+        "added": 95,
+        "deleted": 21
+      },
+      {
+        "path": "plugins/worktree-ops/mcp/protocol.mjs",
+        "status": "M",
+        "added": 35,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/worktree-ops/mcp/server.mjs",
+        "status": "M",
+        "added": 7,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/worktree-ops/mcp/tools.mjs",
+        "status": "M",
+        "added": 16,
+        "deleted": 7
+      },
+      {
+        "path": "plugins/worktree-ops/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+        "status": "M",
+        "added": 5,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/worktree-ops/test/config.mjs",
+        "status": "A",
+        "added": 203,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/worktree-ops/test/lock.mjs",
+        "status": "M",
+        "added": 190,
+        "deleted": 8
+      },
+      {
+        "path": "plugins/worktree-ops/test/protocol.mjs",
+        "status": "A",
+        "added": 177,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/worktree-ops/test/smoke.mjs",
+        "status": "M",
+        "added": 71,
+        "deleted": 1
+      }
+    ],
+    "lenses": [
+      {
+        "id": "correctness",
+        "focus": "逻辑、边界、错误路径、状态转换、并发交错、异常吞噬",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "security",
+        "focus": "信任边界、注入、鉴权、越权、敏感数据、输入解析",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "performance",
+        "focus": "查询/循环/渲染/内存/并发资源、N+1、无界集合",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "tests",
+        "focus": "行为断言、边界覆盖、测试是否会在实现全返回 undefined 时仍通过",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "spec",
+        "focus": "对照 spec/契约面的验收标准与承诺是否真正落地",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "data-integrity",
+        "focus": "数据丢失、事务边界、幂等、并发写、迁移可逆、审计字段、删除引用检查",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "quality",
+        "focus": "死代码、重复、抽象层数、可维护性（纯样式直接丢弃）",
+        "files": [
+          ".omp-plugin/marketplace.json",
+          "README.md",
+          "marketplace.json",
+          "plugins/worktree-ops/.codex-plugin/plugin.json",
+          "plugins/worktree-ops/.omp-plugin/plugin.json",
+          "plugins/worktree-ops/.zcode-plugin/plugin.json",
+          "plugins/worktree-ops/README.md",
+          "plugins/worktree-ops/mcp/core.mjs",
+          "plugins/worktree-ops/mcp/protocol.mjs",
+          "plugins/worktree-ops/mcp/server.mjs",
+          "plugins/worktree-ops/mcp/tools.mjs",
+          "plugins/worktree-ops/plugin.json",
+          "plugins/worktree-ops/skills/worktree-manager/SKILL.md",
+          "plugins/worktree-ops/test/config.mjs",
+          "plugins/worktree-ops/test/lock.mjs",
+          "plugins/worktree-ops/test/protocol.mjs",
+          "plugins/worktree-ops/test/smoke.mjs"
+        ],
+        "truncated": false
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 15,
+    "confirmed": 15,
+    "rejected": 0,
+    "escalated": 0,
+    "unverified": 0,
+    "important": 2,
+    "nit": 13,
+    "preExisting": 4,
+    "styleDropped": 0
+  },
+  "findings": [
+    {
+      "id": "C-001",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 309,
+      "claim": "saveConfig 写路径对空串 baseRef 不做规范化（缺少 branchPrefix 同款的 !== \"\" 守卫），手编 config.json 里的 baseRef:\"\" 会在任意一次配置写盘后原样写回磁盘——0.4.16 宣称的「与 branchPrefix 空串同待遇、不落盘」只在读路径兑现，写路径未兑现",
+      "evidence": "core.mjs:309 baseRef: typeof disk.baseRef === \"string\" ? disk.baseRef : DEFAULT_CONFIG.baseRef 无空串分支；对照 :310-313 branchPrefix 有 && disk.branchPrefix !== \"\" 归一。saveConfig 经 readConfigFile 读原始 parsed JSON（loadConfig 的 delete 只作用内存副本），磁盘脏值无限期存续且每次 get 重复上报同一 issue；生效值仍正确回退 auto，无错误结果\n---\nsaveConfig body 构造中 baseRef 只判 typeof（:309 空串通过），branchPrefix 额外判 !== \"\"（:310-313 归一）。读路径守卫（loadConfig/normalizeRepoOverride）delete 空串并报 issue，但 saveConfig 读磁盘原文不走 loadConfig 清洗；round-trip 循环对已知键不生效（hasOwnProperty 跳过）。结果：手写 baseRef:\"\" 写盘后依旧保留，此后每次 get 重复报 issue；等价 branchPrefix:\"\" 首次写盘即归一。test/config.mjs 只覆盖读路径\n---\nclaim（spec）：changelog 宣称 baseRef:\"\" 与 branchPrefix:\"\"「同待遇——上报 issue、不落盘」，但只做到读路径同待遇；saveConfig 写盘路径对两者待遇不同：branchPrefix 空串归一默认值，baseRef 空串原样写回磁盘",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "baseref-empty-write-path-asymmetry",
+      "behaviorImpact": false,
+      "repro": "config.json 手写 baseRef:\"\" + branchPrefix:\"\" → worktree_config set staleDays:7 落盘后读文件：branchPrefix 归一为 wt/，baseRef 仍为 \"\"；后续 get 持续报 issue",
+      "sources": [
+        "correctness",
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Important",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-001",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "saveConfig :309 只判 typeof（空串通过）vs :310-313 branchPrefix 有 !==\"\" 归一；三票各自沙箱实测：baseRef:\"\" 落盘原样存续、branchPrefix 归一 wt/；changelog「同待遇不落盘」写路径未兑现；baf1e6e..HEAD 对本插件零改动——当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "沙箱 WORKTREE_CONFIG_HOME 实测（v2/v3）+ 静态链（v1）",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "saveConfig :309 只判 typeof（空串通过）vs :310-313 branchPrefix 有 !==\"\" 归一；三票各自沙箱实测：baseRef:\"\" 落盘原样存续、branchPrefix 归一 wt/；changelog「同待遇不落盘」写路径未兑现；baf1e6e..HEAD 对本插件零改动——当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "沙箱 WORKTREE_CONFIG_HOME 实测（v2/v3）+ 静态链（v1）",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "saveConfig :309 只判 typeof（空串通过）vs :310-313 branchPrefix 有 !==\"\" 归一；三票各自沙箱实测：baseRef:\"\" 落盘原样存续、branchPrefix 归一 wt/；changelog「同待遇不落盘」写路径未兑现；baf1e6e..HEAD 对本插件零改动——当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "沙箱 WORKTREE_CONFIG_HOME 实测（v2/v3）+ 静态链（v1）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:17.864Z"
+      }
+    },
+    {
+      "id": "C-002",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 326,
+      "claim": "saveConfig 未知顶层键 round-trip 对字面键名 \"__proto__\" 失效：body[key]=value 赋值走原型 setter，该键被静默丢弃（不写入文件）且 body 原型被磁盘对象替换——破坏本次修复「未知顶层键原样保留」的承诺",
+      "evidence": "JSON.parse 把 __proto__ 建为自有可枚举属性（Object.entries 含它），但普通对象上 body[\"__proto__\"]=obj 触发原型 setter 而非自有键赋值；本机 node 实测：合并后 getOwnPropertyNames 无 __proto__、JSON.stringify 丢该键、getPrototypeOf(body).x===1（原型被换）。影响局部：后续均自有键读写，无全局污染",
+      "category": "data-integrity",
+      "severityHint": "Nit",
+      "rootCause": "proto-key-roundtrip-silent-drop",
+      "behaviorImpact": false,
+      "repro": "node -e 循环合并实测：自有键列表无 __proto__，stringify 丢键，原型 .x 可读",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-002",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":326-328 动态 body[key]=value；三票独立 node 实测：__proto__ 走原型 setter、getOwnPropertyNames 丢键、stringify 丢键、getPrototypeOf 换注入对象；违背同函数注释「未知键原样保留」；影响局部无全局污染",
+          "counterEvidence": "",
+          "repro": "node -e 三票各实测",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":326-328 动态 body[key]=value；三票独立 node 实测：__proto__ 走原型 setter、getOwnPropertyNames 丢键、stringify 丢键、getPrototypeOf 换注入对象；违背同函数注释「未知键原样保留」；影响局部无全局污染",
+          "counterEvidence": "",
+          "repro": "node -e 三票各实测",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":326-328 动态 body[key]=value；三票独立 node 实测：__proto__ 走原型 setter、getOwnPropertyNames 丢键、stringify 丢键、getPrototypeOf 换注入对象；违背同函数注释「未知键原样保留」；影响局部无全局污染",
+          "counterEvidence": "",
+          "repro": "node -e 三票各实测",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:18.162Z"
+      }
+    },
+    {
+      "id": "C-003",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 352,
+      "claim": "写盘前锁归属校验与 config renameSync 之间仍存在接管竞态窗口：并发接管中换主若落在本进程校验之后，两进程都通过校验并先后落盘，先写者改动被静默覆盖且双方均报成功——changelog「输掉接管竞态的一方中止保存」只覆盖校验前换主的交错",
+      "evidence": "校验仅执行一次且早于 tmp 写盘与 renameSync；交错反例：P1 rename→P1 校验过→P2 rename→P2 校验过→P1 落盘→P2 落盘（body 快照不含 P1 改动）→P1 改动丢失，两调用都返回成功。窗口毫秒级，需两进程并发接管同一把陈旧锁，概率低",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "config-lock-ownership-check-window",
+      "behaviorImpact": false,
+      "repro": "静态交错推演（多进程注入点缺位，test/lock.mjs 单进程 monkeypatch 只覆盖校验前换主分支）",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-003",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归属校验单次且早于 tmp 写盘与 rename；交错 P1 接管→校验过→P2 接管→校验过→双落盘→先写者静默丢、双成功；窗口毫秒级+需两进程并发接管同一 >30s 陈旧锁，概率极低；注释自认「压到最小」而非消除",
+          "counterEvidence": "",
+          "repro": "静态交错推演（三票同构；多进程注入点缺位）",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归属校验单次且早于 tmp 写盘与 rename；交错 P1 接管→校验过→P2 接管→校验过→双落盘→先写者静默丢、双成功；窗口毫秒级+需两进程并发接管同一 >30s 陈旧锁，概率极低；注释自认「压到最小」而非消除",
+          "counterEvidence": "",
+          "repro": "静态交错推演（三票同构；多进程注入点缺位）",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "归属校验单次且早于 tmp 写盘与 rename；交错 P1 接管→校验过→P2 接管→校验过→双落盘→先写者静默丢、双成功；窗口毫秒级+需两进程并发接管同一 >30s 陈旧锁，概率极低；注释自认「压到最小」而非消除",
+          "counterEvidence": "",
+          "repro": "静态交错推演（三票同构；多进程注入点缺位）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:18.475Z"
+      }
+    },
+    {
+      "id": "C-004",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 45,
+      "claim": "Relative WORKTREE_CONFIG_HOME is now silently ignored, so setups that wrote config under the old relative-path behavior are silently abandoned on upgrade: reads and writes move to the default location with no issue reported anywhere",
+      "evidence": "configDir() drops the override without any issue channel（loadConfig.issues 从不知情）。对照同文件：config.json 里相对 root 会产 issue（'root: expected an absolute path'），envOverrides 的 WORKTREE_ROOT 守卫有同款静默忽略先例。升级后 configSummary 打印默认路径若无其事；后续 set 在默认位新写 config.json，旧 cwd 相对路径的存量配置被孤儿化（文件还在但永不读）。changelog 记了新规则但没记存量配置的静默弃置",
+      "category": "data-integrity",
+      "severityHint": "Nit",
+      "rootCause": "config-home-relative-silent-ignore",
+      "behaviorImpact": true,
+      "repro": "WORKTREE_CONFIG_HOME=rel-home → configDir() 打印默认位、无 issue；升级前 <cwd>/rel-home/config.json 永不再读",
+      "sources": [
+        "data-integrity"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-004",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "configDir() :45 相对 override 静默落空回默认位，无 issue 通道（loadConfig.issues 只源于文件内容）；存量相对路径配置孤儿化零提示；changelog 记新规则未记弃置",
+          "counterEvidence": "",
+          "repro": "env 实测回退默认位 + issues 为空",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "configDir() :45 相对 override 静默落空回默认位，无 issue 通道（loadConfig.issues 只源于文件内容）；存量相对路径配置孤儿化零提示；changelog 记新规则未记弃置",
+          "counterEvidence": "",
+          "repro": "env 实测回退默认位 + issues 为空",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "configDir() :45 相对 override 静默落空回默认位，无 issue 通道（loadConfig.issues 只源于文件内容）；存量相对路径配置孤儿化零提示；changelog 记新规则未记弃置",
+          "counterEvidence": "",
+          "repro": "env 实测回退默认位 + issues 为空",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:18.781Z"
+      }
+    },
+    {
+      "id": "C-005",
+      "file": "plugins/worktree-ops/mcp/tools.mjs",
+      "line": 582,
+      "claim": "The new !entry.prunable carve-out in the ahead gate rests on a falsified premise: prunable does not imply the directory is gone, and in the directory-present prunable state the tool passes ALL no-discard gates (clean=null+prunable, gitignored gate blind at ignoredCount=0, ahead=null+prunable) before delegating the entire safety to git's own refusal",
+      "evidence": "tools.mjs:578-581 注释称「prunable 登记的目录早已不存在…磁盘上已无任何文件可删」。复现证伪：删 <wt>/.git 但目录仍在（含未跟踪+gitignored 文件）→ worktree list --porcelain 报 prunable 且目录在场。该态 statusOf 返回 clean:null/ignoredFiles:[] → gitignored 门（:553-561）见 0 盲、clean 门过（prunable）、:582 过（prunable）→ 无 --force 直跑 git worktree remove。无数据丢失只因 git 自身拒绝（validation failed exit 128，实测；--force 仍拒、文件保留）——「无法证明即拒绝」的意图由 git 的顺带兜底而非本门承载，且错误前提写进了守卫注释",
+      "category": "data-integrity",
+      "severityHint": "Nit",
+      "rootCause": "prunable-premise-directory-gone",
+      "behaviorImpact": false,
+      "repro": "mktemp git 仓 + worktree add → wt 写未跟踪文件 → rm wt/.git + update-ref -d → porcelain 报 prunable 且目录在场含文件；git worktree remove 拒（文件保留）——工具路径以裸 git 错误到达，未提示未跟踪文件从未盘点",
+      "sources": [
+        "data-integrity"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-005",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票各自沙箱实测证伪前提：删 wt/.git 留目录 → porcelain 报 prunable 且目录在场含文件；该态三门全过（clean:null+prunable/ignoredCount:0 盲/ahead:null+prunable）→ 无 force 裸 remove → git 拒（exit 128 实测，文件保留）；:578-581 注释前提为假，安全由 git 顺带兜底",
+          "counterEvidence": "",
+          "repro": "git 沙箱实测（三票独立）",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票各自沙箱实测证伪前提：删 wt/.git 留目录 → porcelain 报 prunable 且目录在场含文件；该态三门全过（clean:null+prunable/ignoredCount:0 盲/ahead:null+prunable）→ 无 force 裸 remove → git 拒（exit 128 实测，文件保留）；:578-581 注释前提为假，安全由 git 顺带兜底",
+          "counterEvidence": "",
+          "repro": "git 沙箱实测（三票独立）",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票各自沙箱实测证伪前提：删 wt/.git 留目录 → porcelain 报 prunable 且目录在场含文件；该态三门全过（clean:null+prunable/ignoredCount:0 盲/ahead:null+prunable）→ 无 force 裸 remove → git 拒（exit 128 实测，文件保留）；:578-581 注释前提为假，安全由 git 顺带兜底",
+          "counterEvidence": "",
+          "repro": "git 沙箱实测（三票独立）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:19.095Z"
+      }
+    },
+    {
+      "id": "C-006",
+      "file": "plugins/worktree-ops/test/lock.mjs",
+      "line": 252,
+      "claim": "新增的「锁 fd 泄漏」测试段每次运行真实等满 acquireConfigLock 的 2s 死限，test/lock.mjs 纯等待时间从约 2s 翻倍到约 4s",
+      "evidence": "diff 新增 L223-279：fs.writeSync 恒抛 EEXIST，acquireConfigLock（deadline=Date.now()+2000 硬编码）走退避循环直到 2s 死限；L272 断言 writeFailWaited >= 2000 固化成本。base 已有一段等满死限用例，本次翻倍。可避免：同文件已有 monkeypatch 前例（readFileSync/openSync/writeSync），Date.now 同可打桩，或给 acquireConfigLock 注入 deadline 参数短路",
+      "category": "performance",
+      "severityHint": "Nit",
+      "rootCause": "lock-test-full-deadline-wait",
+      "behaviorImpact": false,
+      "repro": "node test/lock.mjs wall time ≥4s（两段各 ≥2s）；失败 detail 打印 writeFailWaited 毫秒数",
+      "sources": [
+        "performance"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-006",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "fd 泄漏段 writeSync 恒抛 EEXIST → 退避循环等满 2s 死限；:241 断言 >=2000 固化；实测 wall time 4.2-4.4s（v1/v3 计时）；同文件有 monkeypatch 前例可短路",
+          "counterEvidence": "",
+          "repro": "实测计时 4243ms/4308ms/4382ms",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "fd 泄漏段 writeSync 恒抛 EEXIST → 退避循环等满 2s 死限；:241 断言 >=2000 固化；实测 wall time 4.2-4.4s（v1/v3 计时）；同文件有 monkeypatch 前例可短路",
+          "counterEvidence": "",
+          "repro": "实测计时 4243ms/4308ms/4382ms",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "fd 泄漏段 writeSync 恒抛 EEXIST → 退避循环等满 2s 死限；:241 断言 >=2000 固化；实测 wall time 4.2-4.4s（v1/v3 计时）；同文件有 monkeypatch 前例可短路",
+          "counterEvidence": "",
+          "repro": "实测计时 4243ms/4308ms/4382ms",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:19.423Z"
+      }
+    },
+    {
+      "id": "C-007",
+      "file": "plugins/worktree-ops/README.md",
+      "line": 91,
+      "claim": "0.4.16 变更记录宣称「16 修 / 3 评估后不修」，但 3 项不修决定在仓库任何持久产物（README/SKILL/代码注释/测试）中均未点名，唯一清单只存在于 git 提交信息里，且提交信息写明「理由见会话记录」（非持久）",
+      "evidence": "head 提交枚举 3 项：UNC \\\\?\\ 剥离（实测 no-op）、git 超时孙进程级联杀（需 Job Objects）、Node 版本自检顺序（ESM import 提升）；插件目录 grep 'UNC|Job Object|评估|不修|遗留' 于 mcp/test/README/SKILL 仅命中 README:91 计数本身。对照：已修复项反而留有追踪标记（tools.mjs:240 与 smoke.mjs:1586「审查 M-B」）。后果：后续审查会把已评估局限重新当新缺陷上报，或不知情下「修复」已权衡放弃的行为",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "unfixed-items-no-durable-trace",
+      "behaviorImpact": false,
+      "repro": "grep -rnE 'UNC|Job Object|评估|不修|遗留' mcp/ test/ README.md skills/ ——除 README:91 外零命中",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-007",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票 grep 全插件：除 README:91 计数外零内容命中；三项不修唯一清单在提交信息且「理由见会话记录」；已修项反而留「审查 M-B」标记——不对称",
+          "counterEvidence": "",
+          "repro": "git grep + git log -1 %B",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票 grep 全插件：除 README:91 计数外零内容命中；三项不修唯一清单在提交信息且「理由见会话记录」；已修项反而留「审查 M-B」标记——不对称",
+          "counterEvidence": "",
+          "repro": "git grep + git log -1 %B",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "三票 grep 全插件：除 README:91 计数外零内容命中；三项不修唯一清单在提交信息且「理由见会话记录」；已修项反而留「审查 M-B」标记——不对称",
+          "counterEvidence": "",
+          "repro": "git grep + git log -1 %B",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:19.749Z"
+      }
+    },
+    {
+      "id": "C-008",
+      "file": "plugins/worktree-ops/mcp/tools.mjs",
+      "line": 937,
+      "claim": "协议层新增 enum 校验（protocol.mjs:142-145）使 worktree_config 工具侧的 action/scope 拒绝分支（tools.mjs:937-939、943-945）在生产调用路径上成为死代码，同一约束留下两套需人工保持一致的拒绝文案",
+      "evidence": "protocol.mjs 在 handler 前依次 unknown-key/类型/enum 拒绝（仅空串按未传放行），handler 收到的 action ∈ {undefined,\"\",get,set}、scope ∈ {undefined,\"\",global,repo}——tools.mjs:937-939/:943-945 不可达。protocol.mjs:138-140 注释显式把新文案与工具侧文案耦合（「与工具侧文案衔接」）——两个消息集必须同步演化；与 slug() 处「源头拒绝不靠下游兜底」自述纪律相悖",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "protocol-enum-gate-orphans-tool-fallback",
+      "behaviorImpact": false,
+      "repro": "stdio JSON-RPC 调 worktree_config {action:'bogus'} → protocol badEnums 层即拒（protocol.mjs 测试已钉），工具侧分支无从到达",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-008",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "protocol badEnums 先拒（仅空串放行）→ handler 收到的 action/scope 恒合法∪{undefined,\"\"}；tools :937-939/:943-945 生产不可达；protocol 注释显式耦合两套文案——与 slug()「源头拒绝」纪律相悖",
+          "counterEvidence": "",
+          "repro": "静态调用链（三票）+ stdio bogus 实测（v2）",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "protocol badEnums 先拒（仅空串放行）→ handler 收到的 action/scope 恒合法∪{undefined,\"\"}；tools :937-939/:943-945 生产不可达；protocol 注释显式耦合两套文案——与 slug()「源头拒绝」纪律相悖",
+          "counterEvidence": "",
+          "repro": "静态调用链（三票）+ stdio bogus 实测（v2）",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "protocol badEnums 先拒（仅空串放行）→ handler 收到的 action/scope 恒合法∪{undefined,\"\"}；tools :937-939/:943-945 生产不可达；protocol 注释显式耦合两套文案——与 slug()「源头拒绝」纪律相悖",
+          "counterEvidence": "",
+          "repro": "静态调用链（三票）+ stdio bogus 实测（v2）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:20.179Z"
+      }
+    },
+    {
+      "id": "C-009",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 963,
+      "claim": "git log 输出的 tab 分隔解析存在两份手工实现（单条 lastCommit:963-977、批量 lastCommits:1044-1074），本 PR 对单条版的 tab 截断修复正是该重复已产生过一次真实缺陷的证据，修复以复制批量版写法收尾并把同步只系于注释",
+      "evidence": "lastCommit 用 %h%x09%an%x09%cI%x09%s + split(\"\\t\") 解构；lastCommits 用多一 %H 字段的近似 format + 同构解构；仅靠 :966-967 注释耦合。lastCommits 批量失败回退（:1052-1058）逐条调 lastCommit——两份解析器必须同形（sha/author/date/subject/ageDays）。漂移已发生：base 单条版截断含 tab 的 subject 而批量版不会（README 0.4.16 自述）。改 format 需两处协同，漏一处即静默口径分裂",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "git-log-parse-duplicated",
+      "behaviorImpact": false,
+      "repro": "grep 两个 format 各自维护；:1055 回退路径要求两者同构",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-009",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":964/:1049 两份 format+解构仅靠注释耦合；:1052-1058 回退要求同构；漂移已发生一次（base 单条版截断 tab subject）；base 已有双份——pre-existing",
+          "counterEvidence": "",
+          "repro": "grep 两 format + 回退链",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":964/:1049 两份 format+解构仅靠注释耦合；:1052-1058 回退要求同构；漂移已发生一次（base 单条版截断 tab subject）；base 已有双份——pre-existing",
+          "counterEvidence": "",
+          "repro": "grep 两 format + 回退链",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":964/:1049 两份 format+解构仅靠注释耦合；:1052-1058 回退要求同构；漂移已发生一次（base 单条版截断 tab subject）；base 已有双份——pre-existing",
+          "counterEvidence": "",
+          "repro": "grep 两 format + 回退链",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:20.644Z"
+      }
+    },
+    {
+      "id": "C-010",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 297,
+      "claim": "saveConfig 本轮新增的 const lockPath = `${file}.lock` 与 acquireConfigLock 内部同名推导（:212）重复编码锁文件命名约定，新增的写盘前归属校验（:352）静默依赖两处推导同一路径，而 acquireConfigLock 契约只返回 release 闭包不带锁路径",
+      "evidence": "acquireConfigLock 自拼 ${file}.lock 只返回 release；saveConfig 为归属校验按同一约定第二次拼。test/lock.mjs:33 还有第三份硬编码。任一处改命名 → saveConfig 读不存在的锁 → lockOwner 恒 null → 每次保存恒抛 'lost the config lock (missing)'——失败是 fail-closed 但完全误导排障方向；更稳契约：acquireConfigLock 返回 { release, lockPath }",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "lock-path-duplicated-derivation",
+      "behaviorImpact": false,
+      "repro": "grep 'const lockPath = ' mcp/core.mjs → :212 与 :297 两处独立推导；:352 readFileSync(lockPath) 依赖一致",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-010",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":212/:297 两处独立拼 ${file}.lock（+test :33 第三份）；:352 校验静默依赖同路；漂移→恒抛 lost the config lock (missing)——fail-closed 但误导排障；更稳契约 {release, lockPath}",
+          "counterEvidence": "",
+          "repro": "grep 双推导 + 反证推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":212/:297 两处独立拼 ${file}.lock（+test :33 第三份）；:352 校验静默依赖同路；漂移→恒抛 lost the config lock (missing)——fail-closed 但误导排障；更稳契约 {release, lockPath}",
+          "counterEvidence": "",
+          "repro": "grep 双推导 + 反证推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": ":212/:297 两处独立拼 ${file}.lock（+test :33 第三份）；:352 校验静默依赖同路；漂移→恒抛 lost the config lock (missing)——fail-closed 但误导排障；更稳契约 {release, lockPath}",
+          "counterEvidence": "",
+          "repro": "grep 双推导 + 反证推演",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:21.233Z"
+      }
+    },
+    {
+      "id": "C-011",
+      "file": "plugins/worktree-ops/mcp/core.mjs",
+      "line": 327,
+      "claim": "saveConfig 的未知顶层键 round-trip 用动态 body[key]=value 写入，键名为 __proto__ 时触发原型 setter：键被静默丢弃（违背「未知顶层键原样保留」契约），且磁盘 JSON 控制的对象被安装为 body 的原型（原型污染模式，影响局部）",
+      "evidence": "core.mjs:326-328 循环赋值；JSON.parse 以 CreateDataProperty 建 __proto__ 自有属性、Object.entries 枚举它；hasOwnProperty.call(body,\"__proto__\") 为 false → 赋值走 Object.prototype setter：对象值换原型、原始值静默 no-op，随后 JSON.stringify（只序列化自有可枚举）丢键——正是本 diff 注释声称已修的「无提示消失」。影响限于 body 实例（后续只做自有属性读写），无全局污染",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "save-config-roundtrip-proto-key",
+      "behaviorImpact": true,
+      "repro": "config.json 手写含 __proto__ 键 → 任一 saveConfig → 重读文件键消失且无 issue 提示；单进程断言原型被换（getPrototypeOf(body) === 注入对象）",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-011",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "（:327 相邻行第二锚）与 C-002 同缺陷独立复核：原型 setter、丢键、无 issue——同 diff 注释承诺对该键失效；影响局部",
+          "counterEvidence": "",
+          "repro": "node 实测 + 沙箱端到端（键消失无提示）",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "（:327 相邻行第二锚）与 C-002 同缺陷独立复核：原型 setter、丢键、无 issue——同 diff 注释承诺对该键失效；影响局部",
+          "counterEvidence": "",
+          "repro": "node 实测 + 沙箱端到端（键消失无提示）",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "（:327 相邻行第二锚）与 C-002 同缺陷独立复核：原型 setter、丢键、无 issue——同 diff 注释承诺对该键失效；影响局部",
+          "counterEvidence": "",
+          "repro": "node 实测 + 沙箱端到端（键消失无提示）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:21.831Z"
+      }
+    },
+    {
+      "id": "C-012",
+      "file": "plugins/worktree-ops/README.md",
+      "line": 40,
+      "claim": "本次 PR 给 worktree_remove 增加了「prunable 且 HEAD 不可达无需 force 即可清除」的豁免（tools.mjs:582），但工具契约表的 worktree_remove 行未同步，仍无条件宣称「脏/未合并拒绝（需 force: true 且 confirmDiscard: true 双标志才越过）」",
+      "evidence": "同 changelog 明确记录该行为变化（README.md:89 起『prunable 且 HEAD 不可达的登记，remove 无需 force 即可清除』），smoke 新用例断言无标志删除成功（prunable-dead-head → Removed worktree + already gone (prunable)，实跑通过）；同表 worktree_lock 行在同一 PR 补了主检出拒绝（:41），remove 行保持旧口径——该场景下双标志承诺为假",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "readme-remove-row-stale-prunable-exception",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-012",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README :40 契约表 remove 行无条件双标志承诺 vs :91 changelog 同文件自记豁免 + smoke 断言无标志删除成功；同 PR 给 lock 行补了口径、漏 remove 行",
+          "counterEvidence": "",
+          "repro": "sed 对照 + smoke 实跑",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README :40 契约表 remove 行无条件双标志承诺 vs :91 changelog 同文件自记豁免 + smoke 断言无标志删除成功；同 PR 给 lock 行补了口径、漏 remove 行",
+          "counterEvidence": "",
+          "repro": "sed 对照 + smoke 实跑",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README :40 契约表 remove 行无条件双标志承诺 vs :91 changelog 同文件自记豁免 + smoke 断言无标志删除成功；同 PR 给 lock 行补了口径、漏 remove 行",
+          "counterEvidence": "",
+          "repro": "sed 对照 + smoke 实跑",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:22.620Z"
+      }
+    },
+    {
+      "id": "C-013",
+      "file": ".github/workflows/ci.yml",
+      "line": 61,
+      "claim": "本 PR 新增的两个白盒测试套件 test/config.mjs 与 test/protocol.mjs 未接入 CI：head 处 worktree-ops 步骤仍只跑八个旧套件，16 项 Minor 修复中 9 项的唯一回归守护在 CI 里从不执行，任一项被回退 CI 仍全绿",
+      "evidence": "git show baf1e6e:.github/workflows/ci.yml 行 61-68 恰列 8 套件、无 config.mjs/protocol.mjs；diff 的 17 文件里也没有 ci.yml。config.mjs 独占锁定：baseRef 空串同待遇（三层+对照）、未知键 round-trip、CONFIG_HOME 相对回退、slug 保留设备名、lastCommit tab 截断；protocol.mjs 独占锁定：enum 协议层拒绝、type:array 语义、无 id ping 不回包、unknown tool 回 -32602。README quickstart 也只写 smoke.mjs；manifest-lint 只校验「CI 引用已入库」方向，不反查新测试。两套件本地实测均通过（守护已写好但门禁看不到）",
+      "category": "test",
+      "severityHint": "Important",
+      "rootCause": "new-tests-not-wired-to-ci",
+      "behaviorImpact": false,
+      "repro": "git show baf1e6e:.github/workflows/ci.yml | grep -n worktree-ops/test → 8 行无 config/protocol；回退 enum 守卫或 CONFIG_HOME isAbsolute 守卫后跑 CI 八套件全绿",
+      "sources": [
+        "tests"
+      ],
+      "blastRadius": [
+        "plugins/worktree-ops/mcp/protocol.mjs",
+        "plugins/worktree-ops/test/config.mjs",
+        "plugins/worktree-ops/test/protocol.mjs",
+        "plugins/worktree-ops/test/smoke.mjs"
+      ],
+      "provenanceCandidate": "blast-radius",
+      "severity": "Important",
+      "provenance": "blast-radius",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-013",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml worktree-ops 段恰 8 套件无 config/protocol（17 文件不含 ci.yml）；config.mjs 独占 5 项守护、protocol.mjs 独占 4 项——约 9/16 修复的唯一回归守护 CI 从不执行；当前 HEAD 仍 8 套件（后续改动未触及本段）；先例（71f525b）同类定 Important",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep + 当前 HEAD 对照 + 回退推演全绿",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml worktree-ops 段恰 8 套件无 config/protocol（17 文件不含 ci.yml）；config.mjs 独占 5 项守护、protocol.mjs 独占 4 项——约 9/16 修复的唯一回归守护 CI 从不执行；当前 HEAD 仍 8 套件（后续改动未触及本段）；先例（71f525b）同类定 Important",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep + 当前 HEAD 对照 + 回退推演全绿",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml worktree-ops 段恰 8 套件无 config/protocol（17 文件不含 ci.yml）；config.mjs 独占 5 项守护、protocol.mjs 独占 4 项——约 9/16 修复的唯一回归守护 CI 从不执行；当前 HEAD 仍 8 套件（后续改动未触及本段）；先例（71f525b）同类定 Important",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep + 当前 HEAD 对照 + 回退推演全绿",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "03bc48ea2a683da38a40668f2859e8d1f608e8f0",
+        "note": "0.4.17 面板评审收口",
+        "at": "2026-11-14T06:41:23.249Z"
+      }
+    },
+    {
+      "id": "C-014",
+      "file": "plugins/worktree-ops/test/smoke.mjs",
+      "line": 764,
+      "claim": "README 0.4.16 宣称的修复「merge_back 计划行的『合并状态未知』显示 ? 而不是写死 no」没有回归断言锁住：两条 pdPlan 断言在旧实现下原样通过，回退 tools.mjs:745 三元表达式全套仍绿",
+      "evidence": "smoke.mjs:759 断言 ahead 的 ?? \"?\"（base 即有行为）；:764 断言 already merged: (yes|no)——旧代码 null 恒渲染 no 同样匹配。测试注释自认 null 通道在本机 git 2.53 下 e2e 不可达（porcelain 全零 sha、isAncestor 折叠 false）。同场景的 prunable 免 force 修复有锁（:767-770），未锁的只有 ? 显示",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "claimed-fix-no-regression-lock",
+      "behaviorImpact": false,
+      "repro": "把 tools.mjs:745 三元改回旧写法跑 smoke.mjs → 0 失败",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-014",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "两条断言均不锁 :745 新三元：ahead 的 ??\"?\" base 即有、(yes|no) 正则通吃旧 null→no；测试注释自认 null 通道本机 git e2e 不可达；回退三元全套仍绿（三票静态推演一致）",
+          "counterEvidence": "",
+          "repro": "回退推演 0 失败",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "两条断言均不锁 :745 新三元：ahead 的 ??\"?\" base 即有、(yes|no) 正则通吃旧 null→no；测试注释自认 null 通道本机 git e2e 不可达；回退三元全套仍绿（三票静态推演一致）",
+          "counterEvidence": "",
+          "repro": "回退推演 0 失败",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "两条断言均不锁 :745 新三元：ahead 的 ??\"?\" base 即有、(yes|no) 正则通吃旧 null→no；测试注释自认 null 通道本机 git e2e 不可达；回退三元全套仍绿（三票静态推演一致）",
+          "counterEvidence": "",
+          "repro": "回退推演 0 失败",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "720c79901f34b61fee149e0fe193a44dd7328a9a",
+        "note": "smoke 直连 mergedLabel 白盒锁落锚文件",
+        "at": "2026-11-14T06:47:09.656Z"
+      }
+    },
+    {
+      "id": "C-015",
+      "file": "plugins/worktree-ops/mcp/server.mjs",
+      "line": 46,
+      "claim": "README 0.4.16 宣称的修复「stdin 读错误对齐 stdout EPIPE 口径（静默退出不崩栈）」没有任何测试覆盖：删除 rl.on(\"error\") 处理器后所有套件照常全绿",
+      "evidence": "grep test/ 仅 smoke.mjs:84/:111 的正常 stdin 写+关（不触发读错误）；protocol.mjs 直连 protocol.handle 绕过 server 的 readline 接线。EPIPE→exit(0) 与其余照抛两分支均无断言触达",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "claimed-fix-no-regression-lock",
+      "behaviorImpact": false,
+      "repro": "静态覆盖分析：删 server.mjs:46-49 后跑八个套件全通过",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-015",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep 全测试目录 stdin/EPIPE/rl.on 零命中；smoke 仅正常写+EOF；protocol.mjs 直连 handle 绕过 readline；删 :46-49 全套照绿——stdin 读错误修复零覆盖；三票均注明黑盒注入读错误有客观难度",
+          "counterEvidence": "",
+          "repro": "静态覆盖分析（三票一致）",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep 全测试目录 stdin/EPIPE/rl.on 零命中；smoke 仅正常写+EOF；protocol.mjs 直连 handle 绕过 readline；删 :46-49 全套照绿——stdin 读错误修复零覆盖；三票均注明黑盒注入读错误有客观难度",
+          "counterEvidence": "",
+          "repro": "静态覆盖分析（三票一致）",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "grep 全测试目录 stdin/EPIPE/rl.on 零命中；smoke 仅正常写+EOF；protocol.mjs 直连 handle 绕过 readline；删 :46-49 全套照绿——stdin 读错误修复零覆盖；三票均注明黑盒注入读错误有客观难度",
+          "counterEvidence": "",
+          "repro": "静态覆盖分析（三票一致）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "b69b3d6119f23e5a49d7a017fba0bd1962469959",
+        "note": "stdinErrorAction 单源可测",
+        "at": "2026-11-14T06:44:41.274Z"
+      }
+    }
+  ],
+  "dropped": [],
+  "writtenAt": "2026-11-14T06:47:11.157Z"
+}
