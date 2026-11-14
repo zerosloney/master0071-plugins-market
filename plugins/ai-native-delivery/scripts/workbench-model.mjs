@@ -29,8 +29,11 @@ export const CHAPTERS = [
 const DISPOSED = new Set(['fixed', 'waived', 'deferred', 'recorded']);
 
 const gitRun = (root, args) => {
+  // windowsHide（2026-11-14 热修）：board-server 由 ensure-board 以无控制台方式拉起（detached+windowsHide），
+  // 无控制台父进程的子 git 若不带 windowsHide 会各弹一个 cmd 窗口——每个 /api/workbench 请求约 7 个
+  // git 调用，SSE 断流走 15s 轮询时连跳（用户实证）。全仓 spawn 惯例本就带此旗，此处 P2 新写时漏了。
   try {
-    return spawnSync(GIT, args, { cwd: root, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+    return spawnSync(GIT, args, { cwd: root, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   } catch {
     return null;
   }
