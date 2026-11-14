@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildTour, renderModelJson } from '../scripts/dev-tour-model.mjs';
+import { buildTour, renderModelJson, collectEvidence } from '../scripts/dev-tour-model.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -478,4 +478,24 @@ describe('CLI（gen-dev-tour 子进程，并发起跑压总时长）', { concurr
       fs.rmSync(outDir, { recursive: true, force: true });
     }
   });
+});
+
+// gates 归一（2026-11-14 串化缺陷根修，0.3.13）：verifications.jsonl 行 gates 是对象数组 →
+// 模型层归一为计数（模板按「N 门执行」渲染，数组直拼成 [object Object]——workbench#tour 走查曝光）
+test('collectEvidence：ledger 行 gates 对象数组归一为计数（数字形态不受影响）', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-evidence-'));
+  try {
+    fs.mkdirSync(path.join(d, '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(d, '.agents', 'verifications.jsonl'), [
+      JSON.stringify({ ts: '2026-11-14T10:00:00.000Z', suite: 'all-gates', exitCode: 0, headShort: 'aaaa111', gates: [{ id: 'g1', exit: 0 }, { id: 'g2', exit: 0 }], durations: { g1: 1 } }),
+      JSON.stringify({ ts: '2026-11-14T11:00:00.000Z', suite: 'all-gates', exitCode: 0, headShort: 'bbbb222', gates: 7 }),
+    ].join('\n') + '\n', 'utf8');
+    const ev = collectEvidence(d, '2026-11-01');
+    const arr = ev.rows.find((r) => r.headShort === 'aaaa111');
+    const num = ev.rows.find((r) => r.headShort === 'bbbb222');
+    assert.equal(arr.gates, 2, '对象数组 → 计数');
+    assert.equal(num.gates, 7, '数字形态原样');
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
 });

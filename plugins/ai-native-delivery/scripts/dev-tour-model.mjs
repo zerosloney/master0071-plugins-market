@@ -820,7 +820,7 @@ function deriveDeps(sections, steps) {
 // 验证证据（2026-11-10）：本机台账 .agents/verifications.jsonl 优先，
 // 仓库凭证 workflow/verify-evidence.md 兜底合并（ts+head 去重）。
 // 时间窗 = 文档日期起——关联语义是「任务时间窗内的验证凭证」，非逐条绑定。
-function collectEvidence(root, windowStart) {
+export function collectEvidence(root, windowStart) {
   const rows = [];
   const seen = new Set();
   const push = (r) => {
@@ -837,7 +837,10 @@ function collectEvidence(root, windowStart) {
         try {
           const j = JSON.parse(line);
           push({
-            ts: j.ts, suite: j.suite || '', gates: j.gates ?? null, exitCode: j.exitCode ?? null,
+            // gates 归一（2026-11-14 串化缺陷根修，0.3.13）：verifications.jsonl 行的 gates 是对象数组
+            //（[{id, exit, …}]），verify-evidence 台账行是数字——模板按计数渲染，数组直拼成 [object Object]。
+            // 模型层单点归一为计数，两种源形态在此收敛。
+            ts: j.ts, suite: j.suite || '', gates: Array.isArray(j.gates) ? j.gates.length : (j.gates ?? null), exitCode: j.exitCode ?? null,
             headShort: j.headShort || '', skipped: (j.scope && j.scope.skipped) || [],
             envSkips: j.envSkips || [], source: 'ledger',
           });

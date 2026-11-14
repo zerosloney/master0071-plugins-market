@@ -33,8 +33,29 @@
   --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
   --sans: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
 }
+/* 深色主题（2026-11-14，0.3.13）：?theme=dark 才启用（html 属性由启动脚本按 URL 参数设置；
+   无参默认浅色——独立打开 /tour 零变化）。色板对齐交付工作台（board/workbench.html）：
+   深底 #0E1116 系 / panel 线 #232C31 系 / 朱提亮保深底可读；diff·日志终端块本就深色底两主题共用。 */
+html[data-theme="dark"] {
+  --bg: #0e1116;
+  --surface: #12171a;
+  --card: #161c20;
+  --card-hover: #1a2126;
+  --border: #232c31;
+  --border-strong: #3a4a4f;
+  --text: #e2e8e4;
+  --muted: #94a19d;
+  --faint: #5f6b67;
+  --accent: #e06a4c;
+  --intent: #7fa3c8; --incident: #d07a5f; --spec: #a98fc9; --plan: #6fb08d;
+  --ok: #6fb08d; --warn: #c9a84e; --bad: #d07a5f;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 3px 10px rgba(0,0,0,.35);
+  --shadow-2: -16px 0 40px rgba(0,0,0,.5);
+}
+html[data-theme="dark"] ::selection { background: rgba(224,106,76,.3); }
 * { box-sizing: border-box; margin: 0; }
 ::selection { background: rgba(188,67,39,.18); }
+/* ↑ 浅色 selection；深色在 html[data-theme="dark"] 覆盖组里 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -646,6 +667,13 @@ body.focus #main { grid-template-columns: minmax(0, 1fr); }
 }
 
 </style>
+<script>
+// 主题参数（2026-11-14，0.3.13）：?theme=dark → html[data-theme=dark]（CSS 变量覆盖组）；
+// 无参默认浅色（独立打开零变化）。放 head 末防首帧闪白。workbench 全景 iframe 以此参数强制深色。
+if (new URLSearchParams(location.search).get('theme') === 'dark') {
+  document.documentElement.setAttribute('data-theme', 'dark');
+}
+</script>
 </head>
 <body>
 <div id="app" class="booting">
@@ -1311,7 +1339,7 @@ const MODE = __TOUR_MODE__;
       const x1 = (a + 0.5) / n * width;
       const x2 = (b + 0.5) / n * width;
       const st = stepOf(m.stepId);
-      const color = m.dashed ? '#7d6224' : '#bc4327';
+      const color = m.dashed ? 'var(--warn, #7d6224)' : 'var(--accent, #bc4327)';
       let svg = '';
       if (a === b) {
         const x = x1;

@@ -307,6 +307,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.13**
+
+dev-tour 两修（workbench#tour 走查 papercut 收账）：①**gates 串化根修**——verifications.jsonl 行的 `gates` 是对象数组而 verify-evidence 台账行是数字，模板按计数渲染致 `[object Object]` 字面量；模型层单点归一（collectEvidence 导出白盒 +1 断言，19/0）。②**深色主题**——dev-tour 支持 `?theme=dark`（`html[data-theme=dark]` CSS 变量覆盖组，色板对齐工作台 #0E1116 系；朱提亮保深底可读；SVG 依赖弧色变量化；读参脚本在 head 末防首帧闪白），无参默认浅色（独立打开零变化）；workbench 全景 iframe 强制深色（board-server ⑲，20/0）。
+
 **0.3.12**
 
 交付工作台全景融合——第六视图「全景」（#tour）：选中交付 → 同源内嵌 `/tour?file=<该族 plan>`（dev-tour 六视图：步骤×文件/序列/流程图/数据流/需求链路/验证门），选交付只换 iframe src 不重建外层，无 plan 族空态、404 嗅探失败提示。根修：`tourDocRel` 白名单放宽接受 `workflow/archive/<月>/{plans,specs,intents}/*.md`——归档族（已关单交付）全景可看，归档件同为 workflow/ 下只读 md 风险面等价；拒 `..`/绝对路径/`_` 前缀段不变（⑰ 穿越回归）。测试 board-server +⑰⑱（19/0）。

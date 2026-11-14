@@ -147,6 +147,12 @@ const waitReady = async (port, ms = 6000) => {
     `status=${archApi.status} trav2=${trav2.status}`);
   check('⑱ /workbench 含第六视图（全景 view-tour）锚点', /view-tour/.test(wbPage.body), `len=${wbPage.body.length}`);
 
+  // ⑲ 深色主题（2026-11-14 dev-tour-dark-0313）：?theme=dark 页含变量覆盖组，file 白名单不受 theme 参数影响
+  const darkPage = await req(PORT, `/tour?file=${encodeURIComponent(PLAN_REL)}&theme=dark`);
+  check('⑲ /tour?…&theme=dark 200 且页含 data-theme 变量组与读参脚本（无参页同含默认浅色）',
+    darkPage.status === 200 && /html\[data-theme="dark"\]/.test(darkPage.body) && /theme'\) === 'dark'/.test(darkPage.body),
+    `status=${darkPage.status}`);
+
   const bad = await req(PORT, '/api/health', { headers: { Host: 'evil.example.com' } });
   check('⑦ 坏 Host 403', bad.status === 403, `status=${bad.status}`);
 

@@ -1161,7 +1161,8 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     if (empty) empty.innerHTML = "";
     frame.hidden = false;
     setTourHint(false);
-    var url = "/tour?file=" + encodeURIComponent(planPath);
+    // theme=dark（0.3.13）：内嵌全景强制深色（dev-tour CSS 变量覆盖组），与工作台深色主题协调
+    var url = "/tour?file=" + encodeURIComponent(planPath) + "&theme=dark";
     if (frame.getAttribute("src") !== url) frame.setAttribute("src", url);
   }
 
