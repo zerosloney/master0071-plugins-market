@@ -307,6 +307,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.11**
+
+热修：workbench-model gitRun 补 `windowsHide: true`——board-server 由 ensure-board 以无控制台方式拉起，无控制台父进程派生的 git 子进程各弹一个 cmd 窗（每个 /api/workbench 请求约 7 个 git 调用，SSE 断流 15s 轮询时连跳，用户实证）；全仓 spawn 惯例本带此旗，P2 新写时漏了。测试 44 + 17 零回归。
+
 **0.3.10**
 
 交付工作台 P2——执行运行流 + Git 只读两视图（五视图收齐）：`workbench-model.mjs` 扩 execution/git 两节——门禁运行流（`.agents/verifications.jsonl` 本地 gitignore 遥测尾读 15 行：ts/HEAD 短 SHA/门数/墙钟/失败门 id，如实展示本机运行史含历史红行，不宣称远端 CI 覆盖）+ 面板评审运行（artifacts 工件最近 10：runId/镜头数/文件数/findings 处置分布）+ Git 只读面（分支列表 ≤5 支带最近提交超出仅列名 / 最近提交 15 条带短 SHA 与台账标记 / 脏文件 cap 50）；gitFeed 扩 %h 短 SHA（P1 产品提交锚口径不变）。页面 NAV 五项 + `#execution`/`#git` hash 路由，两视图零按钮零写面（Git 视图固定「只读视图」徽标）。测试：workbench-model 35→44 断言（P2 +9：verifications 倒序映射/failedGates、panelRuns lenses/files 且不泄内部键、gitFace 台账标记、非 git 退化）+ board-server ⑯（17/0）；chrome 真仓走查两视图。
