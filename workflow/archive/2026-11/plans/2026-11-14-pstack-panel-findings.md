@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: pipeline
-确认指纹: b220691aaf2ede4c
+确认指纹: f64f8d521cc5d866
 ---
 # PLAN — pstack-panel-findings
 
