@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 交付工作台 P2：五视图（概览 / 交付流 / 决策 / 执行 / Git），数据来自 board-server GET /api/workbench，实时通道 /api/events。执行与 Git 为只读视图（无操作按钮）。
+<!-- 交付工作台：六视图（概览 / 交付流 / 决策 / 执行 / Git / 全景；全景经 iframe 内嵌同源 /tour），数据来自 board-server GET /api/workbench，实时通道 /api/events。执行与 Git 为只读视图（无操作按钮）。
      设计语言来自 design/workbench-prototype.html（深色主题变量 + od-* 原子类 + panel/stat/chip/track/gate 卡片体系）；
      字体走本地栈，零外部请求（仅同源 /api/*），单文件无构建。 -->
 <html lang="zh-CN">
@@ -347,6 +347,9 @@ select::placeholder { color: var(--text-3); opacity: 1; }
 .bad-num { color: var(--red); }
 .cell-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- Tour ---------- */
+.tour-frame { display: block; width: 100%; height: calc(100vh - 220px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+
 /* ---------- Misc ---------- */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .view > * { animation: fadeUp .28s var(--ease); }
@@ -369,6 +372,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   .menu-btn { display: inline-flex; }
   .content { padding: 24px 24px 56px; }
   .topbar { padding: 0 24px; height: 68px; }
+  .tour-frame { height: calc(100vh - 200px); min-height: 380px; }
 }
 @media (max-width: 900px) {
   .ov-grid { grid-template-columns: minmax(0, 1fr); }
@@ -400,6 +404,8 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   .stat-strip.cols-6 .stat:nth-child(2n+1) { border-left: 0; }
   .stat-strip.cols-6 .stat:nth-child(n+3) { border-top: 1px solid var(--line-soft); }
   .stat-strip.cols-6 .stat:nth-child(-n+2) { border-top: 0; }
+  .pipe-head .od-stack { width: 100%; align-items: stretch; }
+  .tour-frame { height: calc(100vh - 170px); min-height: 320px; }
 }
 </style>
 </head>
@@ -560,6 +566,23 @@ select::placeholder { color: var(--text-3); opacity: 1; }
           </section>
         </section>
 
+        <section class="view" id="view-tour" data-panel="tour" hidden>
+          <div class="pipe-head">
+            <div>
+              <p class="eyebrow">Delivery Tour</p>
+              <h1>全景</h1>
+            </div>
+            <div class="od-stack" style="--od-gap:6px; align-items:flex-end">
+              <label class="select-wrap">当前交付
+                <select id="tourSelect" aria-label="选择全景交付"></select>
+              </label>
+              <span class="hint" id="tourHint">内嵌 dev-tour 单交付全景（六视图：步骤×文件/序列/流程图/数据流/需求链路/验证门）</span>
+            </div>
+          </div>
+          <iframe class="tour-frame" id="tourFrame" title="dev-tour 单交付全景" src="about:blank" hidden></iframe>
+          <div id="tourEmpty"></div>
+        </section>
+
       </div>
     </main>
   </div>
@@ -577,21 +600,25 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   };
 
   /* ---------- 常量 ---------- */
-  var VIEWS = ["overview", "pipeline", "decisions", "execution", "git"];
+  var VIEWS = ["overview", "pipeline", "decisions", "execution", "git", "tour"];
   var NAV = [
     { view: "overview", label: "概览", icon: "grid" },
     { view: "pipeline", label: "交付流", icon: "flow" },
     { view: "decisions", label: "决策", icon: "gate" },
     { view: "execution", label: "执行", icon: "terminal" },
-    { view: "git", label: "Git", icon: "branch" }
+    { view: "git", label: "Git", icon: "branch" },
+    { view: "tour", label: "全景", icon: "grid" }
   ];
   var VIEW_META = {
     overview: { title: "概览", sub: "工作区状态与下一步" },
     pipeline: { title: "交付流", sub: "四章八环节 · 逐环节证据与文档" },
     decisions: { title: "决策中心", sub: "待裁决 · 确认动态 · 面板复核" },
     execution: { title: "执行", sub: "门禁运行流与面板评审 · 只读" },
-    git: { title: "Git", sub: "分支 · 提交 · 工作树 · 只读" }
+    git: { title: "Git", sub: "分支 · 提交 · 工作树 · 只读" },
+    tour: { title: "全景", sub: "dev-tour 单交付六视图 · 只读" }
   };
+  var TOUR_HINT = "内嵌 dev-tour 单交付全景（六视图：步骤×文件/序列/流程图/数据流/需求链路/验证门）";
+  var TOUR_ERROR_HINT = "全景页加载失败——确认 board-server 在跑（/tour 路由）";
   var WORKFLOW_CHAPTERS = [
     { id: "plan", no: "01", en: "Plan", cn: "规划", cue: "立 intent", keys: ["intake"] },
     { id: "design", no: "02", en: "Design", cn: "设计", cue: "起 spec", keys: ["spec"] },
@@ -1089,6 +1116,55 @@ select::placeholder { color: var(--text-3); opacity: 1; }
       : '<div class="doc-empty">工作树干净</div>';
   }
 
+  /* ---------- Tour ---------- */
+  function setTourHint(failed) {
+    var h = $("#tourHint");
+    if (!h) return;
+    h.textContent = failed ? TOUR_ERROR_HINT : TOUR_HINT;
+    h.className = failed ? "hint bad-num" : "hint";
+  }
+
+  function renderTour() {
+    var all = sortDeliveries(state.data && state.data.deliveries);
+    if (state.selectedId === null || !all.some(function (x) { return x && x.id === state.selectedId; })) {
+      state.selectedId = all.length && all[0] ? all[0].id : null;
+    }
+    var sel = $("#tourSelect");
+    if (sel) {
+      sel.innerHTML = all.map(function (x) {
+        return '<option value="' + esc(x && x.id != null ? x.id : "") + '"' + (x && x.id === state.selectedId ? " selected" : "") + ">" +
+          esc(txt(x && x.title)) + (x && x.status ? " · " + esc(x.status) : "") + "</option>";
+      }).join("");
+    }
+    var frame = $("#tourFrame");
+    if (!frame) return;
+    var empty = $("#tourEmpty");
+    var cur = currentDelivery();
+    if (!cur) {
+      frame.hidden = true;
+      if (empty) empty.innerHTML = '<div class="empty-state"><strong>暂无交付数据</strong>还没有任何交付记录。</div>';
+      return;
+    }
+    var docs = list(cur.docs);
+    var planPath = null;
+    for (var i = 0; i < docs.length; i++) {
+      if (docs[i] && docs[i].kind === "plan" && docs[i].path !== null && docs[i].path !== undefined && docs[i].path !== "") {
+        planPath = String(docs[i].path);
+        break;
+      }
+    }
+    if (!planPath) {
+      frame.hidden = true;
+      if (empty) empty.innerHTML = '<div class="doc-empty">该交付无 plan 文档，无全景可看</div>';
+      return;
+    }
+    if (empty) empty.innerHTML = "";
+    frame.hidden = false;
+    setTourHint(false);
+    var url = "/tour?file=" + encodeURIComponent(planPath);
+    if (frame.getAttribute("src") !== url) frame.setAttribute("src", url);
+  }
+
   function renderAll() {
     if (!state.data) return;
     renderShell();
@@ -1097,6 +1173,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     renderDecisions();
     renderExecution();
     renderGit();
+    renderTour();
   }
 
   /* ---------- 视图路由 ---------- */
@@ -1217,6 +1294,25 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     state.selectedId = this.value || null;
     renderPipeline();
   });
+
+  var tourSel = $("#tourSelect");
+  if (tourSel) tourSel.addEventListener("change", function () {
+    state.selectedId = this.value || null;
+    renderTour();
+  });
+
+  var tourFrame = $("#tourFrame");
+  if (tourFrame) {
+    tourFrame.addEventListener("error", function () { setTourHint(true); });
+    tourFrame.addEventListener("load", function () {
+      var bad = false;
+      try {
+        var doc = tourFrame.contentDocument;
+        bad = !!(doc && doc.body && /\{\s*"error"/.test(String(doc.body.textContent || "").slice(0, 200)));
+      } catch (e) { bad = false; }
+      setTourHint(bad);
+    });
+  }
 
   window.addEventListener("hashchange", function () { switchView(hashView()); });
 

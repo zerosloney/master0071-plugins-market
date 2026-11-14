@@ -130,6 +130,23 @@ const waitReady = async (port, ms = 6000) => {
       && wbModel && wbModel.execution && Array.isArray(wbModel.execution.verifications) && wbModel.git && Array.isArray(wbModel.git.branches),
     `exec=${!!(wbModel && wbModel.execution)} git=${!!(wbModel && wbModel.git)}`);
 
+  // ⑰⑱ 全景融合（2026-11-14 workbench-tour）：archive 白名单放宽 + 第六视图锚点
+  const trav2 = await req(PORT, `/api/tour?file=${encodeURIComponent('workflow/archive/../plans/2026-11-13-demo.md')}`);
+  const ARCH_REL = 'workflow/archive/2026-10/plans/2026-10-31-archived-demo.md';
+  fs.mkdirSync(path.join(root, 'workflow', 'archive', '2026-10', 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(root, ARCH_REL), [
+    '---', '状态: done', '级别: L1', '---', '# PLAN — 归档演示', '',
+    '## 入口', '- 来源：测试', '- 目标：归档全景', '',
+    '## 改动方案', '- `src/app.js`：改一行', '', '## 验收标准（可测试）', '- [x] 归档可看',
+  ].join('\n'), 'utf8');
+  const archApi = await req(PORT, `/api/tour?file=${encodeURIComponent(ARCH_REL)}`);
+  let archModel = null;
+  try { archModel = JSON.parse(archApi.body); } catch { /* 坏 JSON 由断言暴露 */ }
+  check('⑰ archive 路径 /api/tour 200 出模型（白名单放宽）且 ../ 穿越仍 400',
+    archApi.status === 200 && archModel && Array.isArray(archModel.steps) && trav2.status === 400,
+    `status=${archApi.status} trav2=${trav2.status}`);
+  check('⑱ /workbench 含第六视图（全景 view-tour）锚点', /view-tour/.test(wbPage.body), `len=${wbPage.body.length}`);
+
   const bad = await req(PORT, '/api/health', { headers: { Host: 'evil.example.com' } });
   check('⑦ 坏 Host 403', bad.status === 403, `status=${bad.status}`);
 

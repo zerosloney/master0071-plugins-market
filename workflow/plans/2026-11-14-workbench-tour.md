@@ -59,10 +59,10 @@
 
 ## 验收标准（可测试）
 
-- [ ] /api/tour?file=workflow/archive/<月>/plans/x.md 返回 200 模型（归档可用），../ 穿越仍 400（证据：测试 ⑰ + curl）
-- [ ] /workbench#tour 六视图在列：选交付 → iframe 加载对应 /tour 全景（归档族可看）（证据：chrome 走查）
-- [ ] board-server 测试全绿（⑰⑱ + 零回归）（证据：测试输出）
-- [ ] 0.3.12 发版版本位同步 + README/台账等长更新（证据：release 输出 + verify 全绿）
+- [x] /api/tour?file=workflow/archive/<月>/plans/x.md 返回 200 模型（归档可用），../ 穿越仍 400（证据：⑰ PASS + 真仓 curl 归档族模型 steps=15）
+- [x] /workbench#tour 六视图在列：选交付 → iframe 加载对应 /tour 全景（归档族可看）（证据：chrome 走查——六项 NAV/选中 workbench-tour 交付/iframe 全景渲染；如实记录：dev-tour 浅色主题与深色工作台有视觉断裂 + dev-tour 门禁区 [object Object] 既有缺陷，均登记 papercut 不扩面）
+- [x] board-server 测试全绿（⑰⑱ + 零回归）（证据：19/0）
+- [x] 0.3.12 发版版本位同步 + README/台账等长更新（证据：release 7 版本位触碰面与声明一致；台账 40925B 线内；verify 13 门全绿）
 
 ## 确认与复核
 

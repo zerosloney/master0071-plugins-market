@@ -11,7 +11,8 @@
 // 安全面（刻意比源仓更窄）：
 //   - 只绑 127.0.0.1；Host 头只认 127.0.0.1:PORT / localhost:PORT（DNS rebinding 缓解）
 //   - **不提供任意静态文件服务**——除两份模板外不吐任何仓内文件；只读面只有 workflow/ 下的文档与派生模型
-//   - 文档白名单：workflow/{plans,specs,intents}/**.md（拒绝对路径、拒 ..、拒 archive 与 _TEMPLATE）
+//   - 文档白名单：workflow/{plans,specs,intents}/**.md + workflow/archive/<月>/{plans,specs,intents}/**.md
+//     （拒绝对路径、拒 ..、拒 _ 前缀段；archive 段 2026-11-14 随工作台全景内嵌放宽——同面只读 md）
 //   - 唯一写面是 usage 埋点（append 到 .agents/cache/，该目录已 gitignore，本机数据不外发）
 //
 // 用法：node scripts/board-server.mjs [--port <端口>] [--root <仓库根>]
@@ -45,13 +46,19 @@ const sendJson = (res, status, obj) => {
   res.end(body);
 };
 
-/** 文档白名单：只认 workflow/{plans,specs,intents}/ 下的 .md（相对路径、posix 分隔）。 */
+/** 文档白名单：只认 workflow/{plans,specs,intents}/ 与 workflow/archive/<月>/{plans,specs,intents}/ 下的
+ *   .md（相对路径、posix 分隔）。archive 段 2026-11-14 放宽（workbench 全景视图内嵌归档族 plan）：
+ *   归档件同为 workflow/ 下只读 md，风险面等价；拒 ..、拒绝对路径、拒 _ 前缀段逻辑不变。 */
 function tourDocRel(file) {
   if (!file) return null;
   const rel = String(file).replace(/\\/g, '/').trim();
   if (!rel || rel.includes('..') || path.isAbsolute(rel) || !rel.endsWith('.md')) return null;
   const parts = rel.split('/');
-  if (parts.length < 3 || parts[0] !== 'workflow' || !TOUR_DOC_DIRS.includes(parts[1])) return null;
+  const liveOk = parts.length >= 3 && parts[0] === 'workflow' && TOUR_DOC_DIRS.includes(parts[1]);
+  // archive 形态：workflow/archive/<月>/{dir}/x.md —— 月段非 _ 前缀（同防模板段纪律）
+  const archOk = parts.length >= 5 && parts[0] === 'workflow' && parts[1] === 'archive'
+    && !parts[2].startsWith('_') && TOUR_DOC_DIRS.includes(parts[3]);
+  if (!liveOk && !archOk) return null;
   if (parts.some((p) => p.startsWith('_'))) return null;
   return parts.join('/');
 }
