@@ -61,6 +61,40 @@
   --shadow: 0 18px 48px rgba(0, 0, 0, .45);
   --ease: cubic-bezier(.22, .61, .36, 1);
 }
+/* 浅色主题覆盖组（html[data-theme="light"]）：只覆盖颜色类变量；r/r-sm/sidebar-w/ease/字体栈不进组；无属性 = 深色默认零回归 */
+html[data-theme="light"] {
+  --bg: #f4f6f5;
+  --bg-soft: #edf0ee;
+  --surface: #ffffff;
+  --surface-2: #f3f6f4;
+  --surface-3: #e4e9e6;
+  --line: #d9dedb;
+  --line-soft: #e3e8e5;
+  --text: #23292b;
+  --text-2: #5a6560;
+  --text-3: #7f8b85;
+  --mint: #0f8f5f;
+  --mint-hi: #2fa872;
+  --mint-ink: #ffffff;
+  --amber: #a8721a;
+  --red: #bf4636;
+  --blue: #2e6bc4;
+  --rose: #c25e75;
+  --shadow: 0 12px 32px rgba(35, 41, 43, .14);
+}
+/* 浅色下深色专用硬编码色的选择器级覆盖（深色默认不受影响） */
+html[data-theme="light"] .btn:hover { border-color: #cfd6d2; }
+html[data-theme="light"] .track-step:hover { border-color: #c4ccc8; }
+html[data-theme="light"] .rows-head { background: rgba(35, 41, 43, .03); }
+html[data-theme="light"] .nav-scrim { background: rgba(35, 41, 43, .4); }
+html[data-theme="light"] select:focus { border-color: rgba(15, 143, 95, .55); box-shadow: 0 0 0 3px rgba(15, 143, 95, .12); }
+html[data-theme="light"] .chip-confirmed { border-color: rgba(15, 143, 95, .32); background: rgba(15, 143, 95, .08); }
+html[data-theme="light"] .chip-running { border-color: rgba(15, 143, 95, .38); background: rgba(15, 143, 95, .09); }
+html[data-theme="light"] .chip-pending { border-color: rgba(168, 114, 26, .35); background: rgba(168, 114, 26, .08); }
+html[data-theme="light"] .chip-blocked { border-color: rgba(191, 70, 54, .35); background: rgba(191, 70, 54, .07); }
+html[data-theme="light"] .chip-ready { border-color: rgba(46, 107, 196, .35); background: rgba(46, 107, 196, .07); }
+html[data-theme="light"] .chapter-head.is-done { border-color: rgba(15, 143, 95, .45); }
+html[data-theme="light"] .chapter-head.is-active { border-color: rgba(168, 114, 26, .5); }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
@@ -228,6 +262,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
 .tb-title p { font-size: 12.5px; color: var(--text-3); }
 .tb-right { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .gen-at { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.theme-tag { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .mode-pill {
   display: inline-flex; align-items: center; gap: 7px;
   height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px;
@@ -442,6 +477,10 @@ select::placeholder { color: var(--text-3); opacity: 1; }
       </div>
       <div class="tb-right">
         <span class="chip" id="repoChip">未接入</span>
+        <button class="icon-btn" id="themeBtn" data-action="toggle-theme" title="切换深/浅主题" aria-label="切换深/浅主题">
+          <svg class="od-icon" style="--od-icon-size:18px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <span class="theme-tag" id="themeTag">深色</span>
         <span class="gen-at" id="genAt">数据时间 —</span>
         <span class="mode-pill" id="livePill"><span class="dot"></span>实时</span>
       </div>
@@ -619,6 +658,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   };
   var TOUR_HINT = "内嵌 dev-tour 单交付全景（六视图：步骤×文件/序列/流程图/数据流/需求链路/验证门）";
   var TOUR_ERROR_HINT = "全景页加载失败——确认 board-server 在跑（/tour 路由）";
+  var THEME_KEY = "workbenchTheme";
   var WORKFLOW_CHAPTERS = [
     { id: "plan", no: "01", en: "Plan", cn: "规划", cue: "立 intent", keys: ["intake"] },
     { id: "design", no: "02", en: "Design", cn: "设计", cue: "起 spec", keys: ["spec"] },
@@ -1116,7 +1156,33 @@ select::placeholder { color: var(--text-3); opacity: 1; }
       : '<div class="doc-empty">工作树干净</div>';
   }
 
+  /* ---------- 主题 ---------- */
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+
+  function applyTheme(theme, persist) {
+    if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+    var tag = $("#themeTag");
+    if (tag) tag.textContent = theme === "light" ? "浅色" : "深色";
+    if (persist) {
+      try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* 隐私模式等存不进就算了 */ }
+    }
+    if (state.data) renderTour();
+  }
+
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch (e) { saved = null; }
+    applyTheme(saved === "light" ? "light" : "dark", false);
+  }
+
   /* ---------- Tour ---------- */
+  function tourUrl(planPath) {
+    return "/tour?file=" + encodeURIComponent(planPath) + (currentTheme() === "dark" ? "&theme=dark" : "");
+  }
+
   function setTourHint(failed) {
     var h = $("#tourHint");
     if (!h) return;
@@ -1161,8 +1227,8 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     if (empty) empty.innerHTML = "";
     frame.hidden = false;
     setTourHint(false);
-    // theme=dark（0.3.13）：内嵌全景强制深色（dev-tour CSS 变量覆盖组），与工作台深色主题协调
-    var url = "/tour?file=" + encodeURIComponent(planPath) + "&theme=dark";
+    // 主题联动：深色带 &theme=dark（dev-tour CSS 变量覆盖组 0.3.13），浅色去参还原 dev-tour 默认浅色
+    var url = tourUrl(planPath);
     if (frame.getAttribute("src") !== url) frame.setAttribute("src", url);
   }
 
@@ -1285,6 +1351,8 @@ select::placeholder { color: var(--text-3); opacity: 1; }
       location.hash = "#pipeline";
     } else if (action === "toggle-nav") {
       openNav();
+    } else if (action === "toggle-theme") {
+      applyTheme(currentTheme() === "light" ? "dark" : "light", true);
     } else if (action === "close-nav") {
       closeNav();
     }
@@ -1318,6 +1386,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   window.addEventListener("hashchange", function () { switchView(hashView()); });
 
   /* ---------- 启动 ---------- */
+  initTheme();
   switchView(hashView());
   load();
   connectEvents();

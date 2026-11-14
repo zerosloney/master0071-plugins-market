@@ -153,6 +153,11 @@ const waitReady = async (port, ms = 6000) => {
     darkPage.status === 200 && /html\[data-theme="dark"\]/.test(darkPage.body) && /theme'\) === 'dark'/.test(darkPage.body),
     `status=${darkPage.status}`);
 
+  // ⑳ 工作台主题切换（2026-11-14 workbench-theme-0314）：浅色变量组 + 记忆 + 联动单源
+  check('⑳ /workbench 含浅色变量组 / workbenchTheme 记忆 / tourUrl 联动单源',
+    /html\[data-theme="light"\]/.test(wbPage.body) && /workbenchTheme/.test(wbPage.body) && /tourUrl/.test(wbPage.body),
+    `len=${wbPage.body.length}`);
+
   const bad = await req(PORT, '/api/health', { headers: { Host: 'evil.example.com' } });
   check('⑦ 坏 Host 403', bad.status === 403, `status=${bad.status}`);
 
