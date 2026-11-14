@@ -31,7 +31,9 @@ import { GIT_TIMEOUT_MS } from './git-core.mjs';
 // 修（判据移植 4bbf75c3b）：①原先每行只取首个路径（`line.match`），一行并列两三个文件时后续文件
 //   全成「未声明」——一行并列多文件的声明只认首个，其余假越界；②补扫「验证计划」节——新增测试
 //   文件常只在该节点名，计划点名即算声明，产品面判据本身不放宽。
-export const KNOWN_EXT = new Set(['.md', '.mjs', '.js', '.ts', '.json', '.txt', '.cs', '.csproj', '.sln', '.vue', '.ps1', '.sh', '.yml', '.yaml', '.sql', '.cjs']);
+// 2026-11-14 +'.html'：2026-11-13 起插件分发 board/dev-tour.html，扩展集落后于现实——
+// 新增 .html 声明在确认时刻（suspiciousDeclarations）与推送范围门（declAccepted）双拦的根修。
+export const KNOWN_EXT = new Set(['.md', '.mjs', '.js', '.ts', '.json', '.txt', '.cs', '.csproj', '.sln', '.vue', '.ps1', '.sh', '.yml', '.yaml', '.sql', '.cjs', '.html']);
 // 2026-11-13 收紧（声明粒度纪律，判据移植 8f6a22f84 B 件）：
 //   ① 裸文件名（`DataDtos.cs`）不再算声明——同名文件可能散落多模块，等于永久白名单；
 //      唯一例外是**仓库根真实存在**的文件（`AGENTS.md` 这类根件）。
