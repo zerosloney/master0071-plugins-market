@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: pipeline
-确认指纹: 2febeaa781d85ab7
+确认指纹: e2be1b580bd3ec92
 ---
 # PLAN — worktree-ops-panel-findings
 
