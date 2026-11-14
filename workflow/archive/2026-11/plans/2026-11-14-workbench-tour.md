@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: board
-确认指纹: df5848d77ebde1e9
+确认指纹: 26f28777bea0bf5b
 ---
 # PLAN — 交付工作台融合 dev-tour 全景（第六视图：内嵌 /tour）
 
