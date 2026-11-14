@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: board
-确认指纹: ba3c95837a1e2846
+确认指纹: 246ef2691c85d75b
 ---
 # PLAN — workbench 热修升版 0.3.11（windowsHide 弹窗根修的版本位落地）
 
