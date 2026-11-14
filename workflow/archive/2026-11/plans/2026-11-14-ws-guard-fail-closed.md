@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: pipeline
-确认指纹: d9f2a59af7f4869b
+确认指纹: f1187612819b1169
 ---
 # PLAN — ws-guard-fail-closed
 
