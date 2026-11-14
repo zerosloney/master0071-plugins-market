@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { statSync, watch } from "node:fs";
 import path from "node:path";
 import { buildHtml, layoutGraph, loadEvents, loadState, pipelineOf, stateFile } from "./render.mjs";
+import { eventsFile as eventsFileOf } from "./state-persist.mjs";
 import { parseArgs } from "./args.mjs";
 
 const args = parseArgs(process.argv.slice(2), { value: ["pipeline", "file", "port", "interval"] });
@@ -19,7 +20,7 @@ if (path.extname(file) !== ".json") {
   console.error(`[agent-pipelines] state file should have a .json extension (got ${file}): without it, the derived events path is the state file itself`);
   process.exit(2);
 }
-const eventsFile = file.replace(/\.json$/, ".events.jsonl");
+const eventsFile = eventsFileOf(file); // 面板评审 C-005：复用 state-persist 单源（原内联第三份拷贝）
 // --port / --interval 的取值校验（2026-11-01 修复）。旧写法 `Number(args.port) > 0 ? … : 8787`
 // 只挡下界：70000 这类越界值会一路传到 server.listen()，由 net 层**同步**抛
 // ERR_SOCKET_BAD_PORT（`server.on("error")` 收不到同步抛出），用户看到的是崩栈而不是可读报错；
@@ -39,7 +40,7 @@ function positiveInt(raw, label, fallback) {
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) {
-    console.error(`agent-pipelines live board: --${label} 需要正整数，收到「${raw}」`);
+    console.error(`[agent-pipelines] live board: --${label} 需要正整数，收到「${raw}」`); // 面板评审 C-003：前缀统一补漏
     process.exit(2);
   }
   return n;
@@ -216,7 +217,7 @@ try {
   renderedEventsMtime = mtimeOf(eventsFile);
 } catch (err) {
   console.error(`[agent-pipelines] live board could not start: ${err.message}`);
-  console.error(`先运行 state.mjs init 创建状态文件，例如：node scripts/state.mjs init --pipeline ${pipeline} --file ${file} --prompt "<目标>"`);
+  console.error(`[agent-pipelines] 先运行 state.mjs init 创建状态文件，例如：node scripts/state.mjs init --pipeline ${pipeline} --file ${file} --prompt "<目标>"`); // 面板评审 C-003
   process.exit(2);
 }
 

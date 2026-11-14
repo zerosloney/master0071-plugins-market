@@ -8,8 +8,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { isObject, writeAtomic } from "./state-persist.mjs";
-import { PIPELINES, STOP_REASONS, TASK_STATUS, attemptLimit, effectiveMaxCycles } from "./pipelines.mjs";
-import { collectChangedFiles, scopeVerdict } from "./scope-core.mjs";
+import { MAX_FAILURES_DEFAULT, PIPELINES, STOP_REASONS, TASK_STATUS, attemptLimit, effectiveMaxCycles } from "./pipelines.mjs";
+import { collectChangedFiles, rootRelativePattern, scopeVerdict } from "./scope-core.mjs";
 
 // 字符串上限（LLM 消费面的注入/泛洪缓解）：id/title/criteria 是执行者可写的字符串，会被原样拼进
 // gate reason、root-causes/events stdout。数据形状在写入口（validateState）定死，超限 fail-loud 拒绝；
@@ -35,7 +35,7 @@ export function validateState(state, pipeline) {
   // 状态文件缺少 max_failures / retry_on_failure 时按默认值补齐、不算损坏。此前只有文档没有
   // 实现，这里对**缺失**（undefined）回填默认值——write / gate --apply 路径会把补齐后的对象
   // 连带落盘；显式 null / 错误类型仍走下方校验拒绝，补齐不是放松。
-  if (state.max_failures === undefined) state.max_failures = 3;
+  if (state.max_failures === undefined) state.max_failures = MAX_FAILURES_DEFAULT; // 单源 pipelines.mjs（面板评审 C-009）
   if (state.retry_on_failure === undefined) state.retry_on_failure = false;
   if (!Number.isInteger(state.max_failures) || state.max_failures < 1) errors.push("max_failures must be an integer >= 1");
   if (typeof state.retry_on_failure !== "boolean") errors.push("retry_on_failure must be a boolean");
@@ -227,7 +227,7 @@ export function diffTaskStatus(file, nextState) {
 // scope-core），那时只能靠 test/regression.mjs 的对照用例事后锁等价；现在对照用例锁的是
 // 「两个消费方接线正确」。这里只保留复算特有的增量：fail-soft 纪律（不反向依赖 scope.mjs
 // 的 CLI，判定不可得时返回 unknown 而非退出）与读 state.scope 的规则装配。
-export function recheckScope(state, cwd) {
+function recheckScope(state, cwd) {
   const scope = isObject(state.scope) ? state.scope : null;
   if (!scope) return { state: "unknown", reason: "scope 未配置（DONE 需要 hard/soft/forbidden 规则）" };
   const rulesOf = (v) => (Array.isArray(v) ? v.map((x) => String(x).replace(/\\/g, "/")) : []);
@@ -237,17 +237,34 @@ export function recheckScope(state, cwd) {
   if (hard.length === 0 && soft.length === 0 && forbidden.length === 0) {
     return { state: "unknown", reason: "scope 规则为空（DONE 需要至少一条 hard/soft/forbidden）" };
   }
+  // 全覆盖模式防御（面板评审 C-011，2026-11-14）：scope 本体是执行者可写的状态字段，hard/soft
+  // 含「匹配一切」模式（** / **\/* / *）时复算必然 PASS——按 fail-closed 拒 DONE，把改写嫌疑
+  // 显式暴露给 orchestrator，而不是替执行者放行。
+  const CATCH_ALL = new Set(["**", "**/*", "*"]);
+  const catchAll = [...hard, ...soft].find((p) => CATCH_ALL.has(p));
+  if (catchAll) {
+    return { state: "unknown", reason: `scope 规则含全覆盖模式 ${catchAll}（疑被改写，fail-closed）——规则须按目录收敛` };
+  }
   // 排除清单与 scope.mjs 同源：`--apply` 时由 applyVerdict 把实际生效的清单落进 scope.exclude
   // （自定义 --exclude 在此生效）；旧状态没有该字段时退回 scope.mjs 的默认排除。
   const excludedRules = rulesOf(scope.exclude);
   const exclude = excludedRules.length > 0 ? excludedRules : [".loop-cli/**"];
-  // 模式必须仓库根相对（与 scope-core rootRelativePattern 的拒绝口径同判）：绝对路径或 ../ 段在这里
-  // 永远匹配不到任何文件，静默沿用就是复算口径失真——按「无法复算」拦下，把修配置还给调用方。
-  const malformed = [hard, soft, forbidden, exclude]
-    .flat()
-    .find((p) => p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split("/").includes(".."));
-  if (malformed) {
-    return { state: "unknown", reason: `scope 模式非法（须仓库根相对路径）:${malformed}` };
+  // 模式合法性走 scope-core rootRelativePattern 单源（面板评审 C-006：此前内联判据拒绝仓库根内
+  // 绝对路径而 CLI 接受，同规则双消费方矛盾；现复用并顺带归一化——仓库根内绝对路径转为相对，
+  // 匹配面与 CLI 完全同宽）。
+  const normalizeVia = (list) => {
+    try {
+      return list.map((p) => rootRelativePattern(p, cwd));
+    } catch (err) {
+      return { malformed: String(err.message) };
+    }
+  };
+  const hardN = normalizeVia(hard);
+  const softN = normalizeVia(soft);
+  const forbiddenN = normalizeVia(forbidden);
+  const excludeN = normalizeVia(exclude);
+  for (const n of [hardN, softN, forbiddenN, excludeN]) {
+    if (n && n.malformed) return { state: "unknown", reason: `scope 模式非法（须仓库根相对路径，与 scope.mjs 同判）：${n.malformed}` };
   }
   const base = typeof scope.base === "string" && scope.base.trim() ? scope.base.trim() : "HEAD";
   if (base.startsWith("-") || /\s/.test(base)) {
@@ -271,12 +288,12 @@ export function recheckScope(state, cwd) {
 
   let changed;
   try {
-    changed = collectChangedFiles((args) => run(args, root), exclude, base, true);
+    changed = collectChangedFiles((args) => run(args, root), excludeN, base, true);
   } catch {
     return { state: "unknown", reason: `无法计算 ${base} 到工作区的变更清单` };
   }
   const files = [...changed].sort();
-  const { forbiddenHits, outside, verdict } = scopeVerdict(files, { hard, soft, forbidden });
+  const { forbiddenHits, outside, verdict } = scopeVerdict(files, { hard: hardN, soft: softN, forbidden: forbiddenN });
   if (verdict === "FAIL") {
     const detail = [
       ...(forbiddenHits.length ? [`forbidden: ${forbiddenHits.join(", ")}`] : []),
@@ -383,7 +400,9 @@ export function gateFor(state, pipeline, cwd = process.cwd(), promiseValue = "")
     const result = {
       stop_reason: "DONE",
       // 用户提供的自由文本拼进 stdout 前 JSON.stringify 定界（引号+转义），防分隔符/指令伪装
-      reason: `completion_promise 标记命中：${JSON.stringify(promise)}（经 promise 边车标记的用户主导早停，绕过 verdict/scope/验证/critical 门禁；状态体字段不再参与判定）`,
+      // 面板评审 C-012（2026-11-14）：标记文件无写入者鉴别（执行者同 shell 可写）——reason 如实
+      // 标注未鉴别来源，不冒称用户授意；README「来源可鉴别」宣称同步修正。
+      reason: `completion_promise 标记命中：${JSON.stringify(promise)}（标记未鉴别来源：按约定仅 orchestrator 写入，但同 shell 的执行者可伪造——绕过 verdict/scope/验证/critical 门禁；状态体字段不再参与判定）`,
     };
     // 预设值本就等于 DONE 时不再挂「未采信」注记——这一次 DONE 是有依据的。
     if (state.stop_reason && state.stop_reason !== "DONE" && presetNote) result.presetNote = presetNote;
@@ -404,7 +423,7 @@ export function gateFor(state, pipeline, cwd = process.cwd(), promiseValue = "")
     }
   }
   if (pipeline === "coding" && scopeGate.actual && scopeGate.actual.state === "FAIL") {
-    // 越界以**复算结果**为准（state.scope_drift 只作对照）：执行者删掉或改写自报值也逃不掉。
+    // 越界以**复算结果**为准（state.scope_drift 只作对照）：执行者删掉或改写自报值也逃不掉（scope_drift/stop_reason 维度）。**已知边界（2026-11-14 面板评审 C-011）**：scope 规则本体仍是执行者可写的状态字段——复算对全覆盖模式（** 等）与非法模式 fail-closed 拒 DONE，但规则合理的改写（如收窄到恰好覆盖越界文件）无法在状态层鉴别；彻底防护需进程级信任通道。
     return withNote({ stop_reason: "ESCALATE", reason: scopeGate.actual.reason });
   }
   if (state.budget) {

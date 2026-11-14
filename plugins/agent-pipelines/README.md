@@ -31,7 +31,7 @@ coding 管道额外约束：
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/state.mjs` | `init`（已存在的**非状态文件**一律拒绝，`--force` 也不越过；带进度的真状态文件需 `--force` 重置）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移；缺省时继承 `scope_drift` 与 `scope`——它们是判定产物，不该被推进轮次抹掉）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` **重算** `stop_reason`，不采信状态文件里的预设值；`--apply` 写回）/ `events`（读事件日志，含轮转段）/ `root-causes`（按 `root_cause_group` 把任务分桶聚合，只读不写状态） |
+| `scripts/state.mjs` | `init`（已存在的**非状态文件**一律拒绝，`--force` 也不越过；带进度的真状态文件需 `--force` 重置）/ `validate` / `write`（stdin + 原子写，自动记录任务状态迁移；缺省时继承 `scope_drift` 与 `scope`——它们是判定产物，不该被推进轮次抹掉）/ `gate`（按 `max_failures`、`STALL_MAX`、`MAX_CYCLES`、`scope_drift`、`critical_checkpoints`、`budget` **重算** `stop_reason`，不采信状态文件里的预设值；scope 复算带**防御性校验**——全覆盖模式（`**` 等）与非法模式一律 fail-closed 拒 DONE，但 scope 规则本体仍是状态内数据（已知信任边界，见「并发与信任边界」注）；`--apply` 写回）/ `events`（读事件日志，含轮转段）/ `root-causes`（按 `root_cause_group` 把任务分桶聚合，只读不写状态） / `promise`（orchestrator 专属：写 completion_promise 边车标记，gate 命中即 DONE——标记**无写入者鉴别**，见「并发与信任边界」注） |
 
 **根因分组**：coding 管道的任务可带 `root_cause_group` 字段，经 `state.mjs` 校验为非空字符串；`root-causes` 子命令按它分桶聚合供 orchestrator 直接消费（不必自己遍历 `tasks[]` 归并），`gate` 判 continue 时也会点名下一个未完成的根因组。
 | `scripts/scope.mjs` | `git diff --name-only <base>` 加未跟踪文件**与 gitignored 文件**，对比 hard/soft/forbidden scope，输出 `scope_drift=PASS/FAIL`；判定基准锚定 **git 仓库根**（变更清单与 scope 规则都是仓库根相对路径，从哪个目录调用结论一致）；`--base` 缺省取状态文件里的 `scope.base`，再退到 `HEAD`；`--apply` 把结论与本次基线写回状态文件（显式传入的 `--hard`/`--soft`/`--forbidden`/`--exclude` 也一并落盘，**仅显式传入时覆盖**该维度，未传维度保留状态里已有值）；默认排除 `.loop-cli/**`（**替换语义**：自定义 `--exclude` 会整体顶掉默认清单，需并列写 `.loop-cli/**`，否则自家状态文件会被判越界） |
@@ -159,6 +159,11 @@ node test/regression.mjs
 
 ## 版本变更
 
+**0.1.29**
+
+面板评审专属首跑收口（pr-0cd027b-ea55f351 对 0.1.27 单提交：7 镜头 24 原始 → 簇聚 18 候选（3 组三镜头同点各并一）→ 3 验证者 54 票 17 confirm + 1 两票 confirm → 18 条全修）：**安全两 Important（均 pre-existing 实证）**——①gate scope 复算对执行者可写的 scope 规则加防御性校验：全覆盖模式（`**`/`**/*`/`*`）fail-closed 拒 DONE（回归锁：hard=**+越界文件在场 → 拒），信任边界如实声明（README/注释）；②promise 边车标记 reason 改标「未鉴别来源」、README「来源可鉴别」宣称修正为如实边界（同 shell 无鉴别通道）+回归锁。**其余**：③盘符相对 scope 模式（C:foo/**）CLI 即拒 + recheckScope 复用 rootRelativePattern 单源（消「CLI 接受/gate 拒绝」双消费方矛盾，仓库根内绝对路径归一化后同宽）④陈旧锁接管双读确认（+25ms 抖动复读，窗口再收窄；彻底闭合需 OS 级锁——已知限制如实声明）⑤坏行 stderr 计数按文件去重⑥eventsFile/promiseFile 派生三份内联归一（render/serve 复用单源）⑦max_failures 默认单源 pipelines.mjs（equivalence/contract 锚随之）⑧serve 前缀两处补漏⑨孤儿导出三处转内部⑩README 能力表补 promise⑪render 非对象行容错回归锁⑫M3 竞态测试锁等待环境变量化（慢 CI 余量）。测试 553→565：五套 133/161/83/121/60 全绿。
+
+
 **0.1.28**
 
 面板评审收口（pr-review 对 pstack 0.1.25 弧带出）：①render.mjs 保留路径守卫大小写折叠（NTFS 不区分大小写，大小写变体 --out 即同一文件——原守卫可被绕过把 HTML 写上未来事件日志路径）②state.mjs 死再导出删除（三缝拆分后零消费者）③test/scripts.mjs 接入 CI（原从未被任何自动闸执行——m1 递归爆栈/m3 保留路径两大修复无 CI 守护，回退即静默全绿）。五套全绿（133/161/83/117/59）。
@@ -194,7 +199,7 @@ backlog 批次：脚本层 11 项 + 编排文档 10 项收口，新增 `test/scr
 
 第 3 组设计取舍落地（用户已裁决方向）+ 证据分工修正：
 
-- **`completion_promise` 来源可鉴别（方案 b）**：早停此前只看状态体里一个非空字符串——状态文件是执行者可写的，被注入或出错的执行者写一行就能伪造「用户显式早停」、绕过全部门禁判 DONE。现在 gate 只认 orchestrator 专属子命令 `state.mjs promise` 写入的边车标记 `<状态>.promise.json`（原子写、记 `promise_set` 事件），状态体字段彻底退出判定；`init` 清理旧标记并记 `promise_cleared`；「检查执行者输出中 `<promise>` 标签」的误触发旧机制废除——六处文档统一为「仅当用户在会话中显式要求早停，orchestrator 才执行 promise 子命令，绝不因执行者输出触发」。
+- **`completion_promise` 边车标记（方案 b；2026-11-14 面板评审修正宣称）**：早停此前只看状态体里一个非空字符串——状态文件是执行者可写的，被注入或出错的执行者写一行就能伪造「用户显式早停」、绕过全部门禁判 DONE。现在 gate 只认边车标记 `<状态>.promise.json`（原子写、记 `promise_set` 事件），状态体字段彻底退出判定。**已知边界（如实声明）**：标记文件本身仍是执行者同 shell 可写的普通 JSON，「orchestrator 专属」是流程约定而非机制鉴别——gate 的 DONE reason 已标注「未鉴别来源」；彻底鉴别需要进程级信任通道（超出本插件边界）。`init` 清理旧标记并记 `promise_cleared`；「检查执行者输出中 `<promise>` 标签」的误触发旧机制废除——六处文档统一为「仅当用户在会话中显式要求早停，orchestrator 才执行 promise 子命令，绝不因执行者输出触发」。
 - **任务字符串上限与输出定界（注入/泛洪缓解）**：task / root_cause_group / checkpoint 的 id ≤64、title ≤200、accept_criteria 单条 ≤300（具名常量一处定义），validateState 写入口 fail-loud 拒绝——LLM 消费面的数据形状在入口定死；gate reason、root-causes、events 输出里拼接的字符串值一律 JSON.stringify 定界，防分隔符/指令伪装。schema 文档同步上限。
 - **reviewer 证据分工修正**：ralph 侧契约此前要求 reviewer「重跑只读无落盘产物命令」，但其 tools 白名单无 Bash（只读是硬保证）——指令不可达成。改为「审阅执行者提交的验证输出，证据不足或可疑时打回要求重跑/补充证据」；coding 侧同步补显式分工。产出证据归执行者、审查证据归 reviewer，零写入性质保持。
 - README 断言数声明随测试增长对齐（pipeline 135→154、regression 70→75）。

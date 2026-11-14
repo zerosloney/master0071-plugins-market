@@ -7,8 +7,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "./args.mjs";
 import { analyzeDependencies } from "./dag.mjs";
-import { readEvents } from "./state-persist.mjs";
-// STATUS 与 state.mjs 的 TASK_STATUS 是同一份枚举（单源 pipelines.mjs），这里沿用局部别名
+import { eventsFile, promiseFile, readEvents } from "./state-persist.mjs";
+// STATUS 与 TASK_STATUS 是同一份枚举（单源 pipelines.mjs；面板评审 C-010 修正旧指称）（单源 pipelines.mjs），这里沿用局部别名
 import { PIPELINES, STOP_REASONS, TASK_STATUS as STATUS } from "./pipelines.mjs";
 
 function fail(message) {
@@ -289,10 +289,10 @@ function main() {
   // 只拦「已存在」，拦不住尚未诞生的派生文件——`render --out <状态>.events.jsonl` 首次 exit 0 把
   // HTML 写进未来日志路径，此后 state.mjs 首次 write 会把 JSONL 追加进 HTML；`--out
   // <状态>.promise.json` 同理，promise 子命令的 tmp+rename 此后会把整个 HTML 顶掉。派生规则与
-  // state-persist 同款（eventsFile：同目录、基名 .json → .events.jsonl；promiseFile：.json →
-  // .promise.json），轮转段 `.1` 一并 reserved；默认输出是 .html，永不命中。
-  const eventsLog = path.join(path.dirname(file), `${path.basename(file).replace(/\.json$/, "")}.events.jsonl`);
-  const promisePath = `${file.replace(/\.json$/, "")}.promise.json`;
+  // 面板评审 C-005（2026-11-14）：派生规则复用 state-persist 单源（eventsFile/promiseFile）——
+  // 此前是内联第三份拷贝，单点变更即静默失配；轮转段 `.1` 一并 reserved；默认输出 .html 永不命中。
+  const eventsLog = eventsFile(file);
+  const promisePath = promiseFile(file);
   // 大小写折叠后再比（面板评审 C-004）：NTFS 不区分大小写，大小写变体即同一文件——守卫必须同样不敏感
   const lc = (s) => s.toLowerCase();
   if (lc(out) === lc(eventsLog) || lc(out) === lc(`${eventsLog}.1`) || lc(out) === lc(promisePath)) {

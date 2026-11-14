@@ -879,10 +879,13 @@ function cmdCollect(p) {
 
   const byKey = new Map();
   for (const c of candidates) {
-    // 去重键（2026-11-14 收紧，三连跑实证跨镜头改写全进候选白耗验证票）：rootCause 相同同文件合并
-    // （跨行同因）；否则**同文件同行**即合并——claim 文本归一抓不住改写（两轮共 11 对同点重复）。
+    // 去重键（2026-11-14 收紧，三连跑实证跨镜头改写全进候选白耗验证票）：**同文件同行**即合并
+    // ——rootCause 是各 finder 自由命名的（同因异名导致首轮簇聚实测只并 2/24），claim 归一也抓不住
+    // 改写（两轮共 11 对同点重复）。line=0 的文件级意见按 rootCause/claim 归一兜底。
     // 合并侧把互异 claim 并进 evidence 链，信息零丢失；镜头归属进 sources。
-    const key = `${c.file}|${c.rootCause || c.line}`;
+    const key = c.line > 0
+      ? `${c.file}|${c.line}`
+      : `${c.file}|${c.rootCause || normalizeClaim(c.claim)}`;
     const prev = byKey.get(key);
     if (!prev) {
       byKey.set(key, { ...c, sources: [c.sourceLens], evidence: [c.evidence] });

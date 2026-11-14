@@ -32,6 +32,7 @@ console.log("\n== 共享常量锚定 ==");
 // 管道参数与枚举本体单源在 scripts/pipelines.mjs，直接 import 与文档比对，不再刮 state.mjs
 // 源码——原先的正则只锚定 state.mjs 里那份拷贝；搬家后锚定语义不变（文档数值 ↔ 实际常量）。
 const source = readFileSync(stateScript, "utf8");
+const pipelinesSource = readFileSync(new URL("../scripts/pipelines.mjs", import.meta.url), "utf8"); // 面板评审 C-009：max_failures 单源锚
 
 const specs = {};
 for (const pipeline of ["ralph", "coding"]) {
@@ -49,7 +50,8 @@ check("pipelines.mjs STOP_REASONS 常量存在", STOP_REASONS instanceof Set);
 const stopReasons = STOP_REASONS;
 check("pipelines.mjs STOP_REASONS 解析非空", stopReasons.size > 0 && stopReasons.has(null), JSON.stringify([...stopReasons]));
 
-const failuresMatch = source.match(/max_failures:\s*(\d+)/);
+const failuresMatch = // 面板评审 C-009：max_failures 默认值单源在 pipelines.mjs（MAX_FAILURES_DEFAULT），锚单源不再刮 state.mjs 拷贝
+  pipelinesSource.match(/MAX_FAILURES_DEFAULT = (\d+)/);
 check("脚本 init max_failures 默认存在", Boolean(failuresMatch));
 const maxFailuresDefault = failuresMatch ? Number(failuresMatch[1]) : -1;
 

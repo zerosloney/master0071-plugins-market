@@ -25,6 +25,9 @@ export const STOP_REASONS = new Set([null, "DONE", "ESCALATE", "BUDGET", "HOLD",
 // 默认单任务尝试上限：任一任务的 failures 达到自身 max_attempts（或本默认值）即 ESCALATE，
 // 避免单任务无限重试。max_attempts 是执行者可写字段，缺省时用这里的最小兜底。
 export const attemptLimit = 4;
+// 面板评审 C-009：max_failures 默认值单源——此前 state.mjs init 与 state-core 补齐两处字面量双写，
+// equivalence 锚错拷贝（改补齐拷贝它仍绿）。
+export const MAX_FAILURES_DEFAULT = 3;
 
 /**
  * 生效轮次上限：max_iterations > 0 覆盖管道默认 maxCycles，否则用默认值。

@@ -84,7 +84,9 @@ export function readState(file) {
   return state;
 }
 
-function eventsFile(file) {
+const lastMalformedNote = new Map();
+
+export function eventsFile(file) {
   const base = path.basename(file).replace(/\.json$/, "");
   return path.join(path.dirname(file), `${base}.events.jsonl`);
 }
@@ -180,7 +182,13 @@ export function readEvents(file, tail) {
     }
   }
   if (malformed > 0) {
-    process.stderr.write(`[agent-pipelines] skipped ${malformed} malformed event line(s) in ${log}\n`);
+    // 面板评审 C-004（2026-11-14）：serve 每次刷新都重读日志——同一坏行计数按文件去重，
+    // 不再无界刷屏（对照 serve 渲染失败 lastRenderError 的同款思路）。
+    const key = `${log}|${malformed}`;
+    if (!lastMalformedNote.has(key)) {
+      lastMalformedNote.set(key, true);
+      process.stderr.write(`[agent-pipelines] skipped ${malformed} malformed event line(s) in ${log} (deduplicated until the count changes)\n`);
+    }
   }
   return tail > 0 ? parts.slice(-tail) : parts;
 }
@@ -189,7 +197,8 @@ export function readEvents(file, tail) {
 // 锁内容是 `<pid> <iso时间>`：release 与陈旧接管都靠内容判归属（迟到的释放不能误删
 // 接管者的新锁；持有者已死的残留锁可以提前接管，不必等满陈旧阈值）。
 const LOCK_STALE_MS = 30000;
-const LOCK_WAIT_MS = 2000;
+// 面板评审 C-018：环境变量仅供测试放宽等待余量（慢 CI 启动抖动），产品默认 2000 不变
+const LOCK_WAIT_MS = Number(process.env.AGENT_PIPELINES_LOCK_WAIT_MS) > 0 ? Number(process.env.AGENT_PIPELINES_LOCK_WAIT_MS) : 2000;
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -263,7 +272,12 @@ export function withLock(file, fn) {
       // 「接管成功」会双双进入临界区，后提交者的陈旧读覆盖先提交者的写入。rename 后回读锁
       // 内容：仍是自己才返回 true；已被他人顶掉（或锁刚被释放消失）则返回 false，走普通
       // 竞争退避重试。
-      return readFileSync(lock, "utf8") === owner;
+      // 面板评审 C-002（2026-11-14）：单次回读只拦「回读前已被顶掉」的次序；加一次 25ms 抖动后复读，
+  // 把「败者 rename 落在胜者回读之后」的交错窗口再收窄一档。彻底闭合需 OS 级文件锁（已知限制，
+  // 见 README 并发限制节）。
+  if (readFileSync(lock, "utf8") !== owner) return false;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); // 同步真 sleep：两接管者同拍醒来的错峰
+  return readFileSync(lock, "utf8") === owner;
     } catch {
       /* 锁刚好被释放/替换（Windows 上 rename 目标被占用等）→ 按普通竞争退避重试 */
       return false;

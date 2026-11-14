@@ -123,8 +123,10 @@ for (const [pipeline, spec] of Object.entries(pipelines)) {
     check(`${rel} STALL_MAX 一致 (${spec.stallMax})`, stalls.length > 0 && stalls.every((n) => n === spec.stallMax));
     check(`${rel} 拆分预算一致 (${spec.budget})`, caps.length > 0 && caps.every((n) => n === spec.budget));
   }
-  const failuresDefault = uniqueNumbers(read(spec.files[0]), /max_failures[^\n]*?(\d+)/g);
-  check(`${pipeline} max_failures 默认值出现且为 3`, failuresDefault.includes(3));
+  // 面板评审 C-009：默认值单源在 pipelines.mjs MAX_FAILURES_DEFAULT——state.mjs init 已引用单源常量
+  const pipelinesSource = readFileSync(new URL("../scripts/pipelines.mjs", import.meta.url), "utf8");
+  const failuresDefault = uniqueNumbers(pipelinesSource, /MAX_FAILURES_DEFAULT = (\d+)/g);
+  check(`${pipeline} max_failures 默认值出现且为 3（单源 pipelines.mjs）`, failuresDefault.includes(3));
 }
 
 // skill 自足：标准入口不引用非标准目录
@@ -320,9 +322,9 @@ for (const [agentRel, refRel, tokens] of [
 // MAX_CYCLES / STALL_MAX / max_failures / max_attempts 是手写拷贝——前三者此前最多被本文件
 // 上方硬编码参数表（与脚本常量是两份源）间接覆盖，max_failures / max_attempts 则完全无校验。
 // 这里直接 import scripts/pipelines.mjs 的常量对账：文档数值 ↔ 脚本实际值。
-// max_failures 默认值单源在 state.mjs init，提取方式与 equivalence.mjs 相同。
-const failuresMatch = read("scripts/state.mjs").match(/max_failures:\s*(\d+)/);
-check("scripts/state.mjs init max_failures 默认存在", Boolean(failuresMatch));
+// 面板评审 C-009：max_failures 默认值单源在 pipelines.mjs MAX_FAILURES_DEFAULT（state.mjs init 已引用常量）。
+const failuresMatch = read("scripts/pipelines.mjs").match(/MAX_FAILURES_DEFAULT = (\d+)/);
+check("scripts/pipelines.mjs MAX_FAILURES_DEFAULT 存在", Boolean(failuresMatch));
 const maxFailuresDefault = failuresMatch ? Number(failuresMatch[1]) : -1;
 for (const [pipeline, rel] of Object.entries({ ralph: "agents/ralph-orchestrator.md", coding: "agents/coding-orchestrator.md" })) {
   const spec = PIPELINES[pipeline];

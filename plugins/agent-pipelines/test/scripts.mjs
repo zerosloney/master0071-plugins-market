@@ -239,6 +239,21 @@ result = run("render.mjs", ["--pipeline", "ralph", "--file", futureStateFile, "-
 check("render：--out 指向事件日志轮转段 .1（尚不存在）同样被拒绝",
   result.status === 2 && !existsSync(`${futureEventsFile}.1`), `${result.status} ${result.stdout} ${result.stderr}`);
 
+// 面板评审 C-017（2026-11-14）：事件日志含非对象行（裸 null）时 render 容错渲染 exit 0——
+// loadEvents 的 filter 是唯一消费守卫且此前零断言（删守卫全套仍绿、一行 null 即崩栈 exit 1）。
+{
+  const badEventsState = path.join(renderDir, "bad-events.json");
+  writeFileSync(badEventsState, JSON.stringify(renderState));
+  writeFileSync(
+    badEventsState.replace(/\.json$/, ".events.jsonl"),
+    [JSON.stringify({ ts: "2026-11-14T00:00:00.000Z", event: "write", pipeline: "ralph" }), "null", "42"].join("\n") + "\n",
+  );
+  const badOut = path.join(renderDir, "bad-events.html");
+  result = run("render.mjs", ["--pipeline", "ralph", "--file", badEventsState, "--out", badOut]);
+  check("C-017 事件日志含裸 null/标量行时 render 容错渲染（exit 0 且产出 HTML）",
+    result.status === 0 && existsSync(badOut), `${result.status} ${result.stderr}`);
+}
+
 // 续单（2026-11-07）：promise 边车标记路径与事件日志同构——--out 指向尚不存在的
 // <基名>.promise.json 会先 exit 0 落 HTML，此后 state.mjs promise 的 tmp+rename 会把整个
 // HTML 顶掉。派生与 state-persist.promiseFile 同款，无论存在与否一律 reserved。
@@ -574,7 +589,8 @@ console.log("\n== state-persist：readEvents 坏行丢弃打 stderr 计数 ==");
   check("events：坏行被跳过后 stdout 仍完整输出其余事件（读取不打断）",
     result.status === 0 && result.stdout.includes("init") && result.stdout.includes("write"), `${result.status} ${result.stdout}`);
   check("events：坏行丢弃在 stderr 打一行计数（含文件名、前缀统一）",
-    /^\[agent-pipelines\] skipped 1 malformed event line\(s\) in .+events\.jsonl$/m.test(result.stderr), result.stderr);
+    // 面板评审 C-004：消息带去重注记后缀（同一坏行计数不重复刷 stderr）
+    /^\[agent-pipelines\] skipped 1 malformed event line\(s\) in .+events\.jsonl \(deduplicated until the count changes\)$/m.test(result.stderr), result.stderr);
   result = run("state.mjs", ["events", "--pipeline", "coding", "--file", evStateFile, "--json", "--tail", "20"]);
   const evJson = JSON.parse(result.stdout);
   check("events：--json 输出只含 2 条合法事件（坏行不进数据面）",

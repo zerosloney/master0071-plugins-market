@@ -27,7 +27,7 @@ import path from "node:path";
 //   · 两侧紧邻 `/` 的 `/**/` 按 gitignore 语义允许零层（2026-11-07）：docs/**/secret.env 要
 //     同时命中 docs/secret.env 与 docs/a/b/secret.env（旧实现一律 `.*` → 零层漏判，forbidden
 //     方向 fail-open）。裸 **、前导 **/（文档化行为，警告保留）、尾部 /** 的语义不变。
-export function globToRegExp(glob) {
+function globToRegExp(glob) {
   let pattern = glob.replace(/\\/g, "/").trim();
   if (pattern.endsWith("/")) pattern += "**";
   let source = "";
@@ -69,7 +69,7 @@ function compiled(pattern) {
  * @param {string[]} patterns - scope 模式清单
  * @returns {boolean}
  */
-export function matchAny(file, patterns) {
+function matchAny(file, patterns) {
   return patterns.some((pattern) => compiled(pattern).test(file));
 }
 
@@ -83,7 +83,13 @@ export function matchAny(file, patterns) {
  * @returns {string} 仓库根相对路径的模式
  * @throws {Error} `..` 段逃出仓库根、或绝对路径落在仓库根之外
  */
+// 面板评审 C-013（2026-11-14）：盘符相对模式（C:foo/**）——isAbsolute 判 false、无 .. 段，
+// 原样放行后 glob 对仓库相对清单永不匹配（静默 fail-open）。在此按非法拒绝（与 recheckScope
+// 经本函数单源同判，双写已消）。
 export function rootRelativePattern(pattern, root) {
+  if (/^[A-Za-z]:[^\\/]/.test(String(pattern))) {
+    throw new Error(`scope pattern must be repo-root-relative (drive-relative form rejected): ${pattern}`);
+  }
   const normalized = pattern.replace(/\\/g, "/");
   if (!path.isAbsolute(pattern)) {
     if (normalized.split("/").includes("..")) {

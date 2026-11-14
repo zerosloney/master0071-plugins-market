@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "./args.mjs";
-import { PIPELINES } from "./pipelines.mjs";
+import { MAX_FAILURES_DEFAULT, PIPELINES } from "./pipelines.mjs";
 import { isObject, logEvent, promiseFile, readEvents, readPromiseValue, readState, readStateSoft, withLock, writeAtomic } from "./state-persist.mjs";
 import { applyGate, diffTaskStatus, gateFor, groupTasksByRootCause, looksLikeState, validateState } from "./state-core.mjs";
 
@@ -119,7 +119,7 @@ function main() {
       version: 1,
       prompt,
       max_iterations: 0,
-      max_failures: 3,
+      max_failures: MAX_FAILURES_DEFAULT, // 单源 pipelines.mjs（面板评审 C-009）
       retry_on_failure: false,
       completion_promise: null,
       outer_iteration: 0,

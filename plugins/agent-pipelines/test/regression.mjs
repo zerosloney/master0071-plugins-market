@@ -680,6 +680,42 @@ console.log("\n== 2026-11-01：gate 复算体与 scope.mjs 同口径（第二轮
     scope_drift: "PASS",
   });
 
+  // ⓪ 面板评审回归锁（2026-11-14 pr-0cd027b-ea55f351）
+  // C-011：scope.hard 含全覆盖模式（**）时复算 fail-closed 拒 DONE——堵执行者改写 scope 放行越界。
+  {
+    writeFileSync(path.join(rp.repo, "dist-leak.js"), "x\n");
+    const hostile = rState();
+    hostile.scope = { base: rp.base, hard: ["**"], soft: [], forbidden: [] };
+    writeFileSync(rFile, JSON.stringify(hostile));
+    const g = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", rFile, "--json"], undefined, rp.repo).stdout);
+    check("C-011 全覆盖 hard=** → 复算 fail-closed 拒 DONE", g?.stop_reason !== "DONE" && /全覆盖|疑被改写/.test(String(g?.reason)), JSON.stringify(g));
+    rmSync(path.join(rp.repo, "dist-leak.js"));
+  }
+  // C-012：promise 命中时 reason 必须标注「未鉴别来源」（不冒称用户授意）。
+  {
+    const promState = rState();
+    promState.tasks = [{ id: "t1", title: "a", status: "in_progress", depends_on: [], accept_criteria: ["ok"], failures: 0 }];
+    writeFileSync(rFile, JSON.stringify(promState));
+    writeFileSync(`${rFile.replace(/\.json$/, "")}.promise.json`, JSON.stringify({ version: 1, value: "stop" }));
+    const g = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", rFile, "--json"], undefined, rp.repo).stdout);
+    check("C-012 promise 命中 reason 标注未鉴别来源", g?.stop_reason === "DONE" && /未鉴别来源/.test(String(g?.reason)), JSON.stringify(g));
+    rmSync(`${rFile.replace(/\.json$/, "")}.promise.json`);
+  }
+  // C-013：盘符相对 scope 模式在 CLI 即被拒（fail-open 堵口）。
+  {
+    const r = run("scope.mjs", ["--hard", "C:leak/**", "--base", "HEAD", "--json"], undefined, rp.repo);
+    check("C-013 盘符相对模式 CLI 拒绝（exit 非 0 且指明 drive-relative）", r.status !== 0 && /drive-relative/.test(String(r.stderr)), `status=${r.status} err=${String(r.stderr).slice(0, 160)}`);
+  }
+  // C-006：仓库根内绝对路径 hard 规则——gate 复算与 CLI 同判（归一化后不再 unknown 拦 DONE）。
+  {
+    const absState = rState();
+    absState.scope = { base: rp.base, hard: [`${rp.repo.replaceAll("\\", "/")}/src/**`], soft: [], forbidden: [] };
+    writeFileSync(rFile, JSON.stringify(absState));
+    const g = parseJson(run("state.mjs", ["gate", "--pipeline", "coding", "--file", rFile, "--json"], undefined, rp.repo).stdout);
+    check("C-006 仓库根内绝对路径规则复算不再判非法（与 CLI 同宽）", !/模式非法/.test(String(g?.reason)), JSON.stringify(g));
+    writeFileSync(rFile, JSON.stringify(rState()));
+  }
+
   // ① 越界件放在**仓库根**，从子目录调 gate 必须照样拦（改前：ls-files 在 cwd 执行，
   //    sub/ 以下没有未跟踪文件 → 变更清单为空 → 判 DONE，零容忍形同虚设）。
   writeFileSync(path.join(rp.repo, "leak-at-root.txt"), "x\n");
@@ -1219,7 +1255,12 @@ console.log("\n== 2026-11-07：陈旧锁并发接管的互斥守卫（审计 M3�
           "--file",
           raceFile,
         ],
-        { cwd: sandbox, stdio: ["pipe", "ignore", "pipe"] },
+        {
+          cwd: sandbox,
+          stdio: ["pipe", "ignore", "pipe"],
+          // 面板评审 C-018：M3 余量 ≈350ms 吃不住慢 CI 启动抖动——环境变量放宽锁等待（产品默认 2000 不变）
+          env: { ...process.env, AGENT_PIPELINES_LOCK_WAIT_MS: "6000" },
+        },
       );
       let stderr = "";
       child.stderr.on("data", (d) => {
