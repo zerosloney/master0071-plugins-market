@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: board
-确认指纹: ddb8cec36c90e4fd
+确认指纹: 6b68e9e04340cec2
 ---
 # PLAN — 交付工作台 P2（执行运行流 + Git 只读视图）
 
