@@ -1,0 +1,1614 @@
+{
+  "schema": "pr-review/artifact@1",
+  "run": {
+    "schema": "pr-review/run@1",
+    "runId": "pr-0cd027b-ea55f351",
+    "base": "79e248fbf4d06559d65235ea37720fa9154d2f04",
+    "head": "0cd027b0469d2d7b4ddd064eb11133d1d29bafeb",
+    "baseRef": "79e248f",
+    "headRef": "0cd027b",
+    "diffHash": "ea55f35163cb40a43c50ddf61fd117ef6f32ec1ce43ae154027f30cc9d54bd1b",
+    "promptVersion": "pr-review/v1",
+    "createdAt": "2026-11-14T02:36:03.854Z",
+    "files": [
+      {
+        "path": "marketplace.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/README.md",
+        "status": "M",
+        "added": 17,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/agents/coding-orchestrator.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/agent-pipelines/agents/coding-reviewer.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/args.mjs",
+        "status": "M",
+        "added": 6,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/dag.mjs",
+        "status": "M",
+        "added": 74,
+        "deleted": 33
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/graph.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/pipelines.mjs",
+        "status": "A",
+        "added": 40,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/render.mjs",
+        "status": "M",
+        "added": 23,
+        "deleted": 29
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/scope-core.mjs",
+        "status": "A",
+        "added": 173,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/scope.mjs",
+        "status": "M",
+        "added": 62,
+        "deleted": 107
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/serve.mjs",
+        "status": "M",
+        "added": 23,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state-core.mjs",
+        "status": "A",
+        "added": 443,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state-persist.mjs",
+        "status": "A",
+        "added": 298,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state.mjs",
+        "status": "M",
+        "added": 39,
+        "deleted": 710
+      },
+      {
+        "path": "plugins/agent-pipelines/test/contract.mjs",
+        "status": "M",
+        "added": 71,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/test/equivalence.mjs",
+        "status": "M",
+        "added": 20,
+        "deleted": 24
+      },
+      {
+        "path": "plugins/agent-pipelines/test/regression.mjs",
+        "status": "M",
+        "added": 364,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/test/scripts.mjs",
+        "status": "M",
+        "added": 313,
+        "deleted": 1
+      }
+    ],
+    "lenses": [
+      {
+        "id": "correctness",
+        "focus": "逻辑、边界、错误路径、状态转换、并发交错、异常吞噬",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "security",
+        "focus": "信任边界、注入、鉴权、越权、敏感数据、输入解析",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "performance",
+        "focus": "查询/循环/渲染/内存/并发资源、N+1、无界集合",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "tests",
+        "focus": "行为断言、边界覆盖、测试是否会在实现全返回 undefined 时仍通过",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "spec",
+        "focus": "对照 spec/契约面的验收标准与承诺是否真正落地",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "data-integrity",
+        "focus": "数据丢失、事务边界、幂等、并发写、迁移可逆、审计字段、删除引用检查",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      },
+      {
+        "id": "quality",
+        "focus": "死代码、重复、抽象层数、可维护性（纯样式直接丢弃）",
+        "files": [
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs"
+        ],
+        "truncated": false
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 18,
+    "confirmed": 18,
+    "rejected": 0,
+    "escalated": 0,
+    "unverified": 0,
+    "important": 5,
+    "nit": 13,
+    "preExisting": 3,
+    "styleDropped": 0
+  },
+  "findings": [
+    {
+      "id": "C-001",
+      "file": "plugins/agent-pipelines/scripts/render.mjs",
+      "line": 296,
+      "claim": "render --out 的保留路径守卫用大小写敏感的字符串等值比较，在 NTFS/APFS 大小写不敏感文件系统上大小写变体 --out 可绕过守卫，把 HTML 写进未来事件日志/承诺标记路径，随后 state.mjs 追加写污染该 HTML——恰是本守卫要防的数据损坏",
+      "evidence": "head 0cd027b 守卫是 out === eventsLog || out === `${eventsLog}.1` || out === promisePath（纯字符串比较）；前置 existsSync 守卫只拦已存在文件，拦不住「未来派生路径」；绕过链：--out 传大小写变体 → 守卫全假 → HTML 落盘 → state.mjs logEvent 按派生小写路径 appendFileSync——NTFS 同一文件，JSONL 追加进 HTML。工作区已在 0.1.28（71f525b）以 toLowerCase 折叠修复，证明 head 缺陷为真\n---\nhead 0cd027b 守卫 === 比较；out 与 eventsLog 均经 path.resolve 不折叠大小写；事件日志尚不存在时（守卫针对的「未来派生路径」场景）existsSync 也不命中 → writeFileSync 创建的与之后 state.mjs 写的 .events.jsonl 在 NTFS 上是同一文件 → JSONL 追加进 HTML；读侧 readEvents 把这些行当坏行丢弃——唯一不可重建的运行记录被覆盖。post-head 0.1.28 已按此修复（面板挂账 C-004 同源）\n---\nclaim（data-integrity）：新增的 --out 保留路径守卫用大小写敏感的字符串全等比较，大小写不敏感文件系统上 --out 用大小写变体拼写即可绕过，把 HTML 写进未来事件日志路径——守卫要防的 m3 数据破坏完整复现，审计事件日志被静默毁掉\n---\n0cd027b:render.mjs:289/294-296：out/eventsLog/promisePath 均 path.resolve（不折叠大小写），守卫逐字节比较；existsSync 前置守卫只拦已存在文件。本机 win32 实跑复现：手写状态（无事件日志）→ render --out <dir>/STATE.EVENTS.JSONL exit 0 → state.mjs write 后文件尾 </html>+JSONL 混写。0.1.28（71f525b）已修复，证明 head 宣称与实现不符\n---\nclaim（spec）：README/changelog 宣称 render --out「无条件拒绝未来 events.jsonl/promise.json 派生路径（含轮转 .1）」，head 实现是大小写敏感 === 比较，大小写不敏感文件系统上大小写变体绕过守卫——「无条件」不成立",
+      "category": "data-integrity",
+      "severityHint": "Important",
+      "rootCause": "render-out-reserved-path-case-sensitive-compare",
+      "behaviorImpact": true,
+      "repro": "临时仓 git show 0cd027b:render.mjs 复刻 + 最小状态 + --out 大写变体 → exit 0；state.mjs write 后文件尾为 </html>+JSONL 混写",
+      "sources": [
+        "correctness",
+        "data-integrity",
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-001",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head :294-296 纯 === 敏感比较；三验证者临时沙箱各自实跑复现 HTML+JSONL 混写（NTFS 同文件）；0.1.28 已折叠修复——head 缺陷为真，处置 fixed@后续提交",
+          "counterEvidence": "",
+          "repro": "三沙箱独立复现（v1/v2/v3 均实跑）",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head :294-296 纯 === 敏感比较；三验证者临时沙箱各自实跑复现 HTML+JSONL 混写（NTFS 同文件）；0.1.28 已折叠修复——head 缺陷为真，处置 fixed@后续提交",
+          "counterEvidence": "",
+          "repro": "三沙箱独立复现（v1/v2/v3 均实跑）",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head :294-296 纯 === 敏感比较；三验证者临时沙箱各自实跑复现 HTML+JSONL 混写（NTFS 同文件）；0.1.28 已折叠修复——head 缺陷为真，处置 fixed@后续提交",
+          "counterEvidence": "",
+          "repro": "三沙箱独立复现（v1/v2/v3 均实跑）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "已修在 0.1.28（71f525b，先于本评审处置落盘）",
+        "at": "2026-11-14T03:41:26.131Z"
+      }
+    },
+    {
+      "id": "C-002",
+      "file": "plugins/agent-pipelines/scripts/state-persist.mjs",
+      "line": 266,
+      "claim": "withLock 陈旧锁接管的 rename 后回读确认收窄但仍未消除双进程同时进入临界区的窗口：败者 stat 在胜者 rename 前、败者 rename 又在胜者回读后时双方回读都读到自己的内容、双双接管成功并发执行 fn——本 PR 声称修复的「双进程同抢残留锁→丢失更新」仍以更窄概率存在",
+      "evidence": "takeOverStale（state-persist.mjs:233-271）：statSync 判陈旧 → writeFileSync tmp → renameSync(tmp, lock) → readFileSync(lock) === owner。交错 A.stat→B.stat→A.rename→A.readback(true)→B.rename（无条件替换）→B.readback(true)：双双 return fn() 并发读-改-写。两等待进程共享 25ms 节拍同拍醒来时该交错并非罕见；纯 read-back 方案无法闭合（需 OS 级锁或 CAS）\n---\ntakeOverStale（:233-271）：stale 由入口一次性判定，判定为真后无条件 tmp+rename，唯一互斥判据是 rename 后一次回读；交错 P2.statSync→P1.rename→P1.readback(true 入临界区)→P2.rename→P2.readback(true) 双入；README 0.1.27 changelog 称已修复，实际部分修复\n---\nclaim（data-integrity）：陈旧锁接管的 rename 后回读守卫只收窄竞窗、未收口互斥破绽：stale 判定与 rename 非原子，回读命中后进入临界区前不再复核，第二接管者的 rename 落在第一的回读之后时双方同时持锁读-改-写（丢失更新），与 changelog「回读归属确认」收口宣称不符\n---\ntakeOverStale 交错推演：B.statSync（旧残留锁）在 A.rename 前、B.renameSync 在 A 回读并进入临界区后 → 双方回读各自 owner 均 true → 并发读-改-写，先提交者被陈旧读整份覆盖（宣称已修复的丢失更新）。回读只拦「回读时已被顶掉」的次序；rename 无 CAS 语义。regression「最终状态是串行产物」未覆盖该对抗性交错\n---\nclaim（spec）：changelog 宣称陈旧锁并发接管缺陷已闭环，rename 后回读归属只是收窄窗口而非闭合：互斥在特定交错下仍破",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "lock-stale-takeover-readback-toctou",
+      "behaviorImpact": true,
+      "repro": "静态交错分析（难以确定性复现）：CI 双触发对同一 pid 已死残留锁并发 withLock 即可触发",
+      "sources": [
+        "correctness",
+        "data-integrity",
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-002",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "takeOverStale 交错推演（三票独立同构）：B.stat 在 A.rename 前 + B.rename 在 A 回读后 → 双入临界区；base 连回读都没有（更宽）→ pre-existing；changelog 宣称闭环与实现不符；窗口真实但概率窄",
+          "counterEvidence": "",
+          "repro": "静态交错链（三票一致；确定性复现需 fs 钩子编排）",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "takeOverStale 交错推演（三票独立同构）：B.stat 在 A.rename 前 + B.rename 在 A 回读后 → 双入临界区；base 连回读都没有（更宽）→ pre-existing；changelog 宣称闭环与实现不符；窗口真实但概率窄",
+          "counterEvidence": "",
+          "repro": "静态交错链（三票一致；确定性复现需 fs 钩子编排）",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "takeOverStale 交错推演（三票独立同构）：B.stat 在 A.rename 前 + B.rename 在 A 回读后 → 双入临界区；base 连回读都没有（更宽）→ pre-existing；changelog 宣称闭环与实现不符；窗口真实但概率窄",
+          "counterEvidence": "",
+          "repro": "静态交错链（三票一致；确定性复现需 fs 钩子编排）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:21.473Z"
+      }
+    },
+    {
+      "id": "C-003",
+      "file": "plugins/agent-pipelines/scripts/serve.mjs",
+      "line": 42,
+      "claim": "0.1.27 变更日志声称「serve stderr 前缀统一 [agent-pipelines]」，但 positiveInt 的参数错误输出仍是无方括号前缀的旧格式（positivePort 已改）——按前缀过滤 stderr 的消费方会漏掉该报错；另 :219 init 引导提示行完全无前缀",
+      "evidence": "serve.mjs:32 positivePort 已改为 `[agent-pipelines] live board:`，:42 positiveInt 仍是 `agent-pipelines live board:`；:19/:96/:218/:226 均已带前缀，唯 :42 与 :219 漏改。changelog 宣称的统一目标执行不完整\n---\nserve.mjs:42 对照 :32/:19/:96/:218/:226；README 0.1.27 变更说明明写统一——--interval abc 这条真实路径漏改，前缀统一契约残缺\n---\nclaim（quality）：PR 自述「serve stderr 前缀统一 [agent-pipelines]」（README 0.1.27 小节）未贯彻：positiveInt 报错行仍是旧前缀（无方括号），同文件 positivePort 与其余报错行均已统一\n---\ndiff 中 :32 已改前缀，:42 未改（工作区 serve.mjs == head，已核对）；:219 同样无前缀。按前缀采集 stderr 的消费方漏掉 interval 参数错误与 init 提示\n---\nclaim（spec）：changelog 宣称「serve stderr 前缀统一 [agent-pipelines]」，但两处未统一：:42 positiveInt 仍用旧格式（无方括号），:219 init 引导提示行完全无前缀——与同族 :32 positivePort 对照",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "serve-stderr-prefix-unification-incomplete",
+      "behaviorImpact": true,
+      "repro": "node serve.mjs --file x.json --interval 0 → stderr 无 [agent-pipelines] 前缀（对照 --port 0 带）",
+      "sources": [
+        "correctness",
+        "quality",
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-003",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "serve.mjs:42 无方括号前缀 + :219 无前缀，对照 :32 已改；README 宣称统一；0.1.28 未触，当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "node serve.mjs --interval 0 观察 stderr",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "serve.mjs:42 无方括号前缀 + :219 无前缀，对照 :32 已改；README 宣称统一；0.1.28 未触，当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "node serve.mjs --interval 0 观察 stderr",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "serve.mjs:42 无方括号前缀 + :219 无前缀，对照 :32 已改；README 宣称统一；0.1.28 未触，当前 HEAD 仍在",
+          "counterEvidence": "",
+          "repro": "node serve.mjs --interval 0 观察 stderr",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:21.791Z"
+      }
+    },
+    {
+      "id": "C-004",
+      "file": "plugins/agent-pipelines/scripts/state-persist.mjs",
+      "line": 183,
+      "claim": "本 PR 新增的坏行 stderr 计数无去重：serve 长跑看板在事件日志存在持久坏行时，每次状态/事件变更触发的刷新都重读日志并重复打印同一行「skipped N malformed event line(s)」，无界刷屏；同文件 serve 对渲染失败消息有 lastRenderError 按消息去重，此处没有对应机制",
+      "evidence": "readEvents（:161-186）每次调用对 malformed>0 无条件 process.stderr.write；坏行不会自愈（读侧从不重写，仅待轮转消失）；serve refresh 在每次 mtime 变化时 renderHtml→loadEvents→readEvents；对照 serve.mjs:77-99 渲染失败按消息去重——坏行计数无等价机制",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "readEvents-badline-count-no-dedup",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "data-integrity"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-004",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "readEvents malformed>0 无条件 stderr 且无去重；serve 每次 mtime 变化重读重印；对照渲染失败有 lastRenderError 去重",
+          "counterEvidence": "",
+          "repro": "临时目录坏行 + 连续 touch 复现重印",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "readEvents malformed>0 无条件 stderr 且无去重；serve 每次 mtime 变化重读重印；对照渲染失败有 lastRenderError 去重",
+          "counterEvidence": "",
+          "repro": "临时目录坏行 + 连续 touch 复现重印",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "readEvents malformed>0 无条件 stderr 且无去重；serve 每次 mtime 变化重读重印；对照渲染失败有 lastRenderError 去重",
+          "counterEvidence": "",
+          "repro": "临时目录坏行 + 连续 touch 复现重印",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:22.085Z"
+      }
+    },
+    {
+      "id": "C-005",
+      "file": "plugins/agent-pipelines/scripts/render.mjs",
+      "line": 294,
+      "claim": "render --out 的保留路径守卫把 .json → .events.jsonl / .promise.json 的派生规则第三份内联手写，而没有复用 state-persist 已有的 eventsFile/promiseFile 单源；守卫有效性完全靠与别处字符串字面量手工同步",
+      "evidence": "render.mjs:294-295 派生逻辑与 state-persist.mjs:87-90 eventsFile()、:95-97 promiseFile()（后者已 export）逐字同；render.mjs:10 本就 import state-persist（readEvents）却没取这两个函数；serve.mjs:22 还有第三份 .events.jsonl 派生。派生规则单点变更（后缀/目录）时此守卫静默失配，m3 数据丢失防线无告警回归",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "derived-path-rule-duplicated",
+      "behaviorImpact": false,
+      "repro": "静态比对三处字面量；改 state-persist 后缀即可令 render 守卫失配",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-005",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:294-295 内联派生 vs state-persist eventsFile/promiseFile 逐字同 + serve:22 第三份；render 本就 import state-persist；单点变更即静默失配",
+          "counterEvidence": "",
+          "repro": "三处字面量比对 + 漂移推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:294-295 内联派生 vs state-persist eventsFile/promiseFile 逐字同 + serve:22 第三份；render 本就 import state-persist；单点变更即静默失配",
+          "counterEvidence": "",
+          "repro": "三处字面量比对 + 漂移推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:294-295 内联派生 vs state-persist eventsFile/promiseFile 逐字同 + serve:22 第三份；render 本就 import state-persist；单点变更即静默失配",
+          "counterEvidence": "",
+          "repro": "三处字面量比对 + 漂移推演",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:22.393Z"
+      }
+    },
+    {
+      "id": "C-006",
+      "file": "plugins/agent-pipelines/scripts/state-core.mjs",
+      "line": 246,
+      "claim": "recheckScope 内联手写「仓库根相对合法性」判据（startsWith(\"/\") || /^[A-Za-z]:/ || .. 段），与 scope-core.rootRelativePattern 的拒绝逻辑构成跨新边界的手工同步双写，且两者语义已分叉：rootRelativePattern 对「仓库根内部的绝对路径」转换后接受，recheckScope 一律拒绝",
+      "evidence": "state-core.mjs:246-248 拒绝一切绝对路径；scope-core rootRelativePattern 对 root=E:/repo 时 E:/repo/docs/** → docs/** 接受。反例：state.scope.hard 手写 <仓库根内绝对路径> 时 CLI 正常判定、gate 复算回 unknown 拦 DONE——注释自称「与 rootRelativePattern 拒绝口径同判」与实际不符；rootRelativePattern 已导出，recheckScope 本可 try/catch 复用",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "pattern-legality-check-duplicated",
+      "behaviorImpact": false,
+      "repro": "scope.hard=[仓库根内绝对路径] 的状态：gate 判「scope 模式非法」；同值 scope.mjs CLI 正常判定",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-006",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 拒绝一切绝对路径 vs rootRelativePattern 接受仓库根内绝对路径（v1/v2 纯函数实跑）；注释自称同判不符；方向 fail-closed",
+          "counterEvidence": "",
+          "repro": "node -e rootRelativePattern 对照 + 端到端 CLI/gate 结论矛盾",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 拒绝一切绝对路径 vs rootRelativePattern 接受仓库根内绝对路径（v1/v2 纯函数实跑）；注释自称同判不符；方向 fail-closed",
+          "counterEvidence": "",
+          "repro": "node -e rootRelativePattern 对照 + 端到端 CLI/gate 结论矛盾",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 拒绝一切绝对路径 vs rootRelativePattern 接受仓库根内绝对路径（v1/v2 纯函数实跑）；注释自称同判不符；方向 fail-closed",
+          "counterEvidence": "",
+          "repro": "node -e rootRelativePattern 对照 + 端到端 CLI/gate 结论矛盾",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:22.721Z"
+      }
+    },
+    {
+      "id": "C-007",
+      "file": "plugins/agent-pipelines/scripts/scope-core.mjs",
+      "line": 30,
+      "claim": "scope-core 的 export globToRegExp 与 export matchAny 是孤儿导出——全仓零 import，纯投机 API 面",
+      "evidence": "全仓 rg：scope.mjs 只 import collectChangedFiles/rootRelativePattern/scopeVerdict，state-core 只 import collectChangedFiles/scopeVerdict；test/ 无 scope-core 引用。两函数仅被 scope-core 内部消费，export 无消费方，也无测试锚定",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "orphan-export",
+      "behaviorImpact": false,
+      "repro": "rg globToRegExp|matchAny 全仓——除 scope-core 自身无 import 点",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-007",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "globToRegExp/matchAny 全仓零 import（仅 scope-core 内部消费），无测试锚定的投机 API 面",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "globToRegExp/matchAny 全仓零 import（仅 scope-core 内部消费），无测试锚定的投机 API 面",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "globToRegExp/matchAny 全仓零 import（仅 scope-core 内部消费），无测试锚定的投机 API 面",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:23.021Z"
+      }
+    },
+    {
+      "id": "C-008",
+      "file": "plugins/agent-pipelines/scripts/state-core.mjs",
+      "line": 230,
+      "claim": "export function recheckScope 是孤儿导出：唯一调用方是同文件内部的 codingGateBlockers，无任何模块或测试 import",
+      "evidence": "全仓 rg recheckScope：state-core 自身定义与内部调用 + 注释命中；regression 经 gate CLI 间接驱动不 import 该符号；state.mjs:14 的 import 清单没有它。三缝拆分加 export 但消费面为零",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "orphan-export",
+      "behaviorImpact": false,
+      "repro": "rg recheckScope plugins/agent-pipelines——除注释与内部调用外无 import 点",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-008",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 唯一调用方同文件 :334，state.mjs import 清单无它，测试经 CLI 间接驱动",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 唯一调用方同文件 :334，state.mjs import 清单无它，测试经 CLI 间接驱动",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "recheckScope 唯一调用方同文件 :334，state.mjs import 清单无它，测试经 CLI 间接驱动",
+          "counterEvidence": "",
+          "repro": "git grep 全仓",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:23.341Z"
+      }
+    },
+    {
+      "id": "C-009",
+      "file": "plugins/agent-pipelines/test/equivalence.mjs",
+      "line": 52,
+      "claim": "三缝拆分后 max_failures 默认值 3 仍是跨文件双写（state.mjs init 字面量 + state-core.mjs:38 补齐字面量），equivalence 的文档锚定只刮 state.mjs 那份——而它锚的文档规则描述的恰是 state-core 那份；同 PR 为 attemptLimit 建了 pipelines.mjs 单源，max_failures 未同款处理",
+      "evidence": "equivalence.mjs:17/34/52 刮 state.mjs 源码锚 init 默认；补齐行为本体在 state-core.mjs:38；equivalence baseState 恒显式传 3，gate 行为断言永远测不到补齐拷贝；注释（:5-6/:32-33「仅存于该文件」「不再刮 state.mjs」）与实际相悖，后人改默认值需知道三处",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "default-value-double-write-after-split",
+      "behaviorImpact": false,
+      "repro": "改 state-core.mjs:38 为 5 后 equivalence 仍全绿（锚错拷贝），regression「补齐默认参与判停」变红",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-009",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "max_failures=3 跨文件双写（state.mjs:122 init + state-core:38 补齐），equivalence 只刮 state.mjs 拷贝；改 state-core:38 equivalence 仍绿（锚错拷贝）；同 PR attemptLimit 有单源先例",
+          "counterEvidence": "",
+          "repro": "改值推演（v2/v3 静态+既有 regression 兜底对照）",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "max_failures=3 跨文件双写（state.mjs:122 init + state-core:38 补齐），equivalence 只刮 state.mjs 拷贝；改 state-core:38 equivalence 仍绿（锚错拷贝）；同 PR attemptLimit 有单源先例",
+          "counterEvidence": "",
+          "repro": "改值推演（v2/v3 静态+既有 regression 兜底对照）",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "max_failures=3 跨文件双写（state.mjs:122 init + state-core:38 补齐），equivalence 只刮 state.mjs 拷贝；改 state-core:38 equivalence 仍绿（锚错拷贝）；同 PR attemptLimit 有单源先例",
+          "counterEvidence": "",
+          "repro": "改值推演（v2/v3 静态+既有 regression 兜底对照）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:23.667Z"
+      }
+    },
+    {
+      "id": "C-010",
+      "file": "plugins/agent-pipelines/scripts/render.mjs",
+      "line": 11,
+      "claim": "拆分残留旧名：注释写「STATUS 与 state.mjs 的 TASK_STATUS 是同一份枚举」，但 TASK_STATUS 单源在本 PR 已落 pipelines.mjs，state.mjs 既不定义也不是其所在地——同一句内前后归属互相矛盾",
+      "evidence": "render.mjs:11-12 注释 + import { TASK_STATUS as STATUS } from \"./pipelines.mjs\"；全仓 TASK_STATUS 定义仅在 pipelines.mjs:20，state.mjs 无定义无引用。按注释前半句去 state.mjs 找会扑空",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "stale-name-in-comment",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-010",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:11 注释「state.mjs 的 TASK_STATUS」——定义仅在 pipelines.mjs:20，state.mjs 零命中；同句内归属矛盾",
+          "counterEvidence": "",
+          "repro": "grep 全 scripts/",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:11 注释「state.mjs 的 TASK_STATUS」——定义仅在 pipelines.mjs:20，state.mjs 零命中；同句内归属矛盾",
+          "counterEvidence": "",
+          "repro": "grep 全 scripts/",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:11 注释「state.mjs 的 TASK_STATUS」——定义仅在 pipelines.mjs:20，state.mjs 零命中；同句内归属矛盾",
+          "counterEvidence": "",
+          "repro": "grep 全 scripts/",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:23.970Z"
+      }
+    },
+    {
+      "id": "C-011",
+      "file": "plugins/agent-pipelines/scripts/state-core.mjs",
+      "line": 231,
+      "claim": "gate 的 scope 复算把执行者可写的 state.scope（hard/soft/forbidden/base/exclude）当作可信裁决输入，越界仓库可以被改写成复算 PASS 从而判 DONE——与「越界以复算结果为准、执行者改自报值逃不掉」的安全声明不符",
+      "evidence": "recheckScope（state-core.mjs:230-288）全部判定输入取自 state.scope：rulesOf(scope.hard/soft/forbidden)、scope.exclude、scope.base；state.mjs write 是执行者整份提交状态的常规写入口，validateState 对 scope 只做 isObject 校验。两条越狱路径：(1) scope.hard=[\"**\"]——globToRegExp 把 ** 编译为 .* 命中一切变更 → outside 空 → PASS → DONE；(2) scope.base 改成已包含越界改动的提交再 gate——diff 为空 → PASS → DONE。代码注释（:406-407「执行者删掉或改写自报值也逃不掉」）宣称已堵死的伪造绿票类攻击，换到复算输入层复活",
+      "category": "security",
+      "severityHint": "Important",
+      "rootCause": "gate-recompute-trusts-executor-writable-scope",
+      "behaviorImpact": true,
+      "repro": "init → write 提交 scope.hard=[\"**\"] 的完整状态 → mkdir dist 写越界文件 → gate → stop_reason=DONE（scope 复算 PASS），越界文件在场判 DONE",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-011",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "recheckScope 裁决输入全取执行者可写的 state.scope；v1 纯函数实跑（globToRegExp('**') 匹配一切 → scopeVerdict PASS）、v2/v3 临时仓端到端实跑（scope.hard=[\"**\"] + 越界文件在场 → gate DONE）；validateState 仅 isObject；与「改写自报值也逃不掉」宣称不符；base 同构 pre-existing",
+          "counterEvidence": "",
+          "repro": "两票临时仓端到端实跑 + 一票纯函数实跑",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "recheckScope 裁决输入全取执行者可写的 state.scope；v1 纯函数实跑（globToRegExp('**') 匹配一切 → scopeVerdict PASS）、v2/v3 临时仓端到端实跑（scope.hard=[\"**\"] + 越界文件在场 → gate DONE）；validateState 仅 isObject；与「改写自报值也逃不掉」宣称不符；base 同构 pre-existing",
+          "counterEvidence": "",
+          "repro": "两票临时仓端到端实跑 + 一票纯函数实跑",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "recheckScope 裁决输入全取执行者可写的 state.scope；v1 纯函数实跑（globToRegExp('**') 匹配一切 → scopeVerdict PASS）、v2/v3 临时仓端到端实跑（scope.hard=[\"**\"] + 越界文件在场 → gate DONE）；validateState 仅 isObject；与「改写自报值也逃不掉」宣称不符；base 同构 pre-existing",
+          "counterEvidence": "",
+          "repro": "两票临时仓端到端实跑 + 一票纯函数实跑",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:24.275Z"
+      }
+    },
+    {
+      "id": "C-012",
+      "file": "plugins/agent-pipelines/scripts/state-core.mjs",
+      "line": 382,
+      "claim": "promise 边车标记没有任何来源鉴别：执行者可直接写 <状态>.promise.json（或跑 promise 子命令）伪造「用户显式早停」，gate 命中即 DONE 并绕过 verdict/scope/验证/critical 全部门禁——README 与代码注释宣称的「来源可鉴别」不成立",
+      "evidence": "gateFor promise 分支（:381-391）只要求标记存在且 value 非空即 DONE（:386 自述「绕过 verdict/scope_drift/验证/critical 门禁」）；readPromiseValue 只解析 JSON 不校验写入者；promise 子命令无调用方鉴别（「orchestrator 专属」仅文档约定），builder/reviewer 执行者拥有同一 shell 既能跑命令也能直接写标记；reason 直接冒称用户授意（不像 STOPPED 路径挂「未鉴别来源」注记）。README:197 宣称「completion_promise 来源可鉴别（方案 b）」，实现中不存在任何鉴别机制",
+      "category": "security",
+      "severityHint": "Important",
+      "rootCause": "promise-marker-no-provenance",
+      "behaviorImpact": true,
+      "repro": "执行者 printf '{\"version\":1,\"value\":\"stop\"}' > <状态>.promise.json → gate → stop_reason=DONE，scope FAIL/critical 未过/任务未完成全被绕过",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Important",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-012",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "promise 标记无写入者鉴别：readPromiseValue 只验形状；子命令无身份检查；v2/v3 临时目录实跑（手写 promise.json → gate DONE 绕过全部门禁）；README「来源可鉴别（方案 b）」无机制支撑；reason 冒称用户授意（STOPPED 路径有未鉴别注记，promise 路径没有）；机制 base 已有",
+          "counterEvidence": "",
+          "repro": "两票临时目录实跑复现",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "promise 标记无写入者鉴别：readPromiseValue 只验形状；子命令无身份检查；v2/v3 临时目录实跑（手写 promise.json → gate DONE 绕过全部门禁）；README「来源可鉴别（方案 b）」无机制支撑；reason 冒称用户授意（STOPPED 路径有未鉴别注记，promise 路径没有）；机制 base 已有",
+          "counterEvidence": "",
+          "repro": "两票临时目录实跑复现",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "promise 标记无写入者鉴别：readPromiseValue 只验形状；子命令无身份检查；v2/v3 临时目录实跑（手写 promise.json → gate DONE 绕过全部门禁）；README「来源可鉴别（方案 b）」无机制支撑；reason 冒称用户授意（STOPPED 路径有未鉴别注记，promise 路径没有）；机制 base 已有",
+          "counterEvidence": "",
+          "repro": "两票临时目录实跑复现",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:24.575Z"
+      }
+    },
+    {
+      "id": "C-013",
+      "file": "plugins/agent-pipelines/scripts/scope-core.mjs",
+      "line": 88,
+      "claim": "rootRelativePattern 接受盘符相对模式（如 C:foo/**）作为仓库根相对规则放行，forbidden 方向静默永不匹配（fail-open），且与 recheckScope 的非法模式判据（^[A-Za-z]:/ 拒绝）口径不一致，破坏「两消费方口径同宽」的结构性声明",
+      "evidence": "rootRelativePattern（scope-core.mjs:86-98）对非绝对路径只检查 .. 段：path.win32.isAbsolute(\"C:foo/**\")===false → 原样放行；globToRegExp 编出 ^C:foo/.*$ 对仓库相对清单永不匹配 → --forbidden \"C:leak/**\" 时泄漏文件不进 forbiddenHits 也不进 outside → PASS。违反自身文档不变量（:79-81「越出仓库根的规则直接报错——静默留着就是 fail-open」）。而 recheckScope 用 /^[A-Za-z]:/ 判同类非法——CLI 判绿、gate 恒 unknown（永久 ESCALATE 同类故障），两消费方对同一规则给出矛盾结论",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "drive-relative-scope-pattern-fail-open",
+      "behaviorImpact": true,
+      "repro": "node scope.mjs --forbidden \"C:leak/**\" --base HEAD（含未跟踪 leak 文件）→ scope_drift=PASS；同规则 --apply 落盘后 gate → scope 复算恒 unknown",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-013",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "isAbsolute('C:foo/**')===false（三票实跑）→ rootRelativePattern 放行盘符相对模式 → glob 永不匹配（静默失效，违反自身 JSDoc）；recheckScope /^[A-Za-z]:/ 判非法 → CLI 接受落盘、gate 恒 unknown，双消费方矛盾；v2/v3 修正复现口径：仅 forbidden 时 outside 通道偶兜底 fail-closed，fail-open 材化需 hard/soft 覆盖——核心主张成立",
+          "counterEvidence": "",
+          "repro": "node -e 三步对照 + 端到端矛盾结论",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "isAbsolute('C:foo/**')===false（三票实跑）→ rootRelativePattern 放行盘符相对模式 → glob 永不匹配（静默失效，违反自身 JSDoc）；recheckScope /^[A-Za-z]:/ 判非法 → CLI 接受落盘、gate 恒 unknown，双消费方矛盾；v2/v3 修正复现口径：仅 forbidden 时 outside 通道偶兜底 fail-closed，fail-open 材化需 hard/soft 覆盖——核心主张成立",
+          "counterEvidence": "",
+          "repro": "node -e 三步对照 + 端到端矛盾结论",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "isAbsolute('C:foo/**')===false（三票实跑）→ rootRelativePattern 放行盘符相对模式 → glob 永不匹配（静默失效，违反自身 JSDoc）；recheckScope /^[A-Za-z]:/ 判非法 → CLI 接受落盘、gate 恒 unknown，双消费方矛盾；v2/v3 修正复现口径：仅 forbidden 时 outside 通道偶兜底 fail-closed，fail-open 材化需 hard/soft 覆盖——核心主张成立",
+          "counterEvidence": "",
+          "repro": "node -e 三步对照 + 端到端矛盾结论",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:24.870Z"
+      }
+    },
+    {
+      "id": "C-014",
+      "file": "plugins/agent-pipelines/README.md",
+      "line": 34,
+      "claim": "README 的 scripts/state.mjs 能力表行列出的子命令缺 promise（仅列 6 个），而代码实现并公开 7 个（usage 串、头注释均列 promise）——README 自身 :69 锁纪律句与 :193 changelog 都在描述 promise",
+      "evidence": "0cd027b:README.md:34 表格行无 promise；state.mjs:110 命令白名单含 promise、:11-12 头注释列 7 子命令（0.1.27 补的是脚本注释，README 表格行漏网）；该漂移 base 即存在，0.1.27 自称「全量审查收口」的 README 对账未修正",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "readme-subcommand-table-stale",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-014",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:34 表行 6 子命令 vs 实现 7 个（含 promise）；README 自身 :69/:173 都在描述 promise——同文档内漂移；base 即存在",
+          "counterEvidence": "",
+          "repro": "sed -n 34p 对照白名单",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:34 表行 6 子命令 vs 实现 7 个（含 promise）；README 自身 :69/:173 都在描述 promise——同文档内漂移；base 即存在",
+          "counterEvidence": "",
+          "repro": "sed -n 34p 对照白名单",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "README:34 表行 6 子命令 vs 实现 7 个（含 promise）；README 自身 :69/:173 都在描述 promise——同文档内漂移；base 即存在",
+          "counterEvidence": "",
+          "repro": "sed -n 34p 对照白名单",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:25.155Z"
+      }
+    },
+    {
+      "id": "C-015",
+      "file": "plugins/agent-pipelines/scripts/state.mjs",
+      "line": 16,
+      "claim": "head 0cd027b 的 state.mjs:16-17 再导出 validateState/gateFor/groupTasksByRootCause，注释宣称「供测试/脚本不经 CLI 直连域逻辑」，但全插件无任何消费方——带虚假消费声明的死导出",
+      "evidence": "rg 全插件 from \"./state.mjs\" 零命中；test/scripts.mjs:139 直连 state-core.mjs。后续 71f525b（0.1.28「state 死再导出删」）反证 head 时点无消费。行号以 head 为准（工作区该行已删）",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "dead-reexport-false-comment",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-015",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head state.mjs:16-17 死再导出带虚假消费声明；全仓零 import；0.1.28 已删反证 head 无消费——处置 fixed@71f525b",
+          "counterEvidence": "",
+          "repro": "git grep 零命中 + 71f525b 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head state.mjs:16-17 死再导出带虚假消费声明；全仓零 import；0.1.28 已删反证 head 无消费——处置 fixed@71f525b",
+          "counterEvidence": "",
+          "repro": "git grep 零命中 + 71f525b 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "head state.mjs:16-17 死再导出带虚假消费声明；全仓零 import；0.1.28 已删反证 head 无消费——处置 fixed@71f525b",
+          "counterEvidence": "",
+          "repro": "git grep 零命中 + 71f525b 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "已修在 0.1.28（71f525b，先于本评审处置落盘）",
+        "at": "2026-11-14T03:41:26.456Z"
+      }
+    },
+    {
+      "id": "C-016",
+      "file": ".github/workflows/ci.yml",
+      "line": 74,
+      "claim": "本 PR 新增的 test/scripts.mjs（59 断言）在 head 0cd027b 未接入 CI——agent-pipelines 测试块只跑 contract/pipeline/equivalence/regression，脚本层修复在 CI 全绿下可静默回退",
+      "evidence": "git show 0cd027b:.github/workflows/ci.yml 行 69-74 的 agent-pipelines 块无 scripts.mjs；scripts.mjs 是 dag 深链迭代化（m1）、render --out 保留派生路径（m3）、serve 非 .json 拒绝（m4）等修复的唯一断言载体（grep 四套零命中）；后续提交 71f525b 补接并自评「带外 Important——m1/m3 修复原无守护」，证明 head 时点缺口真实存在",
+      "category": "test",
+      "severityHint": "Important",
+      "rootCause": "scripts-suite-not-in-ci",
+      "behaviorImpact": false,
+      "repro": "git show 0cd027b:.github/workflows/ci.yml | grep -c scripts.mjs → 0；把 dag.mjs 换回递归版跑 CI 四套全绿，仅手动 scripts.mjs 变红",
+      "sources": [
+        "tests"
+      ],
+      "blastRadius": [
+        "plugins/agent-pipelines/test/scripts.mjs"
+      ],
+      "provenanceCandidate": "blast-radius",
+      "severity": "Important",
+      "provenance": "blast-radius",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-016",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml agent-pipelines 块 grep scripts.mjs 计 0；scripts.mjs 是 m1/m3/m4 修复唯一断言载体；71f525b 已补接并自评带外 Important——head 缺口为真，处置 fixed@71f525b；v3 修正：scripts.mjs 本体 0.1.26 已有，缺口主体（新增修复无守护）由本 PR 扩大",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep -c → 0",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml agent-pipelines 块 grep scripts.mjs 计 0；scripts.mjs 是 m1/m3/m4 修复唯一断言载体；71f525b 已补接并自评带外 Important——head 缺口为真，处置 fixed@71f525b；v3 修正：scripts.mjs 本体 0.1.26 已有，缺口主体（新增修复无守护）由本 PR 扩大",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep -c → 0",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Important",
+          "provenance": "unknown",
+          "evidence": "head ci.yml agent-pipelines 块 grep scripts.mjs 计 0；scripts.mjs 是 m1/m3/m4 修复唯一断言载体；71f525b 已补接并自评带外 Important——head 缺口为真，处置 fixed@71f525b；v3 修正：scripts.mjs 本体 0.1.26 已有，缺口主体（新增修复无守护）由本 PR 扩大",
+          "counterEvidence": "",
+          "repro": "git show head ci.yml grep -c → 0",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "已修在 0.1.28（71f525b，先于本评审处置落盘）",
+        "at": "2026-11-14T03:41:26.773Z"
+      }
+    },
+    {
+      "id": "C-017",
+      "file": "plugins/agent-pipelines/scripts/render.mjs",
+      "line": 153,
+      "claim": "loadEvents 新增的非对象行消费守卫 filter((event) => event && typeof event === \"object\")（防裸 null/标量 JSONL 行进 renderEventRow 崩溃）在五套测试中零断言，删除该 filter 全部套件仍绿",
+      "evidence": "readEvents（state-persist.mjs:161-186）不过滤非对象行（注释明言由消费方自守）；scripts.mjs:554-583 只锁 state.mjs events CLI 的坏行计数，pipeline.mjs 的 render 用例只写合法对象行，无裸 null/数字行经 render 的用例；守卫回退后损坏日志一行裸 null 即让 render 未捕获崩溃 exit 1（恰是 graph 的 FAIL 码，与既有「崩栈误读」同类）",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "unguarded-loadevents-filter",
+      "behaviorImpact": false,
+      "repro": "向 <状态>.events.jsonl 追加一行 \"null\" 跑 render：head exit 0；删掉 render.mjs:153 的 filter 重跑——五套仍绿、render exit 1 崩栈",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-017",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:153 filter 是非对象行唯一消费守卫且五套零断言——删守卫全套仍绿、一行裸 null 即崩栈 exit 1（恰是 FAIL 码）；v2 受控对照实跑（events+[null] → TypeError）",
+          "counterEvidence": "",
+          "repro": "v2 node -e 对照实跑 + 测试面 grep",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:153 filter 是非对象行唯一消费守卫且五套零断言——删守卫全套仍绿、一行裸 null 即崩栈 exit 1（恰是 FAIL 码）；v2 受控对照实跑（events+[null] → TypeError）",
+          "counterEvidence": "",
+          "repro": "v2 node -e 对照实跑 + 测试面 grep",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render:153 filter 是非对象行唯一消费守卫且五套零断言——删守卫全套仍绿、一行裸 null 即崩栈 exit 1（恰是 FAIL 码）；v2 受控对照实跑（events+[null] → TypeError）",
+          "counterEvidence": "",
+          "repro": "v2 node -e 对照实跑 + 测试面 grep",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:25.492Z"
+      }
+    },
+    {
+      "id": "C-018",
+      "file": "plugins/agent-pipelines/test/regression.mjs",
+      "line": 1155,
+      "claim": "M3 双进程锁竞态测试依赖约 300ms 的进程启动时差余量，CI 慢启动下会误报：赢家释放锁晚于输家 2s 等锁 deadline 时输家 exit 2，三条断言齐红",
+      "evidence": "确定性钩子：赢家首次写延迟 1500ms、赢家比输家晚 spawn 150ms、输家 deadline=启动+2000ms；推演要求「赢家启动−输家启动<约300ms」否则输家走 fail exit 2；另输家启动慢逾 150ms 时接管顺序反转使 raced.round===2 断言误红。本环境实测 117/117 绿，慢机风险未复现",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "m3-race-test-timing-margin",
+      "behaviorImpact": false,
+      "repro": "静态推演 + 本地单次绿；CI 单核/冷缓存环境可复现 loser.code===2 偶发",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-018",
+          "verifier": "v1",
+          "verdict": "uncertain",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "部分证实（常数层与时序算术）但本机无法复现慢启动条件，单次 117/117 绿——按「复现不出来记 uncertain」裁决；M3 时序余量 ≈350ms−启动抖动（150/1200/1500/2000ms 常量三票独立算术一致）；慢 CI 误报通道结构性成立",
+          "counterEvidence": "",
+          "repro": "静态时间线算术；慢机限流可复现 loser exit 2",
+          "model": ""
+        },
+        {
+          "findingId": "C-018",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "静态核实 M3 段时序结构：余量 ≈350ms 减两进程启动抖动；慢 CI 误报通道结构性成立，未在慢机实测故 Nit；M3 时序余量 ≈350ms−启动抖动（150/1200/1500/2000ms 常量三票独立算术一致）；慢 CI 误报通道结构性成立",
+          "counterEvidence": "",
+          "repro": "静态时间线算术；慢机限流可复现 loser exit 2",
+          "model": ""
+        },
+        {
+          "findingId": "C-018",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "逐行核对常量（150/1200/1500/2000ms）并做锁窗口算术：余量脆弱性由构造保证，属测试稳健性问题，Nit；M3 时序余量 ≈350ms−启动抖动（150/1200/1500/2000ms 常量三票独立算术一致）；慢 CI 误报通道结构性成立",
+          "counterEvidence": "",
+          "repro": "静态时间线算术；慢机限流可复现 loser exit 2",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 2,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 1,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "a8e194ab5f91053ddfc536a7496dd36574aa3b23",
+        "note": "0.1.29 面板评审收口",
+        "at": "2026-11-14T03:41:25.810Z"
+      }
+    }
+  ],
+  "dropped": [],
+  "writtenAt": "2026-11-14T03:41:35.739Z"
+}
