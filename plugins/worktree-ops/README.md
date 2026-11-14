@@ -37,7 +37,7 @@ node --version && git --version
 | `worktree_list` | 列出全部 worktree：分支、HEAD、是否干净、领先/落后、是否已合并、闲置天数 |
 | `worktree_status` | 单个 worktree 的完整详情，含脏文件、最后提交、当前会话是否已在其中（标准客户端下传 `sessionCwd` 可确认） |
 | `worktree_audit` | 清理前分桶审计：`safe` / `review` / `hold` + 原因 + 可回收空间，**只读不删** |
-| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；受管目录外一律拒绝，`force` 也不放宽 |
+| `worktree_remove` | 删除 worktree（可选删分支），脏/未合并拒绝（需 `force: true` **且** `confirmDiscard: true` 双标志才越过）；**例外（0.4.16 起）**：prunable 且 HEAD 不可达的登记（gitdir 失效、分支引用已删）无需 force 即可清除；受管目录外一律拒绝，`force` 也不放宽 |
 | `worktree_lock` | 锁定 worktree（`git worktree lock`，可记原因）：主检出（primary worktree）会被拒绝；`worktree_remove` 拒绝碰锁定的工作树；`worktree_merge_back` 仅在带 `remove: true` 时拒绝 |
 | `worktree_unlock` | 解锁，恢复 remove / merge_back |
 | `worktree_merge_back` | 默认只出计划；`rebase` / `merge` / `remove` 开启后执行，遇冲突停下交还。`ff: true` 配合 `merge` 做 fast-forward-only 合并（线性历史、无合并提交），分支已分叉时拒绝。`remove: true` 与 `worktree_remove` 同一道删除护栏：锁定 / 受管根外 / 未合并 / 脏 / **含 gitignored 文件**一律保留工作树并说明原因（2026-11-01 补：此前只有 `worktree_remove` 带 gitignored 闸，`merge_back` 是第二个删除出口却无确认环节，只含 `.env` 的已合并工作树会被静默删掉） |
@@ -83,6 +83,18 @@ node --version && git --version
 | macOS / Linux | `$XDG_CONFIG_HOME/worktree-ops/config.json`（默认 `~/.config`） |
 
 用 `WORKTREE_CONFIG_HOME` 可以整体改掉这个目录。支持设置页的宿主（ZCode）会把设置项映射成上面那组环境变量，用户在界面里填的值优先级最高。
+
+## 版本变更
+
+**0.4.17**
+
+面板评审收口（pr-baf1e6e-753574e2 对 0.4.16 单提交：7 镜头 16 原始 → 簇聚 15 候选（baseRef 双镜头并一、1 blast-radius）→ 45 票全 confirm（C-001/C-013 升 Important）→ 15 条全修）：**C-013（Important）** config.mjs + protocol.mjs 接入 CI（0.4.16 新增的 9 项修复唯一回归守护此前从不执行）；**C-001（Important）** saveConfig 写路径 baseRef 空串归一（与 branchPrefix 同待遇——宣称的「不落盘」写路径补齐）。**其余**：②__proto__ 键 round-trip 改 defineProperty（丢键+原型替换堵口，+2 白盒断言）③写盘前二次归属复核（接管窗口再收窄）④锁路径随 release 单源带回（消双推导）⑤prunable 豁免收紧为「目录确已不存在」（实证 prunable ≠ 目录不在，注释前提修正）⑥相对 WORKTREE_CONFIG_HOME 忽略时上报 issue（存量配置弃置不再静默）⑦README 三处：契约表 remove 行补 prunable 例外、已知限制落档（3 项不修决定）、⑧mergedLabel 三态标签抽单源（白盒可测）⑨git log 行解析抽 parseLogLine 单源（两份手工实现归一）⑩协议 enum 单源化（工具侧生产不可达分支移除）⑪fd 泄漏测试死限短路（waitMs 注入，套件墙钟减半）。十套件全绿（含新增 3 断言）。
+
+
+
+- **Windows `\\?\` 前缀剥离**：实测 no-op（Node 的 fs API 已规范化长路径），无行为差异——不修。
+- **git 超时孙进程级联杀**：需要 Windows Job Objects 绑进程树，超出本插件零依赖边界——不修（超时后孤儿孙进程由 git 自身回收语义兜底）。
+- **Node 版本自检顺序**：ESM import 提升使检查晚于模块加载，形式上「先加载后检查」——实测无危害（不支持版本在 import 阶段即崩），不修。
 
 ## 版本变更
 

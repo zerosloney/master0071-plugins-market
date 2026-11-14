@@ -69,6 +69,8 @@ jobs:
           node plugins/worktree-ops/test/inside.mjs
           node plugins/worktree-ops/test/merge-main.mjs
           node plugins/worktree-ops/test/timeout.mjs
+          node plugins/worktree-ops/test/config.mjs
+          node plugins/worktree-ops/test/protocol.mjs
       - name: agent-pipelines tests
         run: |
           node plugins/agent-pipelines/test/contract.mjs

@@ -195,6 +195,26 @@ try {
     commit !== null && commit.subject.includes('\t') && commit.subject.endsWith('beta tail'),
     commit === null ? '(null)' : `subject=${JSON.stringify(commit.subject)}`,
   );
+  // ---- 面板评审 C-002/C-011（2026-11-14 pr-baf1e6e-753574e2）：__proto__ 键 round-trip ----
+  // 动态 body[key]=value 走原型 setter：键静默丢弃 + body 原型被磁盘对象替换（违背「未知键
+  // 原样保留」承诺）。修复后 defineProperty 恒建自有数据属性——键原样保留、原型不动。
+  {
+    // 对象字面量的 __proto__: 键是设原型不是建自有键（stringify 后文件里根本没有该键）——
+    // 必须写原始 JSON 串，让 JSON.parse 建 __proto__ 自有数据属性（被测前提）。
+    writeFileSync(cfgFile, '{"staleDays":3,"__proto__":{"injected":true},"customTop":"keep-me"}\n');
+    saveConfig({ top: { staleDays: 7 } });
+    const after = JSON.parse(readFileSync(cfgFile, 'utf8'));
+    check(
+      'C-002 __proto__ 顶层键 round-trip 原样保留（defineProperty 不走原型 setter）',
+      Object.prototype.hasOwnProperty.call(after, '__proto__') && after.customTop === 'keep-me',
+      JSON.stringify(Object.keys(after)),
+    );
+    check(
+      'C-011 全局原型未受污染（saveConfig 后 Object.prototype 无 injected）',
+      !Object.prototype.hasOwnProperty.call(Object.prototype, 'injected') && ({}).injected === undefined,
+      '(global prototype integrity)',
+    );
+  }
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
 }

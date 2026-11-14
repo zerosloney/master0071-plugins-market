@@ -142,6 +142,14 @@ function normalizeRepoOverride(key, value, issues) {
 function loadConfig() {
   const { file, parsed, parseError } = readConfigFile();
   const issues = [];
+  // 面板评审 C-004：相对 WORKTREE_CONFIG_HOME 被忽略回退默认位——此前零提示，升级前写在
+  // 旧相对路径下的存量配置被静默孤儿化；上报 issue 让弃置可见（旧文件仍在原处，可手动迁移）。
+  {
+    const envCfg = process.env.WORKTREE_CONFIG_HOME;
+    if (envCfg && !path.isAbsolute(envCfg)) {
+      issues.push(`WORKTREE_CONFIG_HOME=${JSON.stringify(envCfg)} is not an absolute path — ignored, using the default location (${file}); a config previously written under the old relative location is no longer read (migrate it manually if needed).`);
+    }
+  }
   // JSON 顶层可能是 null / 数组 / 标量：不是对象就当空配置，并如实报告
   const source = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   if (parsed !== null && parsed !== undefined && (typeof parsed !== "object" || Array.isArray(parsed))) {
@@ -208,9 +216,9 @@ function sleepMs(ms) {
 
 /** 取配置文件的写锁，返回释放函数。持锁者崩溃会留下陈旧锁：超过阈值就把锁文件
 *  原子替换为自己的 pid 接管（见下方竞争分支内的注释）。 */
-function acquireConfigLock(file) {
+function acquireConfigLock(file, waitMs = 2000) {
   const lockPath = `${file}.lock`;
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + waitMs; // waitMs 仅供测试短路死限（面板评审 C-006），产品默认 2000
   const owner = String(process.pid);
   const release = () => {
     try {
@@ -222,6 +230,7 @@ function acquireConfigLock(file) {
       /* 已被清理 */
     }
   };
+  release.lockPath = lockPath; // 面板评审 C-010：锁路径随锁单源携带，调用方不再二次推导
   for (;;) {
     try {
       const fd = fs.openSync(lockPath, "wx");
@@ -294,7 +303,7 @@ function saveConfig(changes = {}) {
   const file = path.join(configDir(), "config.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const release = acquireConfigLock(file);
-  const lockPath = `${file}.lock`;
+  const lockPath = release.lockPath; // 锁路径随锁单源带回（面板评审 C-010：原第二份独立推导）
   try {
     const { parsed, parseError } = readConfigFile();
     if (parseError) {
@@ -306,7 +315,8 @@ function saveConfig(changes = {}) {
     const disk = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     const body = {
       root: typeof disk.root === "string" ? disk.root : null,
-      baseRef: typeof disk.baseRef === "string" ? disk.baseRef : DEFAULT_CONFIG.baseRef,
+      // 面板评审 C-001：空串与 branchPrefix 同待遇归一默认值——否则手编 baseRef:"" 落盘存续、每次 get 重复报 issue
+      baseRef: typeof disk.baseRef === "string" && disk.baseRef !== "" ? disk.baseRef : DEFAULT_CONFIG.baseRef,
       branchPrefix:
         typeof disk.branchPrefix === "string" && disk.branchPrefix !== ""
           ? disk.branchPrefix
@@ -324,7 +334,11 @@ function saveConfig(changes = {}) {
     // 用户手写的自定义顶层键会在任意一次配置写盘后无提示消失（repos 内部未知字段反而
     // 保留）。固定键恒在 body 上，hasOwnProperty 判定保证未知键不会覆盖本次合法化结果。
     for (const [key, value] of Object.entries(disk)) {
-      if (!Object.prototype.hasOwnProperty.call(body, key)) body[key] = value;
+      // 面板评审 C-002/C-011：defineProperty 绕开 __proto__ 等原型 setter——动态赋值会把该键静默丢弃
+      // （违背本段「原样带回」承诺）且把磁盘对象装上 body 原型；defineProperty 恒建自有数据属性。
+      if (!Object.prototype.hasOwnProperty.call(body, key)) {
+        Object.defineProperty(body, key, { value, enumerable: true, writable: true, configurable: true });
+      }
     }
     if (changes.top) {
       for (const key of REPO_OVERRIDE_FIELDS) {
@@ -364,6 +378,13 @@ function saveConfig(changes = {}) {
     const tmp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     // 清理 try 必须从写盘之前开始：writeFileSync 本身失败（ENOSPC/EACCES）时，刚建的
     // .tmp 半截文件同样要清掉，不能只在 rename 阶段兜底。
+    // 面板评审 C-003：rename 前二次归属复核——把「并发接管落在首次校验之后」的窗口再收窄一档
+    // （彻底闭合需 OS 级原子 CAS，纯 read-back 方案做不到；已知限制同锁接管）。
+    if (fs.readFileSync(lockPath, "utf8") !== String(process.pid)) {
+      throw new Error(
+        `lost the config lock (${lockPath}) during save (second check) — concurrent takeover; nothing was written. Re-run the config command.`
+      );
+    }
     try {
       fs.writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
       // Windows 上目标文件正被其他进程读取时，rename 覆盖会抛 EPERM（POSIX 不会）。
@@ -960,20 +981,25 @@ function isAncestor(repo, branch, target) {
   return runGitProcess("git", ["merge-base", "--is-ancestor", branch, target], { cwd: repo, allowFail: true }) !== null;
 }
 
+// 面板评审 C-009：tab 分隔的 git log 行解析抽单源——此前 lastCommit/lastCommits 两份手工实现
+// 已真实漂移过一次（单条版截断含 tab 的 subject）。fields 形如 ["full","short","author","date"]，
+// 余段全归 subject（rest.join("\t")，subject 自身可含 tab）。
+function parseLogLine(line, fields) {
+  if (!line || !line.trim()) return null;
+  const parts = line.trim().split("\t");
+  const rec = {};
+  fields.forEach((name, i) => {
+    rec[name] = parts[i];
+  });
+  rec.subject = parts.slice(fields.length).join("\t");
+  const ts = Date.parse(rec.date || "");
+  rec.ageDays = Number.isFinite(ts) ? Math.floor((Date.now() - ts) / DAY_MS) : null;
+  return rec;
+}
+
 function lastCommit(dir) {
   const line = git(["log", "-1", "--format=%h%x09%an%x09%cI%x09%s"], dir, { allowFail: true });
-  if (!line || !line.trim()) return null;
-  // subject 自身可能含 tab：与批量版（lastCommits 的 rest.join("\t")）同口径，取首个
-  // tab 之后的全部段拼回，不能让 split 直接截断。
-  const [sha, author, date, ...rest] = line.trim().split("\t");
-  const ts = Date.parse(date || "");
-  return {
-    sha,
-    author,
-    date,
-    subject: rest.join("\t"),
-    ageDays: Number.isFinite(ts) ? Math.floor((Date.now() - ts) / DAY_MS) : null,
-  };
+  return parseLogLine(line, ["sha", "author", "date"]);
 }
 
 /** 目录大小。budgetMs 是本次调用的时间预算；超时返回 { bytes, files, timedOut: true }，
@@ -1059,16 +1085,9 @@ function lastCommits(repo, entries) {
   }
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
-    const [full, short, author, date, ...rest] = line.split("\t");
-    if (!full) continue;
-    const ts = Date.parse(date || "");
-    out.set(full, {
-      sha: short,
-      author,
-      date,
-      subject: rest.join("\t"),
-      ageDays: Number.isFinite(ts) ? Math.floor((Date.now() - ts) / DAY_MS) : null,
-    });
+    const rec = parseLogLine(line, ["full", "sha", "author", "date"]);
+    if (!rec || !rec.full) continue;
+    out.set(rec.full, { sha: rec.sha, author: rec.author, date: rec.date, subject: rec.subject, ageDays: rec.ageDays });
   }
   return out;
 }

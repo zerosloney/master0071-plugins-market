@@ -129,6 +129,12 @@ function moveCwdOutOf(targetPath, fallback) {
 }
 
 const stringArg = (value) => (value === undefined || value === null ? "" : String(value));
+
+// 面板评审 C-014：mergedIntoTarget 三态标签单源（null/undefined=? 未知、true=yes、false=no）——
+// e2e 的 null 通道在本机 git（porcelain 全零 sha + isAncestor 折叠 false）下不可构造，白盒锁。
+export function mergedLabel(v) {
+  return v === null || v === undefined ? "?" : v ? "yes" : "no";
+}
 const boolArg = (value) => value === true || value === "true";
 
 const numArg = (value) => {
@@ -338,7 +344,7 @@ const tools = [
           i.clean === null ? "?" : i.clean ? "yes" : `dirty(${i.dirtyCount})`,
           i.ahead ?? "-",
           i.behind ?? "-",
-          i.mergedIntoTarget === null ? "-" : i.mergedIntoTarget ? "yes" : "no",
+          i.mergedIntoTarget === null || i.mergedIntoTarget === undefined ? "-" : mergedLabel(i.mergedIntoTarget),
           i.ageDays ?? "-",
           ...(includeSize ? [human(i.sizeBytes)] : []),
         ].map(String));
@@ -575,11 +581,12 @@ const tools = [
         // 已改用 entry.head 做 rev，ahead 对 detached 也是真实值。旧实现写成
         // `entry.branch && info.ahead === null`，detached 时 entry.branch 为 null 导致本句永假，
         // 叠加 `null > 0` 亦为假，两道护栏同时失效，未合并提交被静默删除。
-        // 例外与上面的 prunable 同口径：prunable 登记的目录早已不存在，HEAD 不可达
-        // （gc 回收提交、或分支引用被底层删除）时 rev-list 同样数不出 ahead。此时磁盘上
-        // 已无任何文件可删，`git worktree remove` 清掉的只是 git 自己都判定为残骸的过期登记，
-        // 删除等价于 prune——没有任何东西因这次删除而丢失，故无需 force。
-        if (info.ahead === null && !entry.prunable) {
+        // 例外与上面的 prunable 同口径：HEAD 不可达（gc 回收提交、或分支引用被底层删除）时
+        // rev-list 数不出 ahead。豁免仅在**目录确已不存在**时成立（面板评审 C-005 实证：prunable
+        // 标记 ≠ 目录不在——删 .git 文件但目录仍在时 porcelain 同样报 prunable，此时未跟踪/
+        // gitignored 文件还在盘上，安全完全依赖 git 自身的 remove 拒绝）。目录在场则不豁免，
+        // 按护栏口径要求双标志。
+        if (info.ahead === null && !(entry.prunable && !fs.existsSync(info.path))) {
           return fail(`refusing to remove: cannot determine whether ${info.label} is merged into ${target} (rev-list against ${target} returned nothing).\nCheck that the target ref resolves, or call again with force: true and confirmDiscard: true if the user accepts losing unmerged commits.`);
         }
         if (info.ahead > 0) {
@@ -742,7 +749,7 @@ const tools = [
           : info.clean
             ? "yes"
             : `no (${info.dirtyCount} uncommitted)`;
-      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${info.mergedIntoTarget === null ? "?" : info.mergedIntoTarget ? "yes" : "no"}`, `- gitignored files: ${info.ignoredCount > 0 ? `${info.ignoredCount} (removal will be kept back)` : "none"}`];
+      const steps = [`Plan for ${info.label} → ${target}:`, `- clean: ${cleanLabel}`, `- commits ahead of ${target}: ${info.ahead ?? "?"}`, `- already merged: ${mergedLabel(info.mergedIntoTarget)}`, `- gitignored files: ${info.ignoredCount > 0 ? `${info.ignoredCount} (removal will be kept back)` : "none"}`];
       if (info.clean === false) return fail(`${steps.join("\n")}\nUncommitted changes block merge-back. Commit, stash, or discard them first.`);
       // 与 worktree_remove 同口径：状态不可得（clean=null）时不能当作干净继续，
       // 恰恰是护栏最该拦住的时候。prunable 例外与 remove 一致（目录已被移走，无未提交工作可丢）。
@@ -940,9 +947,6 @@ const tools = [
       if (scope === "repo" && !repo) return fail("scope=repo requires `repoPath`.");
 
       const action = stringArg(args.action);
-      if (action && action !== "get" && action !== "set") {
-        return fail(`invalid action \`${action}\`: use "get" or "set".`);
-      }
       // 显式 action 一律优先：`get` 是只读语义，不能因为同时带了值就落盘。
       // 旧实现把 action:'get' 和 root:'...' 一起传也会改写 config.json——
       // 「带值即 set」只在 action 缺省时才成立（与 schema 描述一致）。

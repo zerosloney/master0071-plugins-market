@@ -249,7 +249,8 @@ try {
   let writeFailErr = null;
   const writeFailStarted = Date.now();
   try {
-    acquireConfigLock(cfgFile);
+    // 面板评审 C-006：waitMs=250 短路死限（产品默认 2000 不变）——纯等待 2s→0.25s，套件墙钟减半
+    acquireConfigLock(cfgFile, 250);
   } catch (err) {
     writeFailErr = err;
   } finally {
@@ -269,7 +270,7 @@ try {
     writeFailErr ? writeFailErr.message : '(no error thrown)',
   );
   const writeFailWaited = Date.now() - writeFailStarted;
-  check('确实等满死限（约 2s）', writeFailWaited >= 2000, `${writeFailWaited}ms`);
+  check('确实等满死限（短路档 250ms）', writeFailWaited >= 200, `${writeFailWaited}ms`);
   // 失败路径会留下内容不全的锁文件（openSync 已建、writeSync 未写）：清理，避免污染临时目录
   try {
     unlinkSync(lockPath);
