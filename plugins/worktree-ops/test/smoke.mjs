@@ -1618,5 +1618,17 @@ section('M-B：已注册检查先于残留目录非空检查');
   rmSync(sandbox, { recursive: true, force: true });
 }
 
+// 面板评审 C-014（2026-11-14）：merge_back 计划行「合并状态未知」的三态标签白盒锁——
+// e2e 的 null 通道在本机 git（porcelain 全零 sha + isAncestor 折叠 false）下不可构造，
+// smoke 只能钉可达口径；直连 mergedLabel 单源锁死 ? 口径（回退旧三元即红）。
+{
+  const { mergedLabel } = await import(pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'mcp', 'tools.mjs')).href);
+  check(
+    'mergedLabel 三态：null/undefined=?、true=yes、false=no（回退旧三元即红）',
+    mergedLabel(null) === '?' && mergedLabel(undefined) === '?' && mergedLabel(true) === 'yes' && mergedLabel(false) === 'no',
+    `null=${mergedLabel(null)} true=${mergedLabel(true)} false=${mergedLabel(false)}`,
+  );
+}
+
 console.log(failures === 0 ? '\n全部通过。' : `\n${failures} 项失败。`);
 process.exit(failures === 0 ? 0 : 1);
