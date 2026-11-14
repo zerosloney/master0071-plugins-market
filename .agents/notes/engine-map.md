@@ -28,17 +28,17 @@ git 钩子 4 个：
 - **hard 车道**（默认关单/pre-push 扫）：s01_pairing、s03x_regr_evidence、s08_acceptance、s15_fingerprint、s29_regr_enforcer
 - **hygiene 车道**（--hygiene/--all 才扫）：17 段（索引/宿主/词表/指标/委派等 WARN——月检道）
 
-## 机制台账状态（62 行，单源 mechanism-registry.md）
+## 机制台账状态（65 行，单源 mechanism-registry.md）
 
-现役 62 / 已退役 0 / 待退役 0
+现役 65 / 已退役 0 / 待退役 0
 
 owner-fiat 复评挂号称 8（retire-watch 规则④到期自动催办）：三件套同名配对(2027-01-21)、incident 复盘三件套(2027-01-21)、approved 留痕(2027-01-21)、路由预判一致性(2027-01-21)、密钥扫描门（gitleaks）(2027-01-21)、委托引文接地(2027-01-22)、flaky 隔离重跑(2027-01-22)、PR 体积预算(2027-01-22)
 
 ## 模型侧载体
 
-- **命令** 8 篇（commands/，常驻指令面；2026-10-27 起随插件分发，项目侧 .agents/commands/ 存在时列项目自有）：build.md、deploy.md、design.md、maintain.md、new-task.md、plan.md、review.md、test.md
+- **命令** 9 篇（commands/，常驻指令面；2026-10-27 起随插件分发，项目侧 .agents/commands/ 存在时列项目自有）：build.md、deploy.md、design.md、maintain.md、new-task.md、plan.md、pr-review.md、review.md、test.md
 - **技能** 8 个（skills/，按需加载；项目侧 .agents/skills/ 存在时列项目自有）：autonomous-run、decision-log、dev-tour、dream、review-method、session-resume、verify-ui、workflow-closeout
-- **角色** 4 个（agents/，子代理契约；项目侧 .agents/roles/ 存在时列项目自有）：implementer、independent-reviewer、ui-verifier、wiki-compiler
+- **角色** 7 个（agents/，子代理契约；项目侧 .agents/roles/ 存在时列项目自有）：implementer、independent-reviewer、pr-adjudicator、pr-finder、pr-verifier、ui-verifier、wiki-compiler
 
 ## 数据与台账面
 
