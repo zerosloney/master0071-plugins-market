@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-14
 模块: pipeline
-确认指纹: f9141d6176a8c952
+确认指纹: 4649e55083b44447
 ---
 # PLAN — pipelines-panel-findings
 
