@@ -13,7 +13,7 @@
 // and there is no Copilot shim here, so on a plain install this gate never runs.
 // Contract tests exist (test/run-hook-tests.mjs); wiring is the host's step.
 // See README.md, "hooks/copilot-hooks.json 目前无人注册".
-import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -282,6 +282,15 @@ function scriptRule(P) {
   // The workspace is resolved per call and threaded down as `w` — no
   // module-level mutable path state.
   const w = resolve(cwd);
+  // A fictional workspace (cwd with no existing ancestor — resolve() then
+  // returns it unresolved) cannot anchor relative operands: under(w + '/' + p, w)
+  // is trivially true and would pass any relative operand through the contract.
+  // Fail closed: emit nothing and let the host's normal permission flow decide
+  // (panel review C-003; deferred 2026-11-14, closed 2026-11-14).
+  if (!existsSync(w)) {
+    gateTrace(`reject:fictional-workspace w=${JSON.stringify(w)} cwd=${JSON.stringify(cwd)}`);
+    return;
+  }
   // A workspace that holds the plugin, or sits in it, could rewrite its files.
   if (!root || !w || root === w || under(root, w) || under(w, root) || real === w || under(real, w) || under(w, real)) {
     gateTrace(`reject:ws-guard root=${JSON.stringify(root)} real=${JSON.stringify(real)} w=${JSON.stringify(w)} cwd=${JSON.stringify(cwd)}`);

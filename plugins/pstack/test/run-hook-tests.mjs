@@ -195,6 +195,11 @@ r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/po
 ok('bash absolute operand outside cwd: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ../plan.md` }, cwd: wsPosix }));
 ok('bash dotdot operand: silent', r.out === '');
+// Panel review C-003 regression lock: a fictional workspace (cwd with no
+// existing ancestor) must fail closed — no auto-allow for contracted scripts
+// with relative operands; the host's normal permission flow decides.
+r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs plan.md` }, cwd: `${wsPosix}/../no-such-ws-${Date.now()}` }), { PSTACK_GATE_TRACE: '1' });
+ok('fictional cwd (no existing ancestor): silent (fail closed, no auto-allow)', r.out === '');
 
 // resume.mjs contract (ported from script-contracts.awk:54): begin/read
 // approve on their own; publish requires a --note destination; duplicate

@@ -127,6 +127,10 @@ node scripts/release.mjs pstack <新版本>
 
 ## 版本变更
 
+**0.1.27**
+
+面板评审 C-003 挂账收口（原 deferred 2027-02-14）：ws-guard 对虚构工作区 fail-closed——hook 输入 cwd 无任何已存在祖先时（resolve() 原样返回未解析路径），不再为契约脚本建立工作区锚，相对操作数不再被判 inside 自动放行；改为静默出闸、回落宿主常规权限流（与未注册脚本同处理）。回归锁 +1（fictional cwd: silent）。四套全绿（hook 47 / sheet 20 / role 61 / qwen 65）。
+
 **0.1.26**
 
 面板评审收口（pr-review 对 0.1.25 弧 7da6639..81c1f38：7 镜头 → 17 候选 → 51 票全 confirm）：①PSTACK_GATE_TRACE 诊断通道转正常驻（原自注「可移除」但测试断言已依赖——README「hooks 诊断」节补文档）②run-hook-tests 夹具基座锚定测试文件自身位置（原按 cwd 上跳两级，从非插件根调用会把夹具撒到仓库外）③文档三处对齐：setup-pstack「read-sheet.sh 零消费」改如实（check-sheet.sh 是树内调用方）、zcode-tools「每次派发跟随会话模型」加 thermo 双审计钉 GLM-5.3@max 例外、verify 特性地图 15→4 子智能体；copilot-tools 与「Copilot 非 agent 注册宿主」对齐（带外）。五套测试全绿（hook 46 / sheet 20 / role 61 / qwen 65 / agent-pipelines 全量）。
