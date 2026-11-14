@@ -124,6 +124,12 @@ const waitReady = async (port, ms = 6000) => {
   const wbOutside = await req(PORT, '/api/workbench?file=../etc/passwd');
   check('⑮ /api/workbench 不吃 file 参数（白名单面不因新路由放宽）', wbOutside.status === 200, `status=${wbOutside.status}`);
 
+  // ⑯ P2（2026-11-14）：执行/Git 两视图锚点 + 模型含 execution/git 节
+  check('⑯ /workbench 含执行与 Git 视图锚点、模型含 execution/git 节',
+    /view-execution/.test(wbPage.body) && /view-git/.test(wbPage.body)
+      && wbModel && wbModel.execution && Array.isArray(wbModel.execution.verifications) && wbModel.git && Array.isArray(wbModel.git.branches),
+    `exec=${!!(wbModel && wbModel.execution)} git=${!!(wbModel && wbModel.git)}`);
+
   const bad = await req(PORT, '/api/health', { headers: { Host: 'evil.example.com' } });
   check('⑦ 坏 Host 403', bad.status === 403, `status=${bad.status}`);
 

@@ -67,11 +67,11 @@
 
 ## 验收标准（可测试）
 
-- [ ] /api/workbench 含 execution 与 git 两节：verifications ≥1 行（gateCount/wallMs 在）、panelRuns 含 2026-11 五 run（lenses=7）、git.commits ≥10 条带短 SHA、dirtyFiles 与 status 一致（证据：curl 截取）
-- [ ] /workbench 五视图可切换（#execution/#git hash 保持），执行/Git 视图真数据渲染、无操作按钮（证据：chrome 走查）
-- [ ] workbench-model 测试全绿（P1 35 + P2 新增，零回归）（证据：测试输出）
-- [ ] board-server 测试全绿含 ⑯（证据：测试输出）
-- [ ] 0.3.10 发版版本位同步 + README/台账/引擎地图更新（证据：release.mjs 输出 + verify 全绿）
+- [x] /api/workbench 含 execution 与 git 两节：verifications ≥1 行（gateCount/wallMs 在）、panelRuns 含 2026-11 五 run（lenses=7）、git.commits ≥10 条带短 SHA、dirtyFiles 与 status 一致（证据：真仓冒烟 11 绿行/5 run lenses=7/15 提交短 SHA/dirty 6 条与 status 一致）
+- [x] /workbench 五视图可切换（#execution/#git hash 保持），执行/Git 视图真数据渲染、无操作按钮（证据：chrome 走查两视图——执行 11 行门禁流含历史红行如实 + 数据源口径标注、Git 只读徽标 + 0 按钮 + 台账 chip；worker 实机验证 hash 刷新保持与转义）
+- [x] workbench-model 测试全绿（P1 35 + P2 新增，零回归）（证据：44 PASS / 0 FAIL）
+- [x] board-server 测试全绿含 ⑯（证据：⑬—⑯ PASS，合计 17/0）
+- [x] 0.3.10 发版版本位同步 + README/台账/引擎地图更新（证据：release.mjs 输出 7 版本位且触碰面与 plan 声明一致；engine-map 重渲一致；verify 13 门全绿）
 
 ## 确认与复核
 

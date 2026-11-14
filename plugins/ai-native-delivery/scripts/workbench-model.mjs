@@ -185,22 +185,24 @@ export function loadPanelRuns(root) {
         runId: String((j.run && j.run.runId) || f.replace(/\.json$/, '')),
         writtenAt: j.writtenAt || null,
         total: findings.length, counts, deferredIds,
+        lenses: Array.isArray(j.run && j.run.lenses) ? j.run.lenses.length : 0,
+        files: Array.isArray(j.run && j.run.files) ? j.run.files.length : 0,
       });
     }
   }
   return runs;
 }
 
-/** git log 单次 feed（口径同 gen-workflow-metrics.loadCommitFeed：提交行 + 逐行文件；失败 null 退化）。 */
+/** git log 单次 feed（口径同 gen-workflow-metrics.loadCommitFeed：提交行 + 逐行文件；P2 加 %h 短 SHA；失败 null 退化）。 */
 export function gitFeed(root) {
-  const r = gitRun(root, ['log', '--format=%cI%x1f%s', '--name-only']);
+  const r = gitRun(root, ['log', '--format=%cI%x1f%h%x1f%s', '--name-only']);
   if (!r || r.status !== 0) return null;
   const commits = [];
   let cur = null;
   for (const line of String(r.stdout || '').split(/\r?\n/)) {
     if (line.includes('\x1f')) {
-      const i = line.indexOf('\x1f');
-      cur = { ts: line.slice(0, i), subj: line.slice(i + 1), files: [] };
+      const parts = line.split('\x1f');
+      cur = { ts: parts[0], short: parts[1] || '', subj: parts.slice(2).join('\x1f'), files: [] };
       commits.push(cur);
     } else if (cur && line.trim()) {
       cur.files.push(line.trim().replace(/\\/g, '/'));
@@ -221,6 +223,70 @@ export function repoStatus(root) {
     head: ok(h) ? h.stdout.trim() : null,
     dirty: ok(s) ? s.stdout.split(/\r?\n/).filter((l) => l.trim()).length : null,
   };
+}
+
+/** 门禁运行流：.agents/verifications.jsonl（本地 gitignore 遥测）尾读最近 N 行 → 执行视图（P2）。
+ *   坏行跳过；文件缺失 → 空数组（本机无跑数不误报）。 */
+export function loadVerifications(root, limit = 15) {
+  const p = path.join(root, '.agents', 'verifications.jsonl');
+  let text = '';
+  try { text = fs.readFileSync(p, 'utf8'); } catch { return []; }
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const j = JSON.parse(line);
+      const gates = Array.isArray(j.gates) ? j.gates : [];
+      rows.push({
+        ts: typeof j.ts === 'string' ? j.ts : null,
+        exitCode: typeof j.exitCode === 'number' ? j.exitCode : null,
+        headShort: typeof j.headShort === 'string' ? j.headShort : null,
+        gateCount: gates.length || null,
+        failedGates: gates.filter((g) => g && g.exit !== 0).map((g) => String(g.id || '?')),
+        totalMs: typeof j.totalMs === 'number' ? j.totalMs : null,
+        wallMs: typeof j.wallMs === 'number' ? j.wallMs : null,
+      });
+    } catch { /* 坏行跳过——观测面 */ }
+  }
+  return rows.slice(-limit).reverse();
+}
+
+/** Git 只读面（P2）：分支（≤5 支带最近提交，超出仅列名）/ 最近提交（复用 feed）/ 脏文件（cap 50）。 */
+export function gitFace(root, feed, limitCommits = 15) {
+  const out = { branches: [], commits: [], dirtyFiles: null, dirtyFilesCapped: false };
+  const br = gitRun(root, ['branch', '--format=%(refname:short)']);
+  if (!br || br.status !== 0) return out;
+  const names = String(br.stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  const cur = repoStatus(root).branch;
+  for (const name of names.slice(0, 20)) {
+    const b = { name, current: name === cur, lastSubject: null, lastTs: null, listedOnly: false };
+    // 逐支 log -1 只对 ≤5 支做（多分支仓防慢）；超出仅列名
+    if (names.length <= 5) {
+      const l = gitRun(root, ['log', '-1', '--format=%cI%x1f%s', name]);
+      if (l && l.status === 0 && l.stdout.includes('\x1f')) {
+        const i = l.stdout.indexOf('\x1f');
+        b.lastTs = l.stdout.slice(0, i).trim();
+        b.lastSubject = l.stdout.slice(i + 1).split(/\r?\n/)[0].trim();
+      }
+    } else {
+      b.listedOnly = true;
+    }
+    out.branches.push(b);
+  }
+  if (feed) {
+    out.commits = feed.slice(0, limitCommits).map((c) => ({
+      short: c.short, ts: c.ts, subject: c.subj,
+      files: c.files.length,
+      ledgerOnly: c.files.length > 0 && c.files.every((f) => f.startsWith('workflow/') || f.startsWith('.agents/')),
+    }));
+  }
+  const s = gitRun(root, ['status', '--porcelain']);
+  if (s && s.status === 0) {
+    const lines = String(s.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    out.dirtyFiles = lines.slice(0, 50);
+    out.dirtyFilesCapped = lines.length > 50;
+  }
+  return out;
 }
 
 const stageState = (state, evidence, at = null) => ({ state, evidence, at });
@@ -446,9 +512,21 @@ export function buildWorkbench({ root, now = new Date() }) {
     findings: r.findings, adopted: r.adopted, rejected: r.rejected, misreport: r.misreport,
   }));
 
+  // P2 两节：执行运行流（本地门禁遥测 + 面板工件）与 Git 只读面
+  const execution = {
+    verifications: loadVerifications(root),
+    panelRuns: panelRuns.slice(-10).reverse().map((r) => ({
+      runId: r.runId, month: r.month, writtenAt: r.writtenAt,
+      total: r.total, counts: r.counts, lenses: r.lenses, files: r.files,
+    })),
+  };
+  const git = gitFace(root, feed);
+
   return {
     generatedAt: nowIso,
     repo,
+    execution,
+    git,
     stats: {
       deliveries: deliveries.length,
       active: deliveries.filter((d) => d.status === 'active').length,

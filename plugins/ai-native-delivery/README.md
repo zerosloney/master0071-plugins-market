@@ -272,7 +272,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 规模边界：≤60 步 / 300 diff 文件（超限降级为附录归集；压测工具 `test/fixtures/dev-tour/synthetic-plan.mjs --bench`）
 - 文档数据契约与适用场景见 `skills/dev-tour/SKILL.md`
 - **实时看板（0.3.3 新增）**：`node <插件根>/scripts/auto-tour.mjs --root <仓库根>` 一键拉起（幂等复用、不开浏览器、只打印可点链接）；`scripts/board-server.mjs` 提供 `/tour`（实时页面）、`/api/tour`（全景模型，**每次请求现场重建**）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落本机 `.agents/cache/`，不外发）。端口口径：显式 `--port` > `engine.json` 的 `options.boardPort` > 基线 8933。安全面刻意收窄：只绑 127.0.0.1、Host 头校验、**不做任意静态文件服务**、文档白名单仅 `workflow/{plans,specs,intents}/**.md`。
-- **交付工作台 P1（0.3.9 新增）**：同服务 `/workbench` 三视图页（概览 / 交付流 / 决策中心，设计语言参考 `design/workbench-prototype.html` 原型存档）+ `/api/workbench` 聚合模型（`scripts/workbench-model.mjs` 现场重建）。数据口径——**交付 = plan 族**（L2/L3 含 intent/spec/plan 三件套，L1 单 plan），八章环节三态推导每态带 evidence 文本如实展示依据：intake/spec/plan 取 frontmatter 与文件在场；implement 取产品提交锚（提交消息含 stem/任务短名 ∩ 触非台账路径）；verify 取 plan 验收节勾验计数；review 取复核台账行（对象列含族名或 runId 交叉引用族文档体）；ship 取发版提交（消息含短名 ∩ 触 marketplace.json）；closeout 取归档 + done。已知边界（如实）：产品提交消息不挂任务短名的族 implement 判 queued（如关单后补记族的产品提交先于 plan 存在）；SSE 只监听 `workflow/`（确认账在 `.agents/` 下变更不触发推送，靠 15s 轮询兜底）。写面为零——待裁决项只显示对应 `confirm-doc` / `pr-review dispose` 命令指引文案，不代执行。P2 候选（未做）：执行运行流（verify 绿行/面板 run 事件）、Git 只读视图；协作多用户面不做（插件单人本地口径）。
+- **交付工作台 P1（0.3.9）+ P2（0.3.10）**：同服务 `/workbench` 五视图页（概览 / 交付流 / 决策中心 / 执行 / Git，设计语言参考 `design/workbench-prototype.html` 原型存档）+ `/api/workbench` 聚合模型（`scripts/workbench-model.mjs` 现场重建）。数据口径——**交付 = plan 族**（L2/L3 含 intent/spec/plan 三件套，L1 单 plan），八章环节三态推导每态带 evidence 文本如实展示依据：intake/spec/plan 取 frontmatter 与文件在场；implement 取产品提交锚（提交消息含 stem/任务短名 ∩ 触非台账路径）；verify 取 plan 验收节勾验计数；review 取复核台账行（对象列含族名或 runId 交叉引用族文档体）；ship 取发版提交（消息含短名 ∩ 触 marketplace.json）；closeout 取归档 + done。已知边界（如实）：产品提交消息不挂任务短名的族 implement 判 queued（如关单后补记族的产品提交先于 plan 存在）；SSE 只监听 `workflow/`（确认账在 `.agents/` 下变更不触发推送，靠 15s 轮询兜底）。写面为零——待裁决项只显示对应 `confirm-doc` / `pr-review dispose` 命令指引文案，不代执行。**执行视图（P2）**：门禁运行流（`.agents/verifications.jsonl` 本地 gitignore 遥测尾读 15 行——ts/HEAD 短 SHA/门数/墙钟/失败门；如实展示本机运行史，不宣称远端 CI 覆盖）+ 面板评审运行（artifacts 工件最近 10：runId/镜头数/文件数/findings 处置分布）。**Git 视图（P2，只读）**：分支（≤5 支带最近提交，超出仅列名）/ 最近提交 15 条（短 SHA/台账提交标记）/ 脏文件（cap 50）——无任何操作按钮。协作多用户面不做（插件单人本地口径）。
 
 
 ## PR 面板评审（pr-review，多镜头 + 投票 + 处置闭环）
@@ -306,6 +306,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.10**
+
+交付工作台 P2——执行运行流 + Git 只读两视图（五视图收齐）：`workbench-model.mjs` 扩 execution/git 两节——门禁运行流（`.agents/verifications.jsonl` 本地 gitignore 遥测尾读 15 行：ts/HEAD 短 SHA/门数/墙钟/失败门 id，如实展示本机运行史含历史红行，不宣称远端 CI 覆盖）+ 面板评审运行（artifacts 工件最近 10：runId/镜头数/文件数/findings 处置分布）+ Git 只读面（分支列表 ≤5 支带最近提交超出仅列名 / 最近提交 15 条带短 SHA 与台账标记 / 脏文件 cap 50）；gitFeed 扩 %h 短 SHA（P1 产品提交锚口径不变）。页面 NAV 五项 + `#execution`/`#git` hash 路由，两视图零按钮零写面（Git 视图固定「只读视图」徽标）。测试：workbench-model 35→44 断言（P2 +9：verifications 倒序映射/failedGates、panelRuns lenses/files 且不泄内部键、gitFace 台账标记、非 git 退化）+ board-server ⑯（17/0）；chrome 真仓走查两视图。
 
 **0.3.9**
 

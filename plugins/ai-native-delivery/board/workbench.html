@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 交付工作台 P1：三视图（概览 / 交付流 / 决策中心），数据来自 board-server GET /api/workbench，实时通道 /api/events。
+<!-- 交付工作台 P2：五视图（概览 / 交付流 / 决策 / 执行 / Git），数据来自 board-server GET /api/workbench，实时通道 /api/events。执行与 Git 为只读视图（无操作按钮）。
      设计语言来自 design/workbench-prototype.html（深色主题变量 + od-* 原子类 + panel/stat/chip/track/gate 卡片体系）；
      字体走本地栈，零外部请求（仅同源 /api/*），单文件无构建。 -->
 <html lang="zh-CN">
@@ -345,6 +345,7 @@ select::placeholder { color: var(--text-3); opacity: 1; }
 .rows-row > * { min-width: 0; overflow-wrap: anywhere; }
 .mono-cell { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
 .bad-num { color: var(--red); }
+.cell-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Misc ---------- */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -503,6 +504,62 @@ select::placeholder { color: var(--text-3); opacity: 1; }
           </section>
         </section>
 
+        <section class="view" id="view-execution" data-panel="execution" hidden>
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">Execution</p>
+              <h1>执行</h1>
+              <p>门禁运行流与面板评审运行的只读展示。</p>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Gate Runs</p><h3>门禁运行流</h3></div>
+              <span class="hint" id="verifyHint"></span>
+            </div>
+            <div id="verifyRows"></div>
+          </section>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+              <div><p class="eyebrow">Panel Runs</p><h3>面板评审运行</h3></div>
+              <span class="hint" id="panelRunHint"></span>
+            </div>
+            <div id="panelRunRows"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-git" data-panel="git" hidden>
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">Repository</p>
+              <h1>Git</h1>
+              <p>分支、最近提交与工作树状态的只读快照。</p>
+            </div>
+            <span class="chip"><span class="dot"></span>只读视图</span>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Branches</p><h3>分支</h3></div>
+              <span class="hint" id="branchHint"></span>
+            </div>
+            <div id="branchRows"></div>
+          </section>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+              <div><p class="eyebrow">Recent Commits</p><h3>最近提交</h3></div>
+              <span class="hint" id="commitHint"></span>
+            </div>
+            <div id="commitRows"></div>
+          </section>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+              <div><p class="eyebrow">Worktree</p><h3>工作树</h3></div>
+              <span class="hint" id="dirtyHint"></span>
+            </div>
+            <div id="dirtyRows"></div>
+          </section>
+        </section>
+
       </div>
     </main>
   </div>
@@ -520,16 +577,20 @@ select::placeholder { color: var(--text-3); opacity: 1; }
   };
 
   /* ---------- 常量 ---------- */
-  var VIEWS = ["overview", "pipeline", "decisions"];
+  var VIEWS = ["overview", "pipeline", "decisions", "execution", "git"];
   var NAV = [
     { view: "overview", label: "概览", icon: "grid" },
     { view: "pipeline", label: "交付流", icon: "flow" },
-    { view: "decisions", label: "决策", icon: "gate" }
+    { view: "decisions", label: "决策", icon: "gate" },
+    { view: "execution", label: "执行", icon: "terminal" },
+    { view: "git", label: "Git", icon: "branch" }
   ];
   var VIEW_META = {
     overview: { title: "概览", sub: "工作区状态与下一步" },
     pipeline: { title: "交付流", sub: "四章八环节 · 逐环节证据与文档" },
-    decisions: { title: "决策中心", sub: "待裁决 · 确认动态 · 面板复核" }
+    decisions: { title: "决策中心", sub: "待裁决 · 确认动态 · 面板复核" },
+    execution: { title: "执行", sub: "门禁运行流与面板评审 · 只读" },
+    git: { title: "Git", sub: "分支 · 提交 · 工作树 · 只读" }
   };
   var WORKFLOW_CHAPTERS = [
     { id: "plan", no: "01", en: "Plan", cn: "规划", cue: "立 intent", keys: ["intake"] },
@@ -546,6 +607,8 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     flow: '<path d="M4 7h6a4 4 0 0 1 4 4v2a4 4 0 0 0 4 4h2"/><circle cx="4" cy="7" r="2"/><circle cx="20" cy="17" r="2"/>',
     gate: '<path d="M12 3l7 3v6c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
+    terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><path d="M13 15h4"/>',
+    branch: '<path d="M6 4v10a3 3 0 0 0 3 3h6"/><circle cx="6" cy="4" r="1.8"/><circle cx="6" cy="17" r="1.8"/><circle cx="18" cy="17" r="1.8"/><path d="M18 15V8a3 3 0 0 0-3-3h-2"/>',
     arrow: '<path d="M5 12h13M13 6l6 6-6 6"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 6.5"/>',
     alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>'
@@ -572,6 +635,12 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
     return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function fmtSec(ms) {
+    if (ms === null || ms === undefined || ms === "") return "—";
+    var n = Number(ms);
+    if (isNaN(n)) return String(ms);
+    return (n / 1000).toFixed(1) + "s";
   }
   function stageOf(d, key) {
     var arr = list(d && d.stages);
@@ -875,12 +944,159 @@ select::placeholder { color: var(--text-3); opacity: 1; }
     $("#panelRows").innerHTML = panels.length ? panelTable(panels) : '<div class="doc-empty">本月暂无复核记录</div>';
   }
 
+  /* ---------- Execution ---------- */
+  function sortVerifications(arr) {
+    return list(arr).slice().sort(function (a, b) {
+      return String((b && b.ts) || "").localeCompare(String((a && a.ts) || ""));
+    });
+  }
+
+  function renderExecution() {
+    var ex = (state.data && state.data.execution) || {};
+
+    var ver = list(ex.verifications);
+    var vh = $("#verifyHint");
+    if (vh) vh.textContent = "数据源 · 本地遥测 .agents/verifications.jsonl · " + ver.length + " 条";
+    var vr = $("#verifyRows");
+    if (vr) {
+      if (!ver.length) {
+        vr.innerHTML = '<div class="doc-empty">暂无门禁运行记录（本地遥测 .agents/verifications.jsonl）</div>';
+      } else {
+        var cols = "132px 92px 70px 84px 96px minmax(0,1fr)";
+        var head = '<div class="rows-row rows-head" style="grid-template-columns:' + cols + '">' +
+          "<span>时间</span><span>HEAD</span><span>门数</span><span>墙钟</span><span>结果</span><span>失败门</span></div>";
+        var rows = sortVerifications(ver).map(function (v) {
+          var failedGates = list(v && v.failedGates).filter(function (g) { return g !== null && g !== undefined && String(g) !== ""; });
+          var failed = (v && v.exitCode !== null && v.exitCode !== undefined && Number(v.exitCode) !== 0) || failedGates.length > 0;
+          var gatesCell = failedGates.length
+            ? '<span class="od-cluster" style="--od-gap:6px">' + failedGates.map(function (g) {
+                return '<span class="chip chip-blocked"><span class="dot"></span>' + esc(String(g)) + "</span>";
+              }).join("") + "</span>"
+            : '<span class="dim">—</span>';
+          return '<div class="rows-row" style="grid-template-columns:' + cols + '">' +
+            '<span class="mono-cell">' + esc(fmtDateTime(v && v.ts)) + "</span>" +
+            '<span class="mono-cell' + (failed ? " bad-num" : "") + '">' + esc(txt(v && v.headShort)) + "</span>" +
+            "<span>" + esc(num(v && v.gateCount)) + "</span>" +
+            '<span class="mono-cell" title="exit ' + esc(txt(v && v.exitCode)) + " · total " + esc(txt(v && v.totalMs)) + 'ms">' + esc(fmtSec(v && v.wallMs)) + "</span>" +
+            "<span>" + (failed
+              ? '<span class="chip chip-blocked"><span class="dot"></span>失败</span>'
+              : '<span class="chip chip-confirmed"><span class="dot"></span>通过</span>') + "</span>" +
+            "<span>" + gatesCell + "</span></div>";
+        }).join("");
+        vr.innerHTML = '<div class="rows-scroll"><div class="rows" style="min-width:760px">' + head + rows + "</div></div>";
+      }
+    }
+
+    var runs = list(ex.panelRuns);
+    var ph = $("#panelRunHint");
+    if (ph) ph.textContent = "数据源 · 面板评审工件目录 · " + runs.length + " 条";
+    var pr = $("#panelRunRows");
+    if (pr) {
+      if (!runs.length) {
+        pr.innerHTML = '<div class="doc-empty">暂无面板运行工件</div>';
+      } else {
+        var pcols = "minmax(0,1.3fr) 132px 64px 64px 88px minmax(0,1fr)";
+        var phead = '<div class="rows-row rows-head" style="grid-template-columns:' + pcols + '">' +
+          "<span>运行ID</span><span>写入时间</span><span>镜头</span><span>文件</span><span>findings</span><span>处置分布</span></div>";
+        var prows = runs.map(function (x) {
+          var c = x && x.counts && typeof x.counts === "object" ? x.counts : null;
+          var chips = c
+            ? '<span class="od-cluster" style="--od-gap:6px">' +
+              '<span class="chip chip-confirmed">fixed ' + esc(num(c.fixed)) + "</span>" +
+              '<span class="chip chip-queued">waived ' + esc(num(c.waived)) + "</span>" +
+              '<span class="chip chip-pending">deferred ' + esc(num(c.deferred)) + "</span>" +
+              '<span class="chip">recorded ' + esc(num(c.recorded)) + "</span>" +
+              (Number(c.undisposed) > 0 ? '<span class="chip chip-blocked">undisposed ' + esc(num(c.undisposed)) + "</span>" : "") +
+              "</span>"
+            : '<span class="dim">—</span>';
+          return '<div class="rows-row" style="grid-template-columns:' + pcols + '">' +
+            '<span class="mono-cell">' + esc(txt(x && x.runId)) + "</span>" +
+            '<span class="mono-cell">' + esc(fmtDateTime(x && x.writtenAt)) + "</span>" +
+            "<span>" + esc(num(x && x.lenses)) + "</span>" +
+            "<span>" + esc(num(x && x.files)) + "</span>" +
+            "<span>" + esc(num(x && x.total)) + "</span>" +
+            "<span>" + chips + "</span></div>";
+        }).join("");
+        pr.innerHTML = '<div class="rows-scroll"><div class="rows" style="min-width:760px">' + phead + prows + "</div></div>";
+      }
+    }
+  }
+
+  /* ---------- Git ---------- */
+  function renderGit() {
+    var g = (state.data && state.data.git) || {};
+
+    var brs = list(g.branches);
+    var bh = $("#branchHint");
+    if (bh) bh.textContent = brs.length + " 个分支";
+    var br = $("#branchRows");
+    if (br) {
+      if (!brs.length) {
+        br.innerHTML = '<div class="doc-empty">暂无分支数据</div>';
+      } else {
+        var bcols = "64px 150px minmax(0,1fr) 132px";
+        var bhead = '<div class="rows-row rows-head" style="grid-template-columns:' + bcols + '">' +
+          "<span>当前</span><span>分支</span><span>最近提交主题</span><span>时间</span></div>";
+        var brows = brs.map(function (b) {
+          var listed = !!(b && b.listedOnly);
+          var subj = listed
+            ? '<span class="dim">— · 仅列名（&gt;5 支）</span>'
+            : '<span class="cell-clip" title="' + esc(txt(b && b.lastSubject)) + '">' + esc(txt(b && b.lastSubject)) + "</span>";
+          return '<div class="rows-row" style="grid-template-columns:' + bcols + '">' +
+            "<span>" + (b && b.current ? '<span class="chip chip-running"><span class="dot"></span>当前</span>' : '<span class="dim">—</span>') + "</span>" +
+            '<span class="mono-cell">' + esc(txt(b && b.name)) + "</span>" +
+            "<span>" + subj + "</span>" +
+            '<span class="mono-cell">' + esc(fmtDateTime(b && b.lastTs)) + "</span></div>";
+        }).join("");
+        br.innerHTML = '<div class="rows-scroll"><div class="rows" style="min-width:560px">' + bhead + brows + "</div></div>";
+      }
+    }
+
+    var cms = list(g.commits);
+    var ch = $("#commitHint");
+    if (ch) ch.textContent = cms.length + " 条提交";
+    var cr = $("#commitRows");
+    if (cr) {
+      if (!cms.length) {
+        cr.innerHTML = '<div class="doc-empty">暂无提交记录</div>';
+      } else {
+        var ccols = "92px 132px minmax(0,1fr) 76px 72px";
+        var chead = '<div class="rows-row rows-head" style="grid-template-columns:' + ccols + '">' +
+          "<span>提交</span><span>时间</span><span>主题</span><span>文件</span><span>来源</span></div>";
+        var crows = cms.map(function (x) {
+          var hasFiles = x && x.files !== null && x.files !== undefined && x.files !== "";
+          return '<div class="rows-row" style="grid-template-columns:' + ccols + '">' +
+            '<span class="mono-cell">' + esc(txt(x && x.short)) + "</span>" +
+            '<span class="mono-cell">' + esc(fmtDateTime(x && x.ts)) + "</span>" +
+            "<span>" + esc(txt(x && x.subject)) + "</span>" +
+            "<span>" + (hasFiles ? '<span class="chip">' + esc(num(x.files)) + " 文件</span>" : '<span class="dim">—</span>') + "</span>" +
+            "<span>" + (x && x.ledgerOnly ? '<span class="chip chip-queued">台账</span>' : "") + "</span></div>";
+        }).join("");
+        cr.innerHTML = '<div class="rows-scroll"><div class="rows" style="min-width:640px">' + chead + crows + "</div></div>";
+      }
+    }
+
+    var dirty = list(g.dirtyFiles);
+    var dh = $("#dirtyHint");
+    if (dh) dh.textContent = dirty.length
+      ? dirty.length + " 个未提交路径" + (g.dirtyFilesCapped ? " · 仅前 50 条" : "")
+      : "无未提交路径";
+    var dr = $("#dirtyRows");
+    if (dr) dr.innerHTML = dirty.length
+      ? '<ul class="doc-list">' + dirty.map(function (f) {
+          return '<li class="doc-item"><span class="doc-name">' + esc(f === null || f === undefined ? "" : String(f)) + "</span></li>";
+        }).join("") + "</ul>"
+      : '<div class="doc-empty">工作树干净</div>';
+  }
+
   function renderAll() {
     if (!state.data) return;
     renderShell();
     renderOverview();
     renderPipeline();
     renderDecisions();
+    renderExecution();
+    renderGit();
   }
 
   /* ---------- 视图路由 ---------- */

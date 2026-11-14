@@ -15,7 +15,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 // 服务端身份，initialize 时回给客户端。
 // 版本位与 plugins/ai-native-delivery/plugin.json 同步，由 `node scripts/release.mjs ai-native-delivery <x.y.z>` 统一改
-const SERVER_INFO = { name: 'ai-native-delivery', version: '0.3.9' };
+const SERVER_INFO = { name: 'ai-native-delivery', version: '0.3.10' };
 
 const TOOL_MAP = new Map(tools.map((t) => [t.name, t]));
 

@@ -75,15 +75,20 @@ const mkRepo = () => {
   // 面板族 D：台账行对象含 runId、族 plan 体引用同 runId
   wr('workflow/plans/2026-11-03-panel-family.md', PLAN('done', 'L1').replace('# PLAN — 测试', '# PLAN — 面板（run pr-deadbee-12345678 对 0.1.x）'));
   wr('workflow/reviews.d/2026-11.md', '# 台账\n\n| 日期 | 对象 | 复核员 | 意见数 | 采纳 | 拒绝 | 误报 | 备注 |\n|---|---|---|---|---|---|---|---|\n| 2026-11-03 | pr-review `pr-deadbee-12345678` | panel | 2 | 2 | 0 | 0 | ok |\n');
-  // artifacts：1 条 deferred + 1 条未处置
+  // artifacts：1 条 deferred + 1 条未处置（P2：run 带 lenses/files 供执行视图计数）
   wr('workflow/reviews.d/artifacts/2026-11/pr-deadbee-12345678.json', JSON.stringify({
-    schema: 1, run: { runId: 'pr-deadbee-12345678' }, writtenAt: '2026-11-03T00:00:00.000Z',
+    schema: 1, run: { runId: 'pr-deadbee-12345678', lenses: ['correctness', 'security'], files: ['a.mjs', 'b.mjs'] }, writtenAt: '2026-11-03T00:00:00.000Z',
     findings: [
       { id: 'D-001', status: 'deferred' },
       { id: 'U-001' },
       { id: 'F-001', status: 'fixed' },
     ],
   }));
+  // 门禁运行遥测（P2 执行视图）：一行全绿 + 一行含失败门
+  wr('.agents/verifications.jsonl', [
+    JSON.stringify({ ts: '2026-11-03T01:00:00.000Z', exitCode: 0, headShort: 'aaaa111', gates: [{ id: 'g1', exit: 0 }, { id: 'g2', exit: 0 }], totalMs: 100, wallMs: 90 }),
+    JSON.stringify({ ts: '2026-11-03T02:00:00.000Z', exitCode: 1, headShort: 'bbbb222', gates: [{ id: 'g1', exit: 0 }, { id: 'g2', exit: 1 }], totalMs: 200, wallMs: 180 }),
+  ].join('\n') + '\n');
   // 确认账
   wr('.agents/confirmations.d/2026-11-02-l1-draft.jsonl', JSON.stringify({ ts: '2026-11-02T01:00:00.000Z', doc: 'workflow/plans/2026-11-02-l1-draft.md', stage: 'draft', source: 'chat-delegated', quoteGrounding: 'verbatim' }) + '\n');
   g('add', '-A'); g('commit', '-qm', 'docs: 其余夹具');
@@ -125,6 +130,22 @@ const mkRepo = () => {
   check('docs.confirmedAt 回填（l1-draft 有确认账行）', by('l1-draft').docs.some((x) => x.path.includes('l1-draft') && x.confirmedAt));
   check('stats.panelFindingsMonth 当月合计 = 2', m.stats.panelFindingsMonth === 2, String(m.stats.panelFindingsMonth));
   check('repo 面：branch 非 HEAD、head 非空', typeof m.repo.branch === 'string' && m.repo.branch !== 'HEAD' && !!m.repo.head);
+
+  // ---- P2：执行运行流 + Git 只读面 ----
+  const v = m.execution.verifications;
+  check('P2 verifications 尾读倒序（最新在前）', v.length === 2 && v[0].ts > v[1].ts, JSON.stringify(v.map((x) => x.ts)));
+  check('P2 verifications 映射（gateCount/failedGates/wallMs）', v[0].gateCount === 2 && JSON.stringify(v[0].failedGates) === '["g2"]' && v[0].exitCode === 1 && v[1].wallMs === 90 && JSON.stringify(v[1].failedGates) === '[]',
+    JSON.stringify(v[0]));
+  const pr = m.execution.panelRuns;
+  check('P2 panelRuns 带 lenses/files 计数', pr.length === 1 && pr[0].runId === 'pr-deadbee-12345678' && pr[0].lenses === 2 && pr[0].files === 2 && pr[0].total === 3,
+    JSON.stringify(pr[0] || {}));
+  check('P2 panelRuns 不泄内部 deferredIds/file 键', pr[0] && !('deferredIds' in pr[0]) && !('file' in pr[0]));
+  const gf = m.git;
+  check('P2 git.branches 当前分支标记 + 最近提交', gf.branches.length >= 1 && gf.branches.some((b) => b.current && b.lastSubject), JSON.stringify(gf.branches[0] || {}));
+  check('P2 git.commits 带短 SHA 与台账标记（首条=夹具 docs 提交 ledgerOnly）', gf.commits.length >= 2 && /^[0-9a-f]{7,}$/.test(gf.commits[0].short) && gf.commits[0].ledgerOnly === true,
+    JSON.stringify(gf.commits[0] || {}));
+  check('P2 git.commits 产品提交 ledgerOnly=false（feat 夹具在列）', gf.commits.some((c) => c.ledgerOnly === false));
+  check('P2 git.dirtyFiles 干净仓为空数组不 capped', Array.isArray(gf.dirtyFiles) && gf.dirtyFiles.length === 0 && gf.dirtyFilesCapped === false);
 }
 
 // ---- ⑤ 非 git 仓退化 ----
@@ -136,6 +157,9 @@ const mkRepo = () => {
   check('非 git 仓：branch null 退化', m.repo.branch === null);
   check('非 git 仓：模型仍可建（deliveries=1）', m.stats.deliveries === 1);
   check('非 git 仓：implement active（approved 无锚，不误报 done）', m.deliveries[0].stages.find((s) => s.key === 'implement').state === 'active');
+  check('非 git 仓：execution/git 面退化不崩（verifications 空数组、branches 空、dirtyFiles null）',
+    Array.isArray(m.execution.verifications) && m.execution.verifications.length === 0 && m.git.branches.length === 0 && m.git.commits.length === 0 && m.git.dirtyFiles === null,
+    JSON.stringify({ v: m.execution.verifications.length, b: m.git.branches.length, c: m.git.commits.length, d: m.git.dirtyFiles }));
   fs.rmSync(d, { recursive: true, force: true });
 }
 
