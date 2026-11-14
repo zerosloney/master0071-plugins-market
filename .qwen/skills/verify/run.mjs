@@ -89,7 +89,8 @@ function doctor() {
 
   const major = Number(process.versions.node.split('.')[0]);
   add(`node ${process.version}`, major >= 18, 'tests target Node 18 and newer', true);
-  add('git on PATH', git(['--version']) !== null, git(['--version']) || 'git --version failed', true);
+  const gitVersion = git(['--version']);
+  add('git on PATH', gitVersion !== null, gitVersion || 'git --version failed', true);
 
   const email = git(['config', '--get', 'user.email']);
   const name = git(['config', '--get', 'user.name']);
@@ -109,7 +110,12 @@ function doctor() {
 
   let plugins = [];
   try {
-    plugins = JSON.parse(readFileSync(path.join(ROOT, 'marketplace.json'), 'utf8')).plugins;
+    // 合法 JSON 但缺/非数组 plugins（如 {}）按可读 ✗ 诊断走，不得裸栈（面板评审 C-002）
+    const parsed = JSON.parse(readFileSync(path.join(ROOT, 'marketplace.json'), 'utf8'));
+    plugins = Array.isArray(parsed && parsed.plugins) ? parsed.plugins : [];
+    if (!(parsed && Array.isArray(parsed.plugins))) {
+      add('marketplace.json shape', false, 'plugins array missing or not an array', true);
+    }
   } catch (error) {
     add('marketplace.json reads', false, String(error), true);
   }
@@ -197,7 +203,8 @@ for (const [index, step] of selected.entries()) {
     if (cd) {
       const next = path.resolve(cwd, cd[1]);
       log.push(`$ cd ${cd[1]}`);
-      if (!next.startsWith(ROOT)) {
+      // 边界正确的前缀判定（面板评审 C-001）：ROOT 的同名兄弟目录不得视为仓内
+      if (next !== ROOT && !next.startsWith(ROOT + path.sep)) {
         failure = `cd escapes the repository: ${cd[1]}`;
         break;
       }

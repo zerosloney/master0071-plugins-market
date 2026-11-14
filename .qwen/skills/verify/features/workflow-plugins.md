@@ -1,6 +1,6 @@
 # Workflow plugins
 
-Three plugins ship skills, subagents and hooks rather than a server: `pstack` (66 skills, 15 registered subagents, session-start and pre-tool-use hooks), `agent-pipelines` (`/ralph-pipeline`, `/coding-pipeline` and six companion subagents), `ai-native-delivery` (risk lanes, check-loop gates, ledgers, and a deterministic shell deny/ask hook). Their behavior is prompt-driven, so the gates prove structure and hook contracts — never that a pipeline produced a good result.
+Three plugins ship skills, subagents and hooks rather than a server: `pstack` (66 skills, 4 registered subagents, session-start and pre-tool-use hooks), `agent-pipelines` (`/ralph-pipeline`, `/coding-pipeline` and six companion subagents), `ai-native-delivery` (risk lanes, check-loop gates, ledgers, and a deterministic shell deny/ask hook). Their behavior is prompt-driven, so the gates prove structure and hook contracts — never that a pipeline produced a good result.
 
 ## Sub-features
 

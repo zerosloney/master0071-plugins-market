@@ -61,6 +61,10 @@ Qwen Code 侧把不兼容点显式落到文件：`scripts/build-qwen-extension.m
 
 **`hooks/copilot-hooks.json` 目前无人注册（已知缺口）**：本仓库的四份清单（根 `plugin.json`、`.codex-plugin`、`.omp-plugin`、`.zcode-plugin`）都不引用它，仓库里也没有 Copilot 专用的垫片目录，所以 **GitHub Copilot 宿主上 `pre-tool-use.mjs` 权限闸不会自动生效**——脚本本身有测试（`run-hook-tests.mjs` 覆盖其 view/task/bash 规则与解析器），只是缺一条把它交给宿主的注册路径。上游 pstack 的 Copilot 集成走的是宿主自有配置而非本仓库清单，具体登记方式本移植未实测，故不臆造 manifest 结构。要让它在你的 Copilot 上生效：按你所用 Copilot 客户端的 hook 配置约定，把 `hooks/copilot-hooks.json` 的内容登记进去（脚本根用 `${COPILOT_PLUGIN_ROOT}` 展开）。在那之前，请把 Copilot 视为 **skills-only 安装**：SessionStart 路由令可用（`session-start.mjs` 有 copilot 分支），脚本权限闸不可用。
 
+### hooks 诊断
+
+- `PSTACK_GATE_TRACE=1`：让 `hooks/pre-tool-use.mjs` 把 scriptRule 各早退分支的走向写 stderr（allow/deny 判定链排障用；不设 = 零行为变化）。
+
 ## extras/（按需启用的非核心组件）
 
 bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）与上游 hook 参考已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 4 个零依赖 node 脚本（`check-plan` / `check-playbooks` / `resume` / `worktree-audit`），随装随用。
@@ -122,6 +126,10 @@ node scripts/release.mjs pstack <新版本>
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
 
 ## 版本变更
+
+**0.1.26**
+
+面板评审收口（pr-review 对 0.1.25 弧 7da6639..81c1f38：7 镜头 → 17 候选 → 51 票全 confirm）：①PSTACK_GATE_TRACE 诊断通道转正常驻（原自注「可移除」但测试断言已依赖——README「hooks 诊断」节补文档）②run-hook-tests 夹具基座锚定测试文件自身位置（原按 cwd 上跳两级，从非插件根调用会把夹具撒到仓库外）③文档三处对齐：setup-pstack「read-sheet.sh 零消费」改如实（check-sheet.sh 是树内调用方）、zcode-tools「每次派发跟随会话模型」加 thermo 双审计钉 GLM-5.3@max 例外、verify 特性地图 15→4 子智能体；copilot-tools 与「Copilot 非 agent 注册宿主」对齐（带外）。五套测试全绿（hook 46 / sheet 20 / role 61 / qwen 65 / agent-pipelines 全量）。
 
 **0.1.25**
 

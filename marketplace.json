@@ -30,7 +30,7 @@
     {
       "name": "agent-pipelines",
       "source": "./plugins/agent-pipelines",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "description": "多代理编排管道套件：Ralph-Pipeline 通用编排执行审查 + Coding-Pipeline 受控编码审查（scope 零容忍、根因分组修复、背压熔断、状态持久化）。模型不写死，回退会话默认模型。",
       "displayName": "Agent Pipelines",
       "displayName_i18n": {
@@ -43,7 +43,7 @@
     {
       "name": "pstack",
       "source": "./plugins/pstack",
-      "version": "0.1.25",
+      "version": "0.1.26",
       "description": "poteto 风格 agent 工作流栈：poteto-mode 作为路由入口，按目标调度 architect 起草设计、arena 方案竞速、interrogate 审查 diff、thermos 深度评审、unslop/deslop 削减 AI 味文案，含 24 条 principle 原则与 swarm 并行子代理，支持 Claude 式 hook 的宿主由 SessionStart 自动注入路由令。移植自 michael-denyer/pstack-claude（原版 cursor/plugins/pstack，Lauren Tan）。",
       "displayName": "pstack",
       "displayName_i18n": {
@@ -56,7 +56,7 @@
     {
       "name": "ai-native-delivery",
       "source": "./plugins/ai-native-delivery",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "description": "AI-Native 交付治理引擎：装上即得三层闭环——①任务级硬闭环：L0/L1/L2/L3 风险泳道（L0 极简道：≤5 文件 + 判据行免立档；两问定级、L2 触达面闭集、判低拦截）、check-loop 硬门 6 段（判低/回归证据/验收勾验/确认指纹/收敛对账/执法者配对）、init-engine 安装的 pre-commit / pre-push / commit-msg / post-commit 四 git hook 物理闸门（关单为程序性自检，不经 check-loop）；②状态收敛闭环：台账三件套（intents/specs/plans）+ INDEX + 收敛对账 + compact/archive 台账卫生 + mechanism-retire-watch 治理检视（人工/项目自定期运行，不随 git hooks 自动跑）；③治理进化闭环：judgment-ledger per-rule 计数、连续 6 月零命中退役候选、门禁段数棘轮、实测墙钟预算。台账与三本审计账为项目级资产，一律落使用项目仓库根（git root 锚定），不进插件目录与用户目录。MCP 10 工具 + 9 交付命令 + 7 角色委派，PreToolUse 风险闸 + git hooks 两层拦截；另附 CI 适配参考模板（config-templates/ci/），接线属项目自治。",
       "displayName": "AI-Native Delivery",
       "displayName_i18n": {

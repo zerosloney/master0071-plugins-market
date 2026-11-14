@@ -34,9 +34,9 @@ const real = (() => {
   }
 })();
 
-// 诊断通道（方案 1，定位 GH-Windows 上 contracted-script 静默早退用）：仅当环境里显式
-// PSTACK_GATE_TRACE=1 才把 scriptRule 的早退原因写 stderr；生产不设该变量 = 零行为变化。
-// 定位完成后本通道可整体移除。
+// 常驻诊断通道：仅当环境里显式 PSTACK_GATE_TRACE=1 才把 scriptRule 的早退原因写 stderr；
+// 生产不设该变量 = 零行为变化。（2026-11-09 排障弧引入并自注「可移除」；因 run-hook-tests 的
+// allow 路径断言依赖 trace 后缀而转正常驻诊断——文档见 README「hooks」节。）
 const gateTrace = process.env.PSTACK_GATE_TRACE === '1'
   ? (m) => { console.error(`[gate-trace] ${m}`); }
   : () => {};

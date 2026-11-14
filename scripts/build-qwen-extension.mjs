@@ -53,6 +53,12 @@ if (OUT === path.parse(OUT).root || OUT === ROOT || ROOT.startsWith(OUT + path.s
   console.error('build-qwen-extension: refusing to use the repo root, an ancestor, or a filesystem root as the output');
   process.exit(1);
 }
+// 面板评审带外（Important）：rmSync 前的最后一道闸——OUT 在仓库内但不在插件树内的任何路径
+//（兄弟插件、plugins/ 整目录、被跟踪文件）一律拒绝，堵住整树误删面
+if (OUT !== PLUGIN && !OUT.startsWith(PLUGIN + path.sep) && (OUT.startsWith(ROOT + path.sep) || OUT === ROOT)) {
+  console.error(`build-qwen-extension: refusing --out inside the repo but outside the plugin tree (would rmSync it): ${OUT}`);
+  process.exit(1);
+}
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });

@@ -190,11 +190,19 @@ const SAFE_FORCE_TOKEN = /^--force-(?:with-lease|if-includes)(?:=|$)/;
 // 而后者正是最常见的 force 写法。词元判据不求相邻/顺序：代价是极少数跨语句组合会多拦一次
 // （如 `git push a; rm --force x`），方向是 fail-safe（多问一次/多拦一次），可接受。
 function matchList(command, rules) {
-  const c = norm(unquote(command)).replace(SAFE_FORCE_RE, '');
-  const tokens = new Set(tokensOf(command).filter((t) => !SAFE_FORCE_TOKEN.test(t)));
+  // 面板评审 C-013：SAFE_FORCE 中和只作用于内置地板规则——项目侧追加的规则按原始命令匹配，
+  // 否则项目点名 `git push --force-with-lease` 的 deny/ask 永不生效（豁免不得覆盖用户清单）。
+  const floorSet = new Set([...BUILTIN.deny, ...BUILTIN.ask].map((r) => norm(unquote(r))));
+  const cRaw = norm(unquote(command));
+  const cNeut = cRaw.replace(SAFE_FORCE_RE, '');
+  const tokensRaw = new Set(tokensOf(command));
+  const tokensNeut = new Set([...tokensRaw].filter((t) => !SAFE_FORCE_TOKEN.test(t)));
   for (const rule of rules || []) {
     const r = norm(unquote(rule));
     if (!r) continue;
+    const isFloor = floorSet.has(r);
+    const c = isFloor ? cNeut : cRaw;
+    const tokens = isFloor ? tokensNeut : tokensRaw;
     if (c.includes(r)) return rule;
     const words = tokensOf(rule);
     if (words.length >= 2 && words.every((w) => tokenHit(tokens, w))) return rule;

@@ -522,6 +522,19 @@ const mkRepo = () => {
     const r = run({ tool_name: 'Bash', tool_input: { command } }, repo);
     check(`裸 force/组合形态仍被 deny：${command}`, decisionOf(r)?.permissionDecision === 'deny', r.stdout);
   }
+  // 面板评审 C-013 回归锁：中和只作用于内置地板——项目侧点名安全变体的规则按原始命令匹配、照常生效
+  {
+    fs.mkdirSync(path.join(repo, '.agents'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.agents', 'settings.json'),
+      JSON.stringify({ permissions: { deny: ['git push --force-with-lease'], ask: [] } }), 'utf8');
+    const r = run({ tool_name: 'Bash', tool_input: { command: 'git push --force-with-lease' } }, repo);
+    check('项目侧 deny 点名 force-with-lease → 仍 deny（豁免不覆盖用户清单）',
+      decisionOf(r)?.permissionDecision === 'deny', r.stdout);
+    const r2 = run({ tool_name: 'Bash', tool_input: { command: 'git push --force-if-includes origin main' } }, repo);
+    check('项目侧未点名的安全变体 → 照旧放行（地板豁免不受影响）',
+      decisionOf(r2)?.permissionDecision !== 'deny', r2.stdout);
+    fs.rmSync(path.join(repo, '.agents', 'settings.json'), { force: true });
+  }
   fs.rmSync(repo, { recursive: true, force: true });
 }
 

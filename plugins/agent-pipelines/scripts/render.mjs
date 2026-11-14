@@ -293,7 +293,9 @@ function main() {
   // .promise.json），轮转段 `.1` 一并 reserved；默认输出是 .html，永不命中。
   const eventsLog = path.join(path.dirname(file), `${path.basename(file).replace(/\.json$/, "")}.events.jsonl`);
   const promisePath = `${file.replace(/\.json$/, "")}.promise.json`;
-  if (out === eventsLog || out === `${eventsLog}.1` || out === promisePath) {
+  // 大小写折叠后再比（面板评审 C-004）：NTFS 不区分大小写，大小写变体即同一文件——守卫必须同样不敏感
+  const lc = (s) => s.toLowerCase();
+  if (lc(out) === lc(eventsLog) || lc(out) === lc(`${eventsLog}.1`) || lc(out) === lc(promisePath)) {
     fail(`--out refuses a reserved state-derived path: ${out} (${path.basename(eventsLog)} / ${path.basename(promisePath)} are written by state.mjs whether or not they exist yet); pass a .html path`);
   }
   mkdirSync(path.dirname(out), { recursive: true });

@@ -75,6 +75,7 @@ jobs:
           node plugins/agent-pipelines/test/pipeline.mjs
           node plugins/agent-pipelines/test/equivalence.mjs
           node plugins/agent-pipelines/test/regression.mjs
+          node plugins/agent-pipelines/test/scripts.mjs
       - name: pstack tests
         run: |
           cd plugins/pstack

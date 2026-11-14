@@ -121,7 +121,8 @@ const pluginStubSkips = (gates, root = ROOT) => {
   if (deploymentMode(root) !== 'plugin') return [];
   return gates
     .map((g) => ({ g, src: gateSrc(g, root) }))
-    .filter(({ g, src }) => src && !src.startsWith(PLUGIN_ROOT))
+    // 面板评审 C-012：前缀判定加路径分隔符边界——插件目录名的兄弟前缀项目不得被误判为插件内
+.filter(({ g, src }) => src && src !== PLUGIN_ROOT && !src.startsWith(PLUGIN_ROOT + path.sep))
     .map(({ g }) => `stub:${g.id}`);
 };
 export { pluginStubSkips };

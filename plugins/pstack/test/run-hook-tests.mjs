@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const P = process.cwd().replaceAll('\\', '/');
 const envBase = { ...process.env, CLAUDE_PLUGIN_ROOT: P };
@@ -35,7 +36,9 @@ const tmpBase = (() => {
   } catch {
     b = tmpdir();
   }
-  return b.includes('~') ? path.resolve(process.cwd(), '..', '..') : b;
+  // 面板评审 C-005/C-009：锚定测试文件自身位置（插件根上两级=仓库根），不随调用 cwd 漂移——
+  // 原按 process.cwd() 上跳，从仓库根等位置调用会把夹具撒到仓库外
+  return b.includes('~') ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..') : b;
 })();
 const home = mkdtempSync(path.join(tmpBase, 'pstack-hook-test-'));
 const claudeHome = path.join(home, 'claude');

@@ -14,7 +14,6 @@ import { isObject, logEvent, promiseFile, readEvents, readPromiseValue, readStat
 import { applyGate, diffTaskStatus, gateFor, groupTasksByRootCause, looksLikeState, validateState } from "./state-core.mjs";
 
 // 供测试/脚本不经 CLI 直连域逻辑（与 main() 内部用的是同一份实现，不另立拷贝）
-export { validateState, gateFor, groupTasksByRootCause } from "./state-core.mjs";
 
 function fail(message) {
   process.stderr.write(`[agent-pipelines] ${message}\n`);

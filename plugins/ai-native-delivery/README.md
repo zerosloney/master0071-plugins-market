@@ -306,6 +306,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.7**
+
+面板评审带出两修（pr-review 对 pstack 0.1.25 弧范围命中本插件两文件）：①verify.mjs M10 桩越界判据加路径分隔符边界——插件目录名的兄弟前缀项目不再被误判为插件内（envSkips 如实记 stub、凭证锚资格不再虚高）②pretool-risk.mjs SAFE_FORCE 中和收窄为仅内置地板规则——项目侧点名 `--force-with-lease`/`--force-if-includes` 的 deny/ask 规则恢复生效（豁免不再覆盖用户清单），hook.test ⑱ 块加两条回归断言（点名即拦/未点名照放）。hook 160/0 全绿。
+
 **0.3.6**
 
 毛刺清理（papercut 根修，两天两次推送被范围门拦的实证）：**check-scope.mjs** 新增 `declAccepted`（单 token 接受判据抽单源）+ `suspiciousDeclarations`（声明节 bullet 反引号 token「形似路径但按判据会被静默丢弃」的早期暴露——如 `.codex/.omp/.zcode` 式缩写）；**confirm-doc.mjs** 确认/重确认双路径接「声明形态门」——缩写声明在**确认时刻**被拦（exit 2 + 逐 token 行号 + 修法提示），不再等到推送范围门。测试：check-scope S12 三断言（缩写标记/散文 URL 版本号不误报/三态判据）+ confirm-doc S72 两断言（缩写拒绝且不落账 / 写全精确路径后通过）。papercuts 登记 2 条（缩写无早期反馈——已修；承诺面占位符替换触发 reconfirm——与既有「勾验收不应触发」线程合并，owner 复评）。

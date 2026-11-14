@@ -21,7 +21,7 @@ pstack skills are written in Claude Code tool language (the `Skill` tool, the `A
 
 poteto-mode's Subagents section sets `subagent_type: "pstack:poteto-agent"` and `run_in_background: true`. On ZCode both work as written: the plugin's `agents/` directory registers `pstack:poteto-agent`, `pstack:comment-sicko`, and both `pstack:thermo-nuclear-*-subagent` types (bare names register too). Differences:
 
-- The `Agent` call has **no per-call `model` or effort parameter**. Every dispatch runs the session's model and effort; this port registers no model-pinned or effort-tiered variants. Omit `model` on every dispatch. A role value of `inherit-parent` or `auto` is the default behavior here.
+- The `Agent` call has **no per-call `model` or effort parameter**. Every dispatch runs the session's model and effort — except the two thermo audit subagents, which pin GLM-5.3@max as written (see the thermos row below; the pins are deliberate and machine-checked by role-table-parity). No effort-tiered variants are registered. Omit `model` on every dispatch. A role value of `inherit-parent` or `auto` is the default behavior here.
 - The sheet at `~/.zcode/pstack-models.md` still controls `session hook`. Its role rows and any `@<level>` suffix are inert on ZCode: dispatch the base type and let the session settings apply, and say so if a level was requested. On Codex the level maps to `spawn_agent`'s `reasoning_effort`; see [Model names](#model-names) for the full explanation.
 - Give each writing worker its own worktree or branch, review every subagent's diff yourself, and pass file pointers, not inlined context, as the policy already says.
 
