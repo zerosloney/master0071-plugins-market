@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<!-- 交付工作台 P1：三视图（概览 / 交付流 / 决策中心），数据来自 board-server GET /api/workbench，实时通道 /api/events。
+     设计语言来自 design/workbench-prototype.html（深色主题变量 + od-* 原子类 + panel/stat/chip/track/gate 卡片体系）；
+     字体走本地栈，零外部请求（仅同源 /api/*），单文件无构建。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>闭环 · 交付工作台</title>
+<style>
+@layer od-layout {
+  [hidden]:not([hidden="until-found" i]) { display: none !important; }
+
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  .od-icon { display: inline-block; inline-size: var(--od-icon-size, 1em); block-size: var(--od-icon-size, 1em); flex: none; }
+
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-nowrap  { white-space: nowrap; }
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+}
+:root [hidden]:where(:not([hidden="until-found" i])) { display: none; }
+
+:root {
+  --bg: #0A0D0F;
+  --bg-soft: #0D1113;
+  --surface: #12171A;
+  --surface-2: #171D21;
+  --surface-3: #1D252A;
+  --line: #232C31;
+  --line-soft: #1B2226;
+  --text: #E9EEEC;
+  --text-2: #A6B2AE;
+  --text-3: #869490;
+  --mint: #74E8BB;
+  --mint-hi: #98F4D2;
+  --mint-ink: #06140F;
+  --amber: #F2BB6A;
+  --red: #F38A7C;
+  --blue: #93BAFF;
+  --rose: #F4A6B5;
+  --font-display: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-body: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, Consolas, "Courier New", monospace;
+  --r: 12px;
+  --r-sm: 8px;
+  --sidebar-w: 264px;
+  --shadow: 0 18px 48px rgba(0, 0, 0, .45);
+  --ease: cubic-bezier(.22, .61, .36, 1);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4, p, ul, ol { margin: 0; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--mint); }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; border-radius: 4px; }
+::selection { background: rgba(116, 232, 187, .28); }
+
+.mono { font-family: var(--mono); letter-spacing: -.01em; }
+.muted { color: var(--text-2); }
+.dim { color: var(--text-3); }
+.small { font-size: 13px; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.break { overflow-wrap: anywhere; word-break: break-word; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease);
+}
+.btn:hover { background: var(--surface-3); border-color: #314048; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .42; cursor: not-allowed; transform: none; }
+.btn.primary { background: var(--mint); border-color: var(--mint); color: var(--mint-ink); font-weight: 600; }
+.btn.primary:hover { background: var(--mint-hi); border-color: var(--mint-hi); }
+.btn.small { min-height: 32px; padding: 0 10px; font-size: 13.5px; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-2);
+  transition: background .18s var(--ease), color .18s var(--ease);
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.link {
+  border: 0; background: none; padding: 0;
+  color: var(--text-2); font-size: 13.5px;
+  border-bottom: 1px solid transparent;
+}
+.link:hover { color: var(--mint); border-bottom-color: var(--mint); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 23px; padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.3;
+  color: var(--text-2); white-space: nowrap;
+}
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.chip-confirmed { color: var(--mint); border-color: rgba(116, 232, 187, .28); background: rgba(116, 232, 187, .06); }
+.chip-pending { color: var(--amber); border-color: rgba(242, 187, 106, .3); background: rgba(242, 187, 106, .06); }
+.chip-blocked { color: var(--red); border-color: rgba(243, 138, 124, .32); background: rgba(243, 138, 124, .06); }
+.chip-ready { color: var(--blue); border-color: rgba(147, 186, 255, .3); background: rgba(147, 186, 255, .05); }
+.chip-running { color: var(--mint); border-color: rgba(116, 232, 187, .34); background: rgba(116, 232, 187, .07); }
+.chip-queued, .chip-none { color: var(--text-3); }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 20px;
+}
+.panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  margin-bottom: 16px;
+}
+.panel-head h3 { font-family: var(--font-display); font-size: 19px; font-weight: 500; letter-spacing: -.01em; line-height: 1.25; }
+.hint { font-size: 13px; color: var(--text-3); line-height: 1.5; }
+.meter { display: block; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--mint); border-radius: 999px; transition: width .3s var(--ease); }
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 16px;
+  padding: 10px 12px;
+  min-height: 42px;
+  cursor: pointer;
+}
+select:focus { border-color: rgba(116, 232, 187, .55); outline: none; box-shadow: 0 0 0 3px rgba(116, 232, 187, .12); }
+select::placeholder { color: var(--text-3); opacity: 1; }
+
+/* ---------- Shell ---------- */
+.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; align-self: start;
+  height: 100vh;
+  display: flex; flex-direction: column;
+  gap: 20px;
+  padding: 22px 16px 16px;
+  background: var(--bg-soft);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.brand-logo { color: var(--mint); flex: none; }
+.brand-side { padding: 2px 8px 4px; }
+.brand-text strong { font-family: var(--font-display); font-size: 17px; letter-spacing: .04em; display: block; line-height: 1.1; }
+.brand-text em { font-style: normal; font-family: var(--mono); font-size: 8.5px; letter-spacing: .22em; color: var(--text-3); display: block; margin-top: 3px; }
+.nav { display: grid; gap: 2px; margin-top: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 40px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--text-2); text-align: left;
+  font-size: 14px;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.nav-item .od-icon { color: var(--text-3); }
+.nav-item:hover { background: var(--surface); color: var(--text); }
+.nav-item.is-active { background: var(--surface-2); color: var(--text); border-color: var(--line-soft); font-weight: 500; }
+.nav-item.is-active .od-icon { color: var(--mint); }
+.nav-badge {
+  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--amber); color: #241704;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+}
+.sidebar-foot { margin-top: auto; display: grid; gap: 8px; padding: 10px 8px 0; border-top: 1px solid var(--line-soft); }
+.demo-note { font-size: 10.5px; color: var(--text-3); font-family: var(--mono); letter-spacing: .02em; }
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 32px;
+  height: 76px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  position: sticky; top: 0; z-index: 30;
+}
+.menu-btn { display: none; }
+.tb-title { display: grid; gap: 1px; min-width: 0; }
+#viewTitle { overflow-wrap: anywhere; }
+.tb-title h1 { font-family: var(--font-display); font-size: 19px; font-weight: 500; letter-spacing: -.01em; line-height: 1.3; }
+.tb-title p { font-size: 12.5px; color: var(--text-3); }
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.gen-at { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.mode-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-2); white-space: nowrap;
+}
+.mode-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); }
+.mode-pill.is-poll .dot { background: var(--amber); }
+.main-col { min-width: 0; }
+.content { padding: 28px 32px 64px; min-width: 0; }
+.content-inner { max-width: 1240px; margin: 0 auto; }
+.view { display: block; }
+.view-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.view-head h1 { font-family: var(--font-display); font-size: 30px; font-weight: 500; letter-spacing: -.02em; line-height: 1.2; }
+.view-head p { color: var(--text-3); font-size: 14px; margin-top: 4px; }
+
+/* ---------- Overview ---------- */
+.stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 0; margin-top: 16px; overflow: hidden; }
+.stat-strip.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.stat { padding: 18px 20px; display: grid; gap: 2px; border-left: 1px solid var(--line-soft); min-width: 0; }
+.stat:first-child { border-left: 0; }
+.stat-num { font-family: var(--font-display); font-size: 26px; line-height: 1.15; letter-spacing: -.02em; }
+.stat-label { font-size: 12.5px; color: var(--text-3); }
+.ov-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, .85fr); gap: 16px; margin-top: 16px; }
+.ov-side { display: grid; gap: 16px; align-content: start; }
+.repo-line { display: grid; gap: 6px; }
+.repo-path { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.repo-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line-soft); }
+.queue-row:first-child { border-top: 0; padding-top: 2px; }
+.queue-row:last-child { padding-bottom: 2px; }
+.row-title { display: block; font-size: 15px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.row-sub { display: block; font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.queue-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.flow-doc { display: block; font-family: var(--mono); font-size: 12.5px; font-weight: 400; overflow-wrap: anywhere; }
+.empty-state { border: 1px dashed var(--line); border-radius: var(--r); padding: 22px; text-align: center; color: var(--text-3); font-size: 13.5px; }
+.empty-state strong { display: block; color: var(--text-2); font-size: 14.5px; font-weight: 500; margin-bottom: 4px; }
+.err-actions { display: flex; justify-content: center; margin-top: 12px; }
+.mini-track { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 2px; }
+.mini-seg { height: 5px; border-radius: 999px; background: var(--surface-3); }
+.mini-seg.confirmed, .mini-seg.done { background: var(--mint); }
+.mini-seg.pending { background: var(--amber); }
+.mini-seg.blocked { background: var(--red); }
+.mini-seg.ready, .mini-seg.active { background: var(--blue); }
+.mini-seg.na { background: var(--surface-3); opacity: .45; }
+.active-card {
+  display: grid; gap: 10px;
+  width: 100%; text-align: left;
+  padding: 14px 0; border: 0; border-top: 1px solid var(--line-soft);
+  background: none; color: var(--text);
+}
+.active-card:first-child { border-top: 0; padding-top: 2px; }
+.active-card:last-child { padding-bottom: 2px; }
+.ac-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ac-main { display: grid; gap: 4px; min-width: 0; }
+.ac-title { display: block; font-size: 15.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; transition: color .16s var(--ease); }
+.active-card:hover .ac-title { color: var(--mint); }
+.ac-chapters { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- Pipeline ---------- */
+.pipe-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+.pipe-head h1 { font-family: var(--font-display); font-size: 30px; font-weight: 500; letter-spacing: -.02em; }
+.select-wrap { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-3); }
+.select-wrap select { width: auto; min-width: 230px; max-width: 100%; min-height: 38px; font-size: 14px; }
+.track-panel { padding: 18px; }
+.track-wrap { overflow-x: auto; padding-bottom: 2px; }
+.track-chapters { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; min-width: 960px; margin-bottom: 10px; }
+.chapter-head { display: grid; gap: 2px; align-content: start; border-top: 1px solid var(--line); padding-top: 9px; min-width: 0; }
+.chapter-head.is-done { border-color: rgba(116, 232, 187, .4); }
+.chapter-head.is-active { border-color: rgba(242, 187, 106, .45); }
+.chapter-no { font-family: var(--mono); font-size: 9.5px; color: var(--text-3); letter-spacing: .12em; }
+.chapter-title { font-size: 12.5px; color: var(--text-2); }
+.chapter-title strong { font-family: var(--font-display); font-size: 14px; font-weight: 500; color: var(--text); }
+.chapter-title em { font-style: normal; font-size: 11px; color: var(--text-3); margin-left: 5px; }
+.chapter-cue { font-size: 10.5px; color: var(--text-3); line-height: 1.4; overflow-wrap: anywhere; }
+.chapter-head.is-done .chapter-title strong, .chapter-head.is-done .chapter-cue { color: var(--mint); }
+.track { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; position: relative; min-width: 960px; }
+.track::before { content: ""; position: absolute; left: 22px; right: 22px; top: 26px; height: 1px; background: var(--line); }
+.track-step {
+  position: relative; z-index: 1;
+  display: grid; gap: 7px; align-content: start;
+  padding: 12px 12px 14px; min-width: 0;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  text-align: left; color: var(--text);
+  transition: border-color .16s var(--ease), background .16s var(--ease);
+}
+.track-step:hover { border-color: #33424a; background: var(--surface-2); }
+.track-step.is-na { border-style: dashed; opacity: .55; }
+.track-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 6px; }
+.track-num { font-family: var(--mono); font-size: 10px; color: var(--text-3); letter-spacing: .06em; }
+.track-name { display: block; font-size: 14.5px; font-weight: 500; line-height: 1.35; }
+.track-at { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-evidence { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); line-height: 1.5; overflow-wrap: anywhere; }
+.doc-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line-soft); border-radius: var(--r-sm); overflow: hidden; background: var(--bg-soft); }
+.doc-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 10px; border-top: 1px solid var(--line-soft); }
+.doc-item:first-child { border-top: 0; }
+.doc-name { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.doc-note { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+.doc-empty { font-size: 12px; color: var(--text-3); padding: 10px; border: 1px dashed var(--line); border-radius: var(--r-sm); }
+
+/* ---------- Decisions ---------- */
+.gate-list { display: grid; gap: 14px; }
+.gate-card { padding: 20px; display: grid; gap: 14px; }
+.gate-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.gate-card-head h3 { font-family: var(--font-display); font-size: 19px; font-weight: 500; line-height: 1.3; }
+.gate-delivery { font-size: 13px; color: var(--text-3); margin-top: 3px; overflow-wrap: anywhere; }
+.gate-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12.5px; color: var(--text-3); border-top: 1px solid var(--line-soft); padding-top: 12px; }
+.gate-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.evidence-line { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line-soft); border-radius: var(--r-sm); background: var(--bg-soft); padding: 10px 12px; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); line-height: 1.55; overflow-wrap: anywhere; }
+.cmd-copy { user-select: all; cursor: text; color: var(--text-2); }
+.rows { border: 1px solid var(--line-soft); border-radius: var(--r-sm); background: var(--bg-soft); overflow: hidden; }
+.rows-scroll { overflow-x: auto; }
+.rows-row { display: grid; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; color: var(--text-2); min-width: 0; }
+.rows-row:first-child { border-top: 0; }
+.rows-head { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); background: rgba(255, 255, 255, .015); }
+.rows-row > * { min-width: 0; overflow-wrap: anywhere; }
+.mono-cell { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.bad-num { color: var(--red); }
+
+/* ---------- Misc ---------- */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.view > * { animation: fadeUp .28s var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1023px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: 60;
+    width: 284px; height: 100dvh;
+    transform: translateX(-102%);
+    transition: transform .24s var(--ease);
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow);
+  }
+  .sidebar.is-open { transform: none; }
+  .menu-btn { display: inline-flex; }
+  .content { padding: 24px 24px 56px; }
+  .topbar { padding: 0 24px; height: 68px; }
+}
+@media (max-width: 900px) {
+  .ov-grid { grid-template-columns: minmax(0, 1fr); }
+  .stat-strip.cols-6 { grid-template-columns: repeat(3, 1fr); }
+  .stat-strip.cols-6 .stat:nth-child(3n+1) { border-left: 0; }
+  .stat-strip.cols-6 .stat:nth-child(n+4) { border-top: 1px solid var(--line-soft); }
+}
+@media (max-width: 640px) {
+  .topbar { padding: 0 16px; gap: 10px; height: 64px; }
+  .content { padding: 18px 16px 48px; }
+  .tb-title h1 { font-size: 17px; }
+  .tb-title p { display: none; }
+  .tb-right { gap: 6px; }
+  .gen-at { display: none; }
+  .btn { min-height: 42px; }
+  .btn.small { min-height: 34px; }
+  .panel { padding: 16px; }
+  .view-head h1, .pipe-head h1 { font-size: 25px; }
+  .track-chapters, .track { grid-template-columns: repeat(8, 168px); }
+  .track { min-width: 0; padding-bottom: 6px; }
+  .track-chapters { min-width: 0; }
+  .track::before { display: none; }
+  .select-wrap { width: 100%; }
+  .select-wrap select { flex: 1 1 auto; min-width: 0; }
+  .queue-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .queue-side { justify-content: flex-start; }
+  .stat-strip.cols-6 { grid-template-columns: 1fr 1fr; }
+  .stat-strip.cols-6 .stat:nth-child(3n+1) { border-left: 1px solid var(--line-soft); }
+  .stat-strip.cols-6 .stat:nth-child(2n+1) { border-left: 0; }
+  .stat-strip.cols-6 .stat:nth-child(n+3) { border-top: 1px solid var(--line-soft); }
+  .stat-strip.cols-6 .stat:nth-child(-n+2) { border-top: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand brand-side">
+      <svg class="brand-logo" width="24" height="24" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21.5 8.6A9.6 9.6 0 1 0 23.6 14"/>
+        <path d="M23.6 4.4v5.2h-5.2"/>
+        <circle cx="14" cy="14" r="2.4"/>
+      </svg>
+      <span class="brand-text"><strong>闭环</strong><em>WORKBENCH</em></span>
+    </div>
+
+    <nav class="nav" id="navList" aria-label="主导航"></nav>
+
+    <div class="sidebar-foot">
+      <span class="demo-note">board-server · /api/workbench</span>
+    </div>
+  </aside>
+
+  <div class="nav-scrim" id="navScrim" data-action="close-nav" hidden></div>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" data-action="toggle-nav" aria-label="打开导航" aria-expanded="false">
+        <svg class="od-icon" style="--od-icon-size:22px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="tb-title">
+        <h1 id="viewTitle">概览</h1>
+        <p id="viewSub">工作区状态与下一步</p>
+      </div>
+      <div class="tb-right">
+        <span class="chip" id="repoChip">未接入</span>
+        <span class="gen-at" id="genAt">数据时间 —</span>
+        <span class="mode-pill" id="livePill"><span class="dot"></span>实时</span>
+      </div>
+    </header>
+
+    <main class="content" id="mainContent">
+      <div class="content-inner">
+
+        <section class="empty-state" id="loadError" hidden>
+          <strong>数据加载失败</strong>
+          <span id="loadErrorMsg">—</span>
+          <div class="err-actions"><button class="btn primary" data-action="retry">重试</button></div>
+        </section>
+
+        <section class="view" id="view-overview" data-panel="overview">
+          <section class="panel" id="ovRepo"></section>
+          <div class="panel stat-strip cols-6" id="ovStats"></div>
+          <section class="panel" id="ovActive" style="margin-top:16px"></section>
+          <div class="ov-grid">
+            <section class="panel" id="ovQueue"></section>
+            <section class="panel" id="ovRecent"></section>
+          </div>
+        </section>
+
+        <section class="view" id="view-pipeline" data-panel="pipeline" hidden>
+          <div class="pipe-head">
+            <div>
+              <p class="eyebrow">Delivery Flow</p>
+              <h1>交付流</h1>
+            </div>
+            <label class="select-wrap">当前交付
+              <select id="deliverySelect" aria-label="选择当前交付"></select>
+            </label>
+          </div>
+          <div class="panel track-panel">
+            <div class="track-wrap">
+              <div class="track-chapters" id="trackChapters" aria-hidden="true"></div>
+              <div class="track" id="track" role="list" aria-label="交付环节"></div>
+            </div>
+          </div>
+          <section class="panel" id="pipelineDocs" style="margin-top:16px"></section>
+        </section>
+
+        <section class="view" id="view-decisions" data-panel="decisions" hidden>
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">Decision Gates</p>
+              <h1>决策中心</h1>
+              <p>待裁决队列、确认动态与月度面板复核。命令仅作指引，不会自动执行。</p>
+            </div>
+          </div>
+          <div class="gate-list" id="pendingList"></div>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+              <div><p class="eyebrow">Recent Confirmations</p><h3>最近确认动态</h3></div>
+              <span class="hint" id="recentHint"></span>
+            </div>
+            <div id="recentRows"></div>
+          </section>
+          <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+              <div><p class="eyebrow">Panel Review</p><h3>月度面板复核</h3></div>
+              <span class="hint" id="panelHint"></span>
+            </div>
+            <div id="panelRows"></div>
+          </section>
+        </section>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var esc = function (v) {
+    return String(v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  };
+
+  /* ---------- 常量 ---------- */
+  var VIEWS = ["overview", "pipeline", "decisions"];
+  var NAV = [
+    { view: "overview", label: "概览", icon: "grid" },
+    { view: "pipeline", label: "交付流", icon: "flow" },
+    { view: "decisions", label: "决策", icon: "gate" }
+  ];
+  var VIEW_META = {
+    overview: { title: "概览", sub: "工作区状态与下一步" },
+    pipeline: { title: "交付流", sub: "四章八环节 · 逐环节证据与文档" },
+    decisions: { title: "决策中心", sub: "待裁决 · 确认动态 · 面板复核" }
+  };
+  var WORKFLOW_CHAPTERS = [
+    { id: "plan", no: "01", en: "Plan", cn: "规划", cue: "立 intent", keys: ["intake"] },
+    { id: "design", no: "02", en: "Design", cn: "设计", cue: "起 spec", keys: ["spec"] },
+    { id: "build", no: "03", en: "Build", cn: "实现", cue: "起 plan + 实现", keys: ["plan", "implement"] },
+    { id: "test", no: "04", en: "Test", cn: "验证关单", cue: "代码审查 · 独立复核 · 发版 · 关单", keys: ["verify", "review", "ship", "closeout"] }
+  ];
+  var CHAPTER_CN = { plan: "规划", design: "设计", build: "实现", test: "验证" };
+  var STATE_LABEL = { done: "已通过", active: "进行中", queued: "待进入", na: "不适用" };
+  var STATE_CHIP = { done: "chip-confirmed", active: "chip-ready", queued: "chip-queued", na: "chip-none" };
+  var DOC_STATUS_LABEL = { approved: "已批准", draft: "草稿", archived: "已归档" };
+
+  var ICONS = {
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    flow: '<path d="M4 7h6a4 4 0 0 1 4 4v2a4 4 0 0 0 4 4h2"/><circle cx="4" cy="7" r="2"/><circle cx="20" cy="17" r="2"/>',
+    gate: '<path d="M12 3l7 3v6c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
+    arrow: '<path d="M5 12h13M13 6l6 6-6 6"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 6.5"/>',
+    alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>'
+  };
+
+  function icon(name, size) {
+    var s = size || 18;
+    return '<svg class="od-icon" style="--od-icon-size:' + s + 'px" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || "") + "</svg>";
+  }
+
+  var state = { data: null, error: null, view: "overview", selectedId: null, es: null, pollTimer: null };
+
+  /* ---------- 工具 ---------- */
+  function list(v) { return Array.isArray(v) ? v : []; }
+  function txt(v) { return v === null || v === undefined || v === "" ? "—" : String(v); }
+  function num(v) {
+    if (v === null || v === undefined || v === "") return "—";
+    var n = Number(v);
+    return isNaN(n) ? String(v) : String(n);
+  }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function fmtDateTime(iso) {
+    if (iso === null || iso === undefined || iso === "") return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function stageOf(d, key) {
+    var arr = list(d && d.stages);
+    for (var i = 0; i < arr.length; i++) if (arr[i] && arr[i].key === key) return arr[i];
+    return null;
+  }
+  function sortDeliveries(arr) {
+    return list(arr).slice().sort(function (a, b) {
+      var aa = a && a.status === "active" ? 0 : 1;
+      var bb = b && b.status === "active" ? 0 : 1;
+      if (aa !== bb) return aa - bb;
+      return String((b && b.updatedAt) || "").localeCompare(String((a && a.updatedAt) || ""));
+    });
+  }
+  function currentDelivery() {
+    var all = sortDeliveries(state.data && state.data.deliveries);
+    for (var i = 0; i < all.length; i++) if (all[i] && all[i].id === state.selectedId) return all[i];
+    return all[0] || null;
+  }
+  function stateChip(st) {
+    return '<span class="chip ' + (STATE_CHIP[st] || "") + '"><span class="dot"></span>' + esc(STATE_LABEL[st] || txt(st)) + "</span>";
+  }
+  function deliveryChip(status) {
+    if (status === "active") return '<span class="chip chip-running"><span class="dot"></span>进行中</span>';
+    if (status === "done") return '<span class="chip chip-confirmed"><span class="dot"></span>已完成</span>';
+    return '<span class="chip"><span class="dot"></span>' + esc(txt(status)) + "</span>";
+  }
+  function docChip(status) {
+    var cls = status === "approved" ? " chip-confirmed" : status === "draft" ? " chip-pending" : "";
+    return '<span class="chip' + cls + '"><span class="dot"></span>' + esc(DOC_STATUS_LABEL[status] || txt(status)) + "</span>";
+  }
+  function stageTag(stage) {
+    var cls = stage === "approved" ? " chip-confirmed" : stage === "draft" ? " chip-pending" : "";
+    return '<span class="chip' + cls + '">' + esc(txt(stage)) + "</span>";
+  }
+  function pendingCount() {
+    return list(state.data && state.data.decisions && state.data.decisions.pending).length;
+  }
+
+  /* ---------- Shell ---------- */
+  function renderNav() {
+    var listEl = $("#navList");
+    if (!listEl) return;
+    var pending = pendingCount();
+    listEl.innerHTML = NAV.map(function (n) {
+      var active = state.view === n.view;
+      var badge = n.view === "decisions" && pending ? '<span class="nav-badge">' + pending + "</span>" : "";
+      return '<button class="nav-item' + (active ? " is-active" : "") + '" data-action="nav" data-view="' + n.view + '"' +
+        (active ? ' aria-current="page"' : "") + ">" + icon(n.icon, 18) + "<span>" + n.label + "</span>" + badge + "</button>";
+    }).join("");
+  }
+
+  function renderShell() {
+    var d = state.data || {};
+    var repo = d.repo || {};
+    var chip = $("#repoChip");
+    if (chip) {
+      var parts = [];
+      if (repo.branch !== null && repo.branch !== undefined && repo.branch !== "") parts.push(String(repo.branch));
+      if (repo.head !== null && repo.head !== undefined && repo.head !== "") parts.push(String(repo.head));
+      var dirty = typeof repo.dirty === "number" ? repo.dirty : null;
+      chip.textContent = (parts.length ? parts.join("@") : "未接入仓库") +
+        (dirty !== null ? (dirty > 0 ? " · " + dirty + " 处改动" : " · 干净") : "");
+      chip.className = "chip" + (dirty !== null && dirty > 0 ? " chip-pending" : "");
+    }
+    var gen = $("#genAt");
+    if (gen) gen.textContent = "数据时间 " + fmtDateTime(d.generatedAt);
+    renderNav();
+  }
+
+  /* ---------- Overview ---------- */
+  function chapterPct(ch) {
+    var keys = ["plan", "design", "build", "test"];
+    var states = keys.map(function (k) { return ch && ch[k] ? ch[k].state : null; });
+    var applicable = states.filter(function (s) { return s && s !== "na"; }).length;
+    var done = states.filter(function (s) { return s === "done"; }).length;
+    return { states: states, done: done, applicable: applicable, pct: applicable ? Math.round(done / applicable * 100) : 0 };
+  }
+
+  function renderActiveCards(actives) {
+    var box = $("#ovActive");
+    var head = '<div class="panel-head"><div><p class="eyebrow">Active Deliveries</p><h3>活跃交付</h3></div>' +
+      '<span class="hint">' + actives.length + " 个进行中</span></div>";
+    if (!actives.length) {
+      box.innerHTML = head + '<div class="empty-state"><strong>当前无活跃交付</strong>所有交付均已完成或尚未开始。</div>';
+      return;
+    }
+    box.innerHTML = head + sortDeliveries(actives).map(function (dv) {
+      var cs = chapterPct(dv && dv.chapters);
+      var chaptersHtml = ["plan", "design", "build", "test"].map(function (k, i) {
+        var s = cs.states[i];
+        return '<span class="chip ' + (STATE_CHIP[s] || "") + '">' + CHAPTER_CN[k] + " · " + esc(STATE_LABEL[s] || "—") + "</span>";
+      }).join("");
+      var segs = list(dv && dv.stages).map(function (s) {
+        var stt = s && s.state ? s.state : "queued";
+        return '<span class="mini-seg ' + esc(stt) + '" title="' + esc(txt(s && (s.name || s.key))) + " · " + esc(STATE_LABEL[stt] || stt) + '"></span>';
+      }).join("");
+      return '<button class="active-card" data-action="select-delivery" data-id="' + esc(dv && dv.id != null ? dv.id : "") + '">' +
+        '<span class="ac-top"><span class="ac-main">' +
+        '<span class="eyebrow">' + esc(txt(dv && dv.id)) + " · " + esc(txt(dv && dv.level)) + "</span>" +
+        '<span class="ac-title">' + esc(txt(dv && dv.title)) + "</span></span>" +
+        '<span class="queue-side">' + deliveryChip(dv && dv.status) +
+        '<span class="chip">更新 ' + esc(fmtDateTime(dv && dv.updatedAt)) + "</span></span></span>" +
+        '<span class="ac-chapters">' + chaptersHtml + "</span>" +
+        '<span class="meter"><span style="width:' + cs.pct + '%"></span></span>' +
+        (segs ? '<span class="mini-track" style="grid-template-columns:repeat(8,1fr)">' + segs + "</span>" : "") +
+        "</button>";
+    }).join("");
+  }
+
+  function renderQueue(pend) {
+    var box = $("#ovQueue");
+    var head = '<div class="panel-head"><div><p class="eyebrow">Decision Queue</p><h3>待裁决队列</h3></div>' +
+      '<button class="link" data-action="nav" data-view="decisions">全部决策</button></div>';
+    if (!pend.length) {
+      box.innerHTML = head + '<div class="empty-state"><strong>当前没有待裁决事项</strong>所有闸门均已处理。</div>';
+      return;
+    }
+    box.innerHTML = head + pend.map(function (x) {
+      return '<div class="queue-row"><div>' +
+        '<span class="row-title">' + esc(txt(x && x.label)) + "</span>" +
+        '<span class="row-sub">' + esc(txt(x && x.detail)) + "</span></div>" +
+        '<div class="queue-side"><span class="chip chip-ready">' + esc(txt(x && x.kind)) + "</span></div>" +
+        "</div>";
+    }).join("");
+  }
+
+  function renderRecent(rec) {
+    var box = $("#ovRecent");
+    var head = '<div class="panel-head"><div><p class="eyebrow">Recent Confirmations</p><h3>最近确认动态</h3></div>' +
+      '<button class="link" data-action="nav" data-view="decisions">查看全部</button></div>';
+    if (!rec.length) {
+      box.innerHTML = head + '<div class="empty-state"><strong>暂无确认动态</strong>文档确认后会出现在这里。</div>';
+      return;
+    }
+    box.innerHTML = head + rec.map(function (x) {
+      return '<div class="queue-row"><div>' +
+        '<span class="flow-doc">' + esc(txt(x && x.doc)) + "</span>" +
+        '<span class="row-sub">' + esc(txt(x && x.source)) + " · " + esc(fmtDateTime(x && x.ts)) + "</span></div>" +
+        '<div class="queue-side">' + stageTag(x && x.stage) + "</div>" +
+        "</div>";
+    }).join("");
+  }
+
+  function renderOverview() {
+    var d = state.data || {};
+    var repo = d.repo || {};
+    var dirty = typeof repo.dirty === "number" ? repo.dirty : null;
+
+    $("#ovRepo").innerHTML =
+      '<div class="panel-head"><div><p class="eyebrow">Workspace</p><h3>仓库状态</h3></div>' +
+      '<span class="chip">' + esc(txt(repo.branch)) + "</span></div>" +
+      '<div class="repo-line"><span class="repo-path break">' + esc(txt(repo.root)) + "</span>" +
+      '<div class="repo-meta">' +
+      '<span class="chip">HEAD ' + esc(txt(repo.head)) + "</span>" +
+      '<span class="chip' + (dirty ? " chip-pending" : "") + '">' +
+      (dirty !== null ? (dirty > 0 ? dirty + " 个未提交改动" : "工作区干净") : "改动未知") + "</span>" +
+      "</div></div>";
+
+    var st = d.stats || {};
+    $("#ovStats").innerHTML = [
+      { n: st.deliveries, l: "交付总数" },
+      { n: st.active, l: "活跃交付" },
+      { n: st.done, l: "已完成" },
+      { n: st.pendingDecisions, l: "待裁决" },
+      { n: st.deferredFindings, l: "挂账 findings" },
+      { n: st.panelFindingsMonth, l: "本月面板意见" }
+    ].map(function (x) {
+      return '<div class="stat"><span class="stat-num">' + esc(num(x.n)) + '</span><span class="stat-label">' + x.l + "</span></div>";
+    }).join("");
+
+    renderActiveCards(list(d.deliveries).filter(function (x) { return x && x.status === "active"; }));
+    renderQueue(list(d.decisions && d.decisions.pending).slice(0, 5));
+    renderRecent(list(d.decisions && d.decisions.recent).slice(0, 8));
+  }
+
+  /* ---------- Pipeline ---------- */
+  function renderPipeline() {
+    var d = state.data || {};
+    var all = sortDeliveries(d.deliveries);
+    if (state.selectedId === null || !all.some(function (x) { return x && x.id === state.selectedId; })) {
+      state.selectedId = all.length && all[0] ? all[0].id : null;
+    }
+    var sel = $("#deliverySelect");
+    if (sel) {
+      sel.innerHTML = all.map(function (x) {
+        return '<option value="' + esc(x && x.id != null ? x.id : "") + '"' + (x && x.id === state.selectedId ? " selected" : "") + ">" +
+          esc(txt(x && x.title)) + (x && x.status ? " · " + esc(x.status) : "") + "</option>";
+      }).join("");
+    }
+    var cur = currentDelivery();
+    if (!cur) {
+      $("#trackChapters").innerHTML = "";
+      $("#track").innerHTML = '<div class="empty-state"><strong>暂无交付数据</strong>还没有任何交付记录。</div>';
+      $("#pipelineDocs").innerHTML =
+        '<div class="panel-head"><div><p class="eyebrow">Documents</p><h3>族文档</h3></div></div>' +
+        '<div class="doc-empty">该交付暂无文档记录</div>';
+      return;
+    }
+
+    $("#trackChapters").innerHTML = WORKFLOW_CHAPTERS.map(function (c) {
+      var sts = c.keys.map(function (k) { return stageOf(cur, k); }).filter(Boolean);
+      var done = sts.length === c.keys.length && sts.every(function (s) { return s.state === "done"; });
+      var active = !done && sts.some(function (s) { return s.state === "active"; });
+      return '<div class="chapter-head' + (done ? " is-done" : active ? " is-active" : "") + '" style="grid-column:span ' + c.keys.length + '">' +
+        '<span class="chapter-no">' + c.no + "</span>" +
+        '<span class="chapter-title"><strong>' + c.en + "</strong><em>" + c.cn + "</em></span>" +
+        '<span class="chapter-cue">' + esc(c.cue) + "</span></div>";
+    }).join("");
+
+    var stages = list(cur.stages);
+    $("#track").innerHTML = stages.length ? stages.map(function (s, i) {
+      var stt = s && s.state ? s.state : "queued";
+      return '<div class="track-step is-' + esc(stt) + '" role="listitem">' +
+        '<span class="track-top"><span class="track-num">' + pad2(i + 1) + "</span>" + stateChip(stt) + "</span>" +
+        '<span class="track-name">' + esc(txt(s && (s.name || s.key))) + "</span>" +
+        '<span class="track-at">' + esc(fmtDateTime(s && s.at)) + "</span>" +
+        '<span class="track-evidence">' + esc(txt(s && s.evidence)) + "</span>" +
+        "</div>";
+    }).join("") : '<div class="empty-state"><strong>暂无环节数据</strong>该交付还没有环节记录。</div>';
+
+    var docs = list(cur.docs);
+    var rework = cur.rework || {};
+    var reworkTxt = rework.revs ? " · 返工 " + esc(num(rework.revs)) + " 次" : "";
+    if (rework.prodTs) reworkTxt += " · 最近返工 " + esc(fmtDateTime(rework.prodTs));
+    $("#pipelineDocs").innerHTML =
+      '<div class="panel-head"><div><p class="eyebrow">Documents · ' + esc(txt(cur.id)) + "</p><h3>族文档</h3></div>" +
+      '<span class="hint">' + docs.length + " 份" + reworkTxt + "</span></div>" +
+      (docs.length ? '<ul class="doc-list">' + docs.map(function (x) {
+        return '<li class="doc-item"><div>' +
+          '<span class="doc-name">' + esc(txt(x && x.path)) + "</span>" +
+          '<span class="doc-note">' + esc(txt(x && x.kind)) + " · " +
+          (x && x.confirmedAt ? "确认于 " + esc(fmtDateTime(x.confirmedAt)) : "未记录确认时间") + "</span></div>" +
+          docChip(x && x.status) + "</li>";
+      }).join("") + "</ul>" : '<div class="doc-empty">该交付暂无文档记录</div>');
+  }
+
+  /* ---------- Decisions ---------- */
+  function confirmTable(rec) {
+    var cols = "132px minmax(0,1fr) 92px 110px 104px";
+    var head = '<div class="rows-row rows-head" style="grid-template-columns:' + cols + '">' +
+      "<span>时间</span><span>文档</span><span>阶段</span><span>来源</span><span>引用锚定</span></div>";
+    var rows = rec.map(function (x) {
+      var q = x ? x.quoteGrounding : null;
+      var qchip;
+      if (q === "ungrounded") qchip = '<span class="chip chip-blocked"><span class="dot"></span>ungrounded</span>';
+      else if (q === "grounded") qchip = '<span class="chip chip-confirmed"><span class="dot"></span>grounded</span>';
+      else qchip = '<span class="chip">' + esc(txt(q)) + "</span>";
+      return '<div class="rows-row" style="grid-template-columns:' + cols + '">' +
+        '<span class="mono-cell">' + esc(fmtDateTime(x && x.ts)) + "</span>" +
+        '<span class="mono-cell">' + esc(txt(x && x.doc)) + "</span>" +
+        "<span>" + esc(txt(x && x.stage)) + "</span>" +
+        '<span class="dim">' + esc(txt(x && x.source)) + "</span>" +
+        "<span>" + qchip + "</span></div>";
+    }).join("");
+    return '<div class="rows-scroll"><div class="rows" style="min-width:680px">' + head + rows + "</div></div>";
+  }
+
+  function panelTable(panels) {
+    var cols = "104px minmax(0,1fr) 72px 76px 76px 84px";
+    var head = '<div class="rows-row rows-head" style="grid-template-columns:' + cols + '">' +
+      "<span>日期</span><span>复核对象</span><span>意见</span><span>采纳</span><span>驳回</span><span>误报</span></div>";
+    var rows = panels.map(function (x) {
+      var mis = x ? Number(x.misreport) : NaN;
+      var misHtml = !isNaN(mis) && mis > 0
+        ? '<span class="bad-num">' + esc(num(x.misreport)) + "</span>"
+        : "<span>" + esc(num(x && x.misreport)) + "</span>";
+      return '<div class="rows-row" style="grid-template-columns:' + cols + '">' +
+        '<span class="mono-cell">' + esc(txt(x && x.date)) + "</span>" +
+        '<span class="mono-cell">' + esc(txt(x && x.object)) + "</span>" +
+        "<span>" + esc(num(x && x.findings)) + "</span>" +
+        "<span>" + esc(num(x && x.adopted)) + "</span>" +
+        "<span>" + esc(num(x && x.rejected)) + "</span>" +
+        misHtml + "</div>";
+    }).join("");
+    return '<div class="rows-scroll"><div class="rows" style="min-width:640px">' + head + rows + "</div></div>";
+  }
+
+  function renderDecisions() {
+    var dec = (state.data && state.data.decisions) || {};
+    var pend = list(dec.pending);
+    $("#pendingList").innerHTML = pend.length ? pend.map(function (x) {
+      return '<article class="gate-card panel">' +
+        '<div class="gate-card-head"><div><p class="eyebrow">' + esc(txt(x && x.kind)) + "</p>" +
+        "<h3>" + esc(txt(x && x.label)) + '</h3><p class="gate-delivery">' + esc(txt(x && x.detail)) + "</p></div>" +
+        '<span class="chip chip-pending"><span class="dot"></span>待裁决</span></div>' +
+        '<div class="gate-meta"><span>发生时间 · ' + esc(fmtDateTime(x && x.at)) + "</span><span>类型 · " + esc(txt(x && x.kind)) + "</span></div>" +
+        '<div class="od-stack"><span class="eyebrow">命令指引（不自动执行）</span>' +
+        '<code class="evidence-line cmd-copy">' + esc(txt(x && x.cmd)) + "</code></div>" +
+        "</article>";
+    }).join("") : '<div class="empty-state"><strong>当前没有待裁决事项</strong>所有闸门均已处理。</div>';
+
+    var rec = list(dec.recent);
+    var hint = $("#recentHint");
+    if (hint) hint.textContent = rec.length + " 条记录";
+    $("#recentRows").innerHTML = rec.length ? confirmTable(rec) : '<div class="doc-empty">暂无确认动态</div>';
+
+    var panels = list(dec.panels);
+    var ph = $("#panelHint");
+    if (ph) ph.textContent = panels.length + " 条月度记录";
+    $("#panelRows").innerHTML = panels.length ? panelTable(panels) : '<div class="doc-empty">本月暂无复核记录</div>';
+  }
+
+  function renderAll() {
+    if (!state.data) return;
+    renderShell();
+    renderOverview();
+    renderPipeline();
+    renderDecisions();
+  }
+
+  /* ---------- 视图路由 ---------- */
+  function applyVisibility() {
+    var err = $("#loadError");
+    if (err) err.hidden = !state.error;
+    var ok = !!state.data;
+    VIEWS.forEach(function (k) {
+      var el = $("#view-" + k);
+      if (el) el.hidden = !ok || k !== state.view;
+    });
+  }
+
+  function switchView(view) {
+    state.view = VIEWS.indexOf(view) >= 0 ? view : "overview";
+    applyVisibility();
+    var meta = VIEW_META[state.view];
+    var t = $("#viewTitle"), s = $("#viewSub");
+    if (t) t.textContent = meta.title;
+    if (s) s.textContent = meta.sub;
+    renderNav();
+    window.scrollTo(0, 0);
+  }
+
+  function hashView() {
+    var h = (location.hash || "").replace(/^#/, "");
+    return VIEWS.indexOf(h) >= 0 ? h : "overview";
+  }
+
+  /* ---------- 移动端导航 ---------- */
+  function openNav(force) {
+    var sb = $("#sidebar"), scrim = $("#navScrim"), btn = $("#menuBtn");
+    if (!sb) return;
+    var open = typeof force === "boolean" ? force : !sb.classList.contains("is-open");
+    sb.classList.toggle("is-open", open);
+    if (scrim) scrim.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function closeNav() { openNav(false); }
+
+  /* ---------- 数据面 ---------- */
+  function load() {
+    return fetch("/api/workbench", { headers: { Accept: "application/json" } })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (json) {
+        state.data = json && typeof json === "object" ? json : {};
+        state.error = null;
+        applyVisibility();
+        renderAll();
+      })
+      .catch(function (err) {
+        state.error = err && err.message ? err.message : String(err);
+        var msg = $("#loadErrorMsg");
+        if (msg) msg.textContent = "无法读取 /api/workbench：" + state.error;
+        applyVisibility();
+      });
+  }
+
+  function setLive(mode) {
+    var pill = $("#livePill");
+    if (!pill) return;
+    pill.className = "mode-pill" + (mode === "poll" ? " is-poll" : "");
+    pill.innerHTML = '<span class="dot"></span>' + (mode === "poll" ? "轮询 · 15s" : "实时");
+  }
+
+  function startPoll() {
+    if (state.pollTimer) return;
+    setLive("poll");
+    state.pollTimer = setInterval(function () { load(); }, 15000);
+  }
+
+  function degrade() {
+    if (state.es) {
+      state.es.close();
+      state.es = null;
+    }
+    startPoll();
+  }
+
+  function connectEvents() {
+    try {
+      var es = new EventSource("/api/events");
+      state.es = es;
+      es.addEventListener("changed", function () { load(); });
+      es.addEventListener("watchdead", degrade);
+      es.addEventListener("error", degrade);
+      setLive("live");
+    } catch (e) {
+      startPoll();
+    }
+  }
+
+  /* ---------- 事件 ---------- */
+  document.addEventListener("click", function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest("[data-action]") : null;
+    if (!t) return;
+    var action = t.getAttribute("data-action");
+    if (action === "nav") {
+      location.hash = "#" + t.getAttribute("data-view");
+      closeNav();
+    } else if (action === "retry") {
+      load();
+    } else if (action === "select-delivery") {
+      state.selectedId = t.getAttribute("data-id") || null;
+      location.hash = "#pipeline";
+    } else if (action === "toggle-nav") {
+      openNav();
+    } else if (action === "close-nav") {
+      closeNav();
+    }
+  });
+
+  var selEl = $("#deliverySelect");
+  if (selEl) selEl.addEventListener("change", function () {
+    state.selectedId = this.value || null;
+    renderPipeline();
+  });
+
+  window.addEventListener("hashchange", function () { switchView(hashView()); });
+
+  /* ---------- 启动 ---------- */
+  switchView(hashView());
+  load();
+  connectEvents();
+})();
+</script>
+</body>
+</html>

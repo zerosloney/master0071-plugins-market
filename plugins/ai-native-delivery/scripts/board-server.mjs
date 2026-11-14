@@ -1,14 +1,16 @@
-// board-server.mjs — 开发全景实时看板服务（本地只读，2026-11 实时版新增）
-// 用途：为 board/dev-tour.html 的 live 模式提供四类接口 ——
+// board-server.mjs — 开发全景实时看板服务（本地只读，2026-11 实时版新增；2026-11-14 P1 加交付工作台）
+// 用途：为 board/dev-tour.html 的 live 模式与 board/workbench.html 三视图页提供接口 ——
 //   GET  /tour?file=<workflow 文档>   实时版页面（模板注入 MODE=live）
 //   GET  /api/tour?file=<...>          全景模型 JSON（每次请求现场重建 → 恒最新）
+//   GET  /workbench                    交付工作台 P1 三视图页（概览/交付流/决策中心，页面自拉 /api/workbench）
+//   GET  /api/workbench                交付工作台聚合模型 JSON（workbench-model 现场重建 → 恒最新）
 //   GET  /api/events                   SSE 变更推送（changed → 客户端刷新；watchdead → 退化为轮询）
 //   POST /api/tour/usage               视图用量埋点（唯一写面：append 到 .agents/cache/tour-usage.jsonl）
 //   GET  /api/health                   就绪探针（ensure-board 复用判定）
 //
 // 安全面（刻意比源仓更窄）：
 //   - 只绑 127.0.0.1；Host 头只认 127.0.0.1:PORT / localhost:PORT（DNS rebinding 缓解）
-//   - **不提供任意静态文件服务**——除模板外不吐任何仓内文件；只读面只有 workflow/ 下的文档与派生模型
+//   - **不提供任意静态文件服务**——除两份模板外不吐任何仓内文件；只读面只有 workflow/ 下的文档与派生模型
 //   - 文档白名单：workflow/{plans,specs,intents}/**.md（拒绝对路径、拒 ..、拒 archive 与 _TEMPLATE）
 //   - 唯一写面是 usage 埋点（append 到 .agents/cache/，该目录已 gitignore，本机数据不外发）
 //
@@ -18,9 +20,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildTour } from './dev-tour-model.mjs';
+import { buildWorkbench } from './workbench-model.mjs';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE = path.join(PLUGIN_ROOT, 'board', 'dev-tour.html');
+const WORKBENCH_TEMPLATE = path.join(PLUGIN_ROOT, 'board', 'workbench.html');
 const TOUR_DOC_DIRS = ['plans', 'specs', 'intents'];
 const MAX_DIFF_LINES = 120;
 
@@ -131,6 +135,25 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         const status = /不存在/.test(e.message) ? 404 : 500;
         return sendJson(res, status, { error: e.message });
+      }
+    }
+
+    // 交付工作台 P1（2026-11-14）：三视图页与聚合模型——页面 live-only（无锚点注入），数据自拉
+    if (url.pathname === '/workbench') {
+      let html;
+      try {
+        html = fs.readFileSync(WORKBENCH_TEMPLATE, 'utf8');
+      } catch (e) {
+        return sendJson(res, 500, { error: `工作台模板读取失败：${e.message}` });
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(html);
+    }
+    if (url.pathname === '/api/workbench') {
+      try {
+        return sendJson(res, 200, buildWorkbench({ root: ROOT }));
+      } catch (e) {
+        return sendJson(res, 500, { error: `工作台模型构建失败：${e.message}` });
       }
     }
 

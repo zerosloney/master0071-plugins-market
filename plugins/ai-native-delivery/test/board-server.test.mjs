@@ -106,6 +106,24 @@ const waitReady = async (port, ms = 6000) => {
   const nf = await req(PORT, '/api/nope');
   check('⑥ 未知路由 404（不做任意静态服务）', nf.status === 404, `status=${nf.status}`);
 
+  // ⑬⑭⑮ 交付工作台 P1（2026-11-14）：聚合模型 + 三视图页 + 白名单面不变
+  const wbApi = await req(PORT, '/api/workbench');
+  let wbModel = null;
+  try { wbModel = JSON.parse(wbApi.body); } catch { /* 坏 JSON 由断言面暴露 */ }
+  check('⑬ /api/workbench 出聚合模型（repo/stats/deliveries/decisions 四键、环节八键）',
+    wbApi.status === 200 && wbModel && wbModel.repo && wbModel.stats && Array.isArray(wbModel.deliveries) && wbModel.deliveries.length >= 1
+      && wbModel.decisions && Array.isArray(wbModel.decisions.pending) && wbModel.deliveries[0].stages.length === 8,
+    `status=${wbApi.status} body=${wbApi.body.slice(0, 120)}`);
+
+  const wbPage = await req(PORT, '/workbench');
+  check('⑭ /workbench 页 200 且为三视图模板（概览/交付流/决策锚点在、无外部请求）',
+    wbPage.status === 200 && /view-overview/.test(wbPage.body) && /view-pipeline/.test(wbPage.body) && /view-decisions/.test(wbPage.body)
+      && !/fonts\.googleapis/.test(wbPage.body),
+    `status=${wbPage.status} len=${wbPage.body.length}`);
+
+  const wbOutside = await req(PORT, '/api/workbench?file=../etc/passwd');
+  check('⑮ /api/workbench 不吃 file 参数（白名单面不因新路由放宽）', wbOutside.status === 200, `status=${wbOutside.status}`);
+
   const bad = await req(PORT, '/api/health', { headers: { Host: 'evil.example.com' } });
   check('⑦ 坏 Host 403', bad.status === 403, `status=${bad.status}`);
 

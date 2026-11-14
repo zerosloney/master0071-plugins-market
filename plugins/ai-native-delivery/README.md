@@ -272,6 +272,7 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 规模边界：≤60 步 / 300 diff 文件（超限降级为附录归集；压测工具 `test/fixtures/dev-tour/synthetic-plan.mjs --bench`）
 - 文档数据契约与适用场景见 `skills/dev-tour/SKILL.md`
 - **实时看板（0.3.3 新增）**：`node <插件根>/scripts/auto-tour.mjs --root <仓库根>` 一键拉起（幂等复用、不开浏览器、只打印可点链接）；`scripts/board-server.mjs` 提供 `/tour`（实时页面）、`/api/tour`（全景模型，**每次请求现场重建**）、`/api/events`（SSE 变更推送；不可用时页面自动退化为 5s 轮询）、`/api/tour/usage`（视图用量埋点，落本机 `.agents/cache/`，不外发）。端口口径：显式 `--port` > `engine.json` 的 `options.boardPort` > 基线 8933。安全面刻意收窄：只绑 127.0.0.1、Host 头校验、**不做任意静态文件服务**、文档白名单仅 `workflow/{plans,specs,intents}/**.md`。
+- **交付工作台 P1（0.3.9 新增）**：同服务 `/workbench` 三视图页（概览 / 交付流 / 决策中心，设计语言参考 `design/workbench-prototype.html` 原型存档）+ `/api/workbench` 聚合模型（`scripts/workbench-model.mjs` 现场重建）。数据口径——**交付 = plan 族**（L2/L3 含 intent/spec/plan 三件套，L1 单 plan），八章环节三态推导每态带 evidence 文本如实展示依据：intake/spec/plan 取 frontmatter 与文件在场；implement 取产品提交锚（提交消息含 stem/任务短名 ∩ 触非台账路径）；verify 取 plan 验收节勾验计数；review 取复核台账行（对象列含族名或 runId 交叉引用族文档体）；ship 取发版提交（消息含短名 ∩ 触 marketplace.json）；closeout 取归档 + done。已知边界（如实）：产品提交消息不挂任务短名的族 implement 判 queued（如关单后补记族的产品提交先于 plan 存在）；SSE 只监听 `workflow/`（确认账在 `.agents/` 下变更不触发推送，靠 15s 轮询兜底）。写面为零——待裁决项只显示对应 `confirm-doc` / `pr-review dispose` 命令指引文案，不代执行。P2 候选（未做）：执行运行流（verify 绿行/面板 run 事件）、Git 只读视图；协作多用户面不做（插件单人本地口径）。
 
 
 ## PR 面板评审（pr-review，多镜头 + 投票 + 处置闭环）
@@ -305,6 +306,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 - 数据库访问技能提供的 python 脚本（如 database-explorer 的 `db_tool.py`），路径由宿主的 skill 目录映射决定
 
 ## 版本变更
+
+**0.3.9**
+
+交付工作台 P1——三视图真接入（概览 / 交付流 / 决策中心，设计真源 = `design/workbench-prototype.html` 原型存档）：`scripts/workbench-model.mjs` 聚合模型单源（**交付 = plan 族**，八章环节三态推导每态带 evidence 文本如实展示依据——intake/spec/plan 取 frontmatter、implement 取产品提交锚（消息含 stem/短名 ∩ 非台账路径）、verify 取验收节勾验计数、review 取复核台账行（族名或 runId 交叉引用）、ship 取发版提交、closeout 取归档+done；决策面 = draft 待确认 + 面板未处置/挂账 findings + 确认账 12 条 + 复核台账行级）；board-server +`/workbench` 页 + `/api/workbench` 路由（安全面零放松，工作台零写面——待裁决只显示命令指引不代执行）；`board/workbench.html` 1015 行单文件（原型 od-* 设计系统精选迁移、本地字体栈零外部请求、SSE 复用 + 15s 轮询退化、全字符串转义）。附带根修：check-scope KNOWN_EXT +`.html`（插件已分发 .html 模板，扩展集落后致声明双拦）。推导边界如实入档 README（消息不挂短名的补记族 implement 判 queued；SSE 只监听 workflow/）。测试：workbench-model 35 断言（四型族推导/决策聚合/非 git 退化）+ board-server ⑬⑭⑮（16 全绿）。
 
 **0.3.8**
 

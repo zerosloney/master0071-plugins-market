@@ -3,7 +3,7 @@
 级别: L1
 日期: 2026-11-14
 模块: board
-确认指纹: 1788b4241e0b28e7
+确认指纹: 8de51103e5e5b96a
 ---
 # PLAN — 交付工作台 P1（三视图真接入：概览 / 交付流 / 决策中心）
 
@@ -55,6 +55,7 @@
 - `plugins/ai-native-delivery/.zcode-plugin/plugin.json`：版本垫片（release.mjs）
 - `plugins/ai-native-delivery/.codex-plugin/plugin.json`：版本垫片（release.mjs）
 - `plugins/ai-native-delivery/.omp-plugin/plugin.json`：版本垫片（release.mjs）
+- `plugins/ai-native-delivery/mcp/protocol.mjs`：SERVER_INFO 版本位 0.3.9（release.mjs 触碰面——首轮声明漏列，按 release 输出清单补记）
 - `marketplace.json`：市场版本（release.mjs）
 - `.omp-plugin/marketplace.json`：市场版本（release.mjs）
 - `README.md`（根）：市场表版本格（release.mjs）
@@ -74,11 +75,11 @@
 
 ## 验收标准（可测试）
 
-- [ ] /api/workbench 在本仓出真实模型：deliveries ≥ 20 族、每族 8 环节三态 + evidence、decisions.pending 含当前 draft/挂账、panels 含 2026-11 五行（证据：curl 输出截取）
-- [ ] /workbench 页三视图可交互（切视图/切交付/环节展开），无 SSE 时 15s 轮询退化生效（证据：走查 + Network 截取）
-- [ ] workbench-model 测试全绿：L1/L2/归档/draft 四型族推导 + 非 git 仓退化不崩（证据：测试输出）
-- [ ] board-server 既有断言零回归 + 新增 3 断言绿（证据：测试输出）
-- [ ] 0.3.9 发版五处版本位同步 + 机制台账/引擎地图/README 更新（证据：release.mjs 输出 + verify 全绿）
+- [x] /api/workbench 在本仓出真实模型：deliveries ≥ 20 族、每族 8 环节三态 + evidence、panels 含 2026-11 五行（证据：真仓冒烟 22 族 / 4 面板族 review 全推导 / panels 5 行 / 本月 81 意见；pending=0 空态如实——当前无 draft 文档与挂账 findings，渲染空态文案已验证）
+- [x] /workbench 页三视图可交互（切视图/切交付），无 SSE 时 15s 轮询退化生效（证据：chrome 走查概览/交付流/决策三视图 + hash 路由保持；worker 实机验证 API 断连→错误态+重试、轮询角标切换、select 换交付重渲染、注入转义）
+- [x] workbench-model 测试全绿：L1/L2/归档/draft 四型族推导 + 非 git 仓退化不崩（证据：35 PASS / 0 FAIL）
+- [x] board-server 既有断言零回归 + 新增 3 断言绿（证据：⑬⑭⑮ PASS，合计 16/0）
+- [x] 0.3.9 发版版本位同步 + 机制台账/引擎地图/README 更新（证据：release.mjs 输出 7 处版本位 + 触碰面清单；engine-map 重渲一致；verify 全绿见关单提交）
 
 ## 确认与复核
 
