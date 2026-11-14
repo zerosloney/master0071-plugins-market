@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { configDir, effective, lastCommit, loadConfig, saveConfig, slug } from '../mcp/core.mjs';
+import { mergedLabel } from '../mcp/tools.mjs';
 
 let failures = 0;
 const check = (label, condition, detail = '') => {
@@ -215,6 +216,15 @@ try {
       '(global prototype integrity)',
     );
   }
+
+  // ---- 面板评审 C-014（2026-11-14）：merge_back 计划行「合并状态未知」三态标签白盒锁 ----
+  // e2e 的 null 通道在本机 git（porcelain 全零 sha + isAncestor 折叠 false）下不可构造——
+  // smoke 只能钉可达口径，这里直连 mergedLabel 单源锁死 ? 口径（回退旧三元即红）。
+  check(
+    'C-014 mergedLabel 三态：null/undefined=?、true=yes、false=no',
+    mergedLabel(null) === '?' && mergedLabel(undefined) === '?' && mergedLabel(true) === 'yes' && mergedLabel(false) === 'no',
+    `null=${mergedLabel(null)} true=${mergedLabel(true)} false=${mergedLabel(false)}`,
+  );
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
 }

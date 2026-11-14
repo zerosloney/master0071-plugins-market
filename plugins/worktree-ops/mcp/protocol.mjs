@@ -52,6 +52,13 @@ function reply(id, result) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 }
 
+// 面板评审 C-015（2026-11-14）：stdin 读错误的裁决抽单源（server 的 rl.on("error") 消费）——
+// EPIPE（管道对端已不在）→ "exit"（安静退出 0），其余 → "throw"（照抛）。白盒可测，
+// server.mjs 的两分支不再零覆盖。
+export function stdinErrorAction(err) {
+  return err && err.code === "EPIPE" ? "exit" : "throw";
+}
+
 function replyError(id, code, message) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`);
 }

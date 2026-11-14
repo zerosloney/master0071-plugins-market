@@ -24,7 +24,7 @@
 
 import readline from "node:readline";
 
-import { handle, replyError } from "./protocol.mjs";
+import { handle, replyError, stdinErrorAction } from "./protocol.mjs";
 
 // 启动自检：Node 版本过低时直接给出可读提示，而不是让后续代码在半路炸出难懂的异常。
 // mcp.json 里 command 是裸名 "node"（规范允许），所以解释器由宿主的 PATH 解析——
@@ -44,7 +44,8 @@ const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity 
 // rl 上没有监听者就是未捕获异常加崩栈收场。口径与 protocol.mjs 里 stdout EPIPE 一致：
 // 管道对端已不在就安静退出 0，其余错误照抛。
 rl.on("error", (err) => {
-  if (err && err.code === "EPIPE") process.exit(0);
+  // 面板评审 C-015：裁决抽 protocol.stdinErrorAction 单源（白盒可测——EPIPE→exit 0，其余照抛）
+  if (stdinErrorAction(err) === "exit") process.exit(0);
   throw err;
 });
 rl.on("line", (line) => {
