@@ -1,0 +1,2526 @@
+{
+  "schema": "pr-review/artifact@1",
+  "run": {
+    "schema": "pr-review/run@1",
+    "runId": "pr-81c1f38-c3f8c4be",
+    "base": "7da66396867916b23459f02d13589acbc2896b1f",
+    "head": "81c1f38d489aae780f4c9b1d4bda4dd1cc2c846a",
+    "baseRef": "7da6639",
+    "headRef": "81c1f38",
+    "diffHash": "c3f8c4be72fd9ac2b116c7f1ede839b3a9a09fa3b2752ec5b7c93a30f832d93a",
+    "promptVersion": "pr-review/v1",
+    "createdAt": "2026-11-14T00:32:31.092Z",
+    "files": [
+      {
+        "path": ".gitignore",
+        "status": "M",
+        "added": 2,
+        "deleted": 0
+      },
+      {
+        "path": ".omp-plugin/marketplace.json",
+        "status": "M",
+        "added": 5,
+        "deleted": 5
+      },
+      {
+        "path": ".qwen/skills/verify/SKILL.md",
+        "status": "A",
+        "added": 67,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/README.md",
+        "status": "A",
+        "added": 15,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/manifest-portability.md",
+        "status": "A",
+        "added": 30,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/marketplace-versions.md",
+        "status": "A",
+        "added": 34,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/mcp-plugins.md",
+        "status": "A",
+        "added": 32,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/qwen-package.md",
+        "status": "A",
+        "added": 43,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/features/workflow-plugins.md",
+        "status": "A",
+        "added": 30,
+        "deleted": 0
+      },
+      {
+        "path": ".qwen/skills/verify/run.mjs",
+        "status": "A",
+        "added": 259,
+        "deleted": 0
+      },
+      {
+        "path": ".zcodeignore",
+        "status": "M",
+        "added": 1,
+        "deleted": 2
+      },
+      {
+        "path": "README.md",
+        "status": "M",
+        "added": 6,
+        "deleted": 6
+      },
+      {
+        "path": "marketplace.json",
+        "status": "M",
+        "added": 6,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/agent-pipelines/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/README.md",
+        "status": "M",
+        "added": 17,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/agents/coding-orchestrator.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/agent-pipelines/agents/coding-reviewer.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/args.mjs",
+        "status": "M",
+        "added": 6,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/dag.mjs",
+        "status": "M",
+        "added": 74,
+        "deleted": 33
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/graph.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/pipelines.mjs",
+        "status": "A",
+        "added": 40,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/render.mjs",
+        "status": "M",
+        "added": 23,
+        "deleted": 29
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/scope-core.mjs",
+        "status": "A",
+        "added": 173,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/scope.mjs",
+        "status": "M",
+        "added": 62,
+        "deleted": 107
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/serve.mjs",
+        "status": "M",
+        "added": 23,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state-core.mjs",
+        "status": "A",
+        "added": 443,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state-persist.mjs",
+        "status": "A",
+        "added": 298,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/scripts/state.mjs",
+        "status": "M",
+        "added": 39,
+        "deleted": 710
+      },
+      {
+        "path": "plugins/agent-pipelines/test/contract.mjs",
+        "status": "M",
+        "added": 71,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/agent-pipelines/test/equivalence.mjs",
+        "status": "M",
+        "added": 20,
+        "deleted": 24
+      },
+      {
+        "path": "plugins/agent-pipelines/test/regression.mjs",
+        "status": "M",
+        "added": 364,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/agent-pipelines/test/scripts.mjs",
+        "status": "M",
+        "added": 313,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/README.md",
+        "status": "M",
+        "added": 18,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/agents/ui-verifier.md",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/commands/design.md",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/commands/new-task.md",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/commands/review.md",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/commands/test.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/config-templates/mechanism-registry.md",
+        "status": "M",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/ai-native-delivery/config-templates/pr-budget.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/config-templates/rule-budgets.txt",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/hooks/pretool-risk.mjs",
+        "status": "M",
+        "added": 72,
+        "deleted": 16
+      },
+      {
+        "path": "plugins/ai-native-delivery/mcp/core.mjs",
+        "status": "M",
+        "added": 40,
+        "deleted": 8
+      },
+      {
+        "path": "plugins/ai-native-delivery/mcp/protocol.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/mcp/server.mjs",
+        "status": "M",
+        "added": 7,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/agg-delegations.mjs",
+        "status": "M",
+        "added": 35,
+        "deleted": 16
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/agg-judgments.mjs",
+        "status": "M",
+        "added": 8,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-lane-surface.mjs",
+        "status": "M",
+        "added": 5,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-local-gates.mjs",
+        "status": "M",
+        "added": 11,
+        "deleted": 7
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-loop-sections/s01-pairing.mjs",
+        "status": "M",
+        "added": 45,
+        "deleted": 14
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-loop-sections/s14-approved-trace.mjs",
+        "status": "M",
+        "added": 5,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-loop-sections/s23-convergence-audit.mjs",
+        "status": "M",
+        "added": 9,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-loop.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-pr-size.mjs",
+        "status": "M",
+        "added": 12,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-regression-consistency.mjs",
+        "status": "M",
+        "added": 6,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-scope.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/check-secrets.mjs",
+        "status": "M",
+        "added": 7,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/compact-ledgers.mjs",
+        "status": "M",
+        "added": 24,
+        "deleted": 15
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/confirm-doc.mjs",
+        "status": "M",
+        "added": 8,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/gen-effective-policy.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/gen-workflow-metrics.mjs",
+        "status": "M",
+        "added": 13,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/git-merge-jsonl.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/grade-task.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/init-engine.mjs",
+        "status": "M",
+        "added": 23,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/ledger-loader.mjs",
+        "status": "M",
+        "added": 9,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/ledger-shards.mjs",
+        "status": "M",
+        "added": 62,
+        "deleted": 11
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/metrics-core.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/pipeline-run.mjs",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/policy.mjs",
+        "status": "M",
+        "added": 17,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/read-context.mjs",
+        "status": "M",
+        "added": 10,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/rewrite-file.mjs",
+        "status": "M",
+        "added": 14,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/stage-gates.mjs",
+        "status": "M",
+        "added": 13,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/verify.mjs",
+        "status": "M",
+        "added": 53,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/ai-native-delivery/scripts/warn-format.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/skills/session-resume/scripts/worktree-audit.test.mjs",
+        "status": "M",
+        "added": 14,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/ai-native-delivery/skills/verify-ui/scripts/gen-verify-feature.mjs",
+        "status": "M",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/acceptance.mjs",
+        "status": "M",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/agg-delegations.test.mjs",
+        "status": "M",
+        "added": 47,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/agg-judgments.test.mjs",
+        "status": "M",
+        "added": 16,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/check-local-gates.test.mjs",
+        "status": "M",
+        "added": 46,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/check-loop.test.mjs",
+        "status": "M",
+        "added": 101,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/check-secrets.test.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/compact-ledgers.test.mjs",
+        "status": "M",
+        "added": 131,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/confirm-doc.test.mjs",
+        "status": "M",
+        "added": 21,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/fixtures/githooks/pre-push",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/gen-effective-policy.test.mjs",
+        "status": "M",
+        "added": 12,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/gen-workflow-metrics.test.mjs",
+        "status": "M",
+        "added": 24,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/git-merge-jsonl.test.mjs",
+        "status": "M",
+        "added": 13,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/hook.test.mjs",
+        "status": "M",
+        "added": 101,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/init.test.mjs",
+        "status": "M",
+        "added": 29,
+        "deleted": 11
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/ledger-loader.test.mjs",
+        "status": "M",
+        "added": 38,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/ledger-shards.test.mjs",
+        "status": "M",
+        "added": 169,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/mcp-tools.test.mjs",
+        "status": "M",
+        "added": 155,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/policy.test.mjs",
+        "status": "M",
+        "added": 8,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/verify.test.mjs",
+        "status": "M",
+        "added": 50,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/warn-fold-plugin.test.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/ai-native-delivery/test/warn-format.test.mjs",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/pstack/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/pstack/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/pstack/NOTICE-PORT.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/pstack/README.md",
+        "status": "M",
+        "added": 7,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/pstack/agents/effort-high.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/effort-low.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/effort-max.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/panelist-glm-flash.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/panelist-minimax.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/panelist-spark.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/panelist-zai-glm.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/poteto-agent-high.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/poteto-agent-low.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/poteto-agent-max.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/agents/poteto-agent-strong.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 10
+      },
+      {
+        "path": "plugins/pstack/extras/README.md",
+        "status": "M",
+        "added": 1,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/effort-high.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/effort-low.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/effort-max.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/effort-medium.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/effort-xhigh.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/poteto-agent-high.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/poteto-agent-low.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/poteto-agent-max.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/poteto-agent-medium.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/extras/effort-agents/poteto-agent-xhigh.md",
+        "status": "D",
+        "added": 0,
+        "deleted": 9
+      },
+      {
+        "path": "plugins/pstack/hooks/pre-tool-use.mjs",
+        "status": "M",
+        "added": 16,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/pstack/models.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 19
+      },
+      {
+        "path": "plugins/pstack/plugin.json",
+        "status": "M",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/pstack/skills/architect/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/arena/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/how/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/interrogate/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/poteto-mode/SKILL.md",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/pstack/skills/poteto-mode/references/qwen-tools.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/poteto-mode/references/zcode-tools.md",
+        "status": "M",
+        "added": 9,
+        "deleted": 16
+      },
+      {
+        "path": "plugins/pstack/skills/reflect/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/setup-pstack/SKILL.md",
+        "status": "M",
+        "added": 5,
+        "deleted": 5
+      },
+      {
+        "path": "plugins/pstack/skills/swarm/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/skills/why/SKILL.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/pstack/test/qwen-extension-parity.mjs",
+        "status": "M",
+        "added": 0,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/pstack/test/role-table-parity.mjs",
+        "status": "M",
+        "added": 18,
+        "deleted": 112
+      },
+      {
+        "path": "plugins/pstack/test/run-hook-tests.mjs",
+        "status": "M",
+        "added": 22,
+        "deleted": 8
+      },
+      {
+        "path": "plugins/systemone-decision/.codex-plugin/plugin.json",
+        "status": "M",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "plugins/systemone-decision/.omp-plugin/plugin.json",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/systemone-decision/.zcode-plugin/plugin.json",
+        "status": "M",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/systemone-decision/README.md",
+        "status": "M",
+        "added": 14,
+        "deleted": 3
+      },
+      {
+        "path": "plugins/systemone-decision/mcp/model-profiles.mjs",
+        "status": "A",
+        "added": 41,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/systemone-decision/mcp/scenarios.mjs",
+        "status": "M",
+        "added": 35,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/systemone-decision/mcp/server.mjs",
+        "status": "M",
+        "added": 34,
+        "deleted": 6
+      },
+      {
+        "path": "plugins/systemone-decision/plugin.json",
+        "status": "M",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "plugins/systemone-decision/skills/systemone-decision/SKILL.md",
+        "status": "M",
+        "added": 16,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/skills/systemone-decision/references/scenarios.md",
+        "status": "M",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "plugins/systemone-decision/test/contract.smoke.mjs",
+        "status": "M",
+        "added": 17,
+        "deleted": 0
+      },
+      {
+        "path": "plugins/systemone-decision/test/smoke.mjs",
+        "status": "M",
+        "added": 122,
+        "deleted": 10
+      },
+      {
+        "path": "scripts/manifest-lint.mjs",
+        "status": "M",
+        "added": 4,
+        "deleted": 18
+      },
+      {
+        "path": "scripts/manifest-lint.selftest.mjs",
+        "status": "M",
+        "added": 5,
+        "deleted": 4
+      },
+      {
+        "path": "scripts/release.mjs",
+        "status": "M",
+        "added": 61,
+        "deleted": 11
+      }
+    ],
+    "lenses": [
+      {
+        "id": "correctness",
+        "focus": "逻辑、边界、错误路径、状态转换、并发交错、异常吞噬",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "security",
+        "focus": "信任边界、注入、鉴权、越权、敏感数据、输入解析",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "performance",
+        "focus": "查询/循环/渲染/内存/并发资源、N+1、无界集合",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "tests",
+        "focus": "行为断言、边界覆盖、测试是否会在实现全返回 undefined 时仍通过",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "spec",
+        "focus": "对照 spec/契约面的验收标准与承诺是否真正落地",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "data-integrity",
+        "focus": "数据丢失、事务边界、幂等、并发写、迁移可逆、审计字段、删除引用检查",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      },
+      {
+        "id": "quality",
+        "focus": "死代码、重复、抽象层数、可维护性（纯样式直接丢弃）",
+        "files": [
+          ".gitignore",
+          ".omp-plugin/marketplace.json",
+          ".qwen/skills/verify/SKILL.md",
+          ".qwen/skills/verify/features/README.md",
+          ".qwen/skills/verify/features/manifest-portability.md",
+          ".qwen/skills/verify/features/marketplace-versions.md",
+          ".qwen/skills/verify/features/mcp-plugins.md",
+          ".qwen/skills/verify/features/qwen-package.md",
+          ".qwen/skills/verify/features/workflow-plugins.md",
+          ".qwen/skills/verify/run.mjs",
+          ".zcodeignore",
+          "README.md",
+          "marketplace.json",
+          "plugins/agent-pipelines/.codex-plugin/plugin.json",
+          "plugins/agent-pipelines/.omp-plugin/plugin.json",
+          "plugins/agent-pipelines/.zcode-plugin/plugin.json",
+          "plugins/agent-pipelines/README.md",
+          "plugins/agent-pipelines/agents/coding-orchestrator.md",
+          "plugins/agent-pipelines/agents/coding-reviewer.md",
+          "plugins/agent-pipelines/plugin.json",
+          "plugins/agent-pipelines/scripts/args.mjs",
+          "plugins/agent-pipelines/scripts/dag.mjs",
+          "plugins/agent-pipelines/scripts/graph.mjs",
+          "plugins/agent-pipelines/scripts/pipelines.mjs",
+          "plugins/agent-pipelines/scripts/render.mjs",
+          "plugins/agent-pipelines/scripts/scope-core.mjs",
+          "plugins/agent-pipelines/scripts/scope.mjs",
+          "plugins/agent-pipelines/scripts/serve.mjs",
+          "plugins/agent-pipelines/scripts/state-core.mjs",
+          "plugins/agent-pipelines/scripts/state-persist.mjs",
+          "plugins/agent-pipelines/scripts/state.mjs",
+          "plugins/agent-pipelines/test/contract.mjs",
+          "plugins/agent-pipelines/test/equivalence.mjs",
+          "plugins/agent-pipelines/test/regression.mjs",
+          "plugins/agent-pipelines/test/scripts.mjs",
+          "plugins/ai-native-delivery/.codex-plugin/plugin.json",
+          "plugins/ai-native-delivery/.omp-plugin/plugin.json",
+          "plugins/ai-native-delivery/.zcode-plugin/plugin.json",
+          "plugins/ai-native-delivery/README.md",
+          "plugins/ai-native-delivery/agents/ui-verifier.md"
+        ],
+        "truncated": true
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 17,
+    "confirmed": 17,
+    "rejected": 0,
+    "escalated": 0,
+    "unverified": 0,
+    "important": 0,
+    "nit": 17,
+    "preExisting": 2,
+    "styleDropped": 0
+  },
+  "findings": [
+    {
+      "id": "C-001",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 200,
+      "claim": "cd 守卫用裸前缀比较 next.startsWith(ROOT)，无路径分隔符边界：cd 到「仓库名为前缀的同级目录」会穿过守卫，把步骤 cwd 移出仓库，违背 SKILL.md「must stay inside the repo」的承诺",
+      "evidence": "resolve 后仅做字符串 startsWith：ROOT=E:\\Demo\\some-repo 时，cd ../some-repo-evil → next=E:\\Demo\\some-repo-evil，startsWith(ROOT) 为真 → 守卫放行（已用 node 复现该分支）。SKILL.md Launch/Drive 段明文承诺 cd 'must stay inside the repo'。因步骤命令本就来自仓内 ci.yml 且经 shell:true 执行，攻击增量近零",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "prefix-boundary-without-separator",
+      "behaviorImpact": true,
+      "repro": "node -e 前缀比较复现 true；正确写法 next === ROOT || next.startsWith(ROOT + path.sep)",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-001",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "run.mjs:200 裸 startsWith(ROOT) 无分隔符边界；node 探针实证兄弟前缀目录穿守卫；SKILL.md:46 承诺 must stay inside；新文件引入",
+          "counterEvidence": "",
+          "repro": "node -e 前缀比较 true；正确形 next===ROOT||startsWith(ROOT+sep)",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "run.mjs:200 裸 startsWith(ROOT) 无分隔符边界；node 探针实证兄弟前缀目录穿守卫；SKILL.md:46 承诺 must stay inside；新文件引入",
+          "counterEvidence": "",
+          "repro": "node -e 前缀比较 true；正确形 next===ROOT||startsWith(ROOT+sep)",
+          "model": ""
+        },
+        {
+          "findingId": "C-001",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "run.mjs:200 裸 startsWith(ROOT) 无分隔符边界；node 探针实证兄弟前缀目录穿守卫；SKILL.md:46 承诺 must stay inside；新文件引入",
+          "counterEvidence": "",
+          "repro": "node -e 前缀比较 true；正确形 next===ROOT||startsWith(ROOT+sep)",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:49.788Z"
+      }
+    },
+    {
+      "id": "C-002",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 116,
+      "claim": "doctor 对「合法 JSON 但缺 plugins 数组」的 marketplace.json 会崩栈而非按设计输出 ✗ 行：plugins=JSON.parse(...).plugins 解析成功时把初始 [] 覆盖为 undefined，随后 plugins.length 抛 TypeError 未捕获",
+      "evidence": "catch 分支只在 JSON.parse 抛错时保持 plugins=[]（此时才走 add('marketplace.json reads', false)）；合法 JSON 无 plugins 键 → plugins=undefined → if (plugins.length > 0) 直接 TypeError，doctor 的契约是『result looks wrong 时先跑 doctor 给可读诊断』，这里却以裸栈退出",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "undefined-shape-after-successful-parse",
+      "behaviorImpact": true,
+      "repro": "把 marketplace.json 顶部改为 {} 后运行 node .qwen/skills/verify/run.mjs --doctor → TypeError: Cannot read properties of undefined (reading 'length')",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-002",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plugins=JSON.parse(...).plugins 合法 JSON 缺键时覆盖 [] 为 undefined，:116 .length 抛未捕获 TypeError；隔离复刻实证",
+          "counterEvidence": "",
+          "repro": "node -e JSON.parse('{}').plugins.length → TypeError",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plugins=JSON.parse(...).plugins 合法 JSON 缺键时覆盖 [] 为 undefined，:116 .length 抛未捕获 TypeError；隔离复刻实证",
+          "counterEvidence": "",
+          "repro": "node -e JSON.parse('{}').plugins.length → TypeError",
+          "model": ""
+        },
+        {
+          "findingId": "C-002",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "plugins=JSON.parse(...).plugins 合法 JSON 缺键时覆盖 [] 为 undefined，:116 .length 抛未捕获 TypeError；隔离复刻实证",
+          "counterEvidence": "",
+          "repro": "node -e JSON.parse('{}').plugins.length → TypeError",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:50.106Z"
+      }
+    },
+    {
+      "id": "C-003",
+      "file": "plugins/pstack/hooks/pre-tool-use.mjs",
+      "line": 286,
+      "claim": "ws-guard 的 fail-closed 前提在 hook 输入 cwd 不存在时失效：resolve(cwd) 找不到任何已存在祖先时原样返回未解析路径，守卫对它全部判假放行，随后 safePath 对相对操作数拼 w 后 under(p,w) 恒真——虚构工作区使任意相对操作数被判 inside 而自动放行，与 resolve() 注释『stays unresolved and fails closed』相悖",
+      "evidence": "链路：resolve()（line 344）当整条路径不存在时爬升到盘根后 return p（line 393，未解析）；scriptRule w=resolve(cwd)（line 284）→ 守卫（line 286）各比较均为假 → 通过；safePath('plan.md', w)（line 315）→ p=w+'/plan.md' → resolve 同样原样返回 → inside(p,w)（line 333）under(p,w) 为真 → scriptContract 通过 → allow()。绝对路径操作数仍 fail-closed；触发需宿主输入不存在 cwd，故 Nit",
+      "category": "correctness",
+      "severityHint": "Nit",
+      "rootCause": "ws-guard-fictional-workspace-fail-open",
+      "behaviorImpact": true,
+      "repro": "PSTACK_GATE_TRACE=1 node hooks/pre-tool-use.mjs 输入 cwd=E:/no/such/dir（各级祖先均不存在）→ 输出 allow",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-003",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "resolve() 整路径不存在时原样返回（:393），ws-guard 对虚构 cwd 全假放行、safePath 相对操作数 under 恒真 → allow；实跑 hook 复现 allow 输出；base 已有该语义（本 PR 只加 gateTrace）——pre-existing",
+          "counterEvidence": "",
+          "repro": "stdin cwd=E:/no/such/dir 实跑 → allow（v1 实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "resolve() 整路径不存在时原样返回（:393），ws-guard 对虚构 cwd 全假放行、safePath 相对操作数 under 恒真 → allow；实跑 hook 复现 allow 输出；base 已有该语义（本 PR 只加 gateTrace）——pre-existing",
+          "counterEvidence": "",
+          "repro": "stdin cwd=E:/no/such/dir 实跑 → allow（v1 实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-003",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "resolve() 整路径不存在时原样返回（:393），ws-guard 对虚构 cwd 全假放行、safePath 相对操作数 under 恒真 → allow；实跑 hook 复现 allow 输出；base 已有该语义（本 PR 只加 gateTrace）——pre-existing",
+          "counterEvidence": "",
+          "repro": "stdin cwd=E:/no/such/dir 实跑 → allow（v1 实测）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "deferred",
+      "defer": {
+        "owner": "dc",
+        "due": "2027-02-14",
+        "reason": "存量缺陷非本弧引入（验证者三票均判 pre-existing：base 已有 ws-guard/resolve 语义，本弧仅加 gateTrace 插桩）；绝对操作数仍 fail-closed、触发需宿主喂不存在 cwd——留待 resolve() fail-closed 加固专项复评",
+        "at": "2026-11-14T01:26:03.903Z"
+      }
+    },
+    {
+      "id": "C-004",
+      "file": "plugins/agent-pipelines/scripts/render.mjs",
+      "line": 296,
+      "claim": "新增的保留路径守卫用区分大小写的字符串相等比较（out === eventsLog 等），Windows 大小写不敏感文件系统上 --out 以不同大小写拼写派生路径即可绕过守卫，HTML 落在未来事件日志路径上，此后 state.mjs 首次 append 会把 JSONL 追加进 HTML——正是该守卫要堵的数据丢失",
+      "evidence": "out 与 eventsLog/promisePath 均为 path.resolve 结果，resolve 不做大小写折叠；--out '.LOOP-CLI/STATE/CODING-PIPELINE.EVENTS.JSONL'（目标尚不存在）→ 三项相等比较全假 → writeFileSync 落盘；NTFS 上与派生的 'coding-pipeline.events.jsonl' 是同一文件，rotate/append 随后写穿 HTML。已存在的目标会被 existsSync 守卫拦住（不区分大小写），缺口仅在「尚未诞生 + 大小写不同」组合",
+      "category": "data-integrity",
+      "severityHint": "Nit",
+      "rootCause": "case-sensitive-equality-on-case-insensitive-fs",
+      "behaviorImpact": true,
+      "repro": "Windows 仓内 render --file <state>.json --out <同目录大写变体>.EVENTS.JSONL（目标不存在）→ exit 0 写出 HTML；再跑 state.mjs --apply → 事件行被追加进 HTML",
+      "sources": [
+        "correctness"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-004",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render.mjs:296 守卫区分大小写全等，resolve 不折叠；NTFS 同文件解析临时目录实证（existsSync 大写变体 true、append 字节互通）；守卫为本 PR 新增",
+          "counterEvidence": "",
+          "repro": "临时目录大小写同文件解析实验（v1/v2 实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render.mjs:296 守卫区分大小写全等，resolve 不折叠；NTFS 同文件解析临时目录实证（existsSync 大写变体 true、append 字节互通）；守卫为本 PR 新增",
+          "counterEvidence": "",
+          "repro": "临时目录大小写同文件解析实验（v1/v2 实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-004",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "render.mjs:296 守卫区分大小写全等，resolve 不折叠；NTFS 同文件解析临时目录实证（existsSync 大写变体 true、append 字节互通）；守卫为本 PR 新增",
+          "counterEvidence": "",
+          "repro": "临时目录大小写同文件解析实验（v1/v2 实测）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:50.424Z"
+      }
+    },
+    {
+      "id": "C-005",
+      "file": "plugins/pstack/test/run-hook-tests.mjs",
+      "line": 38,
+      "claim": "TMP 含 ~（8.3 短名）时的夹具回退目录按 process.cwd() 上跳两级定位，而非锚定测试文件自身位置：从仓库根（而非文档约定的 plugins/pstack）运行时，夹具会写到仓库外的上级目录，进程中途崩溃时 pstack-hook-test-* 残留目录留在该处（行 224 的 rmSync 仅在正常跑完时执行）",
+      "evidence": "行 31-38：return b.includes('~') ? path.resolve(process.cwd(), '..', '..') : b; 以 cwd 为基准；行 40 mkdtempSync 在该基准下建夹具、行 224 收尾清理。从 plugins/pstack 运行时落在仓库根（注释预期），从仓库根运行时解析到仓库外两级；注释只论证了「不落在插件树内」，未论证不落在仓库外",
+      "category": "data-integrity",
+      "severityHint": "Nit",
+      "rootCause": "hook-fixture-cwd-anchored-tmp",
+      "behaviorImpact": false,
+      "repro": "cd 到仓库根且 realpathSync(tmpdir()) 含 ~ 的环境运行 node plugins/pstack/test/run-hook-tests.mjs，观察 pstack-hook-test-* 目录创建在仓库外两级目录",
+      "sources": [
+        "data-integrity"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-005",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "tmpBase 兜底按 cwd 上跳两级而非测试文件锚定；从仓根运行落仓库外两级；:224 清理仅正常完成执行",
+          "counterEvidence": "",
+          "repro": "node -e 复算两种 cwd 落点",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "tmpBase 兜底按 cwd 上跳两级而非测试文件锚定；从仓根运行落仓库外两级；:224 清理仅正常完成执行",
+          "counterEvidence": "",
+          "repro": "node -e 复算两种 cwd 落点",
+          "model": ""
+        },
+        {
+          "findingId": "C-005",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "tmpBase 兜底按 cwd 上跳两级而非测试文件锚定；从仓根运行落仓库外两级；:224 清理仅正常完成执行",
+          "counterEvidence": "",
+          "repro": "node -e 复算两种 cwd 落点",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:50.745Z"
+      }
+    },
+    {
+      "id": "C-006",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 200,
+      "claim": "cd 越界守卫用 startsWith(ROOT) 做前缀比较、缺路径分隔符收尾，同名的兄弟目录（如 <repo>-m2）能通过守卫，违背 SKILL.md 承诺的「cd 后的 cwd 必须留在仓库内」",
+      "evidence": "行 198-200：const next = path.resolve(cwd, cd[1]); ... if (!next.startsWith(ROOT))；字符串层面 \"E:\\...\\master0071-pluigns-market2\".startsWith(\"E:\\...\\master0071-pluigns-market\") 为 true，该目录存在时 cd 进去并继续执行后续命令；正确写法是 next === ROOT || next.startsWith(ROOT + path.sep)。实际暴露有限：步骤命令来自仓内 ci.yml",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "verify-runner-cd-guard-prefix",
+      "behaviorImpact": true,
+      "repro": "在仓库旁建 <repo名>后缀任意字符 的兄弟目录，在 ci.yml 某步加一行 cd ../<兄弟目录名>，run.mjs 不报 \"cd escapes the repository\" 而是在仓库外继续执行该步",
+      "sources": [
+        "data-integrity"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-006",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行独立复核：兄弟前缀目录穿守卫，失败文案 cd escapes the repository 名不副实；ci.yml 当前 cd 均仓内，暴露有限",
+          "counterEvidence": "",
+          "repro": "node 探针 + 分支序推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行独立复核：兄弟前缀目录穿守卫，失败文案 cd escapes the repository 名不副实；ci.yml 当前 cd 均仓内，暴露有限",
+          "counterEvidence": "",
+          "repro": "node 探针 + 分支序推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-006",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行独立复核：兄弟前缀目录穿守卫，失败文案 cd escapes the repository 名不副实；ci.yml 当前 cd 均仓内，暴露有限",
+          "counterEvidence": "",
+          "repro": "node 探针 + 分支序推演",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:51.065Z"
+      }
+    },
+    {
+      "id": "C-007",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 92,
+      "claim": "doctor 预检里 git(['--version']) 在同一次 add() 调用中被求值两次（ok 参数一次、detail 参数一次），对同一检查多 spawn 一个 git 子进程",
+      "evidence": "add('git on PATH', git(['--version']) !== null, git(['--version']) || 'git --version failed', true)，而 git() 是 spawnSync('git', argsList)；label 与 detail 各触发一次完整进程 spawn。同文件其他 git 调用（行 95-96）每个只调用一次，此处是纯重复。doctor 是每次运行一次的预检路径，约 20ms 量级，无行为影响",
+      "category": "performance",
+      "severityHint": "Nit",
+      "rootCause": "doctor-double-git-version-spawn",
+      "behaviorImpact": false,
+      "repro": "node .qwen/skills/verify/run.mjs --doctor（跟踪 git 进程：两次 git --version；或把 git() 换成计数包装复现两次调用）",
+      "sources": [
+        "performance"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-007",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "add() 两实参各调一次 git(['--version'])，JS 急切求值双 spawn；同文件其他调用各一次",
+          "counterEvidence": "",
+          "repro": "静态求值链 + 计数包装复现 2 次",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "add() 两实参各调一次 git(['--version'])，JS 急切求值双 spawn；同文件其他调用各一次",
+          "counterEvidence": "",
+          "repro": "静态求值链 + 计数包装复现 2 次",
+          "model": ""
+        },
+        {
+          "findingId": "C-007",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "add() 两实参各调一次 git(['--version'])，JS 急切求值双 spawn；同文件其他调用各一次",
+          "counterEvidence": "",
+          "repro": "静态求值链 + 计数包装复现 2 次",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:51.387Z"
+      }
+    },
+    {
+      "id": "C-008",
+      "file": "plugins/pstack/hooks/pre-tool-use.mjs",
+      "line": 40,
+      "claim": "排障弧的 PSTACK_GATE_TRACE 临时诊断通道以「定位完成后本通道可整体移除」的自我承诺留在生产 hook 里，环境变量无任何文档，定位已在同一 PR 内完成（tmpBase 修复落地）但通道未移除",
+      "evidence": "pre-tool-use.mjs:37-41 定义 gateTrace 并自注「定位 GH-Windows 上 contracted-script 静默早退用……定位完成后本通道可整体移除」，6 个诊断分支织入 scriptRule 的每条早退路径（行 277、287、291、300、305、307）；诊断结论已在 run-hook-tests.mjs:27-33 记录（「2026-11-09 CI trace 钉死：reject:tokenize」）且修复同 PR 落地，即注释声明的移除条件已满足。repo 全域 grep 'PSTACK_GATE_TRACE' 仅命中本 hook 与其测试（README/setup-pstack/ci.yml 均无），变量不可发现；run-hook-tests.mjs:182-186 还把 PSTACK_GATE_TRACE='1' 永久设进两条 allow 路径测试、把 trace 驱动的 [got code=...] 诊断后缀写死进断言消息——要么整体移除，要么转正为有文档的常驻诊断，现状是自相矛盾的残留",
+      "category": "other",
+      "severityHint": "Important",
+      "rootCause": "leftover-troubleshooting-trace",
+      "behaviorImpact": false,
+      "repro": "grep -rn PSTACK_GATE_TRACE → 仅 hook 与测试两处，无文档、无 CI 设置；pre-tool-use.mjs:37 注释原文「定位完成后本通道可整体移除」",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-008",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "gateTrace 自注「可整体移除」但定位结论与修复均已在同 PR 落地；全域 grep 仅 hook+测试、无文档；测试把 trace 后缀写死断言——自相矛盾残留；不设变量零行为变化",
+          "counterEvidence": "",
+          "repro": "grep PSTACK_GATE_TRACE 仅两处 + 注释原文",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "gateTrace 自注「可整体移除」但定位结论与修复均已在同 PR 落地；全域 grep 仅 hook+测试、无文档；测试把 trace 后缀写死断言——自相矛盾残留；不设变量零行为变化",
+          "counterEvidence": "",
+          "repro": "grep PSTACK_GATE_TRACE 仅两处 + 注释原文",
+          "model": ""
+        },
+        {
+          "findingId": "C-008",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "gateTrace 自注「可整体移除」但定位结论与修复均已在同 PR 落地；全域 grep 仅 hook+测试、无文档；测试把 trace 后缀写死断言——自相矛盾残留；不设变量零行为变化",
+          "counterEvidence": "",
+          "repro": "grep PSTACK_GATE_TRACE 仅两处 + 注释原文",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:51.709Z"
+      }
+    },
+    {
+      "id": "C-009",
+      "file": "plugins/pstack/test/run-hook-tests.mjs",
+      "line": 37,
+      "claim": "tmpBase 的 8.3 短名兜底用 path.resolve(process.cwd(), '..', '..') 硬编码退回「仓库根」，隐含「必须从插件根运行」却无守卫：在目标环境（GH Windows TMP 含 ~，兜底必触发）每次运行都把夹具树建进仓库工作树，从其他 cwd 调用则把 pstack-hook-test-* 夹具撒到仓库外的任意父目录",
+      "evidence": "行 31-38 与头注释（行 3）只写「Run: node test/run-hook-tests.mjs (from the plugin root)」，行 27-33 注释自认 CI 矩阵实测不展开短名——即该兜底在 GH Windows 上必然命中；行 224 的 rmSync(home) 仅在正常走完时执行，中途异常退出即在 cwd 的 ../.. 残留夹具目录。相对逃逸 '..'/'..' 无 cwd 校验",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "cwd-relative-tmp-fallback",
+      "behaviorImpact": false,
+      "repro": "TMP 路径含 ~ 的 Windows 机器上从仓库根执行并中途 Ctrl-C：仓库上一级目录出现未清理的 pstack-hook-test-*（静态复现路径）",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-009",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "CI 矩阵实测 realpath 不展开 8.3 短名 → GH Windows 兜底必命中；cd plugins/pstack 运行落仓根工作树；中途退出残留夹具",
+          "counterEvidence": "",
+          "repro": "静态链 :31-38/:224 + ci.yml:79-81",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "CI 矩阵实测 realpath 不展开 8.3 短名 → GH Windows 兜底必命中；cd plugins/pstack 运行落仓根工作树；中途退出残留夹具",
+          "counterEvidence": "",
+          "repro": "静态链 :31-38/:224 + ci.yml:79-81",
+          "model": ""
+        },
+        {
+          "findingId": "C-009",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "CI 矩阵实测 realpath 不展开 8.3 短名 → GH Windows 兜底必命中；cd plugins/pstack 运行落仓根工作树；中途退出残留夹具",
+          "counterEvidence": "",
+          "repro": "静态链 :31-38/:224 + ci.yml:79-81",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:52.046Z"
+      }
+    },
+    {
+      "id": "C-010",
+      "file": "plugins/agent-pipelines/scripts/state.mjs",
+      "line": 17,
+      "claim": "三缝拆分后 state.mjs 顶部留下无人消费的兼容再导出 export { validateState, gateFor, groupTasksByRootCause } from \"./state-core.mjs\"，仓库内没有任何模块从 state.mjs 导入，dead 兼容面暗示一个并不存在的模块入口",
+      "evidence": "repo 全域检索 state.mjs 的模块级 import：仅 scope.mjs:76 以 new URL(\"./state.mjs\") 拼路径 spawn 子进程、test/regression.mjs:687 以 CLI 方式运行；test/scripts.mjs:139 直接 import 自 state-core.mjs；test/equivalence.mjs:32 注释明确「不再刮 state.mjs」。再导出的三个符号在 state-core.mjs 均为 public export，测试与其他脚本全部直连单源模块，该行无任何消费者",
+      "category": "other",
+      "severityHint": "Nit",
+      "rootCause": "dead-reexport-after-split",
+      "behaviorImpact": false,
+      "repro": "grep -rn \"state.mjs\" plugins/agent-pipelines --include=*.mjs | grep -E \"import|from\" → 除 state-core/state-persist 外无任何 from \"./state.mjs\" 命中",
+      "sources": [
+        "quality"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-010",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "state.mjs:17 再导出零消费者（grep 全域无 from state.mjs import；scripts.mjs:139 直连 state-core；equivalence.mjs:32 注明不再刮）",
+          "counterEvidence": "",
+          "repro": "grep import 复核零命中",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "state.mjs:17 再导出零消费者（grep 全域无 from state.mjs import；scripts.mjs:139 直连 state-core；equivalence.mjs:32 注明不再刮）",
+          "counterEvidence": "",
+          "repro": "grep import 复核零命中",
+          "model": ""
+        },
+        {
+          "findingId": "C-010",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "state.mjs:17 再导出零消费者（grep 全域无 from state.mjs import；scripts.mjs:139 直连 state-core；equivalence.mjs:32 注明不再刮）",
+          "counterEvidence": "",
+          "repro": "grep import 复核零命中",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:52.360Z"
+      }
+    },
+    {
+      "id": "C-011",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 200,
+      "claim": "cd 越界护栏用无边界前缀比较（next.startsWith(ROOT)），兄弟目录路径恰好以 ROOT 字符串开头即可穿过护栏，后续步骤命令在仓库外执行——违反 SKILL.md Drive 节自证的「cd must stay inside the repo」契约",
+      "evidence": "run.mjs:199-205：const next = path.resolve(cwd, cd[1]); if (!next.startsWith(ROOT)) failure=...；未追加路径分隔符也无大小写归一。反例：ROOT=E:\\r\\market，ci.yml 步骤含 cd ../market-docs（目录存在）→ next=E:\\r\\market-docs，startsWith 为真 → cwd 被接受，随后 spawnSync(command,{cwd,shell:true}) 在仓库外目录执行。护栏是本 PR 新增文件自设的信任声明，非硬安全边界（能改 ci.yml 者本就可经任意 run: 行获得 shell），故 Nit",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "unanchored-path-prefix",
+      "behaviorImpact": true,
+      "repro": "静态：仓库旁建 <ROOT>-docs 目录，ci.yml 加 cd ../<基名>-docs + pwd，跑 run.mjs --only：护栏不触发，日志显示命令在仓库外执行",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-011",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第三视角独立复核成立：裸前缀穿守卫、spawnSync shell:true 仓外执行；护栏为自设信任声明非硬边界",
+          "counterEvidence": "",
+          "repro": "node 探针",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第三视角独立复核成立：裸前缀穿守卫、spawnSync shell:true 仓外执行；护栏为自设信任声明非硬边界",
+          "counterEvidence": "",
+          "repro": "node 探针",
+          "model": ""
+        },
+        {
+          "findingId": "C-011",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第三视角独立复核成立：裸前缀穿守卫、spawnSync shell:true 仓外执行；护栏为自设信任声明非硬边界",
+          "counterEvidence": "",
+          "repro": "node 探针",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:52.688Z"
+      }
+    },
+    {
+      "id": "C-012",
+      "file": "plugins/ai-native-delivery/scripts/verify.mjs",
+      "line": 124,
+      "claim": "插件模式桩越界判据（M10，本 PR 新增）用 src.startsWith(PLUGIN_ROOT) 无边界前缀比较——项目侧桩落在以插件目录名为前缀的兄弟路径下时被判为插件内，envSkips 不记 stub:<门id>，全绿凭证保留全量锚资格，恰是该检查要阻止的结果",
+      "evidence": "verify.mjs:120-127：pluginStubSkips 过滤 .filter(({g,src}) => src && !src.startsWith(PLUGIN_ROOT))；scriptPath(root,name)（paths.mjs:108-112）在项目侧 <root>/.agents/scripts/<name> 存在时返回该路径。反例：PLUGIN_ROOT=E:\\p\\ai-native-delivery、项目根 E:\\p\\ai-native-delivery-proj → 桩 src=...ai-native-delivery-proj\\.agents\\scripts\\check-loop.mjs startsWith(PLUGIN_ROOT)===true → 不进 envSkips，凭证仍算全量锚。方向 fail-open、仅影响锚资格审计面且需刻意布局，故 Nit",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "unanchored-path-prefix",
+      "behaviorImpact": true,
+      "repro": "静态：按上述布局放项目侧桩脚本并跑 verify.mjs，无「src 落在插件外」警告且绿行 envSkips 为空；改名无前缀关系后同一桩打出 stub skip 警告",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-012",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "pluginStubSkips 用 src.startsWith(PLUGIN_ROOT) 裸前缀；兄弟前缀布局下项目侧桩被判插件内，envSkips 不记、凭证保留全量锚——M10 要阻的结果；fail-open 审计面",
+          "counterEvidence": "",
+          "repro": "静态链 verify.mjs:120-127 + paths.mjs:15/108-112 + 字符串推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "pluginStubSkips 用 src.startsWith(PLUGIN_ROOT) 裸前缀；兄弟前缀布局下项目侧桩被判插件内，envSkips 不记、凭证保留全量锚——M10 要阻的结果；fail-open 审计面",
+          "counterEvidence": "",
+          "repro": "静态链 verify.mjs:120-127 + paths.mjs:15/108-112 + 字符串推演",
+          "model": ""
+        },
+        {
+          "findingId": "C-012",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "pluginStubSkips 用 src.startsWith(PLUGIN_ROOT) 裸前缀；兄弟前缀布局下项目侧桩被判插件内，envSkips 不记、凭证保留全量锚——M10 要阻的结果；fail-open 审计面",
+          "counterEvidence": "",
+          "repro": "静态链 verify.mjs:120-127 + paths.mjs:15/108-112 + 字符串推演",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:52.997Z"
+      }
+    },
+    {
+      "id": "C-013",
+      "file": "plugins/ai-native-delivery/hooks/pretool-risk.mjs",
+      "line": 193,
+      "claim": "SAFE_FORCE 中和（本 PR 新增）在 matchList 入口对所有 deny/ask 规则生效：项目侧追加的、点名 --force-with-lease / --force-if-includes（或含其文本的任何规则形态）的 deny/ask 规则对任何命令形态都不可命中——插件内置豁免无条件覆盖用户配置且无告警/退出机制，违背「项目侧追加清单生效」的清单来源契约",
+      "evidence": "pretool-risk.mjs:186-194：const c = norm(unquote(command)).replace(SAFE_FORCE_RE, ''); const tokens = new Set(tokensOf(command).filter((t) => !SAFE_FORCE_TOKEN.test(t)));。反例：项目 deny 规则 git push --force-with-lease、命令同串——子串判据：c 中和后为 git push，不含 r；词元判据：命令侧 token 被过滤为 {git,push}，tokenHit 对 --force-with-lease 无命中 → 整条静默放行。BUILTIN 地板不含该规则，仅项目侧可写、而项目侧写不生效。方向是有意设计（注释声明「不 deny 也不 ask」），但覆盖面是全体规则而非仅地板，故 Nit",
+      "category": "security",
+      "severityHint": "Nit",
+      "rootCause": "safe-force-overrides-user-rules",
+      "behaviorImpact": true,
+      "repro": "静态：项目 .agents/settings.json permissions.deny 加 git push --force-with-lease，echo hook 输入跑 pretool-risk.mjs —— 输出为空（放行），而其余变体（如 --force）正常命中",
+      "sources": [
+        "security"
+      ],
+      "provenanceCandidate": "pre-existing-candidate",
+      "severity": "Nit",
+      "provenance": "pre-existing",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-013",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SAFE_FORCE 中和作用于全部规则而非仅地板：隔离复刻 matchList 实测项目 deny 'git push --force-with-lease' 对同串命令 null、地板 --force 对照命中；设计意图修地板误拦但范围越界到用户规则且无告警；当前 HEAD 行为不变",
+          "counterEvidence": "",
+          "repro": "隔离复刻 matchList 五用例（v1/v2/v3 均实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SAFE_FORCE 中和作用于全部规则而非仅地板：隔离复刻 matchList 实测项目 deny 'git push --force-with-lease' 对同串命令 null、地板 --force 对照命中；设计意图修地板误拦但范围越界到用户规则且无告警；当前 HEAD 行为不变",
+          "counterEvidence": "",
+          "repro": "隔离复刻 matchList 五用例（v1/v2/v3 均实测）",
+          "model": ""
+        },
+        {
+          "findingId": "C-013",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SAFE_FORCE 中和作用于全部规则而非仅地板：隔离复刻 matchList 实测项目 deny 'git push --force-with-lease' 对同串命令 null、地板 --force 对照命中；设计意图修地板误拦但范围越界到用户规则且无告警；当前 HEAD 行为不变",
+          "counterEvidence": "",
+          "repro": "隔离复刻 matchList 五用例（v1/v2/v3 均实测）",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:53.304Z"
+      }
+    },
+    {
+      "id": "C-014",
+      "file": "plugins/pstack/skills/setup-pstack/SKILL.md",
+      "line": 5,
+      "claim": "对齐后的兼容性声明写「read-sheet.sh has no consumer here」，但同目录 check-sheet.sh:16 以 sh \"$dir/read-sheet.sh\" \"$sheet\" 调用它；同一句又承认 check-sheet.sh 是 Copilot pre-tool-use 契约的 optional-path 可执行条目——该路径一旦被走通，read-sheet.sh 即被消费，「零消费」与句内「check-sheet.sh 可经契约执行」自相矛盾",
+      "evidence": "check-sheet.sh:16 直接调用 read-sheet.sh；pre-tool-use.mjs:210 将 check-sheet.sh 登记为 'optional-path'；test/sheet-parity.mjs:55 只直跑 sheet.awk+check-sheet.awk。「端口自身不执行」成立，但「无消费者」字面不成立（树内存在未执行的调用方）",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "read-sheet-zero-consumer-claim",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-014",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SKILL.md:5 'no consumer here' vs check-sheet.sh:16 sh 调用 + pre-tool-use.mjs:210 optional-path 注册——句内自相矛盾（限定「端口自身不执行」读法成立，字面不成立）",
+          "counterEvidence": "",
+          "repro": "读三处对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SKILL.md:5 'no consumer here' vs check-sheet.sh:16 sh 调用 + pre-tool-use.mjs:210 optional-path 注册——句内自相矛盾（限定「端口自身不执行」读法成立，字面不成立）",
+          "counterEvidence": "",
+          "repro": "读三处对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-014",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "SKILL.md:5 'no consumer here' vs check-sheet.sh:16 sh 调用 + pre-tool-use.mjs:210 optional-path 注册——句内自相矛盾（限定「端口自身不执行」读法成立，字面不成立）",
+          "counterEvidence": "",
+          "repro": "读三处对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:53.646Z"
+      }
+    },
+    {
+      "id": "C-015",
+      "file": "plugins/pstack/skills/poteto-mode/references/zcode-tools.md",
+      "line": 24,
+      "claim": "「Every dispatch runs the session's model and effort; this port registers no model-pinned or effort-tiered variants.」对 4 个已注册 agent 中的 2 个不成立：thermo 双审计子代理 frontmatter 钉死 model GLM-5.3 + thoughtLevel max，同文件 :73 也指示「spawn them as written」（即按钉值派发），NOTICE-PORT 第 12 条与 test/role-table-parity.mjs:274 明确保留这两处钉值——全称句「每次派发跟随会话模型」对 thermo 派发为假",
+      "evidence": "agents/thermo-nuclear-review-subagent.md:4-5（model: GLM-5.3 / thoughtLevel: max，另一 thermo 同构）；zcode-tools.md:73「Both pstack:thermo-nuclear-*-subagent types are registered; spawn them as written.」；role-table-parity.mjs:274-295 仍按 GLM-5.3@max 校验并注明保留钉值",
+      "category": "contract",
+      "severityHint": "Nit",
+      "rootCause": "zcode-session-model-blanket-claim",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "spec"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-015",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "zcode-tools.md:24 全称句 vs 两个 thermo agent frontmatter 钉 GLM-5.3@max + 同文件 :73 spawn as written + parity 测试校验钉值——同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "head agent 文件 + parity 测试对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "zcode-tools.md:24 全称句 vs 两个 thermo agent frontmatter 钉 GLM-5.3@max + 同文件 :73 spawn as written + parity 测试校验钉值——同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "head agent 文件 + parity 测试对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-015",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "zcode-tools.md:24 全称句 vs 两个 thermo agent frontmatter 钉 GLM-5.3@max + 同文件 :73 spawn as written + parity 测试校验钉值——同文件自相矛盾",
+          "counterEvidence": "",
+          "repro": "head agent 文件 + parity 测试对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:53.993Z"
+      }
+    },
+    {
+      "id": "C-016",
+      "file": ".qwen/skills/verify/features/workflow-plugins.md",
+      "line": 3,
+      "claim": "本 PR 新增的验证特性地图声称 pstack 有「15 registered subagents」，而同一 PR 恰好删除 11 个 agent 只剩 4 个——同一 diff 内自相矛盾，按此地图驱动验证的用户会拿 15 的基线对账",
+      "evidence": "plugins/pstack/agents/ 现仅 4 个 .md；同 diff 的 qwen-package.md 写「agents/ (the four base subagents only)」、test/qwen-extension-parity.mjs EXPECTED_AGENTS 恰为 4、test/role-table-parity.mjs 注释「2026-11-09 收窄为剩余 4 个上游 agent」、NOTICE-PORT.md 第 12 条「agents/ 恢复为与上游一致的 4 个」；15 正是删除前数量（4+11），说明该新文件按旧状态撰写",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "verify-map-stale-agent-count",
+      "behaviorImpact": false,
+      "repro": "",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-016",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "workflow-plugins.md:3 写 15 registered subagents；实测 agents/=4、同 PR 删 11、qwen-package/EXPECTED_AGENTS/NOTICE-PORT 均为 4——新文件按删除前状态撰写",
+          "counterEvidence": "",
+          "repro": "ls=4 + git diff-filter=D=11 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "workflow-plugins.md:3 写 15 registered subagents；实测 agents/=4、同 PR 删 11、qwen-package/EXPECTED_AGENTS/NOTICE-PORT 均为 4——新文件按删除前状态撰写",
+          "counterEvidence": "",
+          "repro": "ls=4 + git diff-filter=D=11 对照",
+          "model": ""
+        },
+        {
+          "findingId": "C-016",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "workflow-plugins.md:3 写 15 registered subagents；实测 agents/=4、同 PR 删 11、qwen-package/EXPECTED_AGENTS/NOTICE-PORT 均为 4——新文件按删除前状态撰写",
+          "counterEvidence": "",
+          "repro": "ls=4 + git diff-filter=D=11 对照",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:54.335Z"
+      }
+    },
+    {
+      "id": "C-017",
+      "file": ".qwen/skills/verify/run.mjs",
+      "line": 200,
+      "claim": "cd 越界守卫用 next.startsWith(ROOT) 裸前缀判断，仓库根的兄弟前缀目录（ROOT=E:\\repo 时 E:\\repo-other）也能通过——SKILL.md 承诺「a cd <dir> ... must stay inside the repo」，失败文案也是「cd escapes the repository」，但 cd ../<兄弟目录>（存在时）会在仓库外执行命令",
+      "evidence": "path.resolve(ROOT,'../repo-other') → 'E:\\repo-other'，startsWith('E:\\repo') === true（node 单行复现通过）；随后守卫仅再查 existsSync(next) 即设 cwd 并以 shell:true 执行后续命令",
+      "category": "test",
+      "severityHint": "Nit",
+      "rootCause": "cd-guard-prefix-hole",
+      "behaviorImpact": false,
+      "repro": "node -e 前缀比较复现 true；当前 ci.yml 无此类 cd 行，属新工具防御面与其声明契约的缺口（未跑端到端回放，宿主只读纪律，降为 Nit）",
+      "sources": [
+        "tests"
+      ],
+      "provenanceCandidate": "introduced",
+      "severity": "Nit",
+      "provenance": "introduced",
+      "consensus": "confirmed",
+      "reason": "",
+      "votes": [
+        {
+          "findingId": "C-017",
+          "verifier": "v1",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第四视角复核成立：裸前缀守卫 vs SKILL.md:46 承诺；当前 ci.yml 无此类 cd，属防御面缺口非可达漏洞",
+          "counterEvidence": "",
+          "repro": "node 探针 + 静态分支序",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v2",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第四视角复核成立：裸前缀守卫 vs SKILL.md:46 承诺；当前 ci.yml 无此类 cd，属防御面缺口非可达漏洞",
+          "counterEvidence": "",
+          "repro": "node 探针 + 静态分支序",
+          "model": ""
+        },
+        {
+          "findingId": "C-017",
+          "verifier": "v3",
+          "verdict": "confirm",
+          "severity": "Nit",
+          "provenance": "unknown",
+          "evidence": "同行第四视角复核成立：裸前缀守卫 vs SKILL.md:46 承诺；当前 ci.yml 无此类 cd，属防御面缺口非可达漏洞",
+          "counterEvidence": "",
+          "repro": "node 探针 + 静态分支序",
+          "model": ""
+        }
+      ],
+      "counts": {
+        "confirm": 3,
+        "reject": 0,
+        "rejectWithEvidence": 0,
+        "uncertain": 0,
+        "needed": 2
+      },
+      "status": "fixed",
+      "fix": {
+        "commit": "71f525bd9223492624ba1c11d8f5e796e911c94e",
+        "note": "pstack 面板评审收口",
+        "at": "2026-11-14T01:25:54.655Z"
+      }
+    }
+  ],
+  "dropped": [
+    {
+      "source": "data-integrity",
+      "reason": "file-not-in-diff",
+      "claim": "构建器对 --out 目标的守卫只保护 pstack 插件树、仓库根本身、仓库祖先与文件系统根，其余任何仓内路径（兄弟插件树、plugins/ 整目录、被跟踪文件）都会在重建前被 rmSync(OUT,{recursive:true,force:true}) 无提示整体删除",
+      "file": "scripts/build-qwen-extension.mjs",
+      "line": 57
+    },
+    {
+      "source": "spec",
+      "reason": "file-not-in-diff",
+      "claim": "81c1f38 宣称「Copilot 非 agent 注册宿主」已对齐现实（poteto-mode/SKILL.md:101 改为只列 Claude Code 与 ZCode），但同插件随包分发的 copilot-tools.md:29 仍写「The plugin's agents load as `task` agent types under their namespaced names, pstack:poteto-agent, …」，且 session-start.mjs copilot 分支每次会话注入的 hooks/session-start-copilot.md:1 也写「the plugin's agents keep the prefix (pstack:poteto-agent, pstack:comment-sicko)」——两处遗留面与本次对齐后的表述互斥，对齐并未收口全部宣称面",
+      "file": "plugins/pstack/skills/poteto-mode/references/copilot-tools.md",
+      "line": 29
+    },
+    {
+      "source": "spec",
+      "reason": "file-not-in-diff",
+      "claim": "Subagent policy 仍引用「the `pstack:effort-<level>` or `pstack:poteto-agent-<level>` agent types that Claude Code uses for effort」——这 11 个力度变体已在 72a7594 全部删除（agents/ 只剩 4 个上游基础子智能体），且按 NOTICE-PORT 第 10 条它们是本移植为 ZCode 派发补的，并非「Claude Code uses for effort」的机制；引用对象在 head 不存在于任何宿主，归属也失真",
+      "file": "plugins/pstack/skills/poteto-mode/references/copilot-tools.md",
+      "line": 33
+    },
+    {
+      "source": "tests",
+      "reason": "file-not-in-diff",
+      "claim": "本 PR 的脚本层回归保护全部落在 plugins/agent-pipelines/test/scripts.mjs，但该套件从未被任何自动闸执行：CI 的 agent-pipelines 步骤只跑 contract/pipeline/equivalence/regression 四套，本 PR 新增的 .qwen/skills/verify/run.mjs 按 ci.yml 原样回放同样不跑它——PR 自身的两个头条修复（m1 递归爆栈、m3 render 保留路径）没有 CI 级守护，回退成递归或删掉守卫 CI 依旧全绿",
+      "file": ".github/workflows/ci.yml",
+      "line": 72
+    }
+  ],
+  "writtenAt": "2026-11-14T01:26:05.551Z"
+}
