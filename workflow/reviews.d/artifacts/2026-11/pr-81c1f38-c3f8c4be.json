@@ -1531,12 +1531,17 @@
         "uncertain": 0,
         "needed": 2
       },
-      "status": "deferred",
+      "status": "fixed",
       "defer": {
         "owner": "dc",
         "due": "2027-02-14",
         "reason": "存量缺陷非本弧引入（验证者三票均判 pre-existing：base 已有 ws-guard/resolve 语义，本弧仅加 gateTrace 插桩）；绝对操作数仍 fail-closed、触发需宿主喂不存在 cwd——留待 resolve() fail-closed 加固专项复评",
         "at": "2026-11-14T01:26:03.903Z"
+      },
+      "fix": {
+        "commit": "e4a782b8842b5d9446a23fd89f02e64c5b01bf68",
+        "note": "挂账收口（deferred→fixed）：ws-guard 虚构工作区 fail-closed，0.1.27",
+        "at": "2026-11-14T01:59:39.764Z"
       }
     },
     {
@@ -2522,5 +2527,5 @@
       "line": 72
     }
   ],
-  "writtenAt": "2026-11-14T01:26:05.551Z"
+  "writtenAt": "2026-11-14T01:59:39.930Z"
 }
