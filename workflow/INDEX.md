@@ -5,13 +5,10 @@
 
 <!-- GENERATED:BEGIN — gen-workflow-index.mjs 整段重写，手工说明写在本行之前 -->
 
-## 活跃（3）
+## 活跃（0）
 
 | 类型 | 级别 | 状态 | 日期 | 模块 | 标题 | 验收 |
 |---|---|---|---|---|---|---|
-| INTENT | L2 | approved | 2026-11-17 | infra | 装户升级面：基线三方合并 + manifest 迁移框架 + 漂移视图 + prune（0.3.15） | ☑0/7 |
-| PLAN | L2 | approved | 2026-11-17 | infra | 装户升级面：基线三方合并 + manifest 迁移框架 + 漂移视图 + prune（0.3.15） | — |
-| SPEC | L2 | approved | 2026-11-17 | infra | 装户升级面：基线三方合并 + manifest 迁移框架 + 漂移视图 + prune（0.3.15） | — |
 
 ## 档案计数（0，不进表）
 

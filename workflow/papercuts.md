@@ -7,3 +7,4 @@
 - 2026-11-13 范围门缩写路径无早期反馈：plan 改动方案写「`.codex/.omp/.zcode` 三宿主 plugin.json」式缩写，extractDeclared 静默丢弃 → 推送范围门才拦（两天两次实证：eval-harness-fixes、pr-review-shims-scope）——已根修：check-scope.mjs 单源新增 suspiciousDeclarations，confirm-doc 确认/重确认双路径拦「形似路径但按判据会被丢弃」的反引号 token（0.3.6）
 - 2026-11-13 承诺面漂移门再添一实例（并入上条同根线程）：approved 后把验收占位符「<逐条可测试…>」替换为真实判据（属「填验收」范畴）仍触发指纹漂移须 --reconfirm——与「勾验收/补证据不应触发」自认口径的矛盾同根（归一判据漏占位符行），owner 复评时合并处理
 - 2026-11-14 workbench#tour 走查发现：dev-tour.html 验证门禁日志区对对象数组直接字符串化渲染出「[object Object],…」字面量（既有缺陷首次曝光）；另 dev-tour 浅色主题内嵌深色工作台有视觉断裂（打磨候选：dev-tour 深色模式或 iframe 过渡）
+- 2026-11-17 承诺面漂移门第三实例（同根：归一判据豁免面不全）：spec 验收判据表「状态」列回填（未覆盖→覆盖 + 证据注记）触发指纹漂移须 --reconfirm——stripEvidenceSegment 剥（证据：…）行内段与勾选归一都盖不住表格单元格文本变化，与 gate 文案自认「仅勾验收/补证据/复核行改动不应触发」矛盾（owner 复评时并入 2026-11-13 同根两条处理：豁免面扩表格状态列，或验收状态移出承诺面）
