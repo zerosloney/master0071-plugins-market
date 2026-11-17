@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "maxParallel": 2,
+  "reportBudgetChars": 500,
+  "note": "派发预算（advisory）：单份子代理报告 ≤ reportBudgetChars 字符、并发派发 ≤ maxParallel，超限只计量不阻断，由主智能体按内容自行取舍。计量口径见 agg-delegations.mjs「派发预算（advisory）」段：delegations 台账委派结果行去空白字符月合计（非逐报告全文——台账无报告原文数据源，不造数）；usage tokens 月合计读 .agents/usage.jsonl（PostToolUse(Agent) 观测腿 hooks/usage-collect.cjs 的运行态凭证）。"
+}

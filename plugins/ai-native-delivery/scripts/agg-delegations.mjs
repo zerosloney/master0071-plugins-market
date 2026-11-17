@@ -14,6 +14,11 @@
  * unrecorded-anchor-split：未记数分列「锚前存量 / 锚后待记」（外源调研建议：判据被存量污染时
  *       扩容裁定盲目）。总口径、直方图与门 2/3/4 判据均不变——实测门 3 由 blockingRework（77/50）钉死，
  *       与未记数无关，故本笔是展示面纠偏，不改变任何月度裁定。
+ * dispatch-budget（2026-11-18 usage-collect-0316）：输出末尾追加「派发预算（advisory）」段——读
+ *       <root>/.agents/config/dispatch.json 种子（缺文件/不可解析 = 整段跳过不报错，advisory 不 fail-loud）；
+ *       委派结果行（任务+结果+返工原因三个正文格）去空白字符月合计 vs reportBudgetChars×并发参考，
+ *       只给计量数字与预算数字，不判定不阻断；usage 月合计 tokens 读 .agents/usage.jsonl 运行态
+ *       （hooks/usage-collect.cjs 观测腿追加，缺文件零记账）。既有输出结构不变（新段恒追加在末尾）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -355,6 +360,59 @@ function upsertSnapshotRow(text, ym, row) {
   return `${before}\n${[SNAP_HEAD, ...rows].join('\n')}\n\n${after}`;
 }
 
+// ---- 派发预算（advisory）（2026-11-18 usage-collect-0316；只计量不判定不阻断）----
+// readDispatchBudget(root)：读 .agents/config/dispatch.json 种子（init-engine 装户，update 通道传播）。
+// 缺文件/不可解析/预算数值非法 → null（整段跳过不报错——advisory 不 fail-loud，坏种子不该弄哑台账聚合）。
+function readDispatchBudget(root = ROOT) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(root, '.agents', 'config', 'dispatch.json'), 'utf8'); } catch { return null; }
+  let d;
+  try { d = JSON.parse(raw); } catch { return null; }
+  const budget = Number(d && d.reportBudgetChars);
+  const parallel = Number(d && d.maxParallel);
+  if (!Number.isFinite(budget) || budget <= 0) return null;
+  return { reportBudgetChars: budget, maxParallel: Number.isFinite(parallel) && parallel > 0 ? parallel : 1 };
+}
+
+// readUsageRows(file)：运行态 .agents/usage.jsonl（hooks/usage-collect.cjs PostToolUse(Agent) 观测腿追加）。
+// 缺文件 = 零行（零记账不报错）；坏行跳过（观测腿 append-only，个别残行不弄哑整段）。
+function readUsageRows(file = path.join(ROOT, '.agents', 'usage.jsonl')) {
+  const rows = [];
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return rows; }
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line);
+      if (r && typeof r === 'object' && typeof r.ts === 'string') rows.push(r);
+    } catch { /* 坏行跳过 */ }
+  }
+  return rows;
+}
+
+// delegatedCharsMonth(rows, ym)：委派结果行去空白字符月合计——三个正文格（任务一句话+结果+返工原因），
+// 日期/被委派方结构列不计。台账无报告原文数据源，不造数：这是行正文代理计量（蓝本同口径，非逐报告全文）。
+function delegatedCharsMonth(rows, ym) {
+  return rows
+    .filter((r) => r.scope === '委派' && String(r.date || '').startsWith(ym))
+    .reduce((sum, r) => sum + `${r.task || ''}${r.result || ''}${r.cause || ''}`.replace(/\s/g, '').length, 0);
+}
+
+// sumUsageTokens(usageRows, ym)：usage 行按 ts 月份聚合 inputTokens/outputTokens 月合计；
+// 缺字段/非数值/负值计 0（零记账，不推测）。
+function sumUsageTokens(usageRows, ym) {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const r of usageRows) {
+    if (String(r.ts || '').slice(0, 7) !== ym) continue;
+    const i = Number(r.inputTokens);
+    const o = Number(r.outputTokens);
+    if (Number.isFinite(i) && i >= 0) inputTokens += i;
+    if (Number.isFinite(o) && o >= 0) outputTokens += o;
+  }
+  return { inputTokens, outputTokens };
+}
+
 function main() {
   let rows;
   try {
@@ -408,6 +466,21 @@ function main() {
     console.log('\n（台账为空：尚无记录，扩容门自然未通过）');
   }
 
+  // 派发预算（advisory）段（usage-collect-0316）：dispatch 种子在场才出段；只给计量数字与预算数字，
+  // 不判定不阻断（蓝本语义「月合计 vs 单报告预算×并发」），裁决归主智能体。
+  const budget = readDispatchBudget();
+  if (budget) {
+    const usageRows = readUsageRows();
+    console.log(`\n## 派发预算（advisory）`);
+    for (const ym of months) {
+      const chars = delegatedCharsMonth(rows, ym);
+      const tok = sumUsageTokens(usageRows, ym);
+      const delegRows = rows.filter((r) => r.scope === '委派' && String(r.date || '').startsWith(ym)).length;
+      console.log(`  ${ym}：委派行月合计 ${chars} 字符（${delegRows} 行）｜单报告预算 reportBudgetChars ${budget.reportBudgetChars} 字符 × 并发 ≤${budget.maxParallel}｜usage 月合计 in ${tok.inputTokens} tok / out ${tok.outputTokens} tok（只计量不阻断）`);
+    }
+    if (!months.length) console.log('  （无台账数据月：无可计量行；usage 凭证仍按月落 .agents/usage.jsonl）');
+  }
+
   if (WRITE) {
     const target = argMonth || new Date().toISOString().slice(0, 7);
     const row = snapshotRows.find((r) => r.startsWith(`| ${target} `));
@@ -458,4 +531,4 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 if (isMain) {
   main();
 }
-export { parseResult, metrics, gateMonth, expansionVerdict, GATE, readLedger, upsertSnapshotRow, causeSummary, isReviewAdoption, taskKey, countIncidents, CAUSES, ADOPT_CAUSE, CAUSE_ANCHOR, GEN_BEGIN, GEN_END };
+export { parseResult, metrics, gateMonth, expansionVerdict, GATE, readLedger, upsertSnapshotRow, causeSummary, isReviewAdoption, taskKey, countIncidents, CAUSES, ADOPT_CAUSE, CAUSE_ANCHOR, GEN_BEGIN, GEN_END, readDispatchBudget, readUsageRows, delegatedCharsMonth, sumUsageTokens };

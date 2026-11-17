@@ -39,4 +39,5 @@ workflow/**/*.lock
 .agents/confirmations.jsonl.lock
 .agents/runs/
 .agents/.install-baseline/
+.agents/usage.jsonl
 # END ai-native-delivery engine

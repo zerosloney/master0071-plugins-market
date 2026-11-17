@@ -3,7 +3,9 @@
 // 被测脚本以脚本自身路径定位台账，故复制脚本进临时根（<tmp>/.agents/scripts/）后以 cwd=<tmp> 运行。
 // 断言：①节标题缺失但表头合规 → 数据照常入账（本次事故形态回归）；②日期数据行在但表头不可识别 → exit 1 fail-loud；
 //       ③空台账（表头合规、无数据行）→ exit 0 且提示为空；⑥表体内空行两侧数据行都入账；⑦部分截断 fail-loud；
-//       ⑧主表+分片联合入账；⑨分片读失败 fail-loud；⑩分片内漂移文案带分片提示（2026-10-10 读失败出账）。
+//       ⑧主表+分片联合入账；⑨分片读失败 fail-loud；⑩分片内漂移文案带分片提示（2026-10-10 读失败出账）；
+//       ⑲⑳派发预算 advisory 段两态（2026-11-18 usage-collect-0316）：dispatch 种子在场 → 出段且委派行
+//       月合计字符与 usage tokens 计量正确；缺省 → 整段跳过不报错（exit 0）。
 // 用法：node test/agg-delegations.test.mjs（在仓库任意目录执行均可）
 import fs from 'node:fs';
 import os from 'node:os';
@@ -171,7 +173,7 @@ const runAgg = (root, args = []) => spawnSync(process.execPath, [path.join(root,
 
 // ---- 场景 4-5：扩容门口径（2026-09-27 board-kb-p1 对齐 delegations.md：返工 0 / 无主兜底 / 连续两月）----
 //     纯函数经动态 import（isMain 守卫下 import 不执行 main；2026-10-08 agents-hygiene 随 .cjs→.mjs 由 require 改 import）
-const { metrics, gateMonth, expansionVerdict, readLedger, causeSummary, taskKey, countIncidents } = await import(pathToFileURL(path.join(SCRIPT_DIR, '..', 'scripts', 'agg-delegations.mjs')).href);
+const { metrics, gateMonth, expansionVerdict, readLedger, causeSummary, taskKey, countIncidents, readDispatchBudget, readUsageRows, delegatedCharsMonth, sumUsageTokens } = await import(pathToFileURL(path.join(SCRIPT_DIR, '..', 'scripts', 'agg-delegations.mjs')).href);
 
 // 场景 4：审查反例——30 任务、2 主兜底、平均返工 0.25（旧口径四门全过，声明口径下必须 ❌）
 {
@@ -549,6 +551,78 @@ const GEN_END = '<!-- GENERATED:END -->';
     r2.status === 0 && /\| 2026-10 \| 20 \|/.test(afterText), `exit=${r2.status}\n${r2.stdout}${r2.stderr}`);
   check('场景 18：落表后无 .tmp/.lock 残留', !fs.existsSync(docPath + '.tmp') && !fs.existsSync(docPath + '.lock'));
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- 场景 19-20：派发预算（advisory）段两态（2026-11-18 usage-collect-0316）----
+// 计量口径锚：委派行正文三格（任务+结果+返工原因）去空白字符月合计；usage.jsonl（运行态凭证）按
+// ts 月份 tokens 月合计（hooks/usage-collect.cjs 观测腿落账，缺文件零记账）。advisory 只给数字，
+// 不判定不阻断——两态断言的是「出段且计量对 / 缺种子整段跳过且不报错」。
+{
+  const ledger = [
+    '# 台账 fixture',
+    '',
+    '| 日期 | 被委派方(模型) | 任务一句话 | 结果 | 备注 |',
+    '|------|----------------|------------|------|------|',
+    '| 2026-10-05 | executor | 执行任务甲 | 一次通过 | f |',        // 正文 5+4=9 字符
+    '| 2026-10-08 | executor | 执行任务乙 | 返工×1 | f | 角色契约 |', // 正文 5+4+4=13 字符
+    '',
+    '| 日期 | 任务一句话 | 结果 | 备注 |',
+    '|------|------------|------|------|',
+    '| 2026-10-09 | 自做任务 | 一次通过 | f |', // 自做表行（scope=自做）不入委派计量
+    '',
+  ].join('\n');
+  const mkBudget = (withDispatch) => {
+    const root = mkfix(ledger);
+    if (withDispatch) {
+      fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.agents', 'config', 'dispatch.json'), JSON.stringify({ version: 1, maxParallel: 2, reportBudgetChars: 500 }), 'utf8');
+    }
+    fs.writeFileSync(path.join(root, '.agents', 'usage.jsonl'), [
+      JSON.stringify({ ts: '2026-10-05T10:00:00.000Z', role: 'agent', model: 'm', run: 'a', inputTokens: 100, outputTokens: 40 }),
+      JSON.stringify({ ts: '2026-10-08T11:00:00.000Z', role: 'agent', model: 'm', inputTokens: 30, outputTokens: 5 }),
+      JSON.stringify({ ts: '2026-09-30T11:00:00.000Z', role: 'agent', model: 'm', inputTokens: 999, outputTokens: 999 }), // 别的月不计
+      'not json', // 坏行跳过（观测腿 append-only，残行不弄哑整段）
+      '',
+    ].join('\n'), 'utf8');
+    return root;
+  };
+  // 场景 19：dispatch 在场 → 出段且计量数字正确（A4 在场态）
+  {
+    const root = mkBudget(true);
+    const r = runAgg(root);
+    check('场景 19：dispatch 在场 → exit 0', r.status === 0, `exit=${r.status}\n${r.stdout}${r.stderr}`);
+    check('场景 19：出「派发预算（advisory）」段', r.stdout.includes('## 派发预算（advisory）'), r.stdout);
+    check('场景 19：委派行月合计 22 字符（9+13，自做行与结构列不计）', r.stdout.includes('委派行月合计 22 字符（2 行）'), r.stdout);
+    check('场景 19：预算数字展示（500 字符/报告 × 并发 ≤2）', r.stdout.includes('reportBudgetChars 500 字符 × 并发 ≤2'), r.stdout);
+    check('场景 19：usage 月合计 in 130 tok / out 45 tok（跨月行与坏行不计）', r.stdout.includes('usage 月合计 in 130 tok / out 45 tok'), r.stdout);
+    check('场景 19：advisory 口径点名（只计量不阻断）', r.stdout.includes('只计量不阻断'), r.stdout);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // 场景 20：dispatch 缺省 → 整段跳过不报错（A4 缺省态）
+  {
+    const root = mkBudget(false);
+    const r = runAgg(root);
+    check('场景 20：dispatch 缺省 → exit 0（不报错）', r.status === 0, `exit=${r.status}\n${r.stdout}${r.stderr}`);
+    check('场景 20：整段跳过（stdout 无派发预算段，既有输出结构不变）', !r.stdout.includes('派发预算'), r.stdout);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // 场景 20b：计量纯函数进程内对账（坏种子 / 缺文件 / 月切分 / 非法值零记账）
+  {
+    const root = mkBudget(true);
+    fs.writeFileSync(path.join(root, '.agents', 'config', 'dispatch.json'), '{broken', 'utf8');
+    check('场景 20b：dispatch 坏 JSON → readDispatchBudget null（整段跳过不 fail-loud）', readDispatchBudget(root) === null, JSON.stringify(readDispatchBudget(root)));
+    check('场景 20b：usage 缺文件 → readUsageRows 零行（零记账）', readUsageRows(path.join(root, 'nope', 'usage.jsonl')).length === 0);
+    const rows = readLedger(root);
+    check('场景 20b：delegatedCharsMonth 月切分（2026-10=22、2026-09=0）', delegatedCharsMonth(rows, '2026-10') === 22 && delegatedCharsMonth(rows, '2026-09') === 0, JSON.stringify(rows));
+    const usage = readUsageRows(path.join(root, '.agents', 'usage.jsonl'));
+    const tok = sumUsageTokens(usage, '2026-10');
+    check('场景 20b：sumUsageTokens 月切分（in 130 / out 45）', tok.inputTokens === 130 && tok.outputTokens === 45, JSON.stringify(tok));
+    const tokSep = sumUsageTokens(usage, '2026-09');
+    check('场景 20b：sumUsageTokens 别的月独立（in 999 / out 999）', tokSep.inputTokens === 999 && tokSep.outputTokens === 999, JSON.stringify(tokSep));
+    const tokBad = sumUsageTokens([{ ts: '2026-10-01T00:00:00Z', inputTokens: -5, outputTokens: 'x' }, { ts: '2026-10-01T00:00:00Z' }], '2026-10');
+    check('场景 20b：负值/非数/缺字段 → 零记账不推测', tokBad.inputTokens === 0 && tokBad.outputTokens === 0, JSON.stringify(tokBad));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

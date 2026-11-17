@@ -42,7 +42,8 @@
     ".agents/pipelines/_TEMPLATE.md": "40da5b67e60420fea0201e69c5d860936d8fd29420532fbe92c259616cfaf56f",
     ".agents/pipelines/pipeline-closing.md": "bea53a573d0b8112ab5bc781e8625a805b3394ec3519d2b42c4ae9414635204c",
     ".agents/pipelines/steps/示例-部署验证.md": "657a8e714d17f866b70d087375040466b16b68d063c9879f7c017509eb3fd430",
-    ".agents/pipelines/示例-并行实现评审.md": "ec8d98f9f3116ee905c13fe62d2957908f0bb6e51632fb270a9cb8bfda934523"
+    ".agents/pipelines/示例-并行实现评审.md": "ec8d98f9f3116ee905c13fe62d2957908f0bb6e51632fb270a9cb8bfda934523",
+    ".agents/config/dispatch.json": "b5cb989fda940202b3e8f4bb7df49702fdf2fedab75806c6af59c8be5c5d6d14"
   },
   "schemaVersion": 1
 }

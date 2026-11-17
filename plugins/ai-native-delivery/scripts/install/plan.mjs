@@ -56,6 +56,10 @@ export const GITIGNORE_ENTRIES = [
   // 升级三方合并的基线留存（install/baseline.mjs BASELINE_DIR_NAME，2026-11-17 升级面）：装户时
   // 留存的「上次给到的种子正文」供升级合并作 base，属本机机器事实，同 cache/judgments 口径不入库。
   '.agents/.install-baseline/',
+  // usage 观测腿的子代理 token 凭证（2026-11-18）：PostToolUse(Agent) hook（hooks/usage-collect.cjs）
+  // 逐调用追加的 append-only 运行态（ts/role/model/run/tokens/latency），与 judgments/verifications
+  // 同类「本机机器事实不入库」；agg-delegations 派发预算段只读月合计。
+  '.agents/usage.jsonl',
 ];
 
 const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];
