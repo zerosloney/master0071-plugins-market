@@ -1,21 +1,40 @@
 // install/apply.mjs — 计划裁决与落盘（plan/apply 两段式的 apply 段；2026-11 安装引擎重构）
-// 裁决口径（目标 = 条目落点；台账 = <root>/.agents/install-manifest.json 记的上次安装基线；
+// 裁决六态（目标 = 条目落点；台账 = <root>/.agents/install-manifest.json 记的上次安装基线；
 // 哈希一律 CRLF→LF 归一口径，见 manifest.mjs）：
 //   目标不存在                                  → create（落盘并记账）
 //   台账在 + 目标==台账 + 种子≠台账             → update（种子升级传播到未被动过的装户文件）
-//   台账在 + 目标≠台账（用户改过）              → conflict skip 不覆盖；--force 覆盖
+//   台账在 + 目标≠台账（用户改过）              → merged / conflict-skip / --force 覆盖（见下）
 //   目标在但台账无此记录                        → 沿用旧语义 skip（不覆盖、不记账）
 //   台账文件整个缺失（旧版 init 过的项目）      → 领养模式：不覆盖任何文件，现状哈希全部记入新账
+// merged 出口（场景 B）：conflict 分支里、判 conflict-skip 之前，四条件齐备才试三方合并——
+//   非 mutable + 非钩子条目 + 基线在场（readBaseline 非 null）+ 双方都改（目标≠台账 && 种子≠台账），
+//   且 --force 优先于合并（显式整覆盖不试 merge）。git merge-file：base=基线正文、ours=盘上正文、
+//   theirs=种子正文——clean → 落盘合并结果（LF）+ 台账记种子侧哈希 + 基线写新种子正文；
+//   conflict（1–127）/ unavailable（git 缺席或异常）→ 降级回 conflict-skip（输出语义逐字节不变）。
+// 基线判据：基线 = 「本机上一次由工具写入的种子正文」，故三条种子写盘路径（create / update /
+//   merged-clean）后 writeBaseline 都写**种子正文**而非合并结果——用户在合并结果上的后续手改仍可
+//   与下一轮种子演进再合并（kit baselineText 同款）；merged 的台账记种子侧哈希（e.hash，同
+//   create/update；kit 判据「合并结果含用户内容，不刷新哈希」——若记合并结果哈希，下轮种子未变的
+//   重跑会命中 update 通道整覆盖，用户合并内容即丢）。
+// 旁路声明：钩子条目（applyHook 路径——正文烘焙本机插件路径，三方合并无意义且可产出指向失效
+//   路径的合并钩子）与 mutable 条目（存在即在位语义）一律不进 merged 与基线通道。由分派结构
+//   保证：applyFile 只收非钩子文件条目，mutable 在冲突裁决前先行返回。
+// 迁移链接线（场景 C）：readManifest 之后、裁决之前跑 migrateManifest——旧台账（缺 schemaVersion
+//   视作 0）迁到当前版本后再裁决；迁移只转内存对象，changed 且非 dryRun 时经末尾既有台账写入口
+//   一并落盘（serializeManifest 比对 + writeManifestAtomic，不新增写入口）；迁移抛错（如
+//   MANIFEST_SCHEMA 台账版本超前）原样上抛，由 CLI 层 catch 后非零退出，不吞。
 // 例外面（语义平移自旧 init-engine）：
 //   gitignore 标记块保留「整块替换/追加/unchanged」语义，不入账；
 //   git hooks 保留「陈旧自装钩子覆盖刷新」例外，且先于台账裁决（钩子的用户面走 report.hooks，
 //   updated/conflict 平铺清单只收非钩子文件——钩子活动在其专属报告面已全量可见）。
-// dryRun：完整走一遍裁决与报告但零写盘（含台账）。幂等：台账内容不变不重写（保住全树 mtime 快照比对）。
+// dryRun：完整走一遍裁决与报告但零写盘（含台账与基线）。幂等：台账内容不变不重写（保住全树 mtime 快照比对）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT } from '../paths.mjs';
 import { GITIGNORE_BEGIN, GITIGNORE_END, GITIGNORE_ENTRIES } from './plan.mjs';
-import { manifestPath, readManifest, serializeManifest, writeManifestAtomic, hashFile } from './manifest.mjs';
+import { manifestPath, readManifest, serializeManifest, writeManifestAtomic, hashFile, newManifest } from './manifest.mjs';
+import { readBaseline, writeBaseline, mergeThreeWay } from './baseline.mjs';
+import { migrateManifest } from './migrations.mjs';
 
 // plan 条目 → 目标绝对路径（targetRel 是 posix 相对路径，'/ '分隔，可能含 '..' 段——钩子在根外时）
 const targetAbs = (root, e) => path.join(root, ...e.targetRel.split('/'));
@@ -26,6 +45,10 @@ function writeEntryContent(e, target) {
   if (e.srcAbs) fs.copyFileSync(e.srcAbs, target);
   else fs.writeFileSync(target, e.content, 'utf8');
 }
+
+// 种子正文（merged 的 theirs 与基线正文同源）：种子源文件读文本 / 内联条目取 content——
+// 与 writeEntryContent 落盘的内容同源同键。
+const seedText = (e) => (e.srcAbs ? fs.readFileSync(e.srcAbs, 'utf8') : e.content);
 
 // 陈旧自装钩子判据（平移旧 installHooks，2026-11-05 迁移修复 / 2026-11 市场审查 M12 收紧）：
 // 钩子里 baked 的是**插件安装目录的绝对路径**，而插件目录随宿主缓存迁移。迁移后旧钩子指向不存在
@@ -52,6 +75,7 @@ function applyFile(root, e, report, manifest, adopt, force, dryRun) {
     if (!dryRun) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       writeEntryContent(e, target);
+      if (!e.mutable) writeBaseline(root, e.targetRel, seedText(e)); // 基线=种子正文（mutable 不入基线面）
     }
     manifest.files[e.targetRel] = e.mutable ? { mutable: true } : e.hash;
     report.created.push(e.targetRel);
@@ -75,15 +99,38 @@ function applyFile(root, e, report, manifest, adopt, force, dryRun) {
   }
   if (curHash === mHash) {
     if (e.hash === mHash) { report.skipped.push(`${e.targetRel}（已存在）`); return; }
-    // 台账基线未被动过、种子已升版 → 传播更新
-    if (!dryRun) writeEntryContent(e, target);
+    // 台账基线未被动过、种子已升版 → 传播更新；基线随写（种子正文）
+    if (!dryRun) {
+      writeEntryContent(e, target);
+      writeBaseline(root, e.targetRel, seedText(e));
+    }
     manifest.files[e.targetRel] = e.hash;
     report.updated.push(`${e.targetRel}（种子已变更——覆盖更新）`);
     return;
   }
-  // 现状 ≠ 台账基线 → 用户改过：conflict skip；--force 才覆盖
+  // 现状 ≠ 台账基线 → 用户改过。merged 出口（场景 B）先于 conflict 判定，四条件见头注；
+  // conflict（1–127，基线保留不动——下轮种子再演进可重试合并）与 unavailable（git 缺席或异常）
+  // 都降级到下方 conflict-skip，输出语义逐字节不变。
+  if (!force && e.hash !== mHash) {
+    const base = readBaseline(root, e.targetRel);
+    if (base !== null) {
+      const merged = mergeThreeWay({ base, ours: fs.readFileSync(target, 'utf8'), theirs: seedText(e) });
+      if (merged.status === 'clean') {
+        if (!dryRun) {
+          fs.writeFileSync(target, merged.text, 'utf8'); // 合并结果 LF（mergeThreeWay 三方 IO 已归一）
+          writeBaseline(root, e.targetRel, seedText(e)); // 基线写新种子正文，不是合并结果
+        }
+        manifest.files[e.targetRel] = e.hash; // 种子侧哈希——判据见头注「合并结果含用户内容，不刷新哈希」
+        report.merged.push(`${e.targetRel}（用户改动与种子升级并存——三方合并自动落盘）`);
+        return;
+      }
+    }
+  }
   if (force) {
-    if (!dryRun) writeEntryContent(e, target);
+    if (!dryRun) {
+      writeEntryContent(e, target);
+      writeBaseline(root, e.targetRel, seedText(e)); // --force 整覆盖写的也是种子正文，基线随写
+    }
     manifest.files[e.targetRel] = e.hash;
     report.updated.push(`${e.targetRel}（--force 覆盖用户改动）`);
     return;
@@ -124,7 +171,8 @@ function applyGitignore(root, e, report, dryRun) {
 }
 
 // git 钩子条目裁决。报告面沿用旧 installHooks 的消息格式（installed/skipped 文案逐字保留——
-// 旧测试与外部指引按此文案断言）；台账记**渲染后**正文哈希。
+// 旧测试与外部指引按此文案断言）；台账记**渲染后**正文哈希。钩子条目旁路 merged 与基线通道
+//（头注旁路声明）。
 function applyHook(root, e, report, manifest, adopt, force, dryRun, pluginName) {
   const target = targetAbs(root, e);
   // 报告文案的车道标签：pre-commit / pre-push 是 check-loop 执法点（hard）；post-commit 是
@@ -175,7 +223,7 @@ function applyHook(root, e, report, manifest, adopt, force, dryRun, pluginName) 
  * applyPlan(plan, { dryRun, force })：按台账裁决计划条目并落盘，返回报告。
  * @returns {{created:string[], skipped:string[], warnings:string[], gitignore:string, hooksDir:string|null,
  *            hooks:{installed:string[], skipped:string[]}, updated:string[], conflict:string[],
- *            adopted:number, dryRun:boolean}}
+ *            merged:string[], adopted:number, dryRun:boolean}}
  */
 export function applyPlan(plan, { dryRun = false, force = false } = {}) {
   const root = plan.root;
@@ -188,12 +236,19 @@ export function applyPlan(plan, { dryRun = false, force = false } = {}) {
     hooks: { installed: [], skipped: [] },
     updated: [],
     conflict: [],
+    merged: [],
     adopted: 0,
     dryRun: Boolean(dryRun),
   };
   let manifest = readManifest(root);
   const adopt = manifest === null; // 台账整个缺失（旧版 init 过的项目 / 损坏不可读）→ 领养模式
-  if (adopt) manifest = { plugin: plan.plugin.name, version: plan.plugin.version, files: {} };
+  if (adopt) {
+    manifest = newManifest(plan.plugin.name, plan.plugin.version); // 构造即带 schemaVersion（首装无迁移可跑）
+  } else {
+    // 迁移链接线（场景 C）：裁决前把台账迁到当前版本（缺 schemaVersion 视作 0）。抛错原样上抛
+    //（CLI 层 catch 后非零退出）；changed 且非 dryRun 时由下方既有台账写入口一并落盘。
+    manifest = migrateManifest({ manifest }).manifest;
+  }
 
   for (const e of plan.entries) {
     if (e.kind === 'gitignore-block') { applyGitignore(root, e, report, dryRun); continue; }
@@ -203,6 +258,7 @@ export function applyPlan(plan, { dryRun = false, force = false } = {}) {
   }
 
   // 台账落盘（dryRun 零写盘；内容不变不重写——幂等契约要求全树快照零改动）。
+  // 迁移 changed（旧台账补 schemaVersion）也走这一处比对落盘，不新增写入口。
   if (!dryRun) {
     const body = serializeManifest(manifest);
     let cur = null;

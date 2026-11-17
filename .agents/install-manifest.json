@@ -13,7 +13,7 @@
     ".agents/config/pr-budget.json": "794db193875f6e3c4dad95b382e66dcfa4c7f3fbdb1dfc37cd20b8914205964a",
     ".agents/config/principles.md": "d0be9261a16950ab37dfa07bf579017f0e542bf8ee8c2538be5a30bc97a2f51b",
     ".agents/config/rule-budgets.txt": "e248c7baa12783d8319a1a3c9c84f0eaa5a25550a4fc786c7f1b55052daeff99",
-    ".agents/config/scripts-test-exempt.txt": "0a15cd51dae9e0cf9dd708245feaea4f8038aa57278fa8dc98fc9f27fc12e88e",
+    ".agents/config/scripts-test-exempt.txt": "e06f216c2d217526b4de93571f39ad822d609c9f6424b976707af5c5e64513d3",
     ".agents/config/workflow-enums.txt": "8fd777eabaebd773da389d678df4bab88d6f28f391b5f7791d3d64ed82bfa490",
     ".agents/config/workflow-modules.txt": "c77a844c7f79c869932e3664ee91f4215007210ead9d9a3f9c3cd27cbf65724a",
     ".agents/settings.json": "0d176ffaea3882fcd448ad34e65ca7b34d4be1426300c833fb4e08de5d8c6e51",
@@ -43,5 +43,6 @@
     ".agents/pipelines/pipeline-closing.md": "bea53a573d0b8112ab5bc781e8625a805b3394ec3519d2b42c4ae9414635204c",
     ".agents/pipelines/steps/示例-部署验证.md": "657a8e714d17f866b70d087375040466b16b68d063c9879f7c017509eb3fd430",
     ".agents/pipelines/示例-并行实现评审.md": "ec8d98f9f3116ee905c13fe62d2957908f0bb6e51632fb270a9cb8bfda934523"
-  }
+  },
+  "schemaVersion": 1
 }

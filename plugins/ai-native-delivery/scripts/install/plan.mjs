@@ -33,7 +33,8 @@ function pluginIdentity() {
   } catch { return { name: path.basename(PLUGIN_ROOT), version: '' }; }
 }
 
-// 本机不入库项（§5.2 入库口径表：判定/验证流水与缓存是本机机器事实；本机环境与个人模型映射不入库）
+// 本机不入库项（§5.2 入库口径表：判定/验证流水与缓存是本机机器事实；本机环境与个人模型映射不入库；
+// 升级三方合并的基线留存目录 .agents/.install-baseline/ 同属本机数据，不入库）
 export const GITIGNORE_ENTRIES = [
   '.agents/cache/',
   '.agents/judgments.jsonl',
@@ -52,6 +53,9 @@ export const GITIGNORE_ENTRIES = [
   // 无人闭环 runner 调用台账（2026-11-13 工单 D）：append-only 运行态（ts/band/tier/结果），
   // 与 judgments/verifications 同类「本机机器事实不入库」；.agents/runs/ 整目录运行态。
   '.agents/runs/',
+  // 升级三方合并的基线留存（install/baseline.mjs BASELINE_DIR_NAME，2026-11-17 升级面）：装户时
+  // 留存的「上次给到的种子正文」供升级合并作 base，属本机机器事实，同 cache/judgments 口径不入库。
+  '.agents/.install-baseline/',
 ];
 
 const WORKFLOW_SUBDIRS = ['plans', 'specs', 'intents', 'incidents', 'reviews.d', 'delegations.d', 'evidence', 'archive'];

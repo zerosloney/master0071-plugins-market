@@ -36,3 +36,10 @@ indirect | .agents/scripts/regr-enforcer-scan.mjs | .agents/scripts/check-loop.t
 # buildTour 用例覆盖，CLI 面（退出码 / stderr 文案 / JSON 可解析 / 锚点替换）经
 # dev-tour-model.test.mjs 的 gen-dev-tour 子进程用例覆盖，按本表语义走 indirect
 indirect | .agents/scripts/gen-dev-tour.mjs | .agents/scripts/dev-tour-model.test.mjs | CLI 壳经 dev-tour-model.test.mjs 的 gen-dev-tour 子进程用例覆盖（--json / --strict / advisory 文案 / HTML 锚点）
+# 2026-11-17 0.3.15 装户升级面补登（基线三方合并 + manifest 迁移链 + 只读漂移体检）：黑盒判据面集中在
+# test/install-upgrade.test.mjs（spec workflow/specs/2026-11-17-install-upgrade-0315.md 验收判据 A1–A6），
+# 同 0.2.0 install/ 三件先例走 indirect
+indirect | .agents/scripts/install/baseline.mjs | .agents/scripts/install-upgrade.test.mjs | 升级基线留存与三方合并（mergeThreeWay clean/conflict/unavailable 三态、pruneBaselines、BASELINE_DIR_NAME 基线面）：经 install-upgrade.test.mjs A1–A3/A5/A6 判据组黑盒覆盖
+indirect | .agents/scripts/install/migrations.mjs | .agents/scripts/install-upgrade.test.mjs | manifest 单向迁移链（0→1 补 schemaVersion、已是当前版本 changed=false、版本超前 MANIFEST_SCHEMA 拒绝、失败零落盘）：经 install-upgrade.test.mjs A4 迁移判据组覆盖
+indirect | .agents/scripts/install/migrations/0-1.mjs | .agents/scripts/install-upgrade.test.mjs | 首迁移 0→1（只补元数据不碰 files、幂等自守）：经 install-upgrade.test.mjs A4 迁移判据组覆盖
+indirect | .agents/scripts/install-drift.mjs | .agents/scripts/install-upgrade.test.mjs | 只读漂移体检（六类分类与计数、mutable 恒 unchanged、无台账单行提示、只读零写盘）：经 install-upgrade.test.mjs A6a 判据组黑盒覆盖

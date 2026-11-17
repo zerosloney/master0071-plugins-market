@@ -1,5 +1,7 @@
 // install/manifest.mjs — sha256 安装台账（2026-11 安装引擎重构新增）
-// 形状：{ plugin, version, files: { "<相对路径，/ 分隔>": "<sha256>" } }，落 <root>/.agents/install-manifest.json。
+// 形状：{ schemaVersion, plugin, version, files: { "<相对路径，/ 分隔>": "<sha256>" } }，落 <root>/.agents/install-manifest.json。
+// schemaVersion：台账 lock 形态版本（非插件版本），缺字段视作 0（旧台账合法读入，迁移链负责补齐，
+// 见 install/migrations.mjs）；新建 / 领养构造经 newManifest 即带当前版本（判据同 kit emptyManifest）。
 // 台账语义同 lock 文件：**入库共享**（init 不把它写进 .gitignore 标记块），记录「上次安装给到的基线」——
 // apply 段据此区分「种子升了」（update）与「用户改了」（conflict skip）。
 // 哈希口径：统一 **CRLF→LF 归一后** sha256——种子源与落盘目标同一归一，Windows autocrlf 检出差异
@@ -12,6 +14,9 @@ import { engineDir } from '../paths.mjs';
 
 export const MANIFEST_FILENAME = 'install-manifest.json';
 export const manifestPath = (root) => path.join(engineDir(root), MANIFEST_FILENAME);
+
+// 台账 lock 形态当前版本：迁移链（migrations.mjs）迁到此值为止；缺 schemaVersion 的旧台账视作 0。
+export const CURRENT_SCHEMA_VERSION = 1;
 
 // hashText(text)：CRLF→LF 归一 → sha256 hex。所有入账哈希（种子源 / 落盘目标 / 渲染后钩子）同一口径。
 export function hashText(text) {
@@ -39,6 +44,12 @@ export function readManifest(root) {
     if (!m || typeof m !== 'object' || !m.files || typeof m.files !== 'object') return null;
     return m;
   } catch { return null; }
+}
+
+// newManifest(plugin, version)：新建 / 领养（readManifest → null）时的台账构造器，即带当前
+// schemaVersion（不再产生无版本新账）。schemaVersion 列首键——serializeManifest 稳定序列化的字节确定性。
+export function newManifest(plugin, version) {
+  return { schemaVersion: CURRENT_SCHEMA_VERSION, plugin, version, files: {} };
 }
 
 // writeManifestAtomic(root, manifest)：同目录 tmp + rename 原子写（写法口径同 mcp/core.mjs

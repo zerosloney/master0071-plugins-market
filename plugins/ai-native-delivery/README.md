@@ -116,7 +116,14 @@ node <插件根>/scripts/init-engine.mjs --dry-run   # 只裁决不写盘：预�
 node <插件根>/scripts/init-engine.mjs --force     # conflict 项强制覆盖回种子（用户改动不保留）
 ```
 
-升级语义按台账哈希逐文件裁决：目标不存在 → `create`；目标与台账哈希一致而种子有新版 → `update`（**未改过的种子文件随插件升版自动更新**）；目标与台账哈希不一致（用户改过）→ `conflict` 跳过不覆盖，`--force` 才覆盖。**领养模式**：旧版 init-engine 初始化过的项目（文件在、台账整个缺失）首跑一个文件都不覆盖，现状哈希全部记入新账，此后进入正常的升级/保护裁决。
+升级语义按台账哈希逐文件裁决（0.3.15 起六态）：目标不存在 → `create`；目标与台账哈希一致而种子有新版 → `update`（**未改过的种子文件随插件升版自动更新**）；目标与台账不一致（用户改过）且种子也有新版 → **`merged` 三方合并**——以本机基线留存（`.agents/.install-baseline/`，本机不入库）为 base 跑 `git merge-file`，clean 则落盘合并结果并报告「合并 N 项」（台账记种子侧哈希、基线写新种子正文，用户在合并结果上的后续手改仍可与下一轮种子演进再合并），冲突或 git 缺席则回退 `conflict` 跳过不覆盖，`--force` 仍可整覆盖且优先于合并；只有用户改过 → `conflict` 跳过。**旁路面**：运行时账本（mutable 条目）与 git hooks 条目不进合并/基线/prune 通道（钩子正文烘焙本机路径，合并无意义；孤儿钩子只报告不删）。**manifest 版本化**：台账带 `schemaVersion`（迁移链 `install/migrations/` 单向演进，全链成功才写、失败零落盘、超前拒绝；旧台账缺字段视作 0 一次性补齐，首装即带版本、重复跑字节不动）。**领养模式**：旧版 init-engine 初始化过的项目（文件在、台账整个缺失）首跑一个文件都不覆盖，现状哈希全部记入新账，此后进入正常的升级/保护裁决。
+
+漂移体检与孤儿清理（0.3.15 新增）：
+
+```
+node <插件根>/scripts/install-drift.mjs [--root <仓库根>]   # 只读六类：unchanged / user-modified / seed-updated / merge-needed / orphan / missing（mutable 恒 unchanged；无台账单行提示；恒 exit 0）
+node <插件根>/scripts/init-engine.mjs --prune [--dry-run]  # 孤儿清理（台账有、种子已无的文件）：盘上哈希==台账才删，改过/mutable/钩子一律保留并报告；不带 --prune 永不删
+```
 
 ### 安装健康自检（doctor）
 
