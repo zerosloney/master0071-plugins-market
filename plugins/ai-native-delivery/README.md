@@ -32,6 +32,7 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 - 不支持该类 hook 的宿主**自动降级为 git hooks 单层拦截**，硬门语义不变，只是拦截时点从工具调用前推迟到提交 / 推送前；
 - **CI 层是项目适配点**：插件附带参考模板（`config-templates/ci/`，不随 init-engine 播种），项目复制到自己的 CI 接线，判据与 git hooks 同源，详见下节「CI 层项目适配指南」；
 - **PostToolUse usage 观测腿**（0.3.16）：子代理调用后自动落 usage 凭证到项目根 .agents/usage.jsonl（行 schema：ts/role/model/run/inputTokens/outputTokens/latencyMs）——仅 Claude 式 hook 宿主接线（PostToolUse matcher=Agent）；usage 缺失静默零写入、任何异常 exit 0 不阻塞宿主；其余宿主零采集，agg-delegations 派发预算段按文件在场自适应；运行态不入库（gitignore 标记块）；
+- **SessionStart 会话入口路由令**（0.3.17）：会话启动注入 4 行指针（续作先读插件 skills/session-resume/SKILL.md / 新任务走 commands/new-task.md 两问定级 / 规则单源声明 / 关闭方式），零写零 spawn 不读 transcript、任何异常 exit 0 不阻塞启动；仅 Claude 式 hook 宿主接线（SessionStart matcher 空串=全部启动来源），其余宿主降级零注入；关闭：项目 .agents/config/session-context.local.json 写 {"enabled":false}——只认显式 false（缺文件/坏 JSON/其它值=开），用户所有 init 不播种升级不覆盖；
 - **派发预算 advisory**（0.3.16）：.agents/config/dispatch.json 种子（单报告 ≤500 字符、并发 ≤2）——agg-delegations 末段按月计量委派行字符与 usage tokens，只给数字不判定不阻断，dispatch.json 缺省整段跳过；
 - 命令、角色委派（斜杠命令 / 子智能体）按各宿主约定目录加载，不支持对应约定的宿主跳过加载即可，MCP 工具全宿主可用。
 
