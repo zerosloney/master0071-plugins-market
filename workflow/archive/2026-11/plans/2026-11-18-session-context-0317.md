@@ -1,9 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-18
 模块: pipeline
-确认指纹: 71bafce54493dfa3
+确认指纹: d3efc05172013c4c
 ---
 # PLAN — SessionStart 会话入口路由令（0.3.17）
 
@@ -46,11 +46,11 @@
 
 ## 验收标准（可测试）
 
-- [ ] B1 注入内容：4 行指针、指向插件实际路径（session-resume / new-task）、含关闭方式行（证据：test/session-context.test.mjs 用例）
-- [ ] B2 关闭开关三态：显式 false → 零输出；缺文件 → 开；坏 JSON / 非 false 值 → 开（证据：同上用例）
-- [ ] B3 接线一致：hooks.json SessionStart 段 + codex 垫片重渲染后 gen-host-manifests --check 过、check-hook-wiring 过（证据：命令输出）
-- [ ] B4 全量门：verify --scope 全绿 + coverage 过 + 0.3.17 八处版本位 --check 一致（证据：命令输出）
-- [ ] B5 真机走查：注入可见 + 关闭生效（证据：走查输出存证，人工）
+- [x] B1 注入内容：4 行指针、指向插件实际路径（session-resume / new-task）、含关闭方式行（证据：test/session-context.test.mjs 全绿——4 行内容/插件路径锚/无绝对路径/零写/不读 transcript）
+- [x] B2 关闭开关三态：显式 false → 零输出；缺文件 → 开；坏 JSON / 非 false 值 → 开（证据：同上用例三态全绿 + 本仓真机走查 false 零字节、删开关恢复 4 行）
+- [x] B3 接线一致：hooks.json SessionStart 段 + codex 垫片重渲染后 gen-host-manifests --check 过、check-hook-wiring 过（证据：gen-host-manifests --check 三垫片一致 + check-hook-wiring 过）
+- [x] B4 全量门：verify --scope 全绿 + coverage 过 + 0.3.17 八处版本位 --check 一致（证据：verify 13 门全绿；coverage 缺失 0；release --check 0.3.17 一致）
+- [x] B5 真机走查：注入可见 + 关闭生效（证据：本仓实跑 startup 注入 4 行 exit 0；local.json false → 0 字节；删除后 resume 恢复 4 行——人工项已走查）
 
 ## 确认与复核
 
