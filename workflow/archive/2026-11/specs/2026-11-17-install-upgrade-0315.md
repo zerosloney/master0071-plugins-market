@@ -1,10 +1,10 @@
 ---
-状态: approved
+状态: done
 级别: L2
 日期: 2026-11-17
 模块: infra
 备注: 关联 ../intents/2026-11-17-install-upgrade-0315.md（approved 2026-11-17，指纹 929baeabcc24c948）
-确认指纹: cb33fc5d0da0ee19
+确认指纹: 7f8e1aef2ac06a3a
 ---
 # SPEC — 装户升级面：基线三方合并 + manifest 迁移框架 + 漂移视图 + prune（0.3.15）
 

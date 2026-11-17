@@ -1,10 +1,10 @@
 ---
-状态: approved
+状态: done
 级别: L2
 日期: 2026-11-17
 模块: infra
 备注: 蓝本 agentic-flow-kit v2.6.1 baseline/migrations/upgrade/diff/prune 判据级移植，零运行时依赖
-确认指纹: f35503a2e151cb6d
+确认指纹: fb7efc882e8b4990
 ---
 # INTENT — 装户升级面：基线三方合并 + manifest 迁移框架 + 漂移视图 + prune（0.3.15）
 
