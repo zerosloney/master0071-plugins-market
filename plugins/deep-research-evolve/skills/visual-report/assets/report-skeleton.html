@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --text: #e6e9ef; --muted: #9aa3b2;
+    --line: #2a2f3a; --accent: #5aa9ff;
+    --conf-high: #3fb96f; --conf-mid: #d9a13f; --conf-low: #e05c5c;
+  }
+  [data-theme="light"] {
+    --bg: #f7f8fa; --panel: #ffffff; --text: #1c2128; --muted: #57606a;
+    --line: #d8dde4; --accent: #2f7fd6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; justify-content: space-between; align-items: baseline;
+           padding: 24px 32px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 22px; margin: 0; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 32px 64px; }
+  section { margin: 32px 0; }
+  h2 { font-size: 17px; border-left: 3px solid var(--accent); padding-left: 10px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; border-top: 3px solid var(--conf-mid); }
+  .card.high { border-top-color: var(--conf-high); }
+  .card.low  { border-top-color: var(--conf-low); }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+           color: #fff; background: var(--conf-mid); }
+  .badge.high { background: var(--conf-high); } .badge.low { background: var(--conf-low); }
+  sup a { color: var(--accent); text-decoration: none; }
+  ol.sources { color: var(--muted); font-size: 13px; }
+  ol.sources a { color: var(--accent); }
+  button#theme { background: none; border: 1px solid var(--line); color: var(--text);
+                 border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  svg text { fill: var(--text); font-size: 12px; }
+  svg .grid { stroke: var(--line); }
+  .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+</style>
+</head>
+<body data-theme="dark">
+<header>
+  <div><h1>{{TITLE}}</h1>
+    <div class="meta">{{DATE}} · 状态 {{STATUS}} · 总体置信度 <span class="badge {{CONF_CLASS}}">{{CONF_LABEL}}</span></div>
+  </div>
+  <button id="theme" onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">切换主题</button>
+</header>
+<main>
+  <section><h2>结论摘要</h2>
+    <div class="cards">
+      <!-- 每条结论一张卡片；high/mid/low 控制顶边与徽标色 -->
+      <div class="card high"><span class="badge high">高</span> {{FINDING_1}} <sup><a href="#src-1">[1]</a></sup></div>
+    </div>
+  </section>
+
+  <section><h2>子问题发现</h2>
+    <h3>{{SQ_TITLE}}</h3>
+    <p>{{SQ_BODY}} <sup><a href="#src-2">[2]</a></sup></p>
+  </section>
+
+  <section><h2>图表</h2>
+    <div class="chart">
+      <!-- 示例：三轴雷达骨架，按 benchmark 数据替换 points 与轴标签 -->
+      <svg viewBox="0 0 300 240" width="300" role="img" aria-label="{{CHART_LABEL}}">
+        <title>{{CHART_LABEL}}</title>
+        <polygon class="grid" fill="none" points="150,20 260,190 40,190"/>
+        <polygon fill="rgba(90,169,255,.25)" stroke="var(--accent)" points="150,60 220,170 80,170"/>
+        <text x="150" y="14" text-anchor="middle">{{AXIS_1}}</text>
+        <text x="262" y="200">{{AXIS_2}}</text>
+        <text x="28" y="200">{{AXIS_3}}</text>
+      </svg>
+    </div>
+  </section>
+
+  <section><h2>冲突与未决</h2><p>{{OPEN_QUESTIONS}}</p></section>
+
+  <section><h2>来源清单</h2>
+    <ol class="sources">
+      <li id="src-1">{{SOURCE_1_TITLE}} — <a href="{{SOURCE_1_URL}}">{{SOURCE_1_URL}}</a>（访问 {{SOURCE_1_DATE}}）</li>
+      <li id="src-2">{{SOURCE_2_TITLE}} — <a href="{{SOURCE_2_URL}}">{{SOURCE_2_URL}}</a>（访问 {{SOURCE_2_DATE}}）</li>
+    </ol>
+  </section>
+</main>
+</body>
+</html>

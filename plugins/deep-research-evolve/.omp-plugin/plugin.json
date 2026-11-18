@@ -1,0 +1,15 @@
+{
+  "name": "deep-research-evolve",
+  "version": "0.1.0",
+  "description": "深度研究全流程插件：四个技能覆盖「一次性多源调研（deep-research，子问题拆解→检索→交叉验证→带引用报告）→ 档案化自主进化（evolve，research/ 主题档案 + 增量复研修订旧结论 + 定时重访）→ 单文件交互式可视化报告（visual-report，内联 SVG 图表 + 暗亮双主题 + 引用溯源）→ 对比评估矩阵（benchmark，加权维度打分 + 雷达图 + 敏感性检验）」。调研结论持续沉淀为可检索的研究档案库，新调研自动复用旧证据避免重复劳动。内置联网即用（WebSearch/WebFetch），可选增强：browser-use 浏览器（SPA/登录后页面抓取）、repowiki（仓库内调研）；零外部 MCP 依赖。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": ["research", "deep-research", "evolve", "benchmark", "visualization", "report", "citations", "productivity"],
+  "category": "productivity",
+  "skills": "./skills"
+}
