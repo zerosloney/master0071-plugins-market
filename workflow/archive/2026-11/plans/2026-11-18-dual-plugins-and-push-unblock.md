@@ -1,8 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-18
 模块: market
+确认指纹: 5c7dce61acd2fcca
 ---
 # PLAN — 双插件会话补档与推送解锁（deep-research-evolve 入库 + tech-code-refactoring 全原创重建 + check-scope-range 归档撞名修复）
 
@@ -41,6 +42,17 @@
 - tech-code-refactoring 27 用例（analyze.test.mjs 15 回归 + ast.test.mjs 12 AST）
 - check-scope-range.test.mjs 11 用例（含新增 ⑩ archived-plan-not-intent，红灯先行）+ check-scope.test.mjs 23 用例回归
 - 推送前实跑 check-scope-range 58320b78..HEAD：越界方向应为 0（advisory 未落件不拦截）
+
+## 验收标准（可测试）
+
+- [x] A1 双插件三门禁全绿：release --check 7 插件版本位一致（tech-code-refactoring 0.2.0 七处、deep-research-evolve 0.1.0 七处）；manifest-lint 7 插件 × 4 清单、89 skill 名唯一；selftest 26/0（证据：三门禁 2026-11-18 多轮复跑退出 0，提交 aa9e3d2/f4b4330/7824a1f 内含）
+- [x] A2 tech-code-refactoring 27 用例全绿：analyze.test.mjs 15（启发式回归）+ ast.test.mjs 12（AST 精确断言/降级/vendor 改名恢复）（证据：ci.yml 步骤内可复跑，两文件退出 0）
+- [x] A3 多语言 AST 实证：混合样本（py+java+rs）「AST ×3」；agent-pipelines「AST ×16」热点 validateState=82；Python 标准库 json 热点 _iterencode_dict=25；--heuristic 实测回退启发式 ×16（证据：会话内冒烟输出留痕）
+- [x] A4 许可面：NOTICE 三层声明 + vendored 双 LICENSE 全文随包；8 个 grammar 上游仓库经 GitHub API 逐一对 MIT；marketplace×2 与根 README「无第三方内容」失真表述 4 处修正（证据：NOTICE.md；api.github.com repos license=MIT ×8）
+- [x] A5 check-scope-range 归档撞名修复：回退判据限定 plans/ 子树；回归用例 ⑩ 红灯先行（修复前 exit 1/声明 0）→ 修复后 11/0；范围声明面 41→96（证据：check-scope-range.test.mjs；58320b78..7824a1f 复跑）
+- [x] A6 check-scope 抓取层两形态修复：PATH_RE/DOTFILE_RE + Set 去重，.gitignore 与 vendored LICENSE-*（带目录无扩展名）可被声明收取；S13 四用例；check-scope 27/0 回归（证据：check-scope.test.mjs；58320b78..HEAD 声明 141）
+- [x] A7 推送通道就绪：check-scope-range 58320b78..HEAD --strict EXIT=0、越界方向干净（未落件仅 advisory，不拦截）；本份确认记录经用户终端 confirm-doc 落账（证据：strict 复跑退出 0；confirm-doc 本份通过）
+- [x] A8 范围声明面完整：本单声明 54+2 件逐件列明，含 3 件追认（0.3.15–0.3.18 版本位）经用户交互确认（证据：任务拆解节清单；会话内 AskUserQuestion「新 plan 一并追认」）
 
 ## 确认与复核
 
