@@ -43,7 +43,7 @@ description: 对比评估工作流：为多个候选对象（技术选型/产品
 
 ### 6. 输出与归档
 
-- Markdown 矩阵 + 雷达轴数据写入 `research/<slug>/report-YYYYMMDD.md`（"对比评估"型），INDEX/log 各记一行，log `action:"score"`。
+- Markdown 矩阵 + 雷达轴数据写入 `<档案库根>/<slug>/report-YYYYMMDD.md`（"对比评估"型），INDEX/log 各记一行，log `action:"score"`；档案库根按 evolve 技能的「档案库根解析」判定。
 - 用户要可视化 → 转 visual-report（雷达图用本技能的多轴 points 规则）。
 - 后续同类对比先读旧 notes.md 复用分数证据，只补增量——与 evolve revisit 同一精神。
 

@@ -7,11 +7,11 @@ description: 把 research/ 主题档案（Markdown 报告 + notes）或任意调
 
 ## Overview
 
-从既有调研材料生成一个可直接分发、离线打开的单文件 HTML，输出到 `research/<slug>/report-YYYYMMDD.html` 并在 log 记 `action:"report"`。
+从既有调研材料生成一个可直接分发、离线打开的单文件 HTML，输出到 `<档案库根>/<slug>/report-YYYYMMDD.html`（档案库根按 evolve 技能的「档案库根解析」判定）并在 log 记 `action:"report"`。
 
 ## 流程
 
-1. **取材**：读 `research/<slug>/` 最新一期 report-*.md 与 notes.md；无档案时先要求用户提供材料或先跑 deep-research，不凭空造数。
+1. **取材**：先按 evolve 技能的「档案库根解析」定出档案库根，再读该根下 `<slug>/` 最新一期 report-*.md 与 notes.md；无档案时先要求用户提供材料或先跑 deep-research，不凭空造数。
 2. **结构化**：提炼为固定信息架构——标题区（主题/日期/状态/总体置信度）→ 结论摘要卡片区 → 子问题发现（分节）→ 图表区 → 冲突与未决 → 来源清单。
 3. **选图**（有量化/对比数据才画，宁缺毋滥）：
    - 多对象多维度打分 → 雷达图（配合 benchmark 产出）

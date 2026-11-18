@@ -1,7 +1,7 @@
 # 全仓库测试门禁：
 #   1. 版本位一致性（scripts/release.mjs --check：7 插件 × 各 7-8 处版本位）
 #   2. 垫片一致性 + skill 名唯一性 + CI 引用「已入库」对账（scripts/manifest-lint.mjs，含其反证自测）
-#   3. 六个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
+#   3. 七个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
 # pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
 #（见 plugins/pstack/extras/README.md），待其适配后再纳入。
 # ai-native-delivery 的提示面 eval 套件（test/eval.mjs）不进 CI：真实调用模型（claude -p）
@@ -93,6 +93,13 @@ jobs:
           cd plugins/tech-code-refactoring
           node test/analyze.test.mjs
           node test/ast.test.mjs
+      # deep-research-evolve 是纯提示词包（无运行时可断言行为），契约测试守住跨文件不漂移：
+      # 档案库根解析规则只在 evolve 定义一次、三个写入方技能各自引用，evolve schedule 的
+      # payload 不再硬编码斜杠命令形态。规则漂移 = 定时任务静默空跑或写进用户项目的同名目录。
+      - name: deep-research-evolve tests
+        run: |
+          cd plugins/deep-research-evolve
+          node test/contract.test.mjs
       # ai-native-delivery 常驻面棘轮：sections/hard 只减不增、bytes 上限，超限即红
       - name: ai-native-delivery ratchet
         run: node plugins/ai-native-delivery/scripts/rule-budget.mjs --all

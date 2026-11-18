@@ -7,7 +7,7 @@ description: 深度研究工作流：把开放问题拆解为可验证子问题�
 
 ## Overview
 
-对一个开放问题执行「拆题 → 检索 → 交叉验证 → 成文 → 归档」五段流程，产出可信度分级、引用可溯源的报告，并把事实片段沉淀进 `research/` 档案库。
+对一个开放问题执行「拆题 → 检索 → 交叉验证 → 成文 → 归档」五段流程，产出可信度分级、引用可溯源的报告，并把事实片段沉淀进主题档案库（档案库根按 evolve 技能的「档案库根解析」判定）。
 
 ## 触发参数
 
@@ -42,7 +42,7 @@ description: 深度研究工作流：把开放问题拆解为可验证子问题�
 
 ### 4. 成文（report）
 
-写入 `research/<slug>/report-YYYYMMDD.md`（日期为当天），结构：
+写入 `<档案库根>/<slug>/report-YYYYMMDD.md`（档案库根按 evolve 技能的「档案库根解析」判定，日期为当天），结构：
 
 ```markdown
 # <主题研究报告>
@@ -65,12 +65,13 @@ description: 深度研究工作流：把开放问题拆解为可验证子问题�
 
 ### 5. 归档（archive）
 
-- 追加 `research/research-log.jsonl` 一行（schema 见 evolve 技能）：`{"date","topic","action":"research","summary","confidence"}`。
-- 更新/创建 `research/INDEX.md` 表行：`| slug | 标题 | 最后复研日期 | 当前置信度 | 建议下次复研 |`。
-- 新事实片段追加到 `research/<slug>/notes.md`，供后续复用——再次调研同主题前先读它（这是 evolve 的输入）。
+- **先按 evolve 技能的「档案库根解析」定出档案库根**（判定与回退规则见该节，不在此复述）；下文所有路径均相对该根。
+- 追加 `<档案库根>/research-log.jsonl` 一行（schema 见 evolve 技能）：`{"date","topic","action":"research","summary","confidence"}`。
+- 更新/创建 `<档案库根>/INDEX.md` 表行：`| slug | 标题 | 最后复研日期 | 当前置信度 | 建议下次复研 |`。
+- 新事实片段追加到 `<档案库根>/<slug>/notes.md`，供后续复用——再次调研同主题前先读它（这是 evolve 的输入）。
 
 ## 硬约束
 
 - 检索失败或来源不足时如实写"证据不足"，禁止编造引用或 URL。
 - 不在报告中混入未经验证的记忆性断言；模型常识与检索证据须分开标注。
-- 对档案库的写入仅限 `research/` 目录，不动业务代码。
+- 对档案库的写入仅限档案库根（按 evolve 技能的「档案库根解析」判定），不动业务代码，也不写入用户项目里原有的同名目录。
