@@ -75,8 +75,44 @@ const stripEvidenceSegment = (l) => {
   return l.slice(0, open);
 };
 
+// ⑤' 表格证据列置空（判据移植根修 fb9d026 / issues #67，2026-11-18）：spec 验收判据表把证据写在
+//   独立列（单元格内无「证据：」token，行内 ⑤ 够不着），仅回填证据列曾被判承诺改写、关单被拒；
+//   本仓 papercut 三实例同根（papercuts.md 2026-11-13 ×2、2026-11-17）。表格块 = 连续以 `|` 起始
+//  （容行首空白）的行，块首行为表头、次行为 `---` 分隔行；按 `|` 分割计列。
+// **插件扩展**（对蓝本的唯一偏离，头注声明）：豁免谓词 = 表头单元格含「证据」**或「状态」**——
+//   蓝本仅「证据」；本仓第三实例实测「状态」列翻转（未覆盖→覆盖）同样误触发，与 ④ 勾选归一
+//   `[x]→[ ]` 同理属运行态簿记非承诺（确认后不再改的歧义清单状态列同受益）。列结构变化（增删列、
+//   数据行列数漂移）仍被指纹捕捉（越界守卫 c+1<cells.length 不吞漂移行）；表头/分隔行原样保留
+//  （列的存在与命名属承诺面）。表格行先做列置空，行内规则（⑤/⑥）其后照常，两者可叠加互不干扰。
+//   诚实边界（同 ⑤）：把承诺藏进证据/状态列机器看不见——单元格是自由文本，本归一按列头信任，
+//   不做语义甄别；承诺载体（判据列）始终绑定。
+const isTableLine = (l) => /^\s*\|/.test(l);
+const isSepRow = (l) => {
+  const cells = l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+  return cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c));
+};
+const stripEvidenceColumns = (lines) => {
+  const out = lines.slice();
+  for (let i = 0; i < out.length - 1; i++) {
+    if (!isTableLine(out[i]) || !isSepRow(out[i + 1])) continue;
+    const header = out[i].replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+    const evCols = header
+      .map((c, idx) => (c.includes('证据') || c.includes('状态') ? idx : -1))
+      .filter((idx) => idx >= 0);
+    if (!evCols.length) continue;
+    let j = i + 2;
+    for (; j < out.length && isTableLine(out[j]); j++) {
+      const cells = out[j].split('|'); // [首段空, 单元格…, 尾段]——只动单元格元素，管道符与列数原样保留
+      for (const c of evCols) if (c + 1 < cells.length) cells[c + 1] = '';
+      out[j] = cells.join('|');
+    }
+    i = j - 1; // 跳过本块数据行（数据行不会是下一块的表头，勿重复扫描）
+  }
+  return out;
+};
+
 export function commitmentFingerprint(text) {
-  const lines = Array.isArray(text) ? text : String(text).replace(/\r\n/g, '\n').split('\n');
+  const lines = stripEvidenceColumns(Array.isArray(text) ? text : String(text).replace(/\r\n/g, '\n').split('\n'));
   const out = [];
   let inFm = false;
   for (let i = 0; i < lines.length; i++) {

@@ -23,6 +23,7 @@ description: "PR 面板评审验证者：独立上下文中的只读投票者，
   3. `reject` 必须给 `counterEvidence`；没有反证只能记 `uncertain`。
   4. 独立定级 `Important`/`Nit`，独立判断 `introduced`/`pre-existing`/`unknown`。
   5. 纯样式候选直接 `reject`，`counterEvidence` 写「纯样式，按规则丢弃」。
+  6. 增量复核：第 2 轮起只复核新增 diff 产生的候选与上一轮遗留的 escalated 项；既往轮次已定案的候选不重复投票。
 
 ## Deliverables
 把 JSON 作为最终回复返回；主智能体负责写入工单指定的 `votes/<findingId>-<verifier>.json`。若宿主明确允许写且工单要求落盘，只写该输出文件：

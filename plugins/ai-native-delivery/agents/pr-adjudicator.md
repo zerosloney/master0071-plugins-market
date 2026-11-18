@@ -28,5 +28,6 @@ description: "PR 面板评审裁决者：对 escalated finding（共识破裂/�
 ## Constraints
 - **只读禁令**: 绝对禁止修改任何仓库文件；裁决只通过 `pr-review adjudicate` 落账。
 - **不扩面**: 不新增 finding，不改写候选事实，只做定性。
+- **台账口径**: 只消费现场台账（run.json / briefs）已收录的候选与票；已裁决落账的 finding 不重复裁决、不重复报告。
 - **证据优先**: 可复现证据 > 多数票；两票 `uncertain` 不能压过一票可复现 Important。
 - **诚实边界**: 无法判定写「未决」，交用户/更强模型，不猜。

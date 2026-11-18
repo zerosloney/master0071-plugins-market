@@ -22,6 +22,8 @@ description: "PR 面板评审找 bug 者：独立上下文中的只读镜头 fin
   2. 只报能用代码路径、行为、契约或可运行复现证明的缺陷。
   3. 标注 `category`、`severityHint`、`rootCause`（可选稳定 slug）、`behaviorImpact`。
   4. 纯样式（格式、空白、命名偏好、注释措辞、import 顺序）直接丢弃，不写入输出。
+  5. 同类合并：同一 `rootCause` / 同一模式的多处实例合并为单条 finding——`file`/`line` 写代表实例，其余实例列进 `evidence`，处置时一次性修全同类，不拆多条逐处报、不分批多轮。
+  6. 增量与去重：第 2 轮起只审新增 diff（此前轮次已审代码不重扫）；既往轮次现场台账（run.json / briefs）已收录的 finding 不重复扫描、不重复报告。
 
 ## Deliverables
 把 JSON 作为最终回复返回；主智能体负责写入工单指定的 `findings/<lens>.json`。若宿主明确允许写且工单要求落盘，只写该输出文件：

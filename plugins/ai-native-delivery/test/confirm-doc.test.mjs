@@ -14,7 +14,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { computeFingerprint, nextStage, applyTransition, appendLedger, resolveTransition } from '../scripts/confirm-doc.mjs';
-import { planConfirmedFor, reviewLineFor } from '../scripts/stage-gates.mjs';
+import { planConfirmedFor, reviewLineFor, commitmentFingerprint } from '../scripts/stage-gates.mjs';
 import {
   normalizeQuote, longestCommonAnchor, hasAnchorAtLeast, stripRelease, groundQuote,
   resolveDocText, resolveFamilyTexts, GROUND_ANCHOR_MIN,
@@ -1817,6 +1817,55 @@ const intentDoc = (acceptBody) => `---\n状态: approved\n级别: L1\n日期: 20
       && readLedgerOf(root).some((j) => j.doc === 'workflow/plans/2026-11-14-s73.md'),
     '');
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S74 承诺面指纹：⑤' 表格证据列归一（蓝本 fb9d026 / issues #67 判据级移植 + 插件状态列扩展，2026-11-18）----
+// spec 验收判据表把证据写在独立列（无「证据：」token），仅回填证据列曾被判承诺面改写、关单被拒；
+// 列结构变化（增删列 / 列数漂移）与判据列改动仍须被指纹捕捉。数据取 issues #67 最小复现形态。
+const CRIT67 = '现有 12 个 `ResizableTable` 消费方零改动编译通过，`npm run build` 与 eslint 0 error。';
+const accTable = (...rows) => ['## 验收判据',
+  '| 判据（可观察行为） | 证据（测试文件 / 命令 / 证据文件） | 状态 | 对应验收 |',
+  '|---|---|---|---|', ...rows, ''].join('\n');
+const row67 = (ev, crit = CRIT67, st = '覆盖') => `| ${crit} | ${ev} | ${st} | A1 |`;
+const EV67_A = '`cd frontend && npm run build`；`cd frontend && npx eslint …`';
+const EV67_B = '`frontend/src/components/ResizableTable.vue`；`frontend/tests/unit/resizableTable.spec.ts`';
+{
+  // ① 证据列回填 → 指纹不变（issue #67 主场景）
+  check('S74① 仅证据列不同 → 承诺面指纹相等',
+    commitmentFingerprint(accTable(row67(EV67_A))) === commitmentFingerprint(accTable(row67(EV67_B))));
+  // ② 判据列改动 → 仍被捕捉（承诺仍绑定）
+  check('S74② 判据列文本变化 → 指纹改变',
+    commitmentFingerprint(accTable(row67(EV67_A, '现有 12 个消费方编译失败，`npm run build` 1 error。'))) !== commitmentFingerprint(accTable(row67(EV67_A))));
+  // ③④ 列结构变化：增一列（表头+分隔+数据行同变）；仅数据行多一格（列数漂移）
+  const base = commitmentFingerprint(accTable(row67(EV67_A)));
+  const colAdded = commitmentFingerprint(['## 验收判据',
+    '| 判据（可观察行为） | 证据（测试文件 / 命令 / 证据文件） | 状态 | 对应验收 | 备注 |',
+    '|---|---|---|---|---|',
+    `| ${CRIT67} | ${EV67_A} | 覆盖 | A1 | 附注 |`, ''].join('\n'));
+  check('S74③ 增一列 → 指纹改变', colAdded !== base);
+  const drifted = commitmentFingerprint(accTable(`| ${CRIT67} | ${EV67_A} | 覆盖 | A1 | 多出的一格 |`));
+  check('S74④ 数据行列数漂移 → 指纹改变', drifted !== base);
+  // ⑤ 多证据列同口径：两列表头均含「证据」，改任一列指纹不变
+  const two = (e1, e2) => ['## 验收判据',
+    '| 判据（可观察行为） | 证据（命令） | 状态 | 证据文件（路径） |',
+    '|---|---|---|---|',
+    `| ${CRIT67} | ${e1} | 覆盖 | ${e2} |`, ''].join('\n');
+  check('S74⑤ 多证据列：改任一证据列指纹相等',
+    commitmentFingerprint(two('npm test', 'a.spec.ts')) === commitmentFingerprint(two('npm run build', 'b.spec.ts')));
+  // ⑥ 行内 ⑤ 与勾选归一零回归；表格列置空与行内剥除可叠加
+  check('S74⑥ 行内形态零回归：勾验收+换证据指纹不变',
+    commitmentFingerprint('- [ ] 构建通过（证据：commit def）') === commitmentFingerprint('- [x] 构建通过（证据：commit abc）'));
+  const mixA = accTable(`| ${CRIT67}（证据：评审记录 X） | path/a | 覆盖 | A1 |`);
+  const mixB = accTable(`| ${CRIT67} | path/b | 覆盖 | A1 |`);
+  check('S74⑥b 表格列置空与行内剥除叠加等值', commitmentFingerprint(mixA) === commitmentFingerprint(mixB));
+  // ⑦（插件扩展）状态列翻转 → 指纹不变（运行态簿记，papercut 第三实例场景）
+  check('S74⑦ 状态列翻转 → 指纹相等（插件扩展）',
+    commitmentFingerprint(accTable(row67(EV67_A, CRIT67, '未覆盖（实现后转覆盖）'))) === commitmentFingerprint(accTable(row67(EV67_B, CRIT67, '覆盖'))));
+  // ⑧（插件扩展）歧义清单状态单元格 benign：同表头形态的其它表同样剥状态列
+  const amb = (st) => ['## 歧义清单', '| 维度 | 结论 | 依据 | 状态 |', '|---|---|---|---|',
+    `| 数据口径 | 归一顺序⑤'→⑤ | 蓝本注释 | ${st} |`, ''].join('\n');
+  check('S74⑧ 状态表头表状态格改动 → 指纹相等（歧义清单 benign）',
+    commitmentFingerprint(amb('已定')) === commitmentFingerprint(amb('待澄清')));
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

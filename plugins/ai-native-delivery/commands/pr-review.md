@@ -26,6 +26,7 @@ next: gate PASS 后回 commands/review.md 用户定性合入；SHADOW/FAIL 时�
 1. `plan --base <ref> --head <ref>`：固定 base..head 为 SHA，生成 run.json / finder 工单（每镜头一份，内嵌 diff 切片）/ tasks.json。高风险快检加 `--fast`（镜头裁为仅 correctness，共识阈值降为单票）。
 2. 按 `tasks.json` 并行派 finder / verifier 子代理（角色契约见 `agents/pr-finder.md`、`agents/pr-verifier.md`、`agents/pr-adjudicator.md`）。模型默认 finder=code / verifier=review（`.agents/config/pr-review.json` 的 modelRoles 可覆盖；adjudicator 不标注——宿主默认）；派发禁传 `model` 参数——口径见 `model-roles.json` 的 `dispatch` 段。
 3. 依序执行：`collect`（读 findings/*.json，归一化/去重/样式丢弃/标 provenance，生成 verifier 工单）→ `verify`（读 votes/*.json，按配置阈值算共识）→ `adjudicate`（对 escalated finding 落裁决；裁决是该票面终裁，重跑 verify 不冲掉）→ `dispose`（修复/豁免/延后/记录）→ `gate`（清零判定）→ `summary`（写 artifact + 月度台账行）。
+4. 收敛控制：超过 3 轮不再逐条修复，先重估整体实现方案；第 2 轮起只审新增 diff、现场台账已报 finding 不复报、同类问题合并单条——细则见角色契约（advisory 纪律，不进脚本判据）。
 
 ## gate 两档
 
