@@ -1,6 +1,6 @@
 # master0071-plugins
 
-五个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
+七个按 **[Agent Plugins 1.0.0](https://agent-plugins.org) 开放标准**打包的个人插件。一次打包，所有兼容客户端通用。
 
 | 插件 | 版本 | 可移植组件 | 简介 |
 |------|------|-----------|------|
@@ -9,6 +9,8 @@
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.29 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
 | [pstack](plugins/pstack/) | 0.1.27 | `skills/` + `qwen/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 66 个 skill，含 24 条 principle 原则、4 个子智能体（名单与上游一致）与会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包：共享 skill、同一组 4 个子智能体与 Qwen 专属 hook；扩展 skill 带 `pstack:` 命名空间，扩展子智能体保留 frontmatter 裸名 |
 | [ai-native-delivery](plugins/ai-native-delivery/) | 0.3.18 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L0/L1/L2/L3 风险泳道两问定级（L0 极简道免立档）+ check-loop 硬门 6 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根 |
+| [deep-research-evolve](plugins/deep-research-evolve/) | 0.1.0 | `skills/` | 深度研究全流程：`deep-research` 一次性多源调研（子问题拆解→检索→交叉验证→带引用报告）/ `evolve` 档案化自主进化（research/ 主题档案增量复研修订旧结论 + 定时重访）/ `visual-report` 单文件交互式可视化报告（内联 SVG 图表）/ `benchmark` 加权对比评估矩阵（雷达图 + 敏感性检验），结论沉淀为可检索研究档案库、新调研复用旧证据；纯 skills 无脚本无 MCP，内置联网即用，可选连接器见插件 CONNECTORS.md |
+| [tech-code-refactoring](plugins/tech-code-refactoring/) | 0.2.0 | `skills/` + `scripts/` | 技术债六步重构工作流：`code-analyzer` 多语言 AST 摸底 / `agent-git-oracle` Git 债区 / `uncle-bob` SOLID 评审 / `code-refactoring` 安全手法 / `system-architect` 目标架构 / `simplify` 减法收尾，`refactoring-workflow` 路由；分析脚本 Node ≥ 18 零安装（vendored tree-sitter AST 引擎，见插件 NOTICE.md）；skill 与脚本全原创 |
 
 ## 共装注意：两个 PreToolUse 风险闸
 
@@ -60,7 +62,18 @@ plugins/
 │   ├── commands/  agents/    # ↓ 客户端约定，非 Agent Plugins 核心（8 命令 / 3 角色）
 │   ├── scripts/  hooks/  config-templates/            # ↓ 引擎脚本 / PreToolUse 风险闸 / 项目侧配置种子
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
-└── pstack/
+├── deep-research-evolve/
+│   ├── plugin.json           # 标准清单
+│   ├── skills/               # 标准 skill：4 个（deep-research / evolve / visual-report / benchmark）
+│   ├── CONNECTORS.md         # ↓ 可选连接器说明（browser-use / repowiki / 宿主 cron）
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
+├── tech-code-refactoring/
+│   ├── plugin.json           # 标准清单
+│   ├── skills/               # 标准 skill：7 个（code-analyzer / agent-git-oracle / uncle-bob / code-refactoring / system-architect / simplify / refactoring-workflow）
+│   ├── skills/code-analyzer/scripts/analyze.mjs  # ↓ 零依赖量化摸底脚本（Node ≥ 18）
+│   ├── test/analyze.test.mjs # ↓ 该脚本的 node:test 测试套件（CI 纳入）
+│   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
+├── pstack/
     ├── plugin.json           # 标准清单
     ├── skills/               # 标准 skill：66 个（poteto-mode / 24 principle-* / 工作流）
     ├── agents/  hooks/  models.json                    # ↓ 客户端约定，非 Agent Plugins 核心
@@ -119,6 +132,8 @@ plugins/worktree-ops
 plugins/agent-pipelines
 plugins/pstack
 plugins/ai-native-delivery
+plugins/deep-research-evolve
+plugins/tech-code-refactoring
 ```
 
 各客户端的分发入口以其自身文档为准（规范刻意不规定分发机制）。
@@ -145,6 +160,8 @@ qwen extensions install --consent dist/qwen-pstack
 /plugin install agent-pipelines@master0071-plugins
 /plugin install pstack@master0071-plugins
 /plugin install ai-native-delivery@master0071-plugins
+/plugin install deep-research-evolve@master0071-plugins
+/plugin install tech-code-refactoring@master0071-plugins
 ```
 
 本地开发直接指向仓库目录：
@@ -170,6 +187,8 @@ codex plugin add worktree-ops@master0071-plugins
 codex plugin add agent-pipelines@master0071-plugins
 codex plugin add pstack@master0071-plugins
 codex plugin add ai-native-delivery@master0071-plugins
+codex plugin add deep-research-evolve@master0071-plugins
+codex plugin add tech-code-refactoring@master0071-plugins
 ```
 
 Codex 侧只加载 `skills/`、`mcp.json` 与清单内声明的 `hooks`；`commands/`、`agents/` 是 Claude 式宿主的约定，Codex 不加载（effort 分级变体在 `extras/`，任何宿主都不加载）。**注意"声明"与"执行"是两件事**：截至本仓实测（codex-cli 0.163.0，2026-10-23，见 [pstack README](plugins/pstack/README.md)「宿主支持」节），Codex **没有执行**插件清单里声明的 hook——声明仍保留（宿主支持后无需再改插件），但在那之前不要按"hook 已生效"规划你的闸门。
@@ -185,6 +204,8 @@ omp plugin install agent-pipelines@master0071-plugins
 omp plugin install systemone-decision@master0071-plugins
 omp plugin install worktree-ops@master0071-plugins
 omp plugin install ai-native-delivery@master0071-plugins
+omp plugin install deep-research-evolve@master0071-plugins
+omp plugin install tech-code-refactoring@master0071-plugins
 ```
 
 市场目录有缓存，仓库改动后用 `omp plugin marketplace update master0071-plugins` 刷新；`omp plugin upgrade` 会把已装插件升到目录里的版本。
@@ -195,7 +216,7 @@ Oh My Pi 侧与 Codex 不同：它**会加载 `agents/` 与 `commands/`**（cave
 
 ## 配置
 
-五个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
+七个插件都不需要任何私有配置。systemone-decision 首次使用需设置 API Key——`mcp.json` 里不写任何凭据，Key 只从环境变量读（各宿主都没有安全的凭据存储）：
 
 ```
 setx SYSTEMONE_API_KEY "你的Key"
@@ -205,7 +226,7 @@ setx SYSTEMONE_API_KEY "你的Key"
 
 agent-pipelines 无需配置：模型不写死，回退宿主会话默认模型。
 
-五个插件都要求 **Node.js ≥ 18**（脚本与 MCP 服务均为零依赖纯 Node），且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。带 MCP 服务的三个插件（systemone-decision / worktree-ops / ai-native-delivery）另需 git。自检：`node --version && git --version`。
+除 deep-research-evolve（纯 skills、无脚本与 MCP）外，六个插件都要求 **Node.js ≥ 18**（脚本与 MCP 服务均为零依赖纯 Node），且 `node` 在**宿主启动 MCP 服务时使用的 PATH** 里——`mcp.json` 的 `command` 是裸名 `node`（Agent Plugins 规范允许的解释器写法），由宿主按平台搜索规则解析。宿主若用受限环境启动子进程导致 PATH 里没有 node，服务会起不来，属宿主侧问题。带 MCP 服务的三个插件（systemone-decision / worktree-ops / ai-native-delivery）另需 git。自检：`node --version && git --version`。
 
 worktree-ops 无需凭据，根目录须先配置（未配置时 `worktree_create` 拒绝创建）。要改位置有三层，按优先级从高到低：环境变量 `WORKTREE_ROOT` / `WORKTREE_BASE_REF` / `WORKTREE_BRANCH_PREFIX` / `WORKTREE_STALE_DAYS`，配置文件里的单仓库覆盖（会话里调 `worktree_config`），配置文件里的全局值。配置文件默认落在 `%APPDATA%\worktree-ops\config.json`（macOS / Linux 为 `~/.config/worktree-ops/config.json`），用 `WORKTREE_CONFIG_HOME` 可整体改路径；ZCode 上这四项已映射进插件设置页。完整说明见[插件 README](plugins/worktree-ops/README.md)。
 

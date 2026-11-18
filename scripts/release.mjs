@@ -52,6 +52,26 @@
 //     mcp/protocol.mjs 的 SERVER_INFO.version ×1（服务端身份在协议层）
 //     根 README.md 插件表版本 ×1
 //
+//   deep-research-evolve（7 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     根 README.md 插件表版本 ×1
+//     纯 skills 插件：无 serverInfo 版本位；.agents/plugins/marketplace.json 不带条目版本（Codex 市场根清单）
+//
+//   tech-code-refactoring（7 处）：
+//     市场清单条目版本 ×2：marketplace.json（ZCode 兼容垫片，非 Agent Plugins 标准）
+//                 .omp-plugin/marketplace.json（Oh My Pi 市场目录，非标准）
+//     插件清单 ×4：plugin.json（Agent Plugins 标准清单，权威来源）
+//                 .zcode-plugin/plugin.json（非标准 ZCode 兼容垫片）
+//                 .codex-plugin/plugin.json（非标准 Codex 兼容垫片）
+//                 .omp-plugin/plugin.json（非标准 Oh My Pi 兼容垫片）
+//     根 README.md 插件表版本 ×1
+//     纯 skills 插件（skills 内置一个零依赖分析脚本，无 MCP）：无 serverInfo 版本位；.agents/plugins/marketplace.json 不带条目版本（Codex 市场根清单）
+//
 // 根 .agents/plugins/marketplace.json（Codex 市场根清单）不带条目版本：Codex 的市场 schema
 // 里 plugins[] 只有 name / source / policy / category，版本从各插件的 .codex-plugin/plugin.json 读，
 // 因此它不进 MARKETS，只作为 Codex 侧的插件发现入口。
@@ -115,6 +135,16 @@ const PLUGINS = {
     jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('ai-native-delivery', f)),
     markets: MARKETS,
     serverInfo: inPlugin('ai-native-delivery', 'mcp/protocol.mjs'),
+  },
+  'deep-research-evolve': {
+    currentFrom: inPlugin('deep-research-evolve', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('deep-research-evolve', f)),
+    markets: MARKETS,
+  },
+  'tech-code-refactoring': {
+    currentFrom: inPlugin('tech-code-refactoring', 'plugin.json'),
+    jsonFiles: PLUGIN_MANIFESTS.map((f) => inPlugin('tech-code-refactoring', f)),
+    markets: MARKETS,
   },
 };
 

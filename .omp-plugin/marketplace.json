@@ -71,6 +71,37 @@
         "mcp",
         "productivity"
       ]
+    },
+    {
+      "name": "deep-research-evolve",
+      "source": "./plugins/deep-research-evolve",
+      "version": "0.1.0",
+      "description": "深度研究全流程插件：四个技能覆盖「一次性多源调研（deep-research，子问题拆解→检索→交叉验证→带引用报告）→ 档案化自主进化（evolve，research/ 主题档案 + 增量复研修订旧结论 + 定时重访）→ 单文件交互式可视化报告（visual-report，内联 SVG 图表 + 暗亮双主题 + 引用溯源）→ 对比评估矩阵（benchmark，加权维度打分 + 雷达图 + 敏感性检验）」。调研结论持续沉淀为可检索的研究档案库，新调研自动复用旧证据避免重复劳动。内置联网即用（WebSearch/WebFetch），可选增强：browser-use 浏览器（SPA/登录后页面抓取）、repowiki（仓库内调研）；零外部 MCP 依赖。",
+      "category": "productivity",
+      "keywords": [
+        "research",
+        "deep-research",
+        "benchmark",
+        "visualization",
+        "report"
+      ]
+    },
+    {
+      "name": "tech-code-refactoring",
+      "source": "./plugins/tech-code-refactoring",
+      "version": "0.2.0",
+      "description": "技术债六步重构工作流技能包：code-analyzer 多语言 AST 量化摸底（9 语言函数级复杂度/依赖/循环依赖/DDD 启发式结构报告 + 模型人工研判）→ agent-git-oracle Git 历史侦债（变更热点×复杂度交叉定位债区）→ uncle-bob SOLID 整洁评审（P0-P2 findings）→ code-refactoring 安全重构手法（先测后重、小步原子、行为不变判据）→ system-architect 目标架构对齐（模块化判据 + ADR + ARCHITECTURE.md）→ simplify 行为不变减法收尾（删死代码/缩嵌套/收窄公共面），refactoring-workflow 作路由编排与出圈保护。量化脚本零安装即用（Node ≥ 18，AST 引擎 vendored tree-sitter 随插件分发，来源与许可见插件 NOTICE.md），单文件小任务走轻道；skill 与脚本全原创。",
+      "category": "productivity",
+      "keywords": [
+        "refactoring",
+        "technical-debt",
+        "solid",
+        "clean-code",
+        "architecture",
+        "code-quality",
+        "git-analysis",
+        "productivity"
+      ]
     }
   ]
 }

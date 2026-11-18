@@ -1,4 +1,7 @@
 node_modules/
+# Python 字节码缓存（任何本地 Python 脚本运行都会产生）
+__pycache__/
+*.pyc
 .env
 .env.*
 *.log

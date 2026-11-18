@@ -1,7 +1,7 @@
 # 全仓库测试门禁：
-#   1. 版本位一致性（scripts/release.mjs --check：5 插件 × 各 7-8 处版本位）
+#   1. 版本位一致性（scripts/release.mjs --check：7 插件 × 各 7-8 处版本位）
 #   2. 垫片一致性 + skill 名唯一性 + CI 引用「已入库」对账（scripts/manifest-lint.mjs，含其反证自测）
-#   3. 五个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
+#   3. 六个插件的全部 node 测试套件（零依赖，Node ≥ 18 即可跑；逐条在下方各插件步骤里列明）
 # pstack extras 的 bun 测试套件不进 CI：仅上游 POSIX 验证，Windows 下有平台性失败
 #（见 plugins/pstack/extras/README.md），待其适配后再纳入。
 # ai-native-delivery 的提示面 eval 套件（test/eval.mjs）不进 CI：真实调用模型（claude -p）
@@ -88,6 +88,11 @@ jobs:
           # check-plan.mjs 是已发布的随装随用脚本，此前唯一测试在 extras/ 的 bun 套件里
           # （CI 明写不纳入、Windows 有平台性失败）= 任何平台零守护。本条是 node:test 重写版。
           node test/check-plan.test.mjs
+      - name: tech-code-refactoring tests
+        run: |
+          cd plugins/tech-code-refactoring
+          node test/analyze.test.mjs
+          node test/ast.test.mjs
       # ai-native-delivery 常驻面棘轮：sections/hard 只减不增、bytes 上限，超限即红
       - name: ai-native-delivery ratchet
         run: node plugins/ai-native-delivery/scripts/rule-budget.mjs --all

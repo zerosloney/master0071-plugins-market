@@ -317,6 +317,10 @@ node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 
 ## 版本变更
 
+**0.3.18**
+
+底座 2.6.1→2.8.0 同步——stage-gates commitmentFingerprint 归一补 + ⑤' 表格证据列置空（fb9d026/issues #67 判据级移植，插件扩展豁免谓词=证据∪状态）；confirm-doc.test 补 S74 八态用例（141/0 全绿）；independent-reviewer 增「实现者模型族」必填输入与跨模型三阶判定（#28）；PR 面板评审收敛改进（#29，advisory 契约文本，pr-review.mjs 零改动）——pr-finder 同类合并/增量去重、pr-verifier 增量复核、pr-adjudicator 台账口径、pr-review.md 步骤 4 收敛控制。
+
 **0.3.14**
 
 交付工作台主题切换——页面颜色深/浅双主题：顶栏切换钮二态（`html[data-theme=light]` 浅色变量组，冷白系与深色逐变量对照；默认深色零回归），偏好记忆 `localStorage.workbenchTheme`（刷新保持），内嵌全景 iframe `theme` 参数跟随联动（浅色→去参还原 dev-tour 默认浅色；tourUrl 单源出参）。board-server +⑳（21/0）。
