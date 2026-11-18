@@ -3,7 +3,7 @@
 // tmp git 仓 spawn 真实 CLI。断言：①越界红（--strict 点名未声明文件）；②未落件仅 advisory；
 // ③盲面警告（产品面改动无 plan 变更）；④incident 立档 → 降级提示；⑤L0 按提交粒度豁免（含明细打印）；
 // ⑥L0 超上限不豁免；⑦首父链：合并带入的目标分支变更不判越界（combined diff）；⑧新分支首推 skip；
-// ⑨plan 不可读 fail-loud exit 2。
+// ⑨plan 不可读 fail-loud exit 2；⑩归档回退取 plans 副本不撞同名 intent（archived-plan-not-intent，2026-11-18 实证）。
 // 零依赖，Node ≥ 18 直接运行：node test/check-scope-range.test.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -158,6 +158,27 @@ const PLAN_APPROVED = (name, declared) => `---\n状态: approved\n级别: L1\n�
   fs.rmSync(path.join(root, 'workflow', 'plans', 'gone.md')); // 工作区删掉（只在 HEAD 里）
   const r = run(root, base, rev(g, 'HEAD'), ['--strict']);
   check('⑨ 范围内 plan 工作区不可读 → exit 2 fail-loud', r.status === 2 && r.stderr.includes('plan 不可读'), `exit=${r.status}\n${r.stdout}${r.stderr}`);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑩ 归档回退撞名：同名 intent 副本不得截胡 plans 副本（archived-plan-not-intent） ----
+{
+  const { root, g } = mkRepo();
+  const base = rev(g, 'HEAD');
+  write(root, 'workflow/plans/x.md', PLAN_APPROVED('x', ['src/ok1.md']));
+  commit(g, 'feat(x): plan 先行');
+  // closeout 归档：plans 副本 + 同 basename intent 文档（无声明章节），live 路径删除。
+  // ls-tree 字母序 intents 先于 plans——只按 basename 匹配会撞取 intent 副本（声明归零 → 落件误判越界）。
+  write(root, 'workflow/archive/2026-11/plans/x.md', PLAN_APPROVED('x', ['src/ok1.md']));
+  write(root, 'workflow/archive/2026-11/intents/x.md', '# INTENT — x\n\n无改动面/任务拆解/改动方案章节。\n');
+  fs.rmSync(path.join(root, 'workflow', 'plans', 'x.md'));
+  commit(g, 'chore(x): closeout 归档（plans + 同名 intents）');
+  write(root, 'src/ok1.md', 'ok\n'); // plan 声明的落件，本提交不带 plan 变更
+  commit(g, 'feat(x): 代码落件');
+  const head = rev(g, 'HEAD');
+  const r = run(root, base, head, ['--strict']);
+  check('⑩ archived-plan-not-intent：归档回退取 plans 副本不撞同名 intent → 声明 1、不误判越界',
+    r.status === 0 && !r.stdout.includes('越界件') && r.stdout.includes('声明 1 '), `exit=${r.status}\n${r.stdout}${r.stderr}`);
   fs.rmSync(root, { recursive: true, force: true });
 }
 

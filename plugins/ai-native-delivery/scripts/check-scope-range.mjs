@@ -121,14 +121,16 @@ for (const rel of plansInRange) {
   }
   // 归档回退：closeout 把 plan 移入 workflow/archive/** 并从 live 路径删除，推送范围恰含归档提交时
   // live 路径与 HEAD 树都查不到（自举首推实证：关单推送被自己的门拦住）。
-  // 定位判据：**归档树里存在同名文件**（workflow/archive/** 下按 basename 匹配）才回退到该副本；
+  // 定位判据：**归档树 plans 子树下存在同名文件**（workflow/archive/**/plans/ 按 basename 匹配）才回退到该副本；
+  // 不收 intents 等同名副本：归档惯例 plan/intent 同 basename，ls-tree 字母序 intents 先于 plans，只按 basename
+  // 撞名会取到 intent 副本 → 无「改动面/改动方案」章节 → 声明归零、plan 声明面整份丢失（2026-11-18 实证）。
   // 若只是工作区被删而归档树里没有副本，仍按「不可读」fail-loud——否则「被删即静默放行」会把
   // 一个 fail-loud 保障变成静默通过（回归用例 ⑨ 实测）。
   // 不依赖 git 的 rename 探测：closeout 的移动在 `--diff-filter=R` 下未必被判为 R（实测为 D）。
   const show = (treePath) => spawnSync('git', ['-C', ROOT, 'show', treePath], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
   const base = path.posix.basename(rel);
   const ls = spawnSync('git', ['-C', ROOT, 'ls-tree', '-r', '--name-only', 'HEAD', '--', 'workflow/archive'], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-  const archivedPath = (ls.stdout || '').split(/\r?\n/).filter(Boolean).find((p) => path.posix.basename(p) === base) || null;
+  const archivedPath = (ls.stdout || '').split(/\r?\n/).filter(Boolean).find((p) => /(^|\/)plans\//.test(p) && path.posix.basename(p) === base) || null;
   const content = archivedPath ? show(`HEAD:${archivedPath}`) : { status: 1, stdout: '' };
   if (content.status !== 0 || !content.stdout) {
     console.error(`check-scope-range: plan 不可读（live 缺失且归档树无同名副本）: ${rel}`);

@@ -230,5 +230,41 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// S13 抓取表达力扩容（2026-11-18 推送实证）：extractDeclared 三正则——
+// 无扩展名带目录（vendored LICENSE-*）与点开头根文件（.gitignore）两类真实形态入声明清单；
+// 散文 / 裸词由 declAccepted 兜底拒绝不爆炸；三正则重叠命中与重复声明行去重
+{
+  const { extractDeclared } = await import(pathToFileURL(CLI).href);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-ext-'));
+  fs.mkdirSync(path.join(root, 'vendor', 'dir'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'vendor', 'dir', 'LICENSE-foo'), 'license\n'); // 无扩展名带目录，真实存在
+  fs.writeFileSync(path.join(root, '.gitignore'), 'node_modules\n');             // 点开头根文件，真实存在
+  const plan = path.join(root, 'p.md');
+  fs.writeFileSync(plan, [
+    '## 改动面',
+    '- vendor/dir/LICENSE-foo：vendored 许可文件（带目录无扩展名）',
+    '- .gitignore：点开头根文件',
+    '- 散文行混写 and/or README 之类裸词（无真实文件，不得入声明）',
+  ].join('\n'), 'utf8');
+  const declared = extractDeclared(plan, root);
+  check('S13 带目录无扩展名文件被抓取（vendored LICENSE 形态）', declared.includes('vendor/dir/LICENSE-foo'), JSON.stringify(declared));
+  check('S13b 点开头根文件被抓取（.gitignore 形态）', declared.includes('.gitignore'), JSON.stringify(declared));
+  check('S13c 散文 and/or 与裸词 README 不入声明（declAccepted 兜底防爆炸）',
+    !declared.includes('and/or') && !declared.includes('README'), JSON.stringify(declared));
+  // 去重：同一 token 多行重复声明 + TOKEN_RE/PATH_RE 重叠命中 → 只计一次
+  fs.writeFileSync(plan, [
+    '## 改动面',
+    '- src/ok.md：改',
+    '- src/ok.md：改（重复声明行）',
+    '- vendor/dir/LICENSE-foo：改',
+    '- .gitignore：改',
+  ].join('\n'), 'utf8');
+  const deduped = extractDeclared(plan, root);
+  const cnt = (t) => deduped.filter((x) => x === t).length;
+  check('S13d 声明去重：重复行与多正则重叠命中均只计一次',
+    cnt('src/ok.md') === 1 && cnt('vendor/dir/LICENSE-foo') === 1 && cnt('.gitignore') === 1, JSON.stringify(deduped));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

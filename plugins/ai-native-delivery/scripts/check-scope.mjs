@@ -42,20 +42,27 @@ export const KNOWN_EXT = new Set(['.md', '.mjs', '.js', '.ts', '.json', '.txt', 
 //   ③ 带目录 + 已知扩展名 → 保留；`...` 省略写法 → 保留（matches 按段通配解析，见下）。
 // root 参数：仓库根（check-scope CLI 传 --root 解析值；check-scope-range / stage-gates 传各自 ROOT）——
 // 「真实存在」判据锚仓库根，不锚 cwd。
+// 2026-11-18 抓取扩容：无扩展名带目录（vendored LICENSE-*）与点开头根文件（.gitignore）两类真实形态
+// 曾漏抓——declAccepted 本可接受（qualified/realFile ✓），抓取层缺口致恒判越界、推送被误硬拦。
+const TOKEN_RE = /[a-zA-Z0-9._\/\\-]+\.[a-zA-Z0-9]+/g;          // 常规形态：字面点+尾段字母数字（原样不变）
+const PATH_RE = /[a-zA-Z0-9_\-]+(?:[\/\\][a-zA-Z0-9._\-]+)+/g;  // 带目录路径：尾段允许无扩展名与点开头（and/or 类散文由 declAccepted 兜底拒绝）
+const DOTFILE_RE = /(?<![a-zA-Z0-9_.\\/])\.[a-zA-Z0-9_\-]+/g;   // 点开头裸文件名（lookbehind 排除路径中段，Node 18 支持）
 export function extractDeclared(planAbs, root = process.cwd()) {
-  const declared = [];
+  const seen = new Set();
   const lines = fs.readFileSync(planAbs, 'utf8').split(/\r?\n/);
   let inSec = false;
   for (const line of lines) {
     if (/^##\s+(改动面|任务拆解|改动方案|验证计划)/.test(line)) { inSec = true; continue; }
     if (inSec && /^##\s+/.test(line)) { inSec = false; continue; }
     if (!inSec) continue;
-    for (const m of line.matchAll(/([a-zA-Z0-9._\/\\-]+\.[a-zA-Z0-9]+)/g)) {
-      const tok = m[1].replace(/\\/g, '/');
-      if (declAccepted(tok, root)) declared.push(tok);
+    for (const re of [TOKEN_RE, PATH_RE, DOTFILE_RE]) {
+      for (const m of line.matchAll(re)) {
+        const tok = m[0].replace(/\\/g, '/');
+        if (declAccepted(tok, root)) seen.add(tok); // Set 去重：三正则重叠命中 / 多行重复声明只计一次
+      }
     }
   }
-  return declared;
+  return [...seen];
 }
 
 // 单 token 接受判据（从 extractDeclared 内联逻辑抽出单源，供 suspiciousDeclarations 复用同口径）：
