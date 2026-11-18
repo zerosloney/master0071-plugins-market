@@ -1,0 +1,15 @@
+{
+  "name": "tech-code-refactoring",
+  "version": "0.2.0",
+  "description": "技术债重构全流程插件：七个技能覆盖「量化摸底（code-analyzer，复杂度/依赖/循环依赖结构报告 + 模型人工研判）→ Git 历史侦债（agent-git-oracle，变更热点×复杂度交叉定位债区与隐性模块）→ 整洁评审（uncle-bob，SOLID 五原则气味 + 整洁代码清单 + P0-P2 findings）→ 安全重构（code-refactoring，先测后重 + 小步原子 + 行为不变判据）→ 架构对齐（system-architect，模块化判据 + ADR + ARCHITECTURE.md）→ 减法收尾（simplify，删死代码/缩嵌套/收窄公共面，全程行为不变）→ 六步编排（refactoring-workflow，路由入口与出圈保护）」。量化脚本零外部依赖（Node ≥ 18），单文件小任务走轻道，出圈即停。",
+  "author": {
+    "name": "master0071",
+    "url": "https://github.com/zerosloney/master0071-plugins-market"
+  },
+  "homepage": "https://github.com/zerosloney/master0071-plugins-market",
+  "repository": "https://github.com/zerosloney/master0071-plugins-market",
+  "license": "MIT",
+  "keywords": ["refactoring", "technical-debt", "solid", "clean-code", "architecture", "code-quality", "git-analysis", "productivity"],
+  "category": "productivity",
+  "skills": "./skills"
+}
