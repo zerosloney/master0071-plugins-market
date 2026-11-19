@@ -1,8 +1,9 @@
 ---
-状态: approved
+状态: done
 级别: L1
 日期: 2026-11-18
 模块: market
+确认指纹: 139a4ef990d1fb59
 ---
 # PLAN — deep-research-evolve 定时任务兼容性与档案库根冲突修复（0.1.0 → 0.1.1）
 
@@ -34,6 +35,13 @@
 - 三门禁全绿：版本位一致性检查（7 插件，deep-research-evolve 七处一致于 0.1.1）、垫片与清单一致性检查（7 插件 × 4 清单、89 skill 名唯一）、门禁自身反证自测（26/0）。
 - CI 引用对账：新测试文件已 `git add` 入库，按 git 索引判据核对工作流文件引用的每个 node 目标均存在且已入库（manifest-lint「CI 引用文件必须已入库」口径）。
 - 回归：tech-code-refactoring 测试套件不受影响（analyze 15/0 + ast 12/0）。
+
+## 验收标准（可测试）
+
+- [x] 契约测试 10/10 全绿（证据：2026-11-20 复跑 `node test/contract.test.mjs` 于插件根 → tests 10 / pass 10 / fail 0；守「解析规则唯一定义在 evolve、三写入方只引用、schedule 不硬编码斜杠命令」三漂移约束 + 新增技能提及 research/ 漏档案库根门的兜底断言）
+- [x] 版本位一致性：deep-research-evolve 7 处一致于 0.1.1（证据：2026-11-20 复跑 `node scripts/release.mjs --check` →「[deep-research-evolve] 7 处版本一致：0.1.1」，7 插件全绿）
+- [x] 垫片与清单一致性（证据：2026-11-20 复跑 `node scripts/manifest-lint.mjs` → 7 插件 × 4 清单、89 skill 名唯一 ✓；含「CI 引用文件必须已入库」口径下 contract.test.mjs 已入库）
+- [x] 邻插插件回归不受影响（证据：2026-11-20 复跑 tech-code-refactoring `node test/analyze.test.mjs` → 15/15、`node test/ast.test.mjs` → 12/12，零失败）
 
 ## 确认与复核
 
