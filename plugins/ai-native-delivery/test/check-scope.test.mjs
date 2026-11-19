@@ -3,6 +3,8 @@
 // 2026-11-13 判据移植（源 8f6a22f84 B 件）：S8-S11 声明粒度收紧（裸名非根件不算声明 /
 // 根真实文件例外 / 带目录后缀 / `...` 段通配）；S2 夹具声明改带目录形态（裸名声明按新判据失效——
 // 属判据收紧的正确行为，修夹具不为绿放水）。
+// 2026-11-20 S14-S15 KNOWN_EXT 白名单守护（008f8fd +'.html' 根修回归）：.html 声明放行
+// （确认时刻 suspiciousDeclarations 与推送门 declAccepted 双口径）+ 非白名单扩展（.exe）仍拦。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -263,6 +265,48 @@ const run = (root, planArgs = []) => spawnSync(process.execPath, [CLI, ...planAr
   const cnt = (t) => deduped.filter((x) => x === t).length;
   check('S13d 声明去重：重复行与多正则重叠命中均只计一次',
     cnt('src/ok.md') === 1 && cnt('vendor/dir/LICENSE-foo') === 1 && cnt('.gitignore') === 1, JSON.stringify(deduped));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- S14–S15 KNOWN_EXT 白名单守护（008f8fd 根修回归，2026-11-14 +'.html'）----
+
+// S14 .html 声明放行：插件已分发 board/dev-tour.html 而扩展集落后时，声明在确认时刻
+// （suspiciousDeclarations）与推送范围门（declAccepted → 越界判定）双拦。夹具根刻意不放真实文件——
+// 「真实文件例外」（realFile）会兜底放行致变异不可杀，KNOWN_EXT 必须是唯一放行路径
+{
+  const { extractDeclared, declAccepted, suspiciousDeclarations } = await import(pathToFileURL(CLI).href);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-known-'));
+  const plan = path.join(root, 'p.md');
+  fs.writeFileSync(plan, [
+    '## 改动面',
+    '- `dist/board.html`：插件分发的模板件',
+    '- `dist/tool.exe`：形似路径的二进制附件（非白名单扩展，应被标记）',
+  ].join('\n'), 'utf8');
+  check('S14 .html 放行（推送门口径）：declAccepted 接受 dist/board.html 且入声明清单',
+    declAccepted('dist/board.html', root) === true && extractDeclared(plan, root).includes('dist/board.html'),
+    JSON.stringify({ acc: declAccepted('dist/board.html', root), declared: extractDeclared(plan, root) }));
+  const sus = suspiciousDeclarations(plan, root);
+  check('S14b .html 放行（确认时刻口径）：suspiciousDeclarations 不标记 dist/board.html',
+    !sus.some((s) => s.token === 'dist/board.html'), JSON.stringify(sus));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// S15 非白名单扩展仍拦（守住 KNOWN_EXT 不无限放宽）：.exe 不在白名单且非真实文件 →
+// 声明被弃（extractDeclared 不收 → 变更件计越界）、确认时刻 suspicious 标记（行号+token）
+{
+  const { extractDeclared, declAccepted, suspiciousDeclarations } = await import(pathToFileURL(CLI).href);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'check-scope-known-'));
+  const plan = path.join(root, 'p.md');
+  fs.writeFileSync(plan, [
+    '## 改动面',
+    '- `dist/tool.exe`：二进制附件（非白名单扩展，应被标记）',
+  ].join('\n'), 'utf8');
+  check('S15 .exe 仍拦（推送门口径）：declAccepted 拒绝 dist/tool.exe 且不入声明清单',
+    declAccepted('dist/tool.exe', root) === false && !extractDeclared(plan, root).includes('dist/tool.exe'),
+    JSON.stringify({ acc: declAccepted('dist/tool.exe', root), declared: extractDeclared(plan, root) }));
+  const sus = suspiciousDeclarations(plan, root);
+  check('S15b .exe 仍拦（确认时刻口径）：suspicious 标记 dist/tool.exe（行号 2）',
+    sus.length === 1 && sus[0].token === 'dist/tool.exe' && sus[0].line === 2, JSON.stringify(sus));
   fs.rmSync(root, { recursive: true, force: true });
 }
 

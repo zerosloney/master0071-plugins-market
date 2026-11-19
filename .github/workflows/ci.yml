@@ -197,5 +197,13 @@ jobs:
           node skills/session-resume/scripts/worktree-audit.test.mjs
           node skills/verify-ui/scripts/gen-verify-feature.test.mjs
           node skills/decision-log/scripts/decision-log.test.mjs
+          node test/auto-tour.test.mjs
+          node test/install-upgrade.test.mjs
+          node test/loop-runner.test.mjs
+          node test/model-call.test.mjs
+          node test/session-context.test.mjs
+          node test/task-scope-gate.test.mjs
+          node test/usage-collect.test.mjs
+          node test/workbench-model.test.mjs
           node test/acceptance.mjs
           node test/e2e-fixture.mjs
