@@ -15,7 +15,11 @@
 //     quote 原话入账供事后对质。
 // 台账：.agents/confirmations.d/<doc 基名>.jsonl 分片（入 git、追加式；2026-10-12 起为默认写入口径，
 //   --no-shard / CONFIRM_SHARDED=0 可回退主台账 .agents/confirmations.jsonl）——每行 {ts, doc, stage,
-//   fingerprint(64位), prev, source:"tty"|"chat-delegated", quote?(仅委托行), batch, seq, of}。
+//   fingerprint(64位), prev, source:"tty"|"chat-delegated", quote?(仅委托行), batch, seq, of,
+//   policyVersion}。
+//   policyVersion（判据移植蓝本 66bf13a BACKLOG 33 任务级规范版本归属，纯增字段、历史行不回填）：
+//   确认时刻的 kit 规范版本，单源 = policy.mjs loadKitPolicy（装户 engine.json 的 policyVersion；
+//   缺失/不可解析按既有契约回退 1，声明越界版本 loadKitPolicy fail-closed throw——插件 2026-11 裁决）。
 //   分片按 doc 命名：跨端确认不同 doc 写不同文件，从根上消除「每合并必冲突 + 手工重建」；同一 doc 被
 //   两端并发确认时由 .gitattributes 的 merge=jsonl-union 驱动取并集（本地须配 merge.jsonl-union.driver，
 //   见 check-local-gates.mjs --fix）。读取侧（check-loop 15/19、stage-gates、gen-workflow-metrics 等）
@@ -348,6 +352,11 @@ if (isMain) {
   // 供 check-loop 检查 15 的并录审计直读（替代「同 quote + ts 接近」的反推）。
   const batch = randomBytes(3).toString('hex');
   let seq = 1;
+  // 规范版本归属（判据移植蓝本 66bf13a BACKLOG 33 任务级规范版本归属）：确认时刻的 kit 规范版本，
+  // 随每条新台账行落账——「这个任务按哪版规范确认过」的直接判定依据。单源 = policy.mjs loadKitPolicy
+  // （装户 .agents/config/engine.json 的 policyVersion；缺失/不可解析回退 1，越界 fail-closed throw，
+  // 见 policy.mjs）；进程内只读一次。
+  const policyVersion = loadKitPolicy(root).policyVersion;
   // 应答来源（**仅测试用**注入，见 CONFIRM_DOC_TEST_ANSWERS）：TTY 多文档路径的 batch/seq/of 是并录
   // 审计的判别基础，必须可端到端验证；而 spawnSync 的管道 stdin 是「写完即关」，readline 会在第二个
   // question 注册前吞掉后续行、且 stdin 已 EOF → 第 2 份必然挂住（**不是无 TTY 的限制**，是管道 EOF；
@@ -445,6 +454,7 @@ if (isMain) {
         quoteGrounding: grounding.reason,
         batch, seq, of: docs.length,
         reconfirm: true, // 重新确认标记（纯增字段、向后兼容）：区别于首次批准行
+        policyVersion, // 规范版本归属（BACKLOG 33 判据移植，单源 loadKitPolicy）：确认时刻 kit 规范版本
       }, { shard: shardMode });
       console.log(`✓ ${doc} 重新确认（状态仍为 approved；内容指纹 ${rfp.slice(0, 16)}，承诺面指纹 ${rcommit}；台账 → ${ledgerFile}）`);
       confirmed++;
@@ -684,6 +694,7 @@ if (isMain) {
         commit: commitFp,
         source: `ai-auto-trust-L${trustConfig.level}`, quote: `AI 自治放行 (Trust Level ${trustConfig.level})`,
         batch, seq, of: docs.length,
+        policyVersion, // 规范版本归属（BACKLOG 33 判据移植，单源 loadKitPolicy）：确认时刻 kit 规范版本
       }, { shard: shardMode });
       console.log(`✓ ${doc} ${st} → ${target}（指纹 ${fp.slice(0, 16)}，AI 自治已记账：source=ai-auto-trust-L${trustConfig.level}；台账 → ${ledgerFile}）`);
       confirmed++;
@@ -732,6 +743,7 @@ if (isMain) {
         // 简洁审计标记（hybrid-governance-risk-lanes）：L1 协作道行带 brief（quote 仍入账供对质），
         // 检查 15 并录审计对全 brief 批次豁免「确认并录」告警
         ...(low ? { brief: true } : {}),
+        policyVersion, // 规范版本归属（BACKLOG 33 判据移植，单源 loadKitPolicy）：确认时刻 kit 规范版本
       }, { shard: shardMode });
       console.log(low
         ? `✓ ${doc} ${st} → ${target} [${lvl} 协作道/异步审计]（指纹 ${fp.slice(0, 16)}；台账 → ${ledgerFile}）`
@@ -756,6 +768,7 @@ if (isMain) {
       commit: commitFp,
       source: 'tty',
       batch, seq, of: docs.length, // 调用事实（形态无关：TTY 多文档天然逐件过目，of>1 不构成违规）
+      policyVersion, // 规范版本归属（BACKLOG 33 判据移植，单源 loadKitPolicy）：确认时刻 kit 规范版本
     }, { shard: shardMode });
     console.log(`✓ ${doc} → ${target}（指纹 ${fp.slice(0, 16)}，台账已记 → ${ledgerFile}）`);
     confirmed++;

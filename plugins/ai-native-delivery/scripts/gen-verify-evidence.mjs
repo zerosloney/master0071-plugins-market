@@ -8,6 +8,10 @@
 //   入库摘要只是把「曾有凭证」从易失升级为难失。
 // 归因提醒（2026-10-10 实证）：短 SHA 只是**基线提交**，不等于被测内容。关单应「先提交、后跑门」，
 //   否则绿行 SHA 指向未含本次改动的上一提交——同一 SHA 可能既有绿行（脏工作区跑）又有红记录。
+// 脏树标注（判据移植蓝本 66bf13a BACKLOG 34）：verify 落账绿行带 dirtyTree 脏树摘要（sha256(porcelain
+//   + diff HEAD) 前 16 位，'' = 干净树，口径见 verify.mjs 头注）；渲染对非空摘要标「非干净树」——把
+//   「verify 绿→commit 之间改码」窗口从纯流程约定升级为渲染面可见事实。'' 与缺字段行不标注
+//   （缺字段 = 存量/未知 ≠ 脏，向前兼容：存量行渲染一字不变）。
 // 追加保全（2026-10-10 复核 S2，用户裁定采纳）：已入仓的行不因本地台账缺失而被抹掉——台账 per-worktree
 //   且 gitignore，整段重写会让跨机/换 worktree 的历史凭证消失。合并口径 = 仓内既有行 ∪ 本地台账绿行，
 //   同 headShort 取更新 ts（平局取本地台账，保持「重跑刷新凭证」语义）。代价（已接受）：仓内错行不会被
@@ -68,6 +72,10 @@ function renderRow(e) {
   // 但此前末列仍显示 `—`，外观与全量绿行无异（实测 11 条被下游当基线用了 20 次）。
   // 显式渲染跳过事实，使「该行没跑哪些门」在摘要面可见，且 parseEvidenceGreens 也会拒作全量锚。
   const envNote = Array.isArray(e.envSkips) && e.envSkips.length ? `skip-env=${e.envSkips.join('+')}` : '';
+  // 脏树标注（判据移植蓝本 66bf13a BACKLOG 34）：非空 dirtyTree 摘要 → 「非干净树」；'' 干净 / 缺字段
+  // 存量·未知行不标注（未知 ≠ 脏，不误标；向前兼容）。列位居 envNote 之后、head/src 对质注之前
+  // （插件 headNote/srcNote 两注保留不动）。摘要本体随绿行留在本地台账，渲染面只标事实。
+  const dirtyNote = typeof e.dirtyTree === 'string' && e.dirtyTree ? '非干净树' : '';
   // head 锚 + 门脚本 src（closeout-anchor 2026-11-05）：入库视图携带对质事实——head = 凭证行
   // 锚定的 HEAD 全 SHA；src 只列有解析路径的门（`src=<门>:<路径>`，项目侧桩路径相对根显示，
   // null src 省略）。拼进末列，5 列行形态不变（verify-scope.parseEvidenceGreens 正则不可破）。
@@ -75,7 +83,7 @@ function renderRow(e) {
   const srcNote = Array.isArray(e.gates)
     ? e.gates.filter((g) => g && typeof g.src === 'string' && g.src).map((g) => `src=${g.id}:${displayPath(g.src)}`).join('+')
     : '';
-  return `| \`${e.headShort}\` | ${e.ts} | ${gateCnt} | ${cnt} | ${[scopeNote, flakyNote, fastNote, envNote, headNote, srcNote, e.runId].filter(Boolean).join(' ') || '—'} |`;
+  return `| \`${e.headShort}\` | ${e.ts} | ${gateCnt} | ${cnt} | ${[scopeNote, flakyNote, fastNote, envNote, dirtyNote, headNote, srcNote, e.runId].filter(Boolean).join(' ') || '—'} |`;
 }
 
 /**
@@ -117,7 +125,7 @@ function render() {
   lines.push('# 验证绿凭证摘要（生成物，勿手改）');
   lines.push('');
   lines.push('> 生成器 `node <插件根>/scripts/gen-verify-evidence.mjs`（verify.mjs 全绿尾部自动重生成，2026-10-11 C4 起；源 .agents/verifications.jsonl 为本地台账）。');
-  lines.push('> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证；`head=<SHA>` 为该凭证行锚定的 HEAD 全 SHA、`src=<门>:<路径>` 为该门脚本的解析来源（项目侧 .agents/scripts 桩替换可对质，2026-11-05 closeout-anchor）。非签名链——诚实边界同 check-loop 检查 15。');
+  lines.push('> 一行 = 验证时刻**工作树**过全量门禁全绿（短 SHA 为该时刻的**基线提交**，工作树可能含未提交改动——关单宜「先提交、后跑门」）；`计数` 为断言 PASS/FAIL（无汇总行时缺省）。末列 `scope=diff(base=…,skip=N)` 行为增量关单凭证（verify --scope：未触产品重门，实跑门数见门数列，口径见 verify-scope.mjs）；`src=evidence` 表示基线取自本文件（仓库凭证）而非本地台账；`flaky=<门>` 表示该门首跑红、隔离重跑绿（gate-health 2026-10-22）；`fast=engine-tests` 表示 diff 档 engine-tests 用了 --fast（2026-10-23 分层跑）；`skip-env=<门>` 表示本地 loud-skip 了 CI-only 门（2026-10-27 anchor-envskip）——带此前缀的行**不作全量锚**，与 scope/fast 同属裁剪凭证；`head=<SHA>` 为该凭证行锚定的 HEAD 全 SHA、`src=<门>:<路径>` 为该门脚本的解析来源（项目侧 .agents/scripts 桩替换可对质，2026-11-05 closeout-anchor）；`非干净树` 表示落账时工作树有未提交改动（dirtyTree 脏树摘要随绿行入本地台账，短 SHA 不覆盖这些改动——关单宜「先提交、后跑门」，判据移植蓝本 66bf13a BACKLOG 34）。非签名链——诚实边界同 check-loop 检查 15。');
   lines.push('> 行来源 = 本地台账绿行 ∪ 本文件既有行（**追加保全**：跨机 / 换 worktree 不失历史；代价：错行不会被重生成自动纠正，须人工改正后重跑）。');
   lines.push('');
   lines.push('| 提交(短SHA) | 时间(UTC) | 门数 | 断言计数 | runId |');

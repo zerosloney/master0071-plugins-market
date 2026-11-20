@@ -108,5 +108,33 @@ const GREEN = (headShort, ts, extra = {}) => ({ ts, exitCode: 0, suite: 'all-gat
   fs.rmSync(d, { recursive: true, force: true });
 }
 
+// 场景 6：脏树标注（判据移植蓝本 66bf13a BACKLOG 34）——非空 dirtyTree 渲染「非干净树」；
+// ''（干净树可判定零值）与缺字段（存量/未知）行不标注且渲染与改前逐字节一致（向前兼容）。
+// 列位居 envNote 之后、head/src 对质注之前（插件 headNote/srcNote 两注保留不动）。
+{
+  const d = mkfix([
+    GREEN('dddddd1', '2026-11-18T01:00:00Z', { dirtyTree: '' }), // 干净树：'' 不标注
+    GREEN('eeeeee2', '2026-11-18T02:00:00Z', { dirtyTree: '0123456789abcdef' }), // 脏树：16hex 标注
+    GREEN('ffffff3', '2026-11-18T03:00:00Z'), // 存量无字段：未知不标注
+    { ts: '2026-11-18T04:00:00Z', exitCode: 0, suite: 'all-gates', head: 'c'.repeat(40), headShort: 'gggggg4', passed: 5, failed: 0, dirtyTree: 'aaaabbbbccccdddd', scope: { mode: 'diff', base: 'aaaaaaa', baseSource: 'ledger', skipped: ['s1', 's2'] }, envSkips: ['wiki-consistency'] }, // 脏树 + scope/envNotes：列序 = envNote → dirtyNote → headNote
+  ]);
+  const r = run(d);
+  const doc = fs.readFileSync(path.join(d, 'workflow', 'verify-evidence.md'), 'utf8');
+  const rowOf = (sha) => doc.split(/\r?\n/).find((l) => l.trim().startsWith(`| \`${sha}\``));
+  check("场景 6：'' 干净树行不标注「非干净树」且与改前渲染逐字节一致",
+    r.code === 0 && rowOf('dddddd1') === '| `dddddd1` | 2026-11-18T01:00:00Z | 14 | PASS 664 / FAIL 0 | — |', `row=${rowOf('dddddd1')}`);
+  check('场景 6：16hex 脏树行标注「非干净树」', rowOf('eeeeee2') === '| `eeeeee2` | 2026-11-18T02:00:00Z | 14 | PASS 664 / FAIL 0 | 非干净树 |', `row=${rowOf('eeeeee2')}`);
+  check('场景 6：缺字段存量行不标注且与改前渲染逐字节一致（向前兼容）',
+    rowOf('ffffff3') === '| `ffffff3` | 2026-11-18T03:00:00Z | 14 | PASS 664 / FAIL 0 | — |', `row=${rowOf('ffffff3')}`);
+  const rowG = rowOf('gggggg4');
+  const envPos = rowG.indexOf('skip-env=wiki-consistency');
+  const dirtyPos = rowG.indexOf('非干净树');
+  const headPos = rowG.indexOf('head=');
+  check('场景 6：多尾注行列序 = envNote → 非干净树 → head（headNote/srcNote 保留不动）',
+    rowG.includes('非干净树') && envPos >= 0 && dirtyPos > envPos && headPos > dirtyPos, `row=${rowG}`);
+  check('场景 6：重生成幂等（--check 一致）', run(d, '--check').code === 0, run(d, '--check').out);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);

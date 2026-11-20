@@ -814,6 +814,68 @@ SCEN(async () => {
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+// ---- 历史基线声明三级化（2026-11-20 issue #69，判据移植自 agentic-flow-kit 4416666）：
+// env LEDGER_HISTORY_BASELINE（测试覆盖口）> 仓库声明文件 .agents/notes/ledger-history-baseline.md
+// > 内置基线（只对源仓有效，夹具仓解析不出）。LB1 无声明 → loud WARN 指明声明方式 + 全史；
+// LB2 声明文件有效 → 按声明基线豁免；LB3 env 与声明同值不算「测试用覆盖口」；LB4 env 垃圾值
+// 回落仓库声明基线（消息指明来源），不退全史。
+// 共用造仓：合法追加一笔后整册改写（前缀破坏、无 manifest）——基线生效与否直接决定 exit 码。
+// env 显式置空串：宿主 shell 残留的 LEDGER_HISTORY_BASELINE 会颠倒「无声明」场景的裁决。
+const noBaseEnv = { LEDGER_HISTORY_BASELINE: '' };
+const baselineNotes = (d, sha) => {
+  fs.mkdirSync(path.join(d, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(path.join(d, '.agents', 'notes', 'ledger-history-baseline.md'), `LEDGER_HISTORY_BASELINE=${sha}\n`);
+};
+const mkBaselineRepo = () => {
+  const d = mkrepo();
+  append(d, row({ ts: '2026-10-02T01:00:00.000Z', stage: 'done' }));
+  commitAll(d, 'append');
+  fs.writeFileSync(ledPath(d), row({ ts: '2026-10-02T02:00:00.000Z', quote: '改写' }) + '\n');
+  commitAll(d, 'rewrite pre-baseline');
+  const head = G(d, ['rev-parse', 'HEAD']).stdout.trim();
+  return { d, head };
+};
+// LB1：装户仓形态（内置基线在本仓解析不出）缺声明与 env → loud WARN 含声明方式 + 全史扫描（改写被抓）
+SCEN(async () => {
+  const { d } = mkBaselineRepo();
+  const r = run(d, [], noBaseEnv);
+  check('LB1 缺声明与 env → WARN 含声明方式（声明文件 + 环境变量两条路）+ 全史扫描',
+    r.code === 1 && r.out.includes('未声明历史基线') && r.out.includes('.agents/notes/ledger-history-baseline.md')
+    && r.out.includes('LEDGER_HISTORY_BASELINE') && r.out.includes('全史扫描'),
+    `code=${r.code}\n${r.out.slice(-400)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+// LB2：声明文件有效（基线 = HEAD）→ 按声明基线豁免，改写提交不在扫描面 → exit 0
+SCEN(async () => {
+  const { d, head } = mkBaselineRepo();
+  baselineNotes(d, head);
+  const r = run(d, [], noBaseEnv);
+  check('LB2 声明文件有效 → 按声明基线豁免（exit 0 + 豁免 info，无覆盖/未声明告警）',
+    r.code === 0 && /豁免/.test(r.out) && !r.out.includes('覆盖生效') && !r.out.includes('未声明历史基线'),
+    `code=${r.code}\n${r.out.slice(-400)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+// LB3：env 与仓库声明同值 → 不算「测试用覆盖口」，不刷覆盖告警，裁决与仅声明一致
+SCEN(async () => {
+  const { d, head } = mkBaselineRepo();
+  baselineNotes(d, head);
+  const r = run(d, [], { LEDGER_HISTORY_BASELINE: head });
+  check('LB3 env 与声明同值 → 无「覆盖生效」告警且 exit 0（同值不算测试用覆盖口）',
+    r.code === 0 && !r.out.includes('覆盖生效') && !r.out.includes('测试用覆盖口'),
+    `code=${r.code}\n${r.out.slice(-400)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+// LB4：env 覆盖值解析失败 → 回落仓库声明基线（WARN 指明来源）、不退全史——声明基线仍豁免改写提交
+SCEN(async () => {
+  const { d, head } = mkBaselineRepo();
+  baselineNotes(d, head);
+  const r = run(d, [], { LEDGER_HISTORY_BASELINE: 'deadbee' });
+  check('LB4 env 垃圾值 → 回落仓库声明基线（消息指明来源、不退全史，改写仍被声明豁免 exit 0）',
+    r.code === 0 && r.out.includes('回落仓库声明基线') && r.out.includes('不退全史') && !r.out.includes('覆盖生效'),
+    `code=${r.code}\n${r.out.slice(-400)}`);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 // ---- 历史索引改造（2026-10-27 ledger-history-index）：批量读须与逐个读同裁决 ----
 // 背景：293 条路径 × 每路径一次 `git log` = 159s，2397 次 `git show` = 123s；改为一次
 // `git log -m --full-history --name-only` 建倒排 + `cat-file --batch` 批量读（全门 479s → 4s）。

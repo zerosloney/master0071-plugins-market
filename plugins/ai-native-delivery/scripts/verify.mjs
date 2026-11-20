@@ -2,7 +2,11 @@
 // verify.mjs — 统一静态门编排（2026-10-09 质量增强版；2026-10-09 守护者自守护批次）
 // 用途：在关单或 CI 前一键过门——执行全部静态检查，逐项输出 pass/fail。
 // 语义：单源口径。确保本地 run-verify 与 Azure Pipeline 行为 100% 一致。
-// 凭证落账：全绿才落绿凭证；任一步红即落失败行，供根因分析。
+// 凭证落账：全绿才落绿凭证；任一步红即落失败行，供根因分析。绿/失败行均带 dirtyTree 脏树摘要
+//         （判据移植蓝本 66bf13a BACKLOG 34）：sha256(`git status --porcelain` 输出 + `git diff HEAD` 内容)
+//         前 16 位——绑定「验证时刻工作树 = 基线提交 + 未提交改动」，封「verify 绿→commit 之间改码」窗口。
+//         口径：干净树 = ''（porcelain 空，不再问 diff）；脏树 = 16 位 hex；git 不可用 / 非 git 根 =
+//         省略键（未知口径，同 headShort 降级风格，消费侧按未知处理）；存量无字段行 = 未知，不回填。
 // 自守护：scripts-syntax / engine-tests 两门守引擎自身（2026-10-09 审计 P0-1：本文件曾因
 //         SyntaxError 进 CI 而全链静默）。--test-cmd 为 fixture 测试注入缝：给了它则只跑
 //         [test, check-loop] 两步夹具，绿行带 testCmd:true 标记（生产凭证不与之混淆，
@@ -68,6 +72,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { computeDiffScope, parseEvidenceGreens, EVIDENCE_REL } from './verify-scope.mjs';
 import { classifyFailure } from './failure-attribution.mjs';
+import { dirtyTreeDigest } from './git-tree-digest.mjs';
 // 路径收口（2026-10-27 插件化迁移）：SCRIPT_DIR 落插件内（paths.mjs 单源）；项目根仍 git root 锚定
 //（CHECK_LOOP_ROOT fixture 注入原样保留）。锚点根（脚本定位/配置读取）非 git 环境回退插件根本身
 //（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；**账本根不回退**——见 LEDGER 与 paths.mjs ledgerRoot。
@@ -359,6 +364,10 @@ const recordFailure = (step, exitInfo, note, attribution) => {
     // 存量豁免（判据移植）：此锚前的失败行与全部绿行（绿行无失败可归因，attribution 只标注失败，
     // 恒不落）可缺该字段——消费侧按未知处理，不回填不追溯。
     if (attribution) entry.attribution = attribution;
+    // 脏树摘要（判据移植蓝本 66bf13a BACKLOG 34）：失败行同样钉住当时工作树，红/绿同口径可对质
+    //（'' 干净 / hex 脏 / 缺键未知——git 不可用省键；完整口径见头注「凭证落账」段）。
+    const dirtyTree = dirtyTreeDigest(ROOT);
+    if (dirtyTree !== null) entry.dirtyTree = dirtyTree;
     if (process.env.PIPELINE_RUN_ID) entry.runId = process.env.PIPELINE_RUN_ID;
     if (!LEDGER.writable) {
       console.error(`[verify] ⚠️ ${ledgerRefusal(LEDGER.status, LEDGER.detail)}（本次红行未落账：suite=${step}）`);
@@ -920,6 +929,10 @@ async function run() {
       // 夹具、绿行无 SHA 可锚定验证对象；非 git 环境（fixture 根在 os.tmpdir）解析失败则省略该键，不伪造。
       const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS });
       if (rev.status === 0 && rev.stdout) entry.headShort = rev.stdout.trim();
+      // 脏树摘要（判据移植蓝本 66bf13a BACKLOG 34）：'' = 干净树 / 16 位 hex = 脏树 / 缺键 = 未知（git 不可用）——
+      // 口径见头注「凭证落账」段与 git-tree-digest.mjs；gen-verify-evidence 对非空摘要渲染「非干净树」标注。
+      const dirtyTree = dirtyTreeDigest(ROOT);
+      if (dirtyTree !== null) entry.dirtyTree = dirtyTree;
       const counts = parseCounts(outputs['engine-tests'] || outputs['test'] || '');
       if (counts) Object.assign(entry, counts);
       // 门禁成本入账（G8）：逐门毫秒 + 总耗时，metrics 消费。

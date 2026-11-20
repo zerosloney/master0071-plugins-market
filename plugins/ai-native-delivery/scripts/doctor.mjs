@@ -6,6 +6,8 @@
 // 蓝图（agentic-flow-kit doctor 模式）：检查项数组 { ok, name, detail, fix }，逐项一行 `✓/✗ 名称 — 详情`，
 //   ✗ 项下一行缩进给 `修复：<可直接复制执行的命令>`；检查项之间独立失败（一项 ✗ 不中断其余，
 //   单项内部抛错只折损自己）；全部通过 exit 0，任一失败 exit 1。
+//   warn 第三态（2026-11-20 issue #69 移植，蓝本 agentic-flow-kit 4416666）：检查项可带 warn:true——
+//   纯 advisory（不构成安装缺陷），渲染 ⚠ 行（区别于 ✓/✗）、照常给修复提示，但**不计入 exit 码**。
 // 检查面：
 //   a 项目根             git 仓可用、root 可锚定（显式 --root 也须在 git 仓内）
 //   b 安装台账           <root>/.agents/install-manifest.json 在位且可解析（缺失/损坏 → 重跑即领养）
@@ -19,6 +21,8 @@
 //                       文案照 pretool-risk 的回退语义（WARN + 内置地板继续执法）说明现状。
 //   g engine.json        policyVersion 与插件种子一致；不一致即漂移——只给「手改对齐 / 确认保留」
 //                       两个选项，不给强制命令（项目侧 engine.json 属项目自治，init 不自动覆盖）。
+//   h 台账历史基线声明    ⚠ advisory（issue #69）：已有确认台账而声明文件与环境变量皆缺 → 提示补
+//                       声明（缺声明时台账校验按全史扫描，装户首跑易报历史遗留违规）。
 // 用法：node scripts/doctor.mjs [--root <仓库根>]（缺省 root 用 findProjectRoot() 锚定 git 仓库根）
 // 测试：node test/doctor.test.mjs（黑盒：临时 git 仓 spawn 真实 CLI）
 import fs from 'node:fs';
@@ -87,7 +91,8 @@ function bakedEngineScript(hookAbs, constName = 'ENGINE_SCRIPT') {
  * runDoctor(root)：对已解析（或 null）的项目根跑全部检查项。检查项独立失败——单项内部抛错折损为
  * 该项 ✗（detail 带错误信息），不中断其余检查。
  * @param {string|null} root 项目根（git 仓库根）；null 时仅 a 报根解析失败，其余项报「无法检查」
- * @returns {{ok:boolean, checks:Array<{ok:boolean, name:string, detail:string, fix:string}>}}
+ * @returns {{ok:boolean, checks:Array<{ok:boolean, name:string, detail:string, fix:string, warn?:boolean}>}}
+ *   ok 聚合不含 warn 项（advisory 只提示、不红）。
  */
 export function runDoctor(root) {
   const checks = [];
@@ -311,18 +316,45 @@ export function runDoctor(root) {
     };
   });
 
-  return { ok: checks.every((c) => c.ok), checks };
+  // h 台账历史基线声明（2026-11-20 issue #69，判据移植自 agentic-flow-kit 4416666）：advisory 第三态
+  //   （warn:true，不计入退出码）。已有确认台账而声明文件与 env 皆缺时，check-ledger-invariant 按全史
+  //   扫描并把基线外历史违规照常上报——装户仓首跑易假红，提示 owner 补声明。manifest 门复用 b 检查的
+  //   readManifest 来源；台账在场判 .agents/confirmations.jsonl 或 confirmations.d/（判据同蓝本 doctor）。
+  add('台账历史基线声明', () => {
+    if (!root) return null;
+    const manifest = readManifest(root);
+    const hasLedger = fs.existsSync(path.join(root, '.agents', 'confirmations.jsonl'))
+      || fs.existsSync(path.join(root, '.agents', 'confirmations.d'));
+    if (!manifest || !hasLedger) {
+      const why = [!manifest ? '安装台账缺失' : '', !hasLedger ? '无确认台账（confirmations.jsonl / confirmations.d/ 均不存在）' : ''].filter(Boolean).join('，');
+      return { ok: true, name: '台账历史基线声明', detail: `${why}——基线声明不适用`, fix: '' };
+    }
+    const byFile = fs.existsSync(path.join(root, '.agents', 'notes', 'ledger-history-baseline.md'));
+    const byEnv = Boolean(process.env.LEDGER_HISTORY_BASELINE);
+    if (byFile || byEnv) {
+      const how = [byFile ? '.agents/notes/ledger-history-baseline.md' : '', byEnv ? '环境变量 LEDGER_HISTORY_BASELINE' : ''].filter(Boolean).join(' + ');
+      return { ok: true, name: '台账历史基线声明', detail: `历史基线已声明（${how}）——台账校验按基线后提交扫描`, fix: '' };
+    }
+    return {
+      ok: false, warn: true, name: '台账历史基线声明',
+      detail: '已有确认台账但未声明历史基线——台账校验按全史扫描，基线外历史违规将照常上报（装户首跑易报历史遗留违规）',
+      fix: '在 .agents/notes/ledger-history-baseline.md 写一行 LEDGER_HISTORY_BASELINE=<提交sha> 声明可信起点；临时/CI 可设环境变量 LEDGER_HISTORY_BASELINE',
+    };
+  });
+
+  return { ok: checks.every((c) => c.ok || c.warn), checks };
 }
 
 /**
- * formatChecks(checks)：检查项 → 逐行文本。✓/✗ 名称 — 详情 一行；✗ 项下一行缩进「修复：…」。
- * @param {Array<{ok:boolean, name:string, detail:string, fix:string}>} checks
+ * formatChecks(checks)：检查项 → 逐行文本。✓/⚠/✗ 名称 — 详情 一行（warn 第三态渲染 ⚠，2026-11-20
+ * issue #69）；✗ 与 ⚠ 项下一行缩进「修复：…」。
+ * @param {Array<{ok:boolean, name:string, detail:string, fix:string, warn?:boolean}>} checks
  * @returns {string}
  */
 export function formatChecks(checks) {
   const lines = [];
   for (const c of checks) {
-    lines.push(`${c.ok ? '✓' : '✗'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
+    lines.push(`${c.warn ? '⚠' : c.ok ? '✓' : '✗'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
     if (!c.ok && c.fix) lines.push(`    修复：${c.fix}`);
   }
   return lines.join('\n');
@@ -340,8 +372,9 @@ if (isMain) {
   const result = runDoctor(root);
   console.log(`doctor（ai-native-delivery engine）${root ? `@ ${root}` : '@（项目根未解析）'}`);
   console.log(formatChecks(result.checks));
-  const failed = result.checks.filter((c) => !c.ok);
-  if (result.ok) console.log(`\ndoctor: ${result.checks.length} 项检查全部通过`);
+  const failed = result.checks.filter((c) => !c.ok && !c.warn);
+  const warned = result.checks.filter((c) => c.warn);
+  if (result.ok) console.log(`\ndoctor: ${result.checks.length} 项检查全部通过${warned.length ? `（含 ${warned.length} 项 ⚠ advisory，不计入退出码）` : ''}`);
   else console.error(`\ndoctor: ${failed.length}/${result.checks.length} 项未通过——按各行「修复」处理后重跑自检`);
   process.exit(result.ok ? 0 : 1);
 }

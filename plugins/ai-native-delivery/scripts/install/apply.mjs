@@ -148,20 +148,37 @@ function applyDir(root, e, report, dryRun) {
 
 // gitignore 标记块（平移旧 seedGitignore）：无文件 → 新建；已有标记块 → 整块替换；无块 → 追加；
 // 内容一致 → unchanged 不写盘。
+// 幂等化（2026-11-20 判据移植，蓝本 agentic-flow-kit 053802e / issue #68，对应其 dedupeMergeBlock/
+// blockBody/spliceBlock 三函数，按本插件单块结构适配）：①块外去重——装户在标记块以外已写的条目
+//（trim 比对，标记行不参与）不再写进托管块；②块尾收敛——替换路径块体无尾换行，END 之后只剩换行串
+//（或为空）时收敛为单个 eol，旧版 EOF 多空行产物本次升级收敛、此后逐字节稳定；③块体按文件既有 EOL
+// 归一（含 \r\n → CRLF 否则 LF，蓝本 eolOf 判据）。无文件/无块路径既有语义不变（文件尾无换行补一个、
+// 空文件直写），块外用户内容一律不动。
 function applyGitignore(root, e, report, dryRun) {
   const file = targetAbs(root, e);
-  const block = [...GITIGNORE_ENTRIES];
-  const ensureNl = (s) => (s === '' || s.endsWith('\n') ? s : `${s}\n`);
+  const ensureNl = (s, nl) => (s === '' || s.endsWith(nl) ? s : `${s}${nl}`);
   let cur = null;
   try { cur = fs.readFileSync(file, 'utf8'); } catch { /* 无文件 → 新建 */ }
   if (cur === null) {
-    if (!dryRun) fs.writeFileSync(file, `${GITIGNORE_BEGIN}\n${block.join('\n')}\n${GITIGNORE_END}\n`, 'utf8');
+    if (!dryRun) fs.writeFileSync(file, `${GITIGNORE_BEGIN}\n${GITIGNORE_ENTRIES.join('\n')}\n${GITIGNORE_END}\n`, 'utf8');
     report.gitignore = 'created';
     return;
   }
   const m = /(#[^\n]*BEGIN ai-native-delivery engine[\s\S]*?#[^\n]*END ai-native-delivery engine[^\n]*)/.exec(cur);
-  const replacement = `${GITIGNORE_BEGIN}\n${block.join('\n')}\n${GITIGNORE_END}`;
-  const next = m ? cur.replace(m[0], replacement) : `${ensureNl(cur)}${replacement}\n`;
+  const eol = cur.includes('\r\n') ? '\r\n' : '\n'; // 蓝本 eolOf 判据：文件含 \r\n → CRLF，否则 LF
+  // 块外行集合（标记块以外全部行，trim 后非空）：块体条目与之重复的不入块（蓝本 dedupeMergeBlock）
+  const outside = m ? cur.slice(0, m.index) + cur.slice(m.index + m[0].length) : cur;
+  const seen = new Set(outside.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const replacement = [GITIGNORE_BEGIN, ...GITIGNORE_ENTRIES.filter((line) => !seen.has(line.trim())), GITIGNORE_END].join(eol);
+  let next;
+  if (m) {
+    // 替换路径（蓝本 spliceBlock）：块体无尾换行；END 后只剩换行串（或为空）→ 收敛为单个 eol
+    let post = cur.slice(m.index + m[0].length);
+    if (!post || /^(?:\r?\n)+$/.test(post)) post = eol;
+    next = cur.slice(0, m.index) + replacement + post;
+  } else {
+    next = `${ensureNl(cur, eol)}${replacement}${eol}`; // 追加路径既有语义：文件尾无换行补一个
+  }
   if (next !== cur) {
     if (!dryRun) fs.writeFileSync(file, next, 'utf8');
     report.gitignore = m ? 'block-replaced' : 'appended';

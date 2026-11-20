@@ -5,7 +5,8 @@
 // exit 1 且修复行含 init-engine 命令；③删台账内已装文件 → 一致性 ✗ 点名该文件；④改已装文件
 // 内容 → 一致性 ✗ 点名；⑤删 pre-commit 钩子 → hooks ✗；⑥抹 gitignore 标记块 → ✗；⑦settings.json
 // 写坏 JSON / deny 删一条种子自带地板项 → ✗；⑧engine.json 改 policyVersion → 漂移 ✗ 且 detail
-// 同含种子值与项目值；⑨非 git 目录 --root → 项目根 ✗ exit 1 不崩溃、其余检查项照常出列。
+// 同含种子值与项目值；⑨非 git 目录 --root → 项目根 ✗ exit 1 不崩溃、其余检查项照常出列；
+// ⑪台账历史基线声明 advisory（2026-11-20 issue #69，⚠ warn 第三态不计入退出码；补声明文件或 env → ok）。
 // 零依赖，Node ≥ 18 直接运行：node test/doctor.test.mjs（node --test 亦可）
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,8 +20,8 @@ const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DOCTOR = path.join(TEST_DIR, '..', 'scripts', 'doctor.mjs');
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
 const GIT = process.platform === 'win32' ? 'git.exe' : 'git';
-// 七个检查面名称（与 doctor.mjs 检查项一一对应，出列齐全性断言用）
-const CHECK_NAMES = ['项目根', '安装台账', '已装文件与台账一致', 'git hooks', '.gitignore 标记块', 'settings.json deny 地板', 'engine.json policyVersion'];
+// 八个检查面名称（与 doctor.mjs 检查项一一对应，出列齐全性断言用）
+const CHECK_NAMES = ['项目根', '安装台账', '已装文件与台账一致', 'git hooks', '.gitignore 标记块', 'settings.json deny 地板', 'engine.json policyVersion', '台账历史基线声明'];
 
 let pass = 0;
 let fail = 0;
@@ -34,7 +35,12 @@ const mkRepo = () => {
   spawnSync(GIT, ['init', '-q'], { cwd: d });
   return d;
 };
-const runDoctorCli = (root) => spawnSync(process.execPath, [DOCTOR, '--root', root], { encoding: 'utf8' });
+// runDoctorCli(root, env?)：env 缺省继承宿主；显式传入时整表替换——基线声明检查读
+// LEDGER_HISTORY_BASELINE，宿主残留值会颠倒 warn/ok 两态，故 ⑪ 全部显式控 env。
+const runDoctorCli = (root, env) => spawnSync(process.execPath, [DOCTOR, '--root', root],
+  env ? { encoding: 'utf8', env: { ...env } } : { encoding: 'utf8' });
+// noBaselineEnv()：剥掉 LEDGER_HISTORY_BASELINE 的宿主环境（「无 env 声明」场景用）
+const noBaselineEnv = () => { const e = { ...process.env }; delete e.LEDGER_HISTORY_BASELINE; return e; };
 const runInit = (root) => spawnSync(process.execPath, [INIT, '--root', root], { encoding: 'utf8' });
 
 // failLine(out, name) / fixLineOf(out, name)：按检查名定位「✗ 名称 …」行与其下一行缩进的修复行——
@@ -54,9 +60,9 @@ const fixLineOf = (out, name) => {
   const r = runDoctorCli(root);
   check('① 健康仓 doctor exit 0', r.status === 0, `exit=${r.status}\nstdout=${r.stdout}\nstderr=${r.stderr}`);
   check('① 输出全 ✓（无任何 ✗ 行）', r.stdout.includes('✓') && !r.stdout.includes('✗'), r.stdout);
-  check('① 七个检查面齐全出列', CHECK_NAMES.every((n) => r.stdout.includes(n)), r.stdout);
+  check('① 八个检查面齐全出列', CHECK_NAMES.every((n) => r.stdout.includes(n)), r.stdout);
   const lib = runDoctor(root);
-  check('① runDoctor 返回 {ok:true, checks 共 7 项}', lib.ok === true && Array.isArray(lib.checks) && lib.checks.length === 7, JSON.stringify(lib.checks && lib.checks.map((c) => ({ ok: c.ok, name: c.name }))));
+  check('① runDoctor 返回 {ok:true, checks 共 8 项}', lib.ok === true && Array.isArray(lib.checks) && lib.checks.length === 8, JSON.stringify(lib.checks && lib.checks.map((c) => ({ ok: c.ok, warn: c.warn, name: c.name }))));
   check('① 检查项形状 {ok, name, detail, fix}',
     lib.checks.every((c) => typeof c.ok === 'boolean' && typeof c.name === 'string' && typeof c.detail === 'string' && typeof c.fix === 'string')
     && lib.checks.every((c) => c.ok === true || c.fix !== ''), JSON.stringify(lib.checks));
@@ -243,6 +249,51 @@ const fixLineOf = (out, name) => {
   runInit(root);
   const r3 = runDoctorCli(root);
   check('⑩d 重跑 init 补装 → doctor 恢复全绿', r3.status === 0 && fs.existsSync(path.join(root, '.git', 'hooks', 'post-commit')), r3.stdout);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- ⑪ 台账历史基线声明（2026-11-20 issue #69 移植，蓝本 4416666；warn 第三态：advisory 不计入
+//      退出码）——init 默认装出空确认台账（.agents/confirmations.jsonl，runtime 项），故健康装户仓
+//      未声明基线时即出 ⚠；补声明文件或 env 任一 → ✓。env 两态均显式控（剥宿主残留值）。 ----
+{
+  const root = mkRepo();
+  runInit(root);
+  check('⑪ 前置：init 装出确认台账（warn 前提之一）',
+    fs.existsSync(path.join(root, '.agents', 'confirmations.jsonl')) || fs.existsSync(path.join(root, '.agents', 'confirmations.d')), root);
+  // ⑪a 有台账无声明无 env → ⚠ 行 + 修复提示，且 exit 0（warn 不计入退出码）
+  const r1 = runDoctorCli(root, noBaselineEnv());
+  check('⑪a 有确认台账无声明 → ⚠ 行（exit 0，warn 不使 doctor 变红）',
+    r1.status === 0 && /⚠ 台账历史基线声明/.test(r1.stdout) && !/✗/.test(r1.stdout), `exit=${r1.status}\n${r1.stdout}`);
+  check('⑪a ⚠ 行下一行给修复提示（含声明文件路径）',
+    (() => { const L = r1.stdout.split('\n'); const i = L.findIndex((l) => l.includes('⚠') && l.includes('台账历史基线声明')); return i >= 0 && /ledger-history-baseline\.md/.test(L[i + 1] || ''); })(), r1.stdout);
+  // ⑪b 库面形状：warn 项 {ok:false, warn:true, fix 非空}，聚合 ok 仍 true；渲染 ⚠ + 修复行
+  const prevEnv = process.env.LEDGER_HISTORY_BASELINE;
+  delete process.env.LEDGER_HISTORY_BASELINE;
+  const lib = runDoctor(root);
+  if (prevEnv !== undefined) process.env.LEDGER_HISTORY_BASELINE = prevEnv;
+  const item = lib.checks.find((c) => c.name === '台账历史基线声明');
+  check('⑪b runDoctor warn 项形状 {ok:false, warn:true, fix 非空} 且聚合 ok 不受 warn 影响',
+    lib.ok === true && !!item && item.ok === false && item.warn === true && /ledger-history-baseline\.md/.test(item.fix), JSON.stringify(item));
+  const rendered = formatChecks(lib.checks).split('\n');
+  const wi = rendered.findIndex((l) => l.includes('⚠') && l.includes('台账历史基线声明'));
+  check('⑪b formatChecks 渲染 ⚠ 行（区别于 ✓/✗）且下一行缩进修复', wi >= 0 && /^    修复：/.test(rendered[wi + 1] || ''), formatChecks(lib.checks));
+  // ⑪c 补 env 声明 → ok（✓ 行）
+  const r2 = runDoctorCli(root, { ...noBaselineEnv(), LEDGER_HISTORY_BASELINE: 'abc1234' });
+  check('⑪c 设 env LEDGER_HISTORY_BASELINE → 检查 ok（✓ 行）', r2.status === 0 && /✓ 台账历史基线声明/.test(r2.stdout), r2.stdout);
+  // ⑪d 补声明文件（无 env）→ ok（✓ 行，detail 点名声明文件）
+  fs.mkdirSync(path.join(root, '.agents', 'notes'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agents', 'notes', 'ledger-history-baseline.md'), 'LEDGER_HISTORY_BASELINE=abc1234\n');
+  const r3 = runDoctorCli(root, noBaselineEnv());
+  check('⑪d 补声明文件 → 检查 ok（✓ 行，detail 点名声明文件）',
+    r3.status === 0 && /✓ 台账历史基线声明.*ledger-history-baseline\.md/.test(r3.stdout), r3.stdout);
+  // ⑪e 前提不满足（无安装台账）→ 不适用 ✓（不误报装户前的裸仓）
+  const bare = mkRepo();
+  fs.mkdirSync(path.join(bare, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(bare, '.agents', 'confirmations.jsonl'), '');
+  const r4 = runDoctorCli(bare, noBaselineEnv());
+  check('⑪e 无安装台账 → 基线声明检查不适用（✓ 行，detail 交代不适用缘由）',
+    /✓ 台账历史基线声明.*不适用/.test(r4.stdout), r4.stdout);
+  fs.rmSync(bare, { recursive: true, force: true });
   fs.rmSync(root, { recursive: true, force: true });
 }
 

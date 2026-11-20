@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PLUGIN_ROOT } from '../scripts/paths.mjs';
+import { GITIGNORE_ENTRIES } from '../scripts/install/plan.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
@@ -382,6 +383,96 @@ const snapDiff = (a, b) => {
     !/[A-Za-z]:[\\/]/.test(tpl)
     && !/ghp_|github_pat_|sk-[A-Za-z0-9]|AKIA|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY/.test(tpl)
     && !/^(?!\s*#).*claude\s+-p/m.test(tpl));
+}
+
+// ---- ⑩ gitignore 标记块幂等化（2026-11-20 判据移植，蓝本 agentic-flow-kit 053802e / issue #68）：
+// 块外既有条目不重复入块、两次 apply 逐字节相同、旧产物（块尾多空行 / 块内含块外重复条目）收敛、
+// 块体 EOL 随文件归一、dryRun 零行为变化 ----
+{
+  const GIT_BEGIN = '# BEGIN ai-native-delivery engine';
+  const GIT_END = '# END ai-native-delivery engine';
+  const blockOf = (text) => {
+    const m = new RegExp(`${GIT_BEGIN}[\\s\\S]*?${GIT_END}`).exec(text);
+    return m ? m[0] : '';
+  };
+
+  // ⑩a 块外已有条目：装户自写的同条目不再重复写进托管块
+  {
+    const root = mkRepo();
+    fs.writeFileSync(path.join(root, '.gitignore'), '.agents/tmp/\nnode_modules/\n', 'utf8');
+    const r = runCli(root);
+    const g = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const block = blockOf(g);
+    check('⑩a 首装 exit 0 且标记块落盘', r.status === 0 && block !== '', `exit=${r.status} ${r.stderr}`);
+    check('⑩a 块外既有条目不入块（块内无 .agents/tmp/）', !block.includes('.agents/tmp/'), block);
+    check('⑩a 块外用户内容原样保留', g.startsWith('.agents/tmp/\nnode_modules/\n') && g.includes(`${GIT_BEGIN}\n.agents/cache/`), JSON.stringify(g));
+    check('⑩a 全文件 .agents/tmp/ 恰一次（不产生重复）', (g.match(/\.agents\/tmp\//g) || []).length === 1, JSON.stringify(g));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // ⑩b 连续两次 apply 输出逐字节相同（幂等）
+  {
+    const root = mkRepo();
+    fs.writeFileSync(path.join(root, '.gitignore'), '.agents/tmp/\nnode_modules/\n', 'utf8');
+    runCli(root);
+    const g1 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const r = runCli(root);
+    const g2 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    check('⑩b 第二次 apply exit 0', r.status === 0, `exit=${r.status} ${r.stderr}`);
+    check('⑩b 连续两次 apply 输出逐字节相同', g1 === g2);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // ⑩c 旧产物收敛：块内含块外重复条目 + 块尾多空行 → 一次 apply 收敛（重复出块、空行收敛单 eol），再跑逐字节稳定
+  {
+    const root = mkRepo();
+    // 旧版产物形态：块外已写 .agents/tmp/、托管块照模板又写一份、EOF 块尾多空行
+    const legacy = `node_modules/\n.agents/tmp/\n${GIT_BEGIN}\n${GITIGNORE_ENTRIES.join('\n')}\n${GIT_END}\n\n\n`;
+    fs.writeFileSync(path.join(root, '.gitignore'), legacy, 'utf8');
+    const r = runCli(root);
+    const g1 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const block = blockOf(g1);
+    check('⑩c 旧产物上 apply exit 0', r.status === 0, `exit=${r.status} ${r.stderr}`);
+    check('⑩c 旧块内重复条目出块', !block.includes('.agents/tmp/'), block);
+    check('⑩c 块外用户内容原样保留', g1.startsWith('node_modules/\n.agents/tmp/\n'), JSON.stringify(g1.slice(0, 40)));
+    check('⑩c EOF 多空行收敛为单换行', g1.endsWith(`${GIT_END}\n`) && !g1.endsWith('\n\n'), JSON.stringify(g1.slice(-24)));
+    const r2 = runCli(root);
+    const g2 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    check('⑩c 收敛后再跑逐字节稳定', r2.status === 0 && g1 === g2);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // ⑩d CRLF 归一：块体行尾随文件既有 EOL（蓝本 eolOf 判据），且幂等
+  {
+    const root = mkRepo();
+    fs.writeFileSync(path.join(root, '.gitignore'), '.agents/tmp/\r\nnode_modules/\r\n', 'utf8');
+    const r = runCli(root);
+    const g1 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const block = blockOf(g1);
+    check('⑩d CRLF 文件 apply exit 0', r.status === 0, `exit=${r.status} ${r.stderr}`);
+    check('⑩d 块体行尾随文件 EOL（BEGIN/条目/END 均 CRLF）',
+      block.startsWith(`${GIT_BEGIN}\r\n`) && block.includes(`.agents/cache/\r\n`) && block.endsWith(`\r\n${GIT_END}`), JSON.stringify(block));
+    check('⑩d CRLF 块外重复条目同样出块', !block.includes('.agents/tmp/'), block);
+    runCli(root);
+    const g2 = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    check('⑩d CRLF 文件两次 apply 逐字节相同', g1 === g2);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // ⑩e dryRun 零行为变化：不写盘（⑦ 全树快照之外点名 .gitignore），去重不影响报告面
+  {
+    const root = mkRepo();
+    fs.writeFileSync(path.join(root, '.gitignore'), '.agents/tmp/\nnode_modules/\n', 'utf8');
+    const before = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    const r = runCli(root, ['--dry-run']);
+    const after = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    check('⑩e dry-run exit 0 且 .gitignore 零写盘', r.status === 0 && after === before, `exit=${r.status} ${r.stderr}`);
+    check('⑩e dry-run 后标记块未落盘', !after.includes(GIT_BEGIN));
+    const r2 = runCli(root);
+    const g = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    check('⑩e dry-run 后真实 apply 正常收敛（块内无块外重复条目）', r2.status === 0 && !blockOf(g).includes('.agents/tmp/'), blockOf(g));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 // 汇总 + 退出码（同 init.test.mjs 口径：断言全挂必须让进程退出码变红）

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hasFreshVerifyLine } from '../scripts/policy.mjs';
+import { dirtyTreeDigest } from '../scripts/git-tree-digest.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERIFY = path.join(SCRIPT_DIR, '..', 'scripts', 'verify.mjs'); // 插件化落位（2026-10-27 迁移）：测试在 test/，被测件在 ../scripts/
@@ -1175,6 +1176,94 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     r3.status === 0 && debtLines.length === 5 && r3.stdout.includes('…另 3 行'),
     `exit=${r3.status} lines=${JSON.stringify(debtLines)}`);
   fs.rmSync(root3, { recursive: true, force: true });
+}
+
+// ---- 场景 25：dirtyTree 脏树摘要（判据移植蓝本 66bf13a BACKLOG 34）——绿/失败行绑脏树 + 模块三态 ----
+// 口径（verify.mjs 头注「凭证落账」段）：dirtyTree = sha256(`git status --porcelain` + `git diff HEAD`)
+// 前 16 位；干净树 = ''（可判定零值）、脏树 = 16hex、git 不可用 / 非 git 根 = null（调用方省键）。
+// 夹具 gitignore tmp/ 与 .agents/——verify 自写产物（失败门日志、本地台账）不算树脏，与真实装机一致。
+{
+  const readVp = (root) => fs.existsSync(path.join(root, '.agents', 'verifications.jsonl'))
+    ? fs.readFileSync(path.join(root, '.agents', 'verifications.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+  const mkGitFix = () => {
+    const d = mkfix();
+    fs.writeFileSync(path.join(d, '.gitignore'), 'tmp/\n.agents/\n');
+    fs.writeFileSync(path.join(d, 'README.md'), 'x\n');
+    const git = (args) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: d, encoding: 'utf8' });
+    git(['init', '-q']);
+    git(['add', '-A']);
+    git(['commit', '-qm', 'c0']);
+    return d;
+  };
+  // 25a 模块三态直达（git-tree-digest.mjs 无副作用单源）
+  const clean = mkGitFix();
+  check('场景 25a：干净树 digest = 空串（可判定零值）', dirtyTreeDigest(clean) === '', `got=${dirtyTreeDigest(clean)}`);
+  fs.writeFileSync(path.join(clean, 'README.md'), 'y\n');
+  const d1 = dirtyTreeDigest(clean);
+  fs.writeFileSync(path.join(clean, 'README.md'), 'z\n');
+  const d2 = dirtyTreeDigest(clean);
+  check('场景 25a：脏树 digest = 16 位 hex 且随未提交内容变化',
+    /^[0-9a-f]{16}$/.test(d1) && /^[0-9a-f]{16}$/.test(d2) && d1 !== d2, `d1=${d1} d2=${d2}`);
+  fs.rmSync(clean, { recursive: true, force: true });
+  const plain = mkfix();
+  check('场景 25a：非 git 根 digest = null（调用方省键，不伪造）', dirtyTreeDigest(plain) === null, `got=${dirtyTreeDigest(plain)}`);
+  fs.rmSync(plain, { recursive: true, force: true });
+  const nocommit = mkfix();
+  spawnSync('git', ['init', '-q'], { cwd: nocommit });
+  fs.writeFileSync(path.join(nocommit, 'README.md'), 'x\n'); // 未提交未跟踪：diff HEAD 失败
+  check('场景 25a：零提交仓（diff HEAD 失败）→ 仅 porcelain 入摘要 16hex',
+    /^[0-9a-f]{16}$/.test(dirtyTreeDigest(nocommit)), `got=${dirtyTreeDigest(nocommit)}`);
+  fs.rmSync(nocommit, { recursive: true, force: true });
+  // 25b stub 生产尾段全绿：干净树 → 绿行 dirtyTree = ''，渲染行不带「非干净树」
+  {
+    const root = mkGitFix();
+    const r = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+    const green = readVp(root).find((e) => e.exitCode === 0 && e.suite === 'all-gates');
+    const headShort = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+    check('场景 25b：干净树全绿行 dirtyTree = 空串（headShort 照常锚基线）',
+      r.status === 0 && green && green.dirtyTree === '' && green.headShort === headShort,
+      `exit=${r.status} green=${JSON.stringify(green)}`);
+    const md = fs.existsSync(path.join(root, 'workflow', 'verify-evidence.md'))
+      ? fs.readFileSync(path.join(root, 'workflow', 'verify-evidence.md'), 'utf8') : '';
+    const row = md.split(/\r?\n/).find((l) => l.includes(`\`${headShort}\``));
+    check('场景 25b：干净凭证渲染行不带「非干净树」标注', row && !row.includes('非干净树'), `row=${row}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // 25c 脏树全绿：绿行落 16hex，未提交内容变化 → 摘要随之变化
+  {
+    const root = mkGitFix();
+    fs.writeFileSync(path.join(root, 'README.md'), 'v1\n');
+    const r1 = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+    const g1 = readVp(root).filter((e) => e.exitCode === 0 && e.suite === 'all-gates').at(-1);
+    fs.writeFileSync(path.join(root, 'README.md'), 'v2\n');
+    const r2 = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+    const g2 = readVp(root).filter((e) => e.exitCode === 0 && e.suite === 'all-gates').at(-1);
+    check('场景 25c：脏树绿行落 16hex 且随内容变化',
+      r1.status === 0 && r2.status === 0 && /^[0-9a-f]{16}$/.test(g1.dirtyTree) && /^[0-9a-f]{16}$/.test(g2.dirtyTree) && g1.dirtyTree !== g2.dirtyTree,
+      `exit1=${r1.status} exit2=${r2.status} g1=${JSON.stringify(g1 && g1.dirtyTree)} g2=${JSON.stringify(g2 && g2.dirtyTree)}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // 25d 失败行同口径：干净树红行 dirtyTree = ''（红/绿可对质）
+  {
+    const root = mkGitFix();
+    const r = run(['--stub-gate', `node ${mkCmd(1)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+    const failRow = readVp(root).find((e) => e.exitCode !== 0);
+    check('场景 25d：stub 失败行留痕且 dirtyTree = 空串（干净树）',
+      r.status === 1 && failRow && failRow.dirtyTree === '',
+      `exit=${r.status} failRow=${JSON.stringify(failRow)}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // 25e 非 git 夹具根：绿行省 dirtyTree 键（未知口径，同 headShort 降级风格）
+  {
+    const root = mkfix();
+    const r = run(['--stub-gate', `node ${mkCmd(0)}`], { env: { ...process.env, CHECK_LOOP_ROOT: root, RUN_E2E: '' } });
+    const green = readVp(root).find((e) => e.exitCode === 0 && e.suite === 'all-gates');
+    check('场景 25e：非 git 根绿行省 dirtyTree 键（不伪造）',
+      r.status === 0 && green && !('dirtyTree' in green) && !('headShort' in green),
+      `exit=${r.status} green=${JSON.stringify(green)}`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);

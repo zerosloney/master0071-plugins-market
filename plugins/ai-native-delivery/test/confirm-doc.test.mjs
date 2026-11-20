@@ -1868,5 +1868,73 @@ const EV67_B = '`frontend/src/components/ResizableTable.vue`；`frontend/tests/u
     commitmentFingerprint(amb('已定')) === commitmentFingerprint(amb('待澄清')));
 }
 
+// ---- S75 policyVersion 台账字段（判据移植蓝本 66bf13a BACKLOG 33）：每条新台账行携带确认时刻的
+// kit 规范版本（单源 policy.mjs loadKitPolicy：装户 engine.json 的 policyVersion；缺失/不可解析按
+// 既有契约回退 1，越界版本 fail-closed throw）。spawn 级覆盖 delegated / tty / reconfirm 三个写点；
+// ai-auto-trust 写点为同构纯增一行（需自治门夹具，不另起 spawn 面）。
+{
+  const mkPvRoot = (pv) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'confirm-pv-'));
+    fs.mkdirSync(path.join(root, 'workflow', 'intents'), { recursive: true });
+    if (pv !== null) {
+      fs.mkdirSync(path.join(root, '.agents', 'config'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.agents', 'config', 'engine.json'), JSON.stringify({ policyVersion: pv }));
+    }
+    return root;
+  };
+  const writeApproved = (root, name) => {
+    const fp = computeFingerprint('---\n状态: draft\n---\n# I\n');
+    fs.writeFileSync(path.join(root, 'workflow', 'intents', name), `---\n状态: approved\n确认指纹: ${fp.slice(0, 16)}\n---\n# I\n`);
+  };
+  // ① 装户 engine.json 声明 policyVersion → delegated 写点台账行如实落值
+  {
+    const root = mkPvRoot(3);
+    writeApproved(root, '2026-11-18-pv.md');
+    const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-11-18-pv.md', '--delegated', '可以'], { cwd: root, encoding: 'utf8' });
+    const led = readLedgerOf(root);
+    check('S75① engine.json policyVersion=3 → delegated 台账行落 policyVersion 3',
+      r.status === 0 && led.length === 1 && led[0].stage === 'done' && led[0].policyVersion === 3,
+      JSON.stringify({ status: r.status, stderr: r.stderr, ledger: led }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // ② 夹具无 engine.json（装户裸仓库形态）→ loadKitPolicy 既有契约回退 1
+  {
+    const root = mkPvRoot(null);
+    writeApproved(root, '2026-11-18-pv.md');
+    const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-11-18-pv.md', '--delegated', '可以'], { cwd: root, encoding: 'utf8' });
+    const led = readLedgerOf(root);
+    check('S75② 无 engine.json → 台账行 policyVersion 回退 1（既有契约）',
+      r.status === 0 && led.length === 1 && led[0].policyVersion === 1,
+      JSON.stringify({ status: r.status, stderr: r.stderr, ledger: led }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // ③ tty 写点同口径（TTY 注入逃生门，双条件沿 S18c：TTY=1 + NODE_ENV=test 继承自套件头）
+  {
+    const root = mkPvRoot(5);
+    fs.writeFileSync(path.join(root, 'workflow', 'intents', '2026-11-18-pvt.md'), '---\n状态: draft\n级别: L1\n---\n# I\n');
+    const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-11-18-pvt.md'], {
+      cwd: root, encoding: 'utf8',
+      env: { ...process.env, CONFIRM_DOC_TEST_TTY: '1', CONFIRM_DOC_TEST_ANSWERS: '可以' },
+    });
+    const led = readLedgerOf(root);
+    check('S75③ tty 写点同口径：source=tty 行落 policyVersion 5',
+      r.status === 0 && led.length === 1 && led[0].source === 'tty' && led[0].stage === 'approved' && led[0].policyVersion === 5,
+      JSON.stringify({ status: r.status, stderr: String(r.stderr).slice(0, 200), ledger: led }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  // ④ reconfirm 写点同口径：approved 档重确认，行带 reconfirm:true + policyVersion（四落点一致性抽查）
+  {
+    const root = mkPvRoot(4);
+    writeApproved(root, '2026-11-18-pvr.md');
+    const r = spawnSync(process.execPath, [CLI, 'workflow/intents/2026-11-18-pvr.md', '--reconfirm', '--delegated', '改后重新同意'], { cwd: root, encoding: 'utf8' });
+    const led = readLedgerOf(root);
+    const last = led[led.length - 1];
+    check('S75④ reconfirm 写点同口径：重确认行带 reconfirm:true + policyVersion 4',
+      r.status === 0 && led.length === 1 && last.stage === 'approved' && last.reconfirm === true && last.policyVersion === 4,
+      JSON.stringify({ status: r.status, stderr: r.stderr, ledger: led }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n合计: PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);
