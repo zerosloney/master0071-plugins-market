@@ -7,12 +7,16 @@
     ".agents/config/engine.json": "735c6a7ff9e293c6b6769674c3f33bb47a558d2dfe15dd930efdb3e61b90f75d",
     ".agents/config/gate-budgets.json": "463f237f0884db9838777de352d51f4dc11fedb6250d809f0c4c97e4144607a2",
     ".agents/config/lane-surfaces.txt": "895ed004b999e54087d09e64a104fe551808df77191381ad6d16b6cfbc339aab",
-    ".agents/config/mechanism-registry.md": "706ffe084edc1939e7fae6e941ce799002852b58bc19a3ffa189e7b963f4e142",
+    ".agents/config/mechanism-registry.md": {
+      "mutable": true
+    },
     ".agents/config/model-roles.json": "8bdcb677a1053dc8167f4f1e3ec7ed1b0aedd96fbae12aa73eeeef38b0ac974f",
     ".agents/config/model-roles.local.example.json": "12522763bb5a0fe8ce1c09027e483537fd3d2f9baeea3dddfa28869631c7f02e",
     ".agents/config/pr-budget.json": "794db193875f6e3c4dad95b382e66dcfa4c7f3fbdb1dfc37cd20b8914205964a",
     ".agents/config/principles.md": "d0be9261a16950ab37dfa07bf579017f0e542bf8ee8c2538be5a30bc97a2f51b",
-    ".agents/config/rule-budgets.txt": "e248c7baa12783d8319a1a3c9c84f0eaa5a25550a4fc786c7f1b55052daeff99",
+    ".agents/config/rule-budgets.txt": {
+      "mutable": true
+    },
     ".agents/config/scripts-test-exempt.txt": "e06f216c2d217526b4de93571f39ad822d609c9f6424b976707af5c5e64513d3",
     ".agents/config/workflow-enums.txt": "8fd777eabaebd773da389d678df4bab88d6f28f391b5f7791d3d64ed82bfa490",
     ".agents/config/workflow-modules.txt": "c77a844c7f79c869932e3664ee91f4215007210ead9d9a3f9c3cd27cbf65724a",
