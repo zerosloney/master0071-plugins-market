@@ -47,6 +47,10 @@ function check(name, cond, detail = '') {
   const expectedSections = ['背景与问题', '历史教训/防复发', '目标', '非目标', '约束', '影响面', '触达红线', '验收标准', '确认与复核'];
   for (const s of expectedSections) check('S4 含节 ## ' + s, body.includes('## ' + s));
   check('S4 共 9 节标题', (body.match(/^##\s/gm) || []).length === 9);
+  // 箭头转义守护（2026-11-20 papercut）：hint 字符串里 $\r ightarrow$ 的 \r 是 JS 回车转义，
+  // 产物曾现 `$<CR>ightarrow$`（终端显示 $ightarrow$）——锁真箭头字符 + 无转义残留。
+  check('S4 红线箭头为真 → 字符', body.includes('）→ 级别至少 L2') && body.includes('管线 → 级别 L3'));
+  check('S4 无 ightarrow 转义残留', !body.includes('ightarrow'));
 }
 
 // ---- 场景 5：备注字段透传 ----

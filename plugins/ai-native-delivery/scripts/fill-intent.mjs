@@ -31,8 +31,8 @@ const SECTIONS = [
   { title: '目标', hint: '- <可验证的目标>' },
   { title: '非目标（L1 微改动无实质内容可删本节，不硬填）', hint: '- <明确不做的，防止范围蔓延>' },
   { title: '约束（L1 微改动无实质内容可删本节，不硬填）', hint: '- <复用什么、不许动什么>' },
-  { title: '影响面', hint: '- 模块：<词表之一，见 .agents/config/workflow-modules.txt>\n- 数据库：无 / <表名>（涉及 schema 变更 $\rightarrow$ L3；无 schema 的运行时 / 管线结构面亦为 L3，判据见 .agents/commands/new-task.md §级别判断）\n- 前端页面：<路由或组件，无则删本行>' },
-  { title: '触达红线（对照 AGENTS.md，勾选仅标记触及范围；具体如何满足在同名 spec 或 Quick-Plan 中说明）', hint: '- [ ] <按本项目 AGENTS.md 红线逐行补；无则删本行>\n- [ ] 规则 / 契约变更（编码权威 / 共享契约 / 接口签名 / 既有参数语义 / 全局口径）$\rightarrow$ 级别至少 L2\n- [ ] schema / 迁移 SQL / DI 链 / 认证与中间件管线 $\rightarrow$ 级别 L3\n\n> 触及任一红线即为 L2 / L3，必须立 ../specs/YYYY-MM-DD-<主题>.md 写明如何满足，方可起草 plan。' },
+  { title: '影响面', hint: '- 模块：<词表之一，见 .agents/config/workflow-modules.txt>\n- 数据库：无 / <表名>（涉及 schema 变更 → L3；无 schema 的运行时 / 管线结构面亦为 L3，判据见 .agents/commands/new-task.md §级别判断）\n- 前端页面：<路由或组件，无则删本行>' },
+  { title: '触达红线（对照 AGENTS.md，勾选仅标记触及范围；具体如何满足在同名 spec 或 Quick-Plan 中说明）', hint: '- [ ] <按本项目 AGENTS.md 红线逐行补；无则删本行>\n- [ ] 规则 / 契约变更（编码权威 / 共享契约 / 接口签名 / 既有参数语义 / 全局口径）→ 级别至少 L2\n- [ ] schema / 迁移 SQL / DI 链 / 认证与中间件管线 → 级别 L3\n\n> 触及任一红线即为 L2 / L3，必须立 ../specs/YYYY-MM-DD-<主题>.md 写明如何满足，方可起草 plan。' },
   { title: '验收标准（可测试）', hint: '- [ ] <逐条可测试；写不出可测试判据 = 还没想清楚>\n\n> **闭环对账**：关单在 test 阶段（不依赖 deploy）。intent 置 done 前逐条勾验，每条补证据——`- [x] <判据>（证据：<commit SHA / 测试用例名 / 冒烟脚本输出>）`。\n> done 状态仍有未勾项会被 check-loop 拦截（2026-09-12 起新建 intent 为 hard-block，存量 intent 仅 warning 提示）；勾选但缺「证据：」为 hard-block。' },
 ];
 
