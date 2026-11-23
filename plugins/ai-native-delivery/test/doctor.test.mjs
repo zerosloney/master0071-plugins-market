@@ -20,8 +20,8 @@ const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DOCTOR = path.join(TEST_DIR, '..', 'scripts', 'doctor.mjs');
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
 const GIT = process.platform === 'win32' ? 'git.exe' : 'git';
-// 八个检查面名称（与 doctor.mjs 检查项一一对应，出列齐全性断言用）
-const CHECK_NAMES = ['项目根', '安装台账', '已装文件与台账一致', 'git hooks', '.gitignore 标记块', 'settings.json deny 地板', 'engine.json policyVersion', '台账历史基线声明'];
+// 九个检查面名称（与 doctor.mjs 检查项一一对应，出列齐全性断言用）
+const CHECK_NAMES = ['项目根', '安装台账', '已装文件与台账一致', 'git hooks', '.gitignore 标记块', 'settings.json deny 地板', 'engine.json policyVersion', '台账历史基线声明', 'kit 内核依赖'];
 
 let pass = 0;
 let fail = 0;
@@ -60,9 +60,9 @@ const fixLineOf = (out, name) => {
   const r = runDoctorCli(root);
   check('① 健康仓 doctor exit 0', r.status === 0, `exit=${r.status}\nstdout=${r.stdout}\nstderr=${r.stderr}`);
   check('① 输出全 ✓（无任何 ✗ 行）', r.stdout.includes('✓') && !r.stdout.includes('✗'), r.stdout);
-  check('① 八个检查面齐全出列', CHECK_NAMES.every((n) => r.stdout.includes(n)), r.stdout);
+  check('① 九个检查面齐全出列', CHECK_NAMES.every((n) => r.stdout.includes(n)), r.stdout);
   const lib = runDoctor(root);
-  check('① runDoctor 返回 {ok:true, checks 共 8 项}', lib.ok === true && Array.isArray(lib.checks) && lib.checks.length === 8, JSON.stringify(lib.checks && lib.checks.map((c) => ({ ok: c.ok, warn: c.warn, name: c.name }))));
+  check('① runDoctor 返回 {ok:true, checks 共 9 项}', lib.ok === true && Array.isArray(lib.checks) && lib.checks.length === 9, JSON.stringify(lib.checks && lib.checks.map((c) => ({ ok: c.ok, warn: c.warn, name: c.name }))));
   check('① 检查项形状 {ok, name, detail, fix}',
     lib.checks.every((c) => typeof c.ok === 'boolean' && typeof c.name === 'string' && typeof c.detail === 'string' && typeof c.fix === 'string')
     && lib.checks.every((c) => c.ok === true || c.fix !== ''), JSON.stringify(lib.checks));

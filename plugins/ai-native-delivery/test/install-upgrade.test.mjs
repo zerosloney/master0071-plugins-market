@@ -6,8 +6,9 @@
 //   ① A1 merged：用户改+种子改+基线在场 → clean 三方合并落盘（LF）、报告「合并」清单、台账记种子侧哈希、
 //      基线=新种子正文；二次跑（种子未变）合并内容不丢且台账字节/全树快照零改动；种子再演进 → 以基线为
 //      base 重合并成功（三层内容并存）；
-//   ② A2 降级：真冲突（双方同区域改）→ conflict-skip 输出与内容/台账/基线零变化；git 不可用（CHECK_LOOP_GIT
-//      注入不存在路径——git-core 同款测试注入点，baseline.mjs 复用其 GIT 常量）→ unavailable 回退 skip 不炸；
+//   ② A2 降级：真冲突（双方同区域改）→ conflict-skip 输出与内容/台账/基线零变化；git 不可用（2026-11
+//      内核单源化起剥 PATH 注入——kit kernel merge 直接 spawn 'git'，不经 git-core 的 CHECK_LOOP_GIT
+//      注入点；kit 解析同程改走 FLOW_KIT_ROOT）→ unavailable 回退 skip 不炸；
 //      --force 整覆盖且优先于合并（同几何本可 clean 合并）、覆盖后基线随写；
 //   ③ A3 旁路：mutable 条目改写不报冲突、不写基线；用户改钩子 → 不覆盖语义不变；钩子/mutable 条目基线面零文件；
 //   ④ A4 迁移：migrateManifest 单元三态（0→1 补 schemaVersion 且 files 原样 / 已是 1 changed=false /
@@ -29,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { PLUGIN_ROOT } from '../scripts/paths.mjs';
 import { migrateManifest } from '../scripts/install/migrations.mjs';
 import { CURRENT_SCHEMA_VERSION, newManifest } from '../scripts/install/manifest.mjs';
+import { kitKernelStatus } from '../scripts/lib/kit-kernel.mjs';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INIT = path.join(TEST_DIR, '..', 'scripts', 'init-engine.mjs');
@@ -201,8 +203,11 @@ const CLEAN_SEED = PROBE('upgrade-clean');
   check('A2 真冲突：台账基线零变化', readManifest(rootC).files['.agents/config/upgrade-conflict.md'] === mBeforeC);
   check('A2 真冲突：基线保留不动（下轮种子演进可重试合并）', fs.readFileSync(baselineFile(rootC, '.agents/config/upgrade-conflict.md'), 'utf8') === baseBeforeC);
   fs.rmSync(rootC, { recursive: true, force: true });
-  // —— git 不可用：CHECK_LOOP_GIT 注入不存在路径（git-core 同款注入点）→ merge unavailable → 回退 skip
-  // 判据成立性：同几何在 git 可用时判 clean 合并（①已证），唯一差异是注入 → conflict-skip 即回退的直接证据。
+  // —— git 不可用：剥 PATH（2026-11 内核单源化：merge 机件在 kit kernel，直接 spawn 'git'，不经
+  // git-core 的 CHECK_LOOP_GIT 注入点）→ git 无处解析 ENOENT → merge unavailable → 回退 skip。
+  // PATH 指夹具根（无 git 可解析）；kit 解析同程改走 FLOW_KIT_ROOT（纯 fs，不依赖 PATH）；node 走
+  // process.execPath 绝对路径。判据成立性：同几何在 git 可用时判 clean 合并（①已证），
+  // 唯一差异是 git 不可用 → conflict-skip 即回退的直接证据。
   const rootU = mkRepo();
   runCli(rootU, [], INIT_COPY);
   const targetU = path.join(rootU, '.agents', 'config', 'upgrade-fallback.md');
@@ -211,7 +216,9 @@ const CLEAN_SEED = PROBE('upgrade-clean');
   fs.writeFileSync(seedOf('upgrade-fallback.md'), v1u.replace('line-05 delta', 'line-05 delta-v2'), 'utf8');
   const beforeU = fs.readFileSync(targetU, 'utf8');
   const mBeforeU = readManifest(rootU).files['.agents/config/upgrade-fallback.md'];
-  const ru = runCli(rootU, [], INIT_COPY, { CHECK_LOOP_GIT: path.join(rootU, 'defunct-git.exe') });
+  const kit = kitKernelStatus();
+  const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === 'path') || 'PATH';
+  const ru = runCli(rootU, [], INIT_COPY, { [pathKey]: rootU, ...(kit.ok ? { FLOW_KIT_ROOT: kit.root } : {}) });
   check('A2 git 不可用：不炸不拦（exit 0）且回退冲突跳过', ru.status === 0 && /冲突跳过 1 项/.test(ru.stdout) && !/初始化失败/.test(ru.stderr), `exit=${ru.status} ${ru.stdout} ${ru.stderr}`);
   check('A2 git 不可用：内容与台账零变化', fs.readFileSync(targetU, 'utf8') === beforeU && readManifest(rootU).files['.agents/config/upgrade-fallback.md'] === mBeforeU);
   fs.rmSync(rootU, { recursive: true, force: true });

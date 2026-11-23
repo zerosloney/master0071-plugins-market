@@ -72,7 +72,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { computeDiffScope, parseEvidenceGreens, EVIDENCE_REL } from './verify-scope.mjs';
 import { classifyFailure } from './failure-attribution.mjs';
-import { dirtyTreeDigest } from './git-tree-digest.mjs';
+import { dirtyTreeDigest } from './lib/kit-kernel.mjs';
 // 路径收口（2026-10-27 插件化迁移）：SCRIPT_DIR 落插件内（paths.mjs 单源）；项目根仍 git root 锚定
 //（CHECK_LOOP_ROOT fixture 注入原样保留）。锚点根（脚本定位/配置读取）非 git 环境回退插件根本身
 //（源仓 SCRIPT_DIR/../.. 的引擎目录锚等位点）；**账本根不回退**——见 LEDGER 与 paths.mjs ledgerRoot。
@@ -930,7 +930,7 @@ async function run() {
       const rev = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', cwd: ROOT, timeout: GIT_TIMEOUT_MS });
       if (rev.status === 0 && rev.stdout) entry.headShort = rev.stdout.trim();
       // 脏树摘要（判据移植蓝本 66bf13a BACKLOG 34）：'' = 干净树 / 16 位 hex = 脏树 / 缺键 = 未知（git 不可用）——
-      // 口径见头注「凭证落账」段与 git-tree-digest.mjs；gen-verify-evidence 对非空摘要渲染「非干净树」标注。
+      // 口径见头注「凭证落账」段与 lib/kit-kernel.mjs（kit kernel dirtyTreeDigest）；gen-verify-evidence 对非空摘要渲染「非干净树」标注。
       const dirtyTree = dirtyTreeDigest(ROOT);
       if (dirtyTree !== null) entry.dirtyTree = dirtyTree;
       const counts = parseCounts(outputs['engine-tests'] || outputs['test'] || '');

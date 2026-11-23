@@ -43,3 +43,7 @@ indirect | .agents/scripts/install/baseline.mjs | .agents/scripts/install-upgrad
 indirect | .agents/scripts/install/migrations.mjs | .agents/scripts/install-upgrade.test.mjs | manifest 单向迁移链（0→1 补 schemaVersion、已是当前版本 changed=false、版本超前 MANIFEST_SCHEMA 拒绝、失败零落盘）：经 install-upgrade.test.mjs A4 迁移判据组覆盖
 indirect | .agents/scripts/install/migrations/0-1.mjs | .agents/scripts/install-upgrade.test.mjs | 首迁移 0→1（只补元数据不碰 files、幂等自守）：经 install-upgrade.test.mjs A4 迁移判据组覆盖
 indirect | .agents/scripts/install-drift.mjs | .agents/scripts/install-upgrade.test.mjs | 只读漂移体检（六类分类与计数、mutable 恒 unchanged、无台账单行提示、只读零写盘）：经 install-upgrade.test.mjs A6a 判据组黑盒覆盖
+# 2026-11-22 内核单源化补登：hashText/hashFile/dirtyTreeDigest/mergeThreeWay 机件移师全局 agentic-flow-kit
+# kernel（判据超集），lib/kit-kernel.mjs 是唯一解析点（惰性定位 + 版本门禁 + 同步转发，无独立判据面）；
+# 随单源化删除的 scripts/git-tree-digest.mjs 本地镜像原未占表（无同名测试也无登记）。
+indirect | .agents/scripts/lib/kit-kernel.mjs | .agents/scripts/verify.test.mjs | 转发层经消费方测试覆盖：dirtyTreeDigest 三态经 verify.test.mjs 场景 25a 直达；hashText/hashFile/mergeThreeWay 经 install.test.mjs / install-upgrade.test.mjs / doctor.test.mjs 消费方用例覆盖

@@ -5,11 +5,12 @@
 // 台账语义同 lock 文件：**入库共享**（init 不把它写进 .gitignore 标记块），记录「上次安装给到的基线」——
 // apply 段据此区分「种子升了」（update）与「用户改了」（conflict skip）。
 // 哈希口径：统一 **CRLF→LF 归一后** sha256——种子源与落盘目标同一归一，Windows autocrlf 检出差异
-// 不构成假冲突（先例：confirm-doc.mjs computeFingerprint 同归一）。git hooks 记**渲染后**正文
-//（渲染时已归一 LF）；gitignore 标记块不入账（块级合并不是整文件）。
+// 不构成假冲突（先例：confirm-doc.mjs computeFingerprint 同归一；机件单源在 agentic-flow-kit kernel，
+// 经 lib/kit-kernel.mjs 适配缝转发）。git hooks 记**渲染后**正文（渲染时已归一 LF）；
+// gitignore 标记块不入账（块级合并不是整文件）。
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { engineDir } from '../paths.mjs';
 
 export const MANIFEST_FILENAME = 'install-manifest.json';
@@ -18,14 +19,10 @@ export const manifestPath = (root) => path.join(engineDir(root), MANIFEST_FILENA
 // 台账 lock 形态当前版本：迁移链（migrations.mjs）迁到此值为止；缺 schemaVersion 的旧台账视作 0。
 export const CURRENT_SCHEMA_VERSION = 1;
 
-// hashText(text)：CRLF→LF 归一 → sha256 hex。所有入账哈希（种子源 / 落盘目标 / 渲染后钩子）同一口径。
-export function hashText(text) {
-  return createHash('sha256').update(String(text).replace(/\r\n/g, '\n'), 'utf8').digest('hex');
-}
-
-export function hashFile(abs) {
-  return hashText(fs.readFileSync(abs, 'utf8'));
-}
+// hashText / hashFile：CRLF→LF 归一 → sha256 hex。所有入账哈希（种子源 / 落盘目标 / 渲染后钩子）
+// 同一口径；机件单源在 agentic-flow-kit kernel（判据超集），经 lib/kit-kernel.mjs 适配缝转发——
+// 本模块只保留台账读写，不再自带哈希实现。
+export { hashText, hashFile } from '../lib/kit-kernel.mjs';
 
 // serializeManifest(manifest)：稳定序列化（2 空格缩进 + 收尾换行）。apply 段先比对此文本、
 // 一致则不重写——幂等契约「重复跑零改动」要求台账字节也不动（测试做全树 mtime 快照比对）。

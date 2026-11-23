@@ -23,6 +23,9 @@
 //                       两个选项，不给强制命令（项目侧 engine.json 属项目自治，init 不自动覆盖）。
 //   h 台账历史基线声明    ⚠ advisory（issue #69）：已有确认台账而声明文件与环境变量皆缺 → 提示补
 //                       声明（缺声明时台账校验按全史扫描，装户首跑易报历史遗留违规）。
+//   i kit 内核依赖        hash/hashFile/dirtyTreeDigest/mergeThreeWay 机件单源在全局 agentic-flow-kit
+//                       （经 lib/kit-kernel.mjs 适配缝，机器级依赖不依赖项目根）：在位且版本达门槛 → ✓；
+//                       缺席 / 低版本 / 包不完整 → ✗ 并给全局安装修复命令（探测不抛错，不中断其余项）。
 // 用法：node scripts/doctor.mjs [--root <仓库根>]（缺省 root 用 findProjectRoot() 锚定 git 仓库根）
 // 测试：node test/doctor.test.mjs（黑盒：临时 git 仓 spawn 真实 CLI）
 import fs from 'node:fs';
@@ -30,6 +33,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PLUGIN_CONFIG_TEMPLATES_DIR, engineDir, findProjectRoot, gitHooksDir, resolveProjectRoot } from './paths.mjs';
 import { MANIFEST_FILENAME, manifestPath, readManifest, hashFile } from './install/manifest.mjs';
+import { kitKernelStatus } from './lib/kit-kernel.mjs';
 import { GITIGNORE_BEGIN, GITIGNORE_END } from './init-engine.mjs';
 import { BUILTIN } from '../hooks/pretool-risk.mjs';
 
@@ -339,6 +343,21 @@ export function runDoctor(root) {
       ok: false, warn: true, name: '台账历史基线声明',
       detail: '已有确认台账但未声明历史基线——台账校验按全史扫描，基线外历史违规将照常上报（装户首跑易报历史遗留违规）',
       fix: '在 .agents/notes/ledger-history-baseline.md 写一行 LEDGER_HISTORY_BASELINE=<提交sha> 声明可信起点；临时/CI 可设环境变量 LEDGER_HISTORY_BASELINE',
+    };
+  });
+
+  // i kit 内核依赖（2026-11 内核单源化）：hash/hashFile/dirtyTreeDigest/mergeThreeWay 机件单源在
+  //   全局 agentic-flow-kit（唯一解析点 lib/kit-kernel.mjs）。kitKernelStatus 探测不抛错——缺席 /
+  //   低版本 / 包不完整只折损本项 ✗，不中断其余检查；kit 是机器级依赖，root 未解析也照常出列。
+  add('kit 内核依赖', () => {
+    const st = kitKernelStatus();
+    if (st.ok) {
+      return { ok: true, name: 'kit 内核依赖', detail: `agentic-flow-kit@${st.version} 在位（kernel 机件单源：${st.root}）`, fix: '' };
+    }
+    return {
+      ok: false, name: 'kit 内核依赖',
+      detail: `kit 内核不可用：${st.error}`,
+      fix: 'npm install -g agentic-flow-kit@latest（开发机可设 FLOW_KIT_ROOT 指向 kit 包根）',
     };
   });
 

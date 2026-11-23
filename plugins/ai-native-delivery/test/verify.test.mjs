@@ -12,7 +12,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hasFreshVerifyLine } from '../scripts/policy.mjs';
-import { dirtyTreeDigest } from '../scripts/git-tree-digest.mjs';
+import { dirtyTreeDigest } from '../scripts/lib/kit-kernel.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERIFY = path.join(SCRIPT_DIR, '..', 'scripts', 'verify.mjs'); // 插件化落位（2026-10-27 迁移）：测试在 test/，被测件在 ../scripts/
@@ -1196,7 +1196,7 @@ check('场景 5b：scope 增量绿行 → 关单凭证（verify-diet ②；面�
     git(['commit', '-qm', 'c0']);
     return d;
   };
-  // 25a 模块三态直达（git-tree-digest.mjs 无副作用单源）
+  // 25a 模块三态直达（lib/kit-kernel.mjs 适配缝 → kit kernel 无副作用单源）
   const clean = mkGitFix();
   check('场景 25a：干净树 digest = 空串（可判定零值）', dirtyTreeDigest(clean) === '', `got=${dirtyTreeDigest(clean)}`);
   fs.writeFileSync(path.join(clean, 'README.md'), 'y\n');

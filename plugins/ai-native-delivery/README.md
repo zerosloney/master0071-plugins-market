@@ -83,6 +83,8 @@ AI-Native 交付治理引擎：把跑通 14 个 policy version 的交付治理�
 
 要求 **Node.js ≥ 18** 且 `node` 在宿主启动 MCP 服务使用的 PATH 里，无任何凭据与私有配置。
 
+0.4.0 起，安装引擎 / verify / doctor 的机件实现单源在全局安装的 [agentic-flow-kit](https://www.npmjs.com/package/agentic-flow-kit)（kernel 门面，kit#75 随 2.12.0 提供）：先 `npm install -g agentic-flow-kit@latest`（**≥ 2.12.0**）。缺席或低版本时上述操作 fail-loud 并给出修复命令；kernel 经 `require(ESM)` 加载，需 **Node ≥ 22.12**（低于该版本同样 fail-loud 指引升级）。纯治理命令（check-loop / confirm-doc / MCP 等）不依赖全局包。
+
 ```
 # ZCode
 /plugin marketplace add zerosloney/master0071-plugins-market
@@ -135,7 +137,7 @@ node <插件根>/scripts/doctor.mjs                  # 缺省锚定当前 git �
 node <插件根>/scripts/doctor.mjs --root <仓库根>   # 显式指定项目
 ```
 
-7 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账逐文件一致（**运行时账本只核存在性**：workflow/ 骨架文档与三本审计账主账由引擎与用户共同写入，内容演进是常态，不按哈希判失配；其余种子件按 CRLF 归一 sha256 逐字节核对）/ git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
+9 项静态检查：项目根锚定 / 安装台账在位可解析 / 已装文件与台账逐文件一致（**运行时账本只核存在性**：workflow/ 骨架文档与三本审计账主账由引擎与用户共同写入，内容演进是常态，不按哈希判失配；其余种子件按 CRLF 归一 sha256 逐字节核对）/ git hooks（pre-commit / pre-push / commit-msg 执法点 + post-commit advisory 在位且引擎指针有效）/ `.gitignore` 标记块成对 / settings.json deny 地板含内置基线 / engine.json policyVersion 与种子一致 / 台账历史基线声明（advisory：缺声明与 env 时 warn + 修复提示，不硬红）/ kit 内核依赖（全局 agentic-flow-kit ≥ 2.12.0 在位，含 kernel 门面）。逐项 `✓/✗` 输出，✗ 项下一行附可直接复制执行的修复命令；任一项 ✗ 退出码非 0，可接进项目侧脚本当安装健康门用。
 
 ## MCP 工具（10 个）
 

@@ -1,5 +1,6 @@
 // install/baseline.mjs — 升级三方合并的基线留存（2026-11 安装引擎重构新增）
-// 蓝本：agentic-flow-kit src/install/baseline.mjs 判据级移植（结构自建，不 import 蓝本仓、不共代码）。
+// 蓝本：agentic-flow-kit src/install/baseline.mjs 判据级移植（存储结构自建；2026-11 内核单源化起
+// mergeThreeWay 复用 kit kernel，经 ../lib/kit-kernel.mjs 适配缝转发，本模块不再自带合并实现）。
 // 装户时把「上次给到的模板正文」留一份在 <root>/.agents/.install-baseline/；升级时以基线为 base、
 // 磁盘现状为 ours、新模板为 theirs 走 git merge-file 三方合并——种子升级得以传播进用户改过的文件
 //（clean 自动合并 / conflict 带冲突标记显式出账），git 不可用才由调用方回退旧的哈希冲突跳过语义。
@@ -8,18 +9,13 @@
 //     「只写文本类资产进基线」由调用方 apply.mjs 保证，本模块不裁剪、不感知钩子。
 //   - 本机不入库：.install-baseline/ 是本机数据，不进 gitignore 标记块账面——条目（BASELINE_DIR_NAME）
 //     由 init-engine 的 .gitignore 标记块统一管理，本模块不管 gitignore。
-//   - CRLF→LF 归一（口径同 manifest.mjs hashText）：writeBaseline 落盘前与 mergeThreeWay 写临时
-//     文件前统一归一——Windows autocrlf 检出差异既不进基线、也不构成假冲突。
-// git 调用：不经 git-core spawnGit——它按 cwd+args 记忆化结果，而 merge-file 参数含一次性临时路径，
-// 缓存无复用价值且随合并次数无限增长（整份合并正文常驻内存）；其基础设施告警文案也是 git 探测语义。
-// 仅复用其 GIT 常量（Windows git.exe 显式解析 + CHECK_LOOP_GIT 测试注入点），spawn 走本模块
-// spawnSync + windowsHide。
+//   - CRLF→LF 归一（口径同 kit kernel hashText）：writeBaseline 落盘前统一归一（mergeThreeWay 的
+//     临时文件归一在 kit kernel，同一口径）——Windows autocrlf 检出差异既不进基线、也不构成假冲突。
+// git 调用（三方合并部分随 mergeThreeWay 归 kit kernel）：merge-file 参数含一次性临时路径，
+// git-core spawnGit 的 cwd+args 记忆化对其无复用价值，kit kernel 侧直接 spawnSync + windowsHide。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { engineDir } from '../paths.mjs';
-import { GIT } from '../git-core.mjs';
 
 // 基线根 = <root>/.agents/.install-baseline/；BASELINE_DIR_NAME 是相对 .agents 的目录名，
 // gitignore 标记块（plan.mjs GITIGNORE_ENTRIES）写的条目就是它。
@@ -112,37 +108,6 @@ export function pruneBaselines(target, keepRels, { dryRun = false } = {}) {
   return removed;
 }
 
-// 三方合并：git merge-file 以 base 为基线、ours 为磁盘现状、theirs 为新模板。临时目录写三文件
-//（写前 CRLF→LF 归一，同 writeBaseline 口径）→ `git merge-file -p -q -L current -L baseline -L kit`。
-// 退出码判据：0=clean；1–127=conflict（git 以冲突块数作退出码，text 带冲突标记）；
-// >127 / 负值 / status 非数值（信号杀死）/ 进程 error = unavailable——git 不可用或异常，
-// 调用方回退跳过语义。finally 清理临时目录。返回 { status, text? }。
-export function mergeThreeWay({ base, ours, theirs }) {
-  const norm = (t) => String(t).replace(/\r\n/g, '\n');
-  let dir;
-  try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'install-merge-'));
-    const oursFile = path.join(dir, 'ours');
-    const baseFile = path.join(dir, 'base');
-    const theirsFile = path.join(dir, 'theirs');
-    fs.writeFileSync(oursFile, norm(ours), 'utf8');
-    fs.writeFileSync(baseFile, norm(base), 'utf8');
-    fs.writeFileSync(theirsFile, norm(theirs), 'utf8');
-    const result = spawnSync(
-      GIT,
-      ['merge-file', '-p', '-q', '-L', 'current', '-L', 'baseline', '-L', 'kit', oursFile, baseFile, theirsFile],
-      { encoding: 'utf8', windowsHide: true },
-    );
-    if (result.error || typeof result.status !== 'number' || result.status < 0 || result.status > 127) {
-      return { status: 'unavailable' };
-    }
-    return {
-      status: result.status === 0 ? 'clean' : 'conflict',
-      text: result.stdout,
-    };
-  } catch {
-    return { status: 'unavailable' };
-  } finally {
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
+// mergeThreeWay：三方合并机件（git merge-file，clean/conflict/unavailable 三态），单源在
+// agentic-flow-kit kernel（判据超集），经 lib/kit-kernel.mjs 适配缝转发——本模块只保留基线存储。
+export { mergeThreeWay } from '../lib/kit-kernel.mjs';
