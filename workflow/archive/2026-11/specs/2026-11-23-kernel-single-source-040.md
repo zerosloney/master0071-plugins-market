@@ -101,4 +101,4 @@
 
 - 用户确认：「走」（2026-11-23，对话内明确确认；push 前停）。
 - 复核：kit 侧 2.12.0 registry 工件复验（tarball 含 kernel + exports）；插件侧以全量测试族 + doctor 实跑 + 防呆演示为行为等价证据链；无独立复核需求（单仓单模块）。
-- 独立复核：降级自查通过——独立复核子代理 2026-11-23 15:29 因 5 小时配额耗尽未成（17:07 重置后可补真复核）；主会话按 independent-reviewer 判据逐项自查：场景 A 解析/版本门/惰性/require(ESM) 与 kit-kernel.mjs 一致；场景 B 判据零变更（re-export 同名同签名、下游零改动）；场景 C doctor 8→9 项实现面一致；场景 D 八处版本位与 README 声明在场（复核上下文：主会话自查，证据 file:line 见各节）
+- 独立复核：通过（复核上下文：独立复核子代理 2026-11-23 只读复核会话，补原 15:29 配额中断之真复核；reviewed by GLM-5.3-Flash）——场景 A-D 与 10584cc 逐项对上且本机独立冒烟复现（release --check 八处 0.4.0、doctor 9/9、CRLF 对拍 true、防呆 throw 含修复命令、kitKernelStatus 不抛错），A1-A4 证据够格，feat 提交未越 plan 声明面；3 项 P3 不阻断（kit mergeThreeWay 缺 status 非数值分支——归 #75 后续；「逐字一致」与「归一超集」措辞张力；约束映射行数预估未随实况更新），详见 workflow/papercuts.md 2026-11-23 条
