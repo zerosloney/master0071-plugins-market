@@ -5,10 +5,13 @@
 
 <!-- GENERATED:BEGIN — gen-workflow-index.mjs 整段重写，手工说明写在本行之前 -->
 
-## 活跃（0）
+## 活跃（3）
 
 | 类型 | 级别 | 状态 | 日期 | 模块 | 标题 | 验收 |
 |---|---|---|---|---|---|---|
+| INTENT | L2 | approved | 2026-11-23 | engine | 内核单源化：机件（hash/digest/mergeThreeWay）经 agentic-flow-kit kernel 门面复用（0.4.0） | ☑4/4 |
+| PLAN | L2 | approved | 2026-11-23 | engine | 内核单源化：机件经 agentic-flow-kit kernel 门面复用（0.4.0） | — |
+| SPEC | L2 | approved | 2026-11-23 | engine | 内核单源化：机件（hash/digest/mergeThreeWay）经 agentic-flow-kit kernel 门面复用（0.4.0） | — |
 
 ## 档案计数（0，不进表）
 
