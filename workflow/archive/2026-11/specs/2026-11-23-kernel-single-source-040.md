@@ -1,10 +1,10 @@
 ---
-状态: approved
+状态: done
 级别: L2
 日期: 2026-11-23
 模块: engine
 备注: 关联 ../intents/2026-11-23-kernel-single-source-040.md；换源非改判据（判据逐字同 kit kernel）
-确认指纹: c81bc5c459399183
+确认指纹: 03b552fc083ebf22
 ---
 # SPEC — 内核单源化：机件（hash/digest/mergeThreeWay）经 agentic-flow-kit kernel 门面复用（0.4.0）
 
@@ -101,3 +101,4 @@
 
 - 用户确认：「走」（2026-11-23，对话内明确确认；push 前停）。
 - 复核：kit 侧 2.12.0 registry 工件复验（tarball 含 kernel + exports）；插件侧以全量测试族 + doctor 实跑 + 防呆演示为行为等价证据链；无独立复核需求（单仓单模块）。
+- 独立复核：降级自查通过——独立复核子代理 2026-11-23 15:29 因 5 小时配额耗尽未成（17:07 重置后可补真复核）；主会话按 independent-reviewer 判据逐项自查：场景 A 解析/版本门/惰性/require(ESM) 与 kit-kernel.mjs 一致；场景 B 判据零变更（re-export 同名同签名、下游零改动）；场景 C doctor 8→9 项实现面一致；场景 D 八处版本位与 README 声明在场（复核上下文：主会话自查，证据 file:line 见各节）

@@ -1,10 +1,10 @@
 ---
-状态: approved
+状态: done
 级别: L2
 日期: 2026-11-23
 模块: engine
 备注: kit#75 领单产物随 2.12.0 首发；机件层切割（引擎孪生上收不在本单）
-确认指纹: 722df7686e6364d3
+确认指纹: 2497b56f3e2b8c87
 ---
 # INTENT — 内核单源化：机件（hash/digest/mergeThreeWay）经 agentic-flow-kit kernel 门面复用（0.4.0）
 
@@ -62,7 +62,7 @@
 - [x] A1 四机件单源：manifest/baseline 本地实现删除、re-export 指向适配缝；`git-tree-digest.mjs` 删除；verify.mjs 直连；下游消费方 import 零改动；`rg` 镜像实现与 `git-tree-digest` 功能引用清零（证据：89 套件 107/107 绿；豁免表仅 1 行历史注记，功能引用 0）
 - [x] A2 适配缝门禁：默认 `npm root -g` 解析成功；`FLOW_KIT_ROOT` 指错 fail-loud 中文修复提示；版本低于 2.12.0 拒载；`hashText('a\r\nb')===hashText('a\nb')` 全路径成立（证据：防呆演示 throw 文案含修复命令；status {ok:true,version:"2.12.0"}；CRLF 对拍 true）
 - [x] A3 doctor 第 9 项：9 项全 ✓ 形态（健康仓）；`✓ kit 内核依赖 — agentic-flow-kit@2.12.0 在位`；项数断言 8→9 同步（证据：本仓实跑 9/9 全通过；doctor.test.mjs 47/0）
-- [x] A4 0.4.0 发版：`release --check` 八处一致 0.4.0；plugin README 运行前提声明在场；全量门绿（证据：本单关单前补记）
+- [x] A4 0.4.0 发版：`release --check` 八处一致 0.4.0；plugin README 运行前提声明在场；全量门绿（证据：release --check 八处一致 0.4.0；README 运行前提 + doctor 项数勘误已入 10584cc；verify --scope 13 门全绿（墙钟 7.9s，绿凭证 19 行已落账）；全量 89 套件 107/107）
 
 > **闭环对账**：关单在 test 阶段（不依赖 deploy）。intent 置 done 前逐条勾验，每条补证据——`- [x]` 行缺证据视为未验。
 
@@ -70,3 +70,4 @@
 
 - 用户确认：「走」（2026-11-23 对话内明确确认 0.4.0 发行全流程；push 前停——外发动作留用户终审）。
 - 复核：kit 侧经 #75 领单独立落地（2.12.0 registry 工件复验：tarball 含 kernel + exports）；插件侧单仓单模块（engine 机件面），无跨模块独立复核需求。
+- 独立复核：降级自查通过——独立复核子代理 2026-11-23 15:29 因 5 小时配额耗尽未成（17:07 重置后可补真复核）；主会话按 independent-reviewer 判据逐项自查：spec 场景 A-D 与实现一致、判据零变更、下游零改动、版本位八处一致（复核上下文：主会话自查，证据见 spec 验收判据表 A1-A4）

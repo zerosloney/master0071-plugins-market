@@ -1,10 +1,10 @@
 ---
-状态: approved
+状态: done
 级别: L2
 日期: 2026-11-23
 模块: engine
 备注: 关联 ../intents/2026-11-23-kernel-single-source-040.md + ../specs/ 同名；三笔提交形态（docs 开单 / feat 0.4.0 / docs 关单）
-确认指纹: abc812029b226c3c
+确认指纹: f7e682f6eb762b6d
 ---
 # PLAN — 内核单源化：机件经 agentic-flow-kit kernel 门面复用（0.4.0）
 
@@ -53,11 +53,11 @@
    - 判据：registry 工件含 kernel/exports；全局 2.12.0；版本门对齐后全量门绿
    - 风险：低
    - 留痕：`npm view` version=2.12.0 + exports 一致；全局升级后 107/107 绿（跑在 registry 工件上）；doctor 9/9
-- [ ] 5. 0.4.0 发版 + 关单（主会话自做）
+- [x] 5. 0.4.0 发版 + 关单（主会话自做）
    - 文件：版本位八处、plugins/ai-native-delivery/README.md、台账三件 + INDEX + delegations.d
    - 判据：`release --check` 八处一致 0.4.0；verify --scope 全绿并落凭证；三件 done 指纹；INDEX 活跃清零；三笔提交形态
    - 风险：低
-   - 留痕：本笔完成时补记
+   - 留痕：release --check 八处一致 0.4.0；verify --scope 13 门全绿（墙钟 7.9s，绿凭证 19 行已落账）；三笔提交 5f7574d docs 开单 → 10584cc feat 0.4.0 → 本笔 docs 关单；三件 done 指纹随关单落台账；README 运行前提 + doctor 项数勘误随 feat 笔
 
 ## 验证步骤
 
