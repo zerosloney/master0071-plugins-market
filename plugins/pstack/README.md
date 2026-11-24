@@ -1,6 +1,6 @@
 # pstack
 
-poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。66 个 skill + 4 个子智能体（`agents/`，名单与上游一致）+ 1 条会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包（`dist/qwen-pstack`）：共享 66 个 skill，注册同一组 4 个子智能体与 Qwen 专属 SessionStart hook。**不能直接装 `plugins/pstack`**：Qwen 会先认 Agent Plugins 的 `plugin.json`，只加载 skill、忽略 agents/hooks。
+poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0** 标准打包。67 个 skill + 4 个基础子智能体（`agents/`：2 个 poteto 基础档 + 2 个 thermos 审计档）+ 1 条会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包（`dist/qwen-pstack`）：共享 67 个 skill，注册同一组 4 个子智能体与 Qwen 专属 SessionStart hook。**不能直接装 `plugins/pstack`**：Qwen 会先认 Agent Plugins 的 `plugin.json`，只加载 skill、忽略 agents/hooks。
 
 一句话概括上游的自述：**"if you want to go fast, go deep first"** —— 先深挖，再快跑；少写代码，但写得更硬。
 
@@ -20,7 +20,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 分组 | 数量 | 代表 |
 |------|------|------|
 | 路由 / 元 | 4 | `poteto-mode`、`poteto-help`、`setup-pstack`、`correct` |
-| 设计 | 3 | `architect`（设计起草）、`arena`（方案竞速）、`blast-radius`（改动影响面） |
+| 设计 | 4 | `architect`（设计起草）、`arena`（方案竞速）、`blast-radius`（改动影响面）、`reframe`（术语与描述重写） |
 | 审查 | 6 | `interrogate`（对抗式审 diff）、`thermos` / `thermo-nuclear-review` / `thermo-nuclear-code-quality-review`、`no-comments`（去掉噪音评论）、`figure-it-out` |
 | 写作 | 4 | `unslop`、`deslop`、`technical-writing`、`in-your-own-words` |
 | 工程纪律 | 5 | `tdd`、`how`、`why`、`sharpen`、`benchmark-checklist` |
@@ -30,7 +30,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 | 其他 | 4 | `automate-me`、`reflect`、`show-me-your-work`、`typescript-best-practices` |
 | 原则 | 24 | `principle-laziness-protocol`、`principle-subtract-before-you-add`、`principle-model-the-domain`、`principle-type-system-discipline` 等 |
 
-42 + 24 = 66。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
+43 + 24 = 67。分组按 skill 目录名归类，具体触发条件以各 `SKILL.md` 的 `description` 为准（宿主据此决定是否自动调用）。
 
 ## 原则层
 
@@ -42,7 +42,7 @@ poteto（Lauren Tan）风格的 agent 工作流栈，按 **Agent Plugins 1.0.0**
 |------|------|
 | `skills/`（Agent Plugins 1.0.0 标准） | 所有兼容客户端按固定位置发现，无需清单声明 |
 | `.omp-plugin/plugin.json` | **Oh My Pi 兼容垫片**：声明 `skills` 与 `agents`；也是根 `.omp-plugin/marketplace.json` 里的市场条目，omp 侧 `pstack@master0071-plugins` 已可安装（dry-run 通过）。omp 不加载 `hooks/`，所以没有会话启动自动路由 |
-| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 66 个 skill，无需 prompts 垫片 |
+| `.codex-plugin/plugin.json` | **Codex 兼容垫片**：声明 `skills` 与 `SessionStart` hook，Codex 直接发现 `skills/` 下全部 67 个 skill，无需 prompts 垫片 |
 | `.zcode-plugin/plugin.json` | **ZCode 兼容垫片**：声明 `skills` 与 `agents`；不含 `hooks` 字段——ZCode 按约定路径直接注册 `hooks/hooks.json`（实测面板与日志证实，见下） |
 | `qwen/agents/`、`QWEN.md`、`hooks/hooks.qwen.json`、`scripts/build-qwen-extension.mjs` | **Qwen Code 适配源 + 生成器**：生成器把共享 `skills/`、Qwen 专属 4 个基础子智能体、Qwen hook 注册与 `QWEN.md` 组装成 `dist/qwen-pstack`（自包含、无根 `plugin.json`）。不提供根 `qwen-extension.json`——它会被 Agent Plugins 的 `plugin.json` 抢先，导致 Qwen 只加载 skill |
 | `agents/` | **客户端约定**；Claude / ZCode / Qwen 生成包都注册 4 个上游基础子智能体（`poteto-agent`、`comment-sicko`、两个 thermo 审计子代理），本移植不新增面板席位、模型钉定或力度变体。ZCode 的 `Agent` 调用无 per-call 模型与力度参数，各角色统一跑 `poteto-agent`，模型与档位跟随会话；Qwen 的 `agent` 调用可逐次传 model grade，多模型面板用同一 `poteto-agent` 配不同 grade |
@@ -55,7 +55,7 @@ hook 行为：会话开始时读取运行时的模型表（Claude Code `~/.claud
 
 ZCode 侧 hook：ZCode **按约定路径直接注册 `hooks/hooks.json`，不理会垫片里的 hooks 指针**（实测面板与日志证实），因此同一份注册要同时服务 Claude Code 与 ZCode——`session-start.mjs` 靠环境自检切换：检测到 `ZCODE_PLUGIN_ROOT` 或插件根在 `.zcode` 下即走 zcode 分支，读 `~/.zcode/pstack-models.md`、沿用 `session hook: off` 开关，输出 ZCode 要求的 `hookSpecificOutput.additionalContext` JSON；否则按参数走 claude/codex/copilot/qwen 分支。工具与模型映射见 `skills/poteto-mode/references/zcode-tools.md`。
 
-Qwen Code 侧把不兼容点显式落到文件：`scripts/build-qwen-extension.mjs` 组装自包含包（复制共享 `skills/`、`qwen/agents/`、`hooks/hooks.qwen.json` → `hooks/hooks.json`、`QWEN.md`，不复制根 `plugin.json`）——**根清单不能直接复用**，因为 Qwen 0.26 的顺序是 Agent Plugins 优先，且原生加载器把 `skills/`、`agents/` 写死在扩展根；`hooks/hooks.qwen.json` 以 `qwen` 运行时调用同一脚本（读 `${QWEN_HOME:-~/.qwen}/pstack-models.md`，输出裸文本由 Qwen 加入 SessionStart 上下文）；`qwen/agents/` 只保留 4 个基础档，去掉 ZCode 的 `model` / `thoughtLevel` 钉值；`QWEN.md` 与 `skills/poteto-mode/references/qwen-tools.md` 说明 `pstack:` 命名空间、工具名与 model grade 映射；`skills/setup-pstack/qwen.md` 负责写 Qwen 表并配置 `agents.modelGrades`。**命名空间不对称**：扩展 skill 注册为 `pstack:<name>`（裸名不是别名），扩展子智能体却保留 frontmatter 的裸名——`subagent_type` 要写 `poteto-agent` / `thermo-nuclear-review-subagent`，pstack skill 里的 `pstack:<agent>` 在 Qwen 上必须剥前缀。**验证边界**：`test/qwen-extension-parity.mjs` 现跑生成器并逐项对账；另用 Qwen Code 0.26.8 在隔离 `QWEN_HOME` 实测 `extensions install dist/qwen-pstack` 成功，`ExtensionManager` 读到 `format=qwen`、66 skills、4 agents、SessionStart hook×1、`QWEN.md` 上下文，hook 命令中的 `${CLAUDE_PLUGIN_ROOT}` 已展开到安装路径。**未跑真实鉴权的模型会话**，故不宣称“已实测工具调用”。
+Qwen Code 侧把不兼容点显式落到文件：`scripts/build-qwen-extension.mjs` 组装自包含包（复制共享 `skills/`、`qwen/agents/`、`hooks/hooks.qwen.json` → `hooks/hooks.json`、`QWEN.md`，不复制根 `plugin.json`）——**根清单不能直接复用**，因为 Qwen 0.26 的顺序是 Agent Plugins 优先，且原生加载器把 `skills/`、`agents/` 写死在扩展根；`hooks/hooks.qwen.json` 以 `qwen` 运行时调用同一脚本（读 `${QWEN_HOME:-~/.qwen}/pstack-models.md`，输出裸文本由 Qwen 加入 SessionStart 上下文）；`qwen/agents/` 只保留 4 个基础档，去掉 ZCode 的 `model` / `thoughtLevel` 钉值；`QWEN.md` 与 `skills/poteto-mode/references/qwen-tools.md` 说明 `pstack:` 命名空间、工具名与 model grade 映射；`skills/setup-pstack/qwen.md` 负责写 Qwen 表并配置 `agents.modelGrades`。**命名空间不对称**：扩展 skill 注册为 `pstack:<name>`（裸名不是别名），扩展子智能体却保留 frontmatter 的裸名——`subagent_type` 要写 `poteto-agent` / `thermo-nuclear-review-subagent`，pstack skill 里的 `pstack:<agent>` 在 Qwen 上必须剥前缀。**验证边界**：`test/qwen-extension-parity.mjs` 现跑生成器并逐项对账；另用 Qwen Code 0.26.8 在隔离 `QWEN_HOME` 实测 `extensions install dist/qwen-pstack` 成功，`ExtensionManager` 读到 `format=qwen`、skills（当时 66 个）、4 agents、SessionStart hook×1、`QWEN.md` 上下文，hook 命令中的 `${CLAUDE_PLUGIN_ROOT}` 已展开到安装路径。**未跑真实鉴权的模型会话**，故不宣称“已实测工具调用”。
 
 **全部 hook 已 node 化（0.1.3 起）**：Windows 宿主经 shell 执行 `.sh` 会按文件关联"打开"脚本（弹 VS Code）而非运行，故 `session-start.sh` / `pre-tool-use.sh` 及其 awk 引擎已移植为 node 脚本——`hooks/session-start.mjs`（统一入口，claude/codex/copilot/zcode/qwen 五运行时分支 + 宿主自检）与 `hooks/pre-tool-use.mjs`（Copilot 权限闸），共享 `hooks/sheet.mjs`（表解码与校验）。**实际被宿主接上的注册有三份**：`hooks/hooks.json`（Claude 式宿主 + ZCode 约定路径）、`.codex-plugin` 内联那一份，以及 Qwen 生成包内由 `hooks/hooks.qwen.json` 复制成的 `hooks/hooks.json`，三者都改为 `node` 调用。测试见 `test/run-hook-tests.mjs`（hook 契约与表解码，在插件根执行）与 `test/sheet-parity.mjs`（awk↔mjs 一致性，无 awk 环境自动跳过）。原 `session-start.sh`、`pre-tool-use.sh`、`session-start.ps1` 与四个 `hooks/*.awk` 共 7 个文件移入 `extras/upstream-reference/` 保留为上游参考，不再被任何注册引用；hook 由此依赖宿主机上有 Node ≥ 18。
 
@@ -67,7 +67,7 @@ Qwen Code 侧把不兼容点显式落到文件：`scripts/build-qwen-extension.m
 
 ## extras/（按需启用的非核心组件）
 
-bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）与上游 hook 参考已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 4 个零依赖 node 脚本（`check-plan` / `check-playbooks` / `resume` / `worktree-audit`），随装随用。
+bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `package.json` / `bun.lock`）与上游 hook 参考已统一隔离到 `extras/`（0.1.5 起）：宿主不加载、ZCode 工作区索引忽略、不装 bun 的安装可以完全无视。各目录的启用条件见 [`extras/README.md`](extras/README.md)；`skills/poteto-mode/scripts/` 只留 3 个零依赖 node 脚本（`check-playbooks` / `resume` / `worktree-audit`），随装随用。
 
 **bun 套件的 Windows 平台性失败（2026-10-29 市场审查根因批注）**：`bun test` 在 Windows 实测 253 例，起始 217 pass / 36 fail。根因分五类，已修掉三类：
 
@@ -89,11 +89,11 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 踩过的坑（都在 `watch-pr/fake-gh.test-helper.ts` 里写明了）：编译与预热各约 4s，「每个用例各编译一份」会直接撞满超时（`exit null` = 被自身超时打断），必须按 fixture 内容缓存；node 的 ESM 加载器只接受 `file://` URL，裸 Windows 路径会得到 `ERR_UNSUPPORTED_ESM_URL_SCHEME`；但 `bun build` 打包时又不认 `file://` 说明符——两者用途不同，不能混用。
 
 - **orch 锁竞争（已修，默认超时下 6 → 1 条）**：根因是产品代码里一个真实的 Windows 语义缺口，不是测试缺陷。上游锁算法靠「目录 rename 成功即持锁」：POSIX 允许 rename 到**空目录**（覆盖它），Windows 一律 `EPERM`。`claimed()` 清掉死 claimant 的**文件**后，`.orch.lock.takeover` 目录本身还空着，于是这个已经死透的 claim 会把锁永久占住，后来者怎么试都拿不到。修法：新增 `sweepEmptyClaim()`，在 rename 因 `EPERM/EEXIST/ENOTEMPTY` 失败后，**若目标目录确认为空**就 `rmdir` 再重建 staged 重试一次（读到任何条目说明有活跃 claim，仍按竞争失败返回 false）。另修了一处测试侧遗漏：`replaces a stale lock after a writer was killed while replacing it` 直接用 `signalCode === "SIGKILL"` 断言，而本文件已有跨平台的 `writerWasKilled()`，Windows 上 `process.kill(self, SIGKILL)` 不产生 signal（`exitCode=1`、`signalCode=null`）。修后放宽超时 42/42 全绿；默认 5s 下 41/42，剩下一条是整套件并行时的时间预算问题（单独跑 3.98s 通过）。
-两类都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。已发布的 `check-plan.mjs` 由 `test/check-plan.test.mjs` 的 node:test 重写版守护（进 CI、双平台零依赖）。
+两类都属 [`extras/README.md`](extras/README.md) 已声明的「仅上游 POSIX 验证、Windows 有平台性失败」，故按上游原样保留，CI 仍不纳入该套件。`check-plan.mjs` 与 `test/check-plan.test.mjs` 已随上游 v0.15.48 删除（0.1.28）；`skills/poteto-mode/scripts/` 现存 `check-playbooks.mjs`、`resume.mjs`、`worktree-audit.mjs` 三个零依赖 node 脚本，均不在 CI 的 node:test 面内。
 
 ## 与上游的差异
 
-移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28 及 v0.15.28→v0.15.36 的 skill 级变更（基线为 fork 同步自的 v0.15.25；ketchup-video 已纳入，statechart 与 benny 自动化未纳入，orchestrate 的 agentic 改写未采纳——orch 保留本地 Windows 加固版）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。0.1.5 起把 bun 专属 vendored 脚本从 `skills/poteto-mode/scripts/` 迁到 `extras/poteto-mode-scripts/`（无 bun 的宿主跑不了它们，playbook 与映射文档已同步改路径）。
+移植自 [michael-denyer/pstack-claude](https://github.com/michael-denyer/pstack-claude) `plugins/pstack/`（版本 `0.9.86`，提交 `1dba27e`），并在此基础上合入了 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) v0.15.26–v0.15.28、v0.15.28→v0.15.36 及 v0.15.36→v0.15.48 的 skill 级变更（基线为 fork 同步自的 v0.15.25；ketchup-video 与 reframe 已纳入；statechart 与 benny 自动化未纳入——statechart 依赖 TLC(Java)/Docker/Python/bun 的重型模型检查栈，ZCode 无对应运行支撑；orchestrate 的 agentic 化按上游落地，删除 playbook 与 check-plan 脚本，长周期项目改在收到 `/poteto-mode` 的会话里作为一次长自主运行推进；orch 保留本地 Windows 加固版）。skill 的 frontmatter 按 Agent Skills 规范统一改写（剥除 Cursor / Claude 专有键 `user-invocable`、`paths`，只保留 `name` / `description` / `license` / `compatibility`）；正文里写死的 Claude 路径改为宿主中立表述，各宿主的具体值见 `skills/poteto-mode/references/<host>-tools.md` 的路径对照表。正文的 Claude Code 工具名与模型名保留为参考平台口径，各宿主通过自己的映射文件翻译；新合入的上游变更沿用同一套适配约定（剥除 Cursor 专有 frontmatter、Claude Code 工具名与模型口径、技能间相对链接）。0.1.5 起把 bun 专属 vendored 脚本从 `skills/poteto-mode/scripts/` 迁到 `extras/poteto-mode-scripts/`（无 bun 的宿主跑不了它们，playbook 与映射文档已同步改路径）。
 
 **剔除项**（上游有、本移植不随附）：
 
@@ -105,13 +105,14 @@ bun 专属 vendored TypeScript（`watch-pr`、`orch` 及其 `bootstrap.ts` / `pa
 | `.github/`、`tools/` | 上游 CI 与生成脚本 | skill 里提到的 `tools/generate.mjs` 仅是出处说明，不可执行 |
 | `docs/guide/`、`docs/harness/` | 上游指南文档，本 README 已覆盖使用面 | 不影响 skill 行为 |
 | `make-bot-ui` skill | 通过 webhook 唤醒 Grok Bot，Cursor 生态绑定，其他宿主无从使用 | 少一个 Cursor 专属 skill |
+| `statechart` skill | 依赖 TLC(Java)/Docker/Python/bun 的重型模型检查栈（453 文件），ZCode 无对应运行支撑；上游到 v0.15.4x 才修 native Windows | 少一个 Cursor 重度绑定 skill |
 | `automations/benny/`、`.cursor-plugin/`、`.gitignore`、`worktree-audit.sh` | fork 基线即未随附（benny 为 Cursor 自动化专属；worktree-audit 由本地 `worktree-audit.mjs` 等价承担） | 无 |
 
 完整署名链见 [NOTICE-PORT.md](NOTICE-PORT.md) 与 [NOTICE.md](NOTICE.md)（上游原文）。**再分发须保留 `LICENSE`、`LICENSE-cursor-team-kit`、`LICENSE-thermos` 三份许可证。**
 
 ## 升级上游
 
-本插件版本号只表示本仓库的移植包版本（当前版本见 [`plugin.json`](plugin.json)，`release.mjs --check` 保证四份清单一致），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，之后的提交需直接从原仓取）：
+本插件版本号只表示本仓库的移植包版本（当前版本见 [`plugin.json`](plugin.json)，`release.mjs --check` 保证四份清单一致），与上游版本解耦。上游变更以 [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) 为准（fork 的最后一次同步停在 v0.15.25，本移植已逐版追平到 v0.15.48；之后的提交需直接从原仓取）：
 
 ```bash
 gh api "repos/cursor/plugins/compare/<上次同步提交>...HEAD" --jq '.files[] | select(.filename | test("^pstack/skills/")) | .filename'
@@ -126,6 +127,15 @@ node scripts/release.mjs pstack <新版本>
 若宿主的用户级 skill 目录里已有 `tdd`、`teach`，安装可能被同名检查拒绝；先移开或禁用用户级版本，再安装 pstack。ZCode / Codex 的同名策略由宿主决定。
 
 ## 版本变更
+
+**0.1.28**
+
+追平上游 v0.15.36→v0.15.48（skill 级，共 67 个 skill）：
+
+- **合入 `reframe`**（上游 #1324/#1326）：教用户所在领域的专家术语与邻近领域的借词，逐个打开并核验引用来源后重写其描述；`poteto-help` 索引表同步加行。
+- **why / how / reflect / architect 单文件化**（上游 #1236/#1249）：四者改为上游单文件版，删除各自 `references/`，不再有 explorer / synthesizer 等子角色；`poteto-mode` 同步 9 角色模型路由与面板三席。
+- **删除 orchestrate playbook**（上游 #1043 的 agentic 化）：移除 `skills/poteto-mode/playbooks/orchestrate.md`、`skills/poteto-mode/scripts/check-plan.mjs` 与 `test/check-plan.test.mjs`；`skills/poteto-mode/scripts/` 现留 `check-playbooks.mjs`、`resume.mjs`、`worktree-audit.mjs` 三个零依赖 node 脚本。长周期项目在收到 `/poteto-mode` 的会话里作为一次长自主运行推进，见 `worker.md` 与非协商项。
+- **statechart 维持不纳入**：依赖 TLC(Java)/Docker/Python/bun 的重型模型检查栈（453 文件），ZCode 无对应运行支撑；「与上游的差异」剔除表补记该行，避免下次同步重新评估。
 
 **0.1.27**
 
@@ -143,7 +153,7 @@ node scripts/release.mjs pstack <新版本>
 
 - **Qwen Code 原生扩展落地**：新增 `scripts/build-qwen-extension.mjs` 生成自包含 `dist/qwen-pstack`（复制共享 `skills/`、Qwen 专属 `qwen/agents/`、`hooks/hooks.qwen.json` → `hooks/hooks.json`、`QWEN.md`；**不复制根 `plugin.json`**），因为 Qwen 0.26 先认 Agent Plugins 清单，且原生加载器把 `skills/`、`agents/` 写死在扩展根——直接在 `plugins/pstack` 上放 `qwen-extension.json` 会被 `plugin.json` 抢先，只加载 skill。新增 `QWEN.md`、`qwen/agents/`（4 个基础子智能体，去掉 ZCode 的 `model` / `thoughtLevel` 钉值）、`hooks/hooks.qwen.json`（`qwen` 运行时，读 `${QWEN_HOME:-~/.qwen}/pstack-models.md`，裸文本输出）。
 - **不兼容点适配**：扩展 skill 使用 `pstack:<name>` 命名空间，扩展子智能体保留裸名（Qwen 按 frontmatter `name:` 查找，加前缀反而解析不到；skill 里的 `pstack:<agent>` 需剥前缀）；新增 `references/qwen-tools.md`（工具名、model grade、路径、per-skill notes）；新增 `setup-pstack/qwen.md`（写表 + 配 `agents.modelGrades` + QWEN.md 导入）；`session-start.mjs` 增加 qwen 分支；`setup-pstack` 的 Other runtimes 表补 Qwen 行。ZCode 的 `panelist-*` / `strong` / `effort-*` 不进入 Qwen 树，面板改用逐次 model grade。
-- **守护**：`test/qwen-extension-parity.mjs` 现跑生成器到临时目录，对账无 `plugin.json`、skills / agents 数量与白名单、hook 注册、`${CLAUDE_PLUGIN_ROOT}` 路径、QWEN.md 与映射文档；`manifest-lint.mjs` 守源与生成器，并禁止根目录再出现 `qwen-extension.json`；CI 增加 parity 步骤。`run-hook-tests.mjs` 覆盖 qwen 的 no-sheet / off / QWEN_HOME 三种状态。**验证**：Qwen Code 0.26.8 隔离 `QWEN_HOME` 实测安装成功，`ExtensionManager` 读到 `format=qwen` / 66 skills / 4 agents / SessionStart hook×1 / `QWEN.md`；**live 鉴权模型会话未跑**。
+- **守护**：`test/qwen-extension-parity.mjs` 现跑生成器到临时目录，对账无 `plugin.json`、skills / agents 数量与白名单、hook 注册、`${CLAUDE_PLUGIN_ROOT}` 路径、QWEN.md 与映射文档；`manifest-lint.mjs` 守源与生成器，并禁止根目录再出现 `qwen-extension.json`；CI 增加 parity 步骤。`run-hook-tests.mjs` 覆盖 qwen 的 no-sheet / off / QWEN_HOME 三种状态。**验证**：Qwen Code 0.26.8 隔离 `QWEN_HOME` 实测安装成功，`ExtensionManager` 读到 `format=qwen` / skill 总数 66 / 4 agents / SessionStart hook×1 / `QWEN.md`；**live 鉴权模型会话未跑**。
 
 **0.1.23**
 
@@ -157,7 +167,7 @@ node scripts/release.mjs pstack <新版本>
 **0.1.21**
 
 - **同步上游 v0.15.28→v0.15.36 的 skill 级变更**（`c742dd6`）：swarm 步骤编号修复、sharpen 重写、interrogate 重构为 arena 驱动的对抗验证（`references/` 四文件随上游删除）、arena 弃座回填与 cross-judge 家族规则、poteto-mode 首条消息触发器与模型拒绝回退链、6 个 playbook 更新、check-plan.mjs 行内代码定界符正则修复；watch-pr 的 fork 识别与 deadline 封顶经核对已由本地实现覆盖，无需改动。
-- **新增 `ketchup-video` skill**（66 个 skill）；orchestrate 的上游 agentic 改写未采纳，orch 保留本地 Windows 加固版；statechart 与 benny 未纳入。取舍明细见 `NOTICE-PORT.md` 第 9 条。
+- **新增 `ketchup-video` skill**（当时 skill 总数 66）；orchestrate 的上游 agentic 改写未采纳，orch 保留本地 Windows 加固版；statechart 与 benny 未纳入。取舍明细见 `NOTICE-PORT.md` 第 9 条。
 
 **0.1.20**
 

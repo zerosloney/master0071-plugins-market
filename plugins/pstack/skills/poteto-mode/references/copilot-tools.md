@@ -33,7 +33,7 @@ poteto-mode's Subagents section sets Claude-specific defaults (`subagent_type: "
 - Reasoning effort maps to `task`'s `reasoning_effort`. Pass a role value's `@<level>` suffix, or else the sheet's `default effort` level, as `reasoning_effort`; `session` omits it. Do not dispatch `pstack:*` agent types for effort (this port registers no effort agents on any host — they were removed in 0.1.25). Use `general-purpose` or `pstack:poteto-agent` with `reasoning_effort` instead.
 - `run_in_background: true` maps to `mode: "background"`. `mode: "sync"` blocks your turn; use it only when the next step needs the result.
 - A model a skill states for a role (its Models section, an `Agent` call's `model`, or the user's sheet line) is an explicit model instruction, so pass it as `task`'s `model`. A role with no configured model omits `model`. See Model names below for how a Claude default resolves.
-- Workers that write share this machine on the CLI, so the **swarm** skill's workers and the fan-out playbooks (`orchestrate`, `autopilot-full`, `autopilot-stack`) isolate writers with worktrees, as on Claude Code. In the Copilot app, `create_session` gives each writer its own worktree session instead; see App and CLI below.
+- Workers that write share this machine on the CLI, so the **swarm** skill's workers and the fan-out playbooks (`autopilot-full`, `autopilot-stack`) isolate writers with worktrees, as on Claude Code. In the Copilot app, `create_session` gives each writer its own worktree session instead; see App and CLI below.
 - Keep the rest of the policy unchanged. Pass file pointers not inlined context, give each worker its own worktree or branch when they write, review every subagent's diff yourself.
 
 ## Model names
@@ -45,12 +45,12 @@ Skills name Claude Code model aliases in their Models sections. Those aliases ar
 - No sheet, or the hook reports `sheet invalid`: before a skill that needs a role model (`architect`, `arena`, `how`, `interrogate`, `poteto-mode`, `reflect`, `swarm`, `why`), stop, load `setup-pstack` with the `skill` tool, and finish it first. In that same session, use the values it just wrote; later sessions get them from the hook. Do not ask again on later runs.
 - A role line in the sheet is the user's explicit model instruction, so pass it as the `task` tool's `model` parameter. `inherit-parent` or `auto` omits `model`.
 - The plugin's `PreToolUse` hook enforces this for pstack agents **only after the user registers `hooks/copilot-hooks.json` with their Copilot client**. This package's four manifests (root `plugin.json`, `.codex-plugin`, `.omp-plugin`, `.zcode-plugin`) reference no Copilot hook, so on a stock install the gate never runs — see the README's "copilot-hooks.json 目前无人注册（已知缺口）" section. Once registered: while the sheet is valid, it denies a `task` call whose `agent_type` starts with `pstack:` and whose `model` is not one of the sheet's values, and its reason lists the saved IDs. Retry with the role's saved model; never retry on another unsaved model. It leaves calls with no `model` and other agent types alone.
-- Roles that default to the strongest model (`bug-fix`, `perf-issue`, `hillclimb`, `strongest judgment`): the strongest model the user chose.
+- Roles that default to the strongest model (`bug-fix`, `perf-issue`, `hillclimb`): the strongest model the user chose.
 - Diverse-model panels (`arena`, `architect`, `interrogate`, `how` critics, `reflect`): the adversarial signal comes from model diversity, so fill a panel from distinct vendors in the `task` tool's `model` list (Claude, GPT, Gemini, Grok, and so on). pstack ships no default Copilot panel. If only one vendor is reachable, vary reasoning effort and note in the verdict that diversity was reduced.
 
 `setup-pstack` lists the models from the `model` enum of the `task` tool and writes only IDs it saw there. After it writes the sheet, it runs its `check-sheet.sh` script, which applies the hook's checks.
 
-Run `setup-pstack`, and the parent session that orchestrates a panel, on a model at least as strong as gpt-5.4-mini or a Sonnet-class Claude model. On a Haiku-class model, setup picked models the user never chose in about half of the smoke runs.
+Run `setup-pstack`, and the parent session that runs a panel, on a model at least as strong as gpt-5.4-mini or a Sonnet-class Claude model. On a Haiku-class model, setup picked models the user never chose in about half of the smoke runs.
 
 ## Session routing hook
 
@@ -63,7 +63,7 @@ If the mandate is missing from a session (a skills-only install, a Copilot versi
 Copilot limits file access to the workspace and the system temporary directory, so reading a playbook, reference, or script from the installed plugin would ask for path access on every session, and a `-p` run without `--allow-all-paths` would deny it. Once `hooks/copilot-hooks.json` is registered with your Copilot client, the plugin's `PreToolUse` hook approves two kinds of call. Without that registration the hook does not run and these approvals do not happen (the calls then rely on Copilot's own permission prompts).
 
 - `view` of a path inside `COPILOT_PLUGIN_ROOT` that has no `.` or `..` segment.
-- `bash` that runs a registered script by its absolute path under `COPILOT_PLUGIN_ROOT/skills/`, using its documented arguments. The registered scripts are `log.sh` (run with `bash`), `check-sheet.sh` (run with `sh` or `bash`), and `find-transcript.mjs`, `resume.mjs`, `check-plan.mjs`, `check-playbooks.mjs`, and `worktree-audit.mjs` (run with `node`). Direct execution is also accepted. The hook checks each script's argument contract: for example, only the first of `log.sh`'s six arguments is a filename; the others are prose. Resume accepts its operation first, then `--project`, `--note`, and repeated `--artifact` paths as applicable, using either `--option=value` or `--option value`.
+- `bash` that runs a registered script by its absolute path under `COPILOT_PLUGIN_ROOT/skills/`, using its documented arguments. The registered scripts are `log.sh` (run with `bash`), `check-sheet.sh` (run with `sh` or `bash`), and `find-transcript.mjs`, `resume.mjs`, `check-playbooks.mjs`, and `worktree-audit.mjs` (run with `node`). Direct execution is also accepted. The hook checks each script's argument contract: for example, only the first of `log.sh`'s six arguments is a filename; the others are prose. Resume accepts its operation first, then `--project`, `--note`, and repeated `--artifact` paths as applicable, using either `--option=value` or `--option value`.
 
 Each argument is a plain word of letters, digits, and `_ . / : = @ % + , -`, or a single-quoted string with no quote inside. Path operands may not climb with `..` and must resolve inside the workspace after following directory symlinks; a path in the plugin takes the normal permission flow, so no approved script can rewrite the context every session loads. File and dangling symlinks take the normal permission flow. The command holds none of `; | & $`, a backtick, `< > ( ) \`, a double quote, or a newline. Run one command per call, with no pipe or redirect. Unknown scripts, unrecognized argument forms, and mismatched interpreters take the normal permission flow.
 
@@ -75,9 +75,8 @@ The Copilot app loads the same plugin as the CLI and adds session-level tools. U
 
 | pstack need | Copilot app | Copilot CLI |
 |-------------|-------------|-------------|
-| Isolated writer (swarm worker, stack layer, orchestrate worker) | `create_session`, one worktree session per writer | `git worktree add` per writer, then `task` workers pointed at it |
+| Isolated writer (swarm worker, stack layer) | `create_session`, one worktree session per writer | `git worktree add` per writer, then `task` workers pointed at it |
 | Recurring wake-up (`loop`, the `/loop` audit tick, babysit's cadence) | `save_session_automation` on this session | Re-run the step yourself each turn, or ask the user to re-invoke; state the cadence in the decision trail |
-| Coordinate several sessions or repos (`orchestrate`, `autopilot-full`) | The app's `orchestrate` skill plus `send_session_message` | `task` fan-out with worktrees; `/fleet` for parallel subagents |
 | Stacked PRs (`autopilot-stack`, shipping a stack) | The app's `pr-stack` skill, one child session per layer | `gh` or `origin`, one worktree per layer |
 | Watch a PR to merge (`babysit`, `watch-pr`) | Agent merge on the session, or `babysit` with `save_session_automation` | `babysit` with the vendored `watch-pr` script and `gh` |
 | Drive a UI | The `browser` canvas, or your browser automation | Your browser automation, or a concrete manual check for the user |
@@ -90,7 +89,7 @@ Claude Code keeps one directory per project under `~/.claude/projects/<encoded-c
 - `workspace.yaml` names the session's `cwd`. Scope every transcript search to the current workspace: keep only session directories whose `cwd` is the workspace path (or a worktree of it), then read their `events.jsonl`. Never read other projects' sessions.
 - When a skill says "this session's transcript", it is the newest matching session directory whose `events.jsonl` contains the opening prompt.
 
-In poteto-mode's playbooks, `eval` reads candidate transcripts from Copilot session state, and `session-pickup` and `worktree-cleanup` search it scoped to the workspace. `orchestrate` and `multi-phase-plan` keep their store under `${COPILOT_HOME:-~/.copilot}/orchestrate/` instead of the Claude Code agent store.
+In poteto-mode's playbooks, `eval` reads candidate transcripts from Copilot session state, and `session-pickup` and `worktree-cleanup` search it scoped to the workspace. `autopilot-full` and `multi-phase-plan` keep their store under `${COPILOT_HOME:-~/.copilot}/agent-store/` instead of the Claude Code agent store.
 
 ## Driver and bundled skills pstack references
 
@@ -111,8 +110,8 @@ Affected skill entry points point here. Most skills need only the tables above. 
 |-------|-------------------|
 | `interrogate` | Each adversary is a `task` call: `subagent_type` becomes `agent_type` and `model` comes from the sheet. Keep the panel's vendors distinct. |
 | `setup-pstack` | The skill's Other runtimes table names the Copilot sheet path and how it loads. Its [Copilot setup questions](../../setup-pstack/copilot.md) list models from the `task` tool's `model` enum and ask one `ask_user` question per tier and panel slot, grouped by vendor, with no recommended model; a first question lets a plan with one model, or anyone who wants no per-role choices, run every role on the session's model. The role rows are identical; the `session hook` line also controls the Copilot hook. |
-| `architect` | The runner panel goes through the **arena** skill: one `task` per runner, each with a model from the sheet's `architect runners` line. |
-| `how` | The explorers and the explainer are `task` calls with the sheet's `how` role models; critics use a read-only agent type (see Subagent policy). |
+| `architect` | The sketch is the main agent's work; for a large or contested design the **arena** skill runs instead, with its runners from the sheet's `arena runners` line. |
+| `how` | One read-only `task` call (a generic agent, `agent_type` per Subagent policy) explores and explains in one pass; no role lines apply. |
 | `arena` | Runners and the cross-judge pool come from the sheet's panel lines; pick the cross-judge from a different vendor than the candidate it grades. |
 | `no-comments` | Dispatch `task` with `agent_type: "pstack:comment-sicko"`. |
 | `thermos` | Dispatch two `task` calls with `mode: "background"`, `agent_type: "pstack:thermo-nuclear-review-subagent"` and `agent_type: "pstack:thermo-nuclear-code-quality-review-subagent"`, each with the same diff and file contents in its prompt. |
@@ -129,7 +128,7 @@ Affected skill entry points point here. Most skills need only the tables above. 
 
 ## Vendored scripts
 
-`skills/poteto-mode/scripts/` ships the node-only helpers: `check-plan.mjs`, `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs`. The bun-gated `watch-pr` PR watcher and `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`). Invoke the node helpers through `bash` in the form Plugin file access above describes; the bun CLIs need `bun` and `gh`, or `origin` when the forge is Origin. `worktree-audit.mjs` finds each worktree's last chat in Claude Code transcripts under `~/.claude/projects/`, in Codex and Pi sessions, and in Copilot sessions under `${COPILOT_HOME:-~/.copilot}/session-state`. Pass transcript directories after the repo path to scan others instead. It imports the transcript walker from `skills/reflect/scripts/find-transcript.mjs`, so keep the `reflect` skill installed beside `poteto-mode`.
+`skills/poteto-mode/scripts/` ships the node-only helpers: `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs`. The bun-gated `watch-pr` PR watcher and `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`). Invoke the node helpers through `bash` in the form Plugin file access above describes; the bun CLIs need `bun` and `gh`, or `origin` when the forge is Origin. `worktree-audit.mjs` finds each worktree's last chat in Claude Code transcripts under `~/.claude/projects/`, in Codex and Pi sessions, and in Copilot sessions under `${COPILOT_HOME:-~/.copilot}/session-state`. Pass transcript directories after the repo path to scan others instead. It imports the transcript walker from `skills/reflect/scripts/find-transcript.mjs`, so keep the `reflect` skill installed beside `poteto-mode`.
 
 ## Instructions file
 
@@ -146,4 +145,4 @@ The same file names the host's per-project transcripts directory and the host's 
 | the host's project-skill directory | `.github/skills/` (Copilot also reads `.claude/skills/` and `.agents/skills/`). |
 | the host's user-level skill directory | `~/.copilot/skills/` or `~/.agents/skills/`. |
 | the host's per-project transcripts directory | The workspace's Copilot session directories (see [Transcripts](#transcripts)). The transcript finder reads Claude Code's layout, so on Copilot pass the session digest step 1 allows instead of a directory. |
-| the host's agent store (`<agent-store>/`) | `${COPILOT_HOME:-~/.copilot}/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
+| the host's agent store (`<agent-store>/`) | `${COPILOT_HOME:-~/.copilot}/agent-store/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |

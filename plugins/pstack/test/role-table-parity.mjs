@@ -50,6 +50,8 @@ if (blockMatch) {
     // 值形态：`opus` / `inherit-parent` / `opus, fable, sonnet, haiku`（可带 ` @xhigh` 后缀）。
     // 散文说明行的值含句子标点与反引号，在此被排除。
     if (!/^[A-Za-z0-9_.-]+(?: @[a-z]+)?(?:, [A-Za-z0-9_.-]+(?: @[a-z]+)?)*$/.test(value)) continue;
+    // 角色名必须出现在 models.json 里（见本文件头部 ③ 的口径）；模板里其他带冒号的行不是角色。
+    if (!modelsRoles.includes(role)) continue;
     setupRoles.push(role);
   }
 }
@@ -159,6 +161,8 @@ const parseRoleLines = (text) => {
   return out;
 };
 
+const allDeclared = new Map([...rolesBySkill.values()].flat().map((e) => [e.role, e.expected]));
+
 for (const [skill, entries] of rolesBySkill) {
   const rel = `skills/${skill}/SKILL.md`;
   const abs = path.join(PLUGIN, rel);
@@ -188,9 +192,15 @@ for (const [skill, entries] of rolesBySkill) {
   }
 
   const declared = parseRoleLines(text);
+  // 合并表里允许写「same seats as `<role>`」：值是另一个角色名时展开为该角色在 models.json 的模型序列。
+  for (const [role, values] of declared) {
+    if (values.length === 1 && values[0] !== role && allDeclared.has(values[0])) {
+      declared.set(role, allDeclared.get(values[0]));
+    }
+  }
   check(
-    `${rel} 解析出 ${entries.length} 条角色行`,
-    declared.size === entries.length,
+    `${rel} 解析出至少 ${entries.length} 条角色行`,
+    declared.size >= entries.length,
     `解析到 ${declared.size} 条：${JSON.stringify([...declared.keys()])}`,
   );
   const missingRoles = entries.filter((e) => !declared.has(e.role)).map((e) => e.role);
@@ -199,16 +209,18 @@ for (const [skill, entries] of rolesBySkill) {
     missingRoles.length === 0,
     `缺少：${missingRoles.join('；')}`,
   );
-  const extraRoles = [...declared.keys()].filter((r) => !entries.some((e) => e.role === r));
+  // 本移植的 poteto-mode 在一张表里列全量角色，另三个 panel skill 各自重申自己的行；
+  // 因此额外行按「models.json 全局已声明」判定，而不是只按本 skill 的归属。
+  const extraRoles = [...declared.keys()].filter((r) => !allDeclared.has(r));
   check(
     `${rel} 没有 models.json 未声明的角色行`,
     extraRoles.length === 0,
     `多余：${extraRoles.join('；')}`,
   );
-  const mismatched = entries
-    .filter((e) => declared.has(e.role))
-    .filter((e) => JSON.stringify(declared.get(e.role)) !== JSON.stringify(e.expected))
-    .map((e) => `${e.role}: 文档 ${JSON.stringify(declared.get(e.role))} ≠ models.json ${JSON.stringify(e.expected)}`);
+  const mismatched = [...declared.entries()]
+    .filter(([role]) => allDeclared.has(role))
+    .filter(([role, expected]) => JSON.stringify(allDeclared.get(role)) !== JSON.stringify(expected))
+    .map(([role, expected]) => `${role}: 文档 ${JSON.stringify(expected)} ≠ models.json ${JSON.stringify(allDeclared.get(role))}`);
   check(
     `${rel} 每个角色的值序列与 models.json 一致（防张冠李戴）`,
     mismatched.length === 0,

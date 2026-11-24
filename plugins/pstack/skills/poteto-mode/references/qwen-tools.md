@@ -82,7 +82,7 @@ pstack skills name paths in host-neutral terms. On Qwen Code they resolve to:
 | the host's project-skill directory | `.qwen/skills/` in the repository. |
 | the host's user-level skill directory | `~/.qwen/skills/` (Qwen also reads `~/.agents/skills/`; `~/.qwen/skills/` wins on a name clash). |
 | the host's per-project transcripts directory | `~/.qwen/projects/<sanitized-project-path>/chats/` (or under `$QWEN_RUNTIME_DIR` when set). If the layout is uncertain, pass the session id or transcript path your parent supplied. |
-| the host's agent store (`<agent-store>/`) | `~/.qwen/orchestrate/`. The skill creates the store, so any writable path outside the repo and outside the session works. |
+| the host's agent store (`<agent-store>/`) | `~/.qwen/agent-store/`. The skill creates the store, so any writable path outside the repo and outside the session works. |
 | the project instructions file | `QWEN.md` at the project root, or `~/.qwen/QWEN.md` for global instructions. |
 | the host's settings file | `~/.qwen/settings.json` (`QWEN_HOME` relocates the whole directory). |
 
@@ -104,5 +104,4 @@ Most skills need only the tables above. These need one more mapping:
 | `create-formal-verification-skill` / `maintain-formal-verification-skill` | The same `.qwen/skills/` locations, and run the project's verifier with `run_shell_command`. |
 | `babysit` | Prefer Qwen's bundled `loop` skill (registered without the `pstack:` prefix) for a cadence. If it is unavailable, re-run the step yourself on the stated cadence. |
 | `run` / `verify` | Qwen ships no separate `run` skill. Start the app with `run_shell_command` (background when it must stay up) and follow the project's own verification skill when one exists. |
-| `orchestrate` | Keep the agent store under `~/.qwen/orchestrate/`; use `list_agents` and `send_message` to recover a lost background agent. |
 | `teach` | Write the lesson where the user asks; there is no Qwen-specific transcript format to match. |

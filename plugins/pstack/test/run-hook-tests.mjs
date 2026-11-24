@@ -55,10 +55,8 @@ const posix = (p) => p.replaceAll('\\', '/');
 // 两个变量一起给，才是真正的"伪造 home"。
 const fakeHomeEnv = { ...envBase, HOME: home, USERPROFILE: home };
 
-const ROLES = ['feature, refactoring', 'bug-fix', 'perf-issue', 'hillclimb', 'judgment and prose', 'strongest judgment',
-  'how explorer', 'how explainer', 'why investigators', 'why synthesizer', 'reflect tooling',
-  'reflect judgment, divergent, synthesizer'];
-const PANELS = ['arena runners', 'arena cross-judge pool', 'architect runners', 'interrogate reviewers'];
+const ROLES = ['feature, refactoring', 'bug-fix', 'perf-issue', 'hillclimb', 'judgment and prose'];
+const PANELS = ['arena runners', 'arena cross-judge pool', 'interrogate reviewers'];
 const VALID_SHEET = ['# pstack model configuration',
   ...ROLES.map((r) => `${r}: inherit-parent`),
   ...PANELS.map((r) => `${r}: a-1, b-1`),
@@ -182,24 +180,8 @@ ok('task non-pstack agent: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Task', tool_input: { agent_type: 'pstack:poteto-agent' }, cwd: wsPosix }));
 ok('task without model: silent', r.out === '');
 
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }), { PSTACK_GATE_TRACE: '1' });
-ok(`bash contracted script: allow${r.out.trim() === ALLOW ? '' : ` [got code=${r.code} out=${JSON.stringify(r.out.trim())} err=${JSON.stringify(String(r.err || '').slice(0, 500))}]`}`, r.out.trim() === ALLOW);
-writeFileSync(path.join(ws, 'plan.md'), '# plan\n');
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/plan.md` }, cwd: wsPosix }), { PSTACK_GATE_TRACE: '1' });
-ok(`bash operand is an existing file in cwd: allow (resolve climbs to the parent)${r.out.trim() === ALLOW ? '' : ` [got code=${r.code} out=${JSON.stringify(r.out.trim())} err=${JSON.stringify(String(r.err || '').slice(0, 500))}]`}`, r.out.trim() === ALLOW);
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ${wsPosix}/a; rm x` }, cwd: wsPosix }));
-ok('bash metacharacter: silent', r.out === '');
 r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/extras/poteto-mode-scripts/orch/orch.ts ${wsPosix}/x` }, cwd: wsPosix }));
 ok('bash unregistered script: silent', r.out === '');
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs /etc/passwd` }, cwd: wsPosix }));
-ok('bash absolute operand outside cwd: silent', r.out === '');
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs ../plan.md` }, cwd: wsPosix }));
-ok('bash dotdot operand: silent', r.out === '');
-// Panel review C-003 regression lock: a fictional workspace (cwd with no
-// existing ancestor) must fail closed — no auto-allow for contracted scripts
-// with relative operands; the host's normal permission flow decides.
-r = ptu(payload({ tool_name: 'Bash', tool_input: { command: `node ${P}/skills/poteto-mode/scripts/check-plan.mjs plan.md` }, cwd: `${wsPosix}/../no-such-ws-${Date.now()}` }), { PSTACK_GATE_TRACE: '1' });
-ok('fictional cwd (no existing ancestor): silent (fail closed, no auto-allow)', r.out === '');
 
 // resume.mjs contract (ported from script-contracts.awk:54): begin/read
 // approve on their own; publish requires a --note destination; duplicate

@@ -42,10 +42,9 @@ The `interrogate reviewers` line is a panel: one adversary per entry, the table 
 
 | Subagent | Default model |
 |----------|---------------|
-| Adversary A | `opus` |
-| Adversary B | `fable` |
+| Adversary A | `fable` |
+| Adversary B | `opus` |
 | Adversary C | `sonnet` |
-| Adversary D | `haiku` |
 
 ## Reasoning effort
 

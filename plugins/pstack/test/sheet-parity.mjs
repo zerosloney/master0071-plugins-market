@@ -13,10 +13,8 @@ import { parseSheet } from '../hooks/sheet.mjs';
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const AWK_DIR = path.join(PLUGIN_ROOT, 'skills', 'setup-pstack', 'scripts');
 
-const ROLES = ['feature, refactoring', 'bug-fix', 'perf-issue', 'hillclimb', 'judgment and prose', 'strongest judgment',
-  'how explorer', 'how explainer', 'why investigators', 'why synthesizer', 'reflect tooling',
-  'reflect judgment, divergent, synthesizer'];
-const PANELS = ['arena runners', 'arena cross-judge pool', 'architect runners', 'interrogate reviewers'];
+const ROLES = ['feature, refactoring', 'bug-fix', 'perf-issue', 'hillclimb', 'judgment and prose'];
+const PANELS = ['arena runners', 'arena cross-judge pool', 'interrogate reviewers'];
 const validSheet = () => ['# pstack model configuration',
   ...ROLES.map((r) => `${r}: inherit-parent`),
   ...PANELS.map((r) => `${r}: a-1, b-1`),
@@ -30,7 +28,7 @@ const swapLine = (from, to) => validSheet().replace(from, to);
 const fixtures = [
   { name: 'valid sheet', text: validSheet() },
   { name: 'missing role', text: dropRole('bug-fix') },
-  { name: 'missing panel role', text: dropRole('architect runners') },
+  { name: 'missing panel role', text: dropRole('interrogate reviewers') },
   { name: 'unknown line', text: swapLine('session hook: on', 'session hook: on\nmade-up role: inherit-parent') },
   { name: 'invalid default effort', text: swapLine('default effort: session', 'default effort: ultra') },
   { name: 'high default effort', text: swapLine('default effort: session', 'default effort: high') },

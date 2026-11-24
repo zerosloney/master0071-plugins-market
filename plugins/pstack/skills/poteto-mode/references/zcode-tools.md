@@ -57,7 +57,7 @@ pstack skills name the paths they need in host-neutral terms ("the host's projec
 | the host's project-skill directory | The directory your ZCode install scans for project-local skills. The plugin's own skills live under the plugin root's `skills/`. |
 | the host's user-level skill directory | `~/.zcode/skills/`. |
 | the host's per-project transcripts directory | `~/.zcode/cli/`. The transcript finder reads Claude Code's layout, so on ZCode pass the session digest step 1 allows instead of a directory. |
-| the host's agent store (`<agent-store>/`) | `~/.zcode/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
+| the host's agent store (`<agent-store>/`) | `~/.zcode/agent-store/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
 
 A runtime with no mapping file of its own uses its own agent directory for the store and its own skill directory for skills.
 
@@ -78,7 +78,7 @@ Most skills need only the tables above. These need one more mapping:
 
 ## Vendored scripts
 
-`skills/poteto-mode/scripts/` ships the node-only helpers: `check-plan.mjs`, `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs` — invoke them through `Bash` with `node`. The bun-gated `watch-pr` PR watcher and `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`); they need `bun` and `gh`, or `origin` when the forge is Origin.
+`skills/poteto-mode/scripts/` ships the node-only helpers: `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs` — invoke them through `Bash` with `node`. The bun-gated `watch-pr` PR watcher and `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`); they need `bun` and `gh`, or `origin` when the forge is Origin.
 
 ## Instructions file
 

@@ -209,7 +209,6 @@ const CONTRACT = new Map([
   ['skills/reflect/scripts/find-transcript.mjs', 'transcript'],
   ['skills/setup-pstack/scripts/check-sheet.sh', 'optional-path'],
   ['skills/poteto-mode/scripts/check-playbooks.mjs', 'optional-path'],
-  ['skills/poteto-mode/scripts/check-plan.mjs', 'one-path'],
   ['skills/poteto-mode/scripts/worktree-audit.mjs', 'paths'],
   ['skills/poteto-mode/scripts/resume.mjs', 'resume'],
 ]);

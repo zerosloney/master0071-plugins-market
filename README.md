@@ -7,7 +7,7 @@
 | [systemone-decision](plugins/systemone-decision/) | 0.6.2 | `skills/` + `mcp.json` | SystemOne 决策模型工具集：只注册 2 个 MCP 工具控制 schema 开销，内置 16 个业务场景（工单分流、内容审核、Agent 路由、模型路由、结果校验、软件开发判定等），返回概率化判定、归一化决策与处置建议，支持自定义场景 |
 | [worktree-ops](plugins/worktree-ops/) | 0.4.17 | `skills/` + `mcp.json` | Git worktree 操作台：在可配置目录里创建（新分支或检出既有分支）/ 列出 / 审计 / 合并回主干与安全清理 worktree，10 个 MCP 工具 + `worktree-manager` skill，根目录与分支前缀均可配；删除默认拒绝脏工作树与未合并提交（`force=true` 单独无效，须与 `confirmDiscard=true` 同时为真才丢弃），锁定中与受管目录外一律拒绝删除且 `force` 不放开 |
 | [agent-pipelines](plugins/agent-pipelines/) | 0.1.29 | `skills/` | 多代理编排管道套件：`/ralph-pipeline` 通用任务编排 + `/coding-pipeline` 受控编码管道，含 6 个配套子智能体。模型不写死，回退会话默认模型 |
-| [pstack](plugins/pstack/) | 0.1.27 | `skills/` + `qwen/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 66 个 skill，含 24 条 principle 原则、4 个子智能体（名单与上游一致）与会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包：共享 skill、同一组 4 个子智能体与 Qwen 专属 hook；扩展 skill 带 `pstack:` 命名空间，扩展子智能体保留 frontmatter 裸名 |
+| [pstack](plugins/pstack/) | 0.1.28 | `skills/` + `qwen/` | poteto 风格 agent 工作流栈（第三方移植）：`poteto-mode` 作为路由入口调度 architect / arena / interrogate / thermos / unslop 等 67 个 skill，含 24 条 principle 原则、4 个基础子智能体（2 个 poteto + 2 个 thermos）与会话启动 hook。Qwen Code 由 `scripts/build-qwen-extension.mjs` 生成自包含原生包：共享 skill、同一组 4 个子智能体与 Qwen 专属 hook；扩展 skill 带 `pstack:` 命名空间，扩展子智能体保留 frontmatter 裸名 |
 | [ai-native-delivery](plugins/ai-native-delivery/) | 0.4.0 | `skills/` + `mcp.json` | AI-Native 交付治理引擎：L0/L1/L2/L3 风险泳道两问定级（L0 极简道免立档）+ check-loop 硬门 6 段 + 台账三件套 + 判定账治理进化，装上即得三层闭环；台账落使用项目 git 仓库根 |
 | [deep-research-evolve](plugins/deep-research-evolve/) | 0.1.1 | `skills/` | 深度研究全流程：`deep-research` 一次性多源调研（子问题拆解→检索→交叉验证→带引用报告）/ `evolve` 档案化自主进化（research/ 主题档案增量复研修订旧结论 + 定时重访）/ `visual-report` 单文件交互式可视化报告（内联 SVG 图表）/ `benchmark` 加权对比评估矩阵（雷达图 + 敏感性检验），结论沉淀为可检索研究档案库、新调研复用旧证据；纯 skills 无脚本无 MCP，内置联网即用，可选连接器见插件 CONNECTORS.md |
 | [tech-code-refactoring](plugins/tech-code-refactoring/) | 0.2.0 | `skills/` + `scripts/` | 技术债六步重构工作流：`code-analyzer` 多语言 AST 摸底 / `agent-git-oracle` Git 债区 / `uncle-bob` SOLID 评审 / `code-refactoring` 安全手法 / `system-architect` 目标架构 / `simplify` 减法收尾，`refactoring-workflow` 路由；分析脚本 Node ≥ 18 零安装（vendored tree-sitter AST 引擎，见插件 NOTICE.md）；skill 与脚本全原创 |
@@ -75,7 +75,7 @@ plugins/
 │   └── .zcode-plugin/  .codex-plugin/  .omp-plugin/   # ↓ 宿主兼容垫片，非标准
 ├── pstack/
     ├── plugin.json           # 标准清单
-    ├── skills/               # 标准 skill：66 个（poteto-mode / 24 principle-* / 工作流）
+    ├── skills/               # 标准 skill：67 个（poteto-mode / 24 principle-* / 工作流）
     ├── agents/  hooks/  models.json                    # ↓ 客户端约定，非 Agent Plugins 核心
     ├── qwen/agents/          # Qwen 专属基础子智能体（不含 ZCode 的 model / thoughtLevel 钉值）
     ├── QWEN.md               # Qwen 扩展上下文：pstack: 命名空间、映射文档入口、表路径
@@ -147,7 +147,7 @@ node scripts/build-qwen-extension.mjs
 qwen extensions install --consent dist/qwen-pstack
 ```
 
-生成物是 `dist/qwen-pstack`（已 gitignore）：66 个共享 skill + `agents/` 4 个基础档 + `hooks/hooks.json` + `QWEN.md`，安装后 Qwen 按 `qwen` 格式加载。开发时也可 `qwen extensions link dist/qwen-pstack`，但每次重新生成后要重跑 link。
+生成物是 `dist/qwen-pstack`（已 gitignore）：67 个共享 skill + `agents/` 4 个基础档 + `hooks/hooks.json` + `QWEN.md`，安装后 Qwen 按 `qwen` 格式加载。开发时也可 `qwen extensions link dist/qwen-pstack`，但每次重新生成后要重跑 link。
 
 安装后扩展 skill 带 `pstack:` 前缀，调用写成 `/pstack:poteto-mode`、`/pstack:setup-pstack`；扩展子智能体保留裸名，`agent` 调用写 `subagent_type: "poteto-agent"`（pstack skill 里的 `pstack:<agent>` 在 Qwen 上要剥前缀）。先按 [Qwen setup](plugins/pstack/skills/setup-pstack/qwen.md) 把 `opus` / `fable` / `sonnet` / `haiku` 配成 `agents.modelGrades`，否则各 skill 的 `model` 会被 Qwen 拒绝并回退到父会话模型。
 

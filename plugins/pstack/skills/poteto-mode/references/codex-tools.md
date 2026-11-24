@@ -40,7 +40,7 @@ poteto-mode's Subagents section sets Claude-specific defaults (`subagent_type: "
 - There are no `pstack:effort-<level>` or `pstack:poteto-agent-<level>` types. When a role value carries `@<level>`, or the `default effort` line names a level, pass that level as `spawn_agent`'s `reasoning_effort` and keep the dispatch otherwise unchanged. `session` passes no `reasoning_effort`.
 - There is no `comment-sicko` subagent type either. The **no-comments** skill spawns it on Claude Code; on Codex dispatch a `spawn_agent` whose instructions tell it to read `poteto-mode/references/agents/comment-sicko.md` in full first.
 - There are no `thermo-nuclear-review-subagent` or `thermo-nuclear-code-quality-review-subagent` types. The **thermos** skill spawns both on Claude Code; on Codex dispatch two `spawn_agent` calls whose instructions tell each to read the `thermo-nuclear-review` or `thermo-nuclear-code-quality-review` skill in full first and review only the diff and file contents in its prompt.
-- Claude Code runs every subagent on this machine, so the **swarm** skill's workers and the fan-out playbooks (`orchestrate`, `autopilot-full`, `autopilot-stack`) isolate writers with worktrees. The same holds on Codex.
+- Claude Code runs every subagent on this machine, so the **swarm** skill's workers and the fan-out playbooks (`autopilot-full`, `autopilot-stack`) isolate writers with worktrees. The same holds on Codex.
 - Keep the rest of the policy unchanged. Pass file pointers not inlined context, give each worker its own worktree or branch when they write, review every subagent's diff yourself.
 
 ## Model names
@@ -48,8 +48,8 @@ poteto-mode's Subagents section sets Claude-specific defaults (`subagent_type: "
 Skills name Claude defaults (a single-role default for code/prose/judgment plus a diverse-model panel for diverse-model panels; each model-consuming skill lists its own in a Models section). These slugs do not resolve on Codex. Substitute your configured Codex models:
 
 - Single-model roles: your primary Codex model (for example `gpt-6-sol`).
-- Roles that default to the strongest Claude model (`bug-fix`, `perf-issue`, `hillclimb`, `strongest judgment`): your strongest Codex model (for example `gpt-6-astra`).
-- Diverse-model panels (`arena`, `architect`, `interrogate`, `how` critics, `reflect`): the adversarial signal comes from model diversity, so use the distinct Codex models available to you. A good default panel on ChatGPT is `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`. If only one model family is reachable, vary reasoning effort and note in the verdict that diversity was reduced.
+- Roles that default to the strongest Claude model (`bug-fix`, `perf-issue`, `hillclimb`): your strongest Codex model (for example `gpt-6-astra`).
+- Diverse-model panels (`arena`, `interrogate`): the adversarial signal comes from model diversity, so use the distinct Codex models available to you. A good default panel on ChatGPT is `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`. If only one model family is reachable, vary reasoning effort and note in the verdict that diversity was reduced.
 
 `/setup-pstack` writes the configured model list. On Codex, set it to your Codex model slugs.
 
@@ -79,7 +79,7 @@ pstack skills name the paths they need in host-neutral terms ("the host's projec
 | the host's project-skill directory | The directory your Codex install scans for project-local skills. When your Codex has none, add the skill to a plugin package instead of a loose directory. |
 | the host's user-level skill directory | `$CODEX_HOME/skills/` (default `~/.codex/skills/`). |
 | the host's per-project transcripts directory | `$CODEX_HOME/sessions` (default `~/.codex/sessions`). The transcript finder reads Claude Code's layout, so on Codex pass the session digest step 1 allows instead of a directory. |
-| the host's agent store (`<agent-store>/`) | `~/.codex/orchestrate/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
+| the host's agent store (`<agent-store>/`) | `~/.codex/agent-store/`. The skill creates the store, so any writable path works; keep it outside the repo and outside the session. |
 
 A runtime with no mapping file of its own uses its own agent directory for the store and its own skill directory for skills.
 
@@ -107,7 +107,7 @@ Affected skill entry points and the optional Codex slash stubs point here. Most 
 
 ## Vendored scripts
 
-`skills/poteto-mode/scripts/` ships the node-only helpers: `check-plan.mjs`, `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs`; `resume.mjs` owns the shared checkpoint locator described in [Resume storage](resume-storage.md). The bun-gated `watch-pr` PR watcher (its `watch-pr/ship-pr` command owns pending-merge inspection and cancellation) and the `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`). Invoke the node helpers through `shell` with `node`; the bun CLIs need `bun` and `gh`, or `origin` when the forge is Origin. Run `worktree-audit.mjs` with `node`, as its shebang does. The audit follows each link in a worktree's ancestor directories with `stat` and matches it by the directory it lands on, under bun and node alike. A worktree whose own path bun cannot resolve loses its last chat and lands in `review`. A dangling or looping link is ignored. Any other link that `stat` cannot follow puts every worktree under the link's directory in `review`, with a warning that names the link. `worktree-audit.mjs` scans Codex sessions under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` (default `~/.codex`), along with any Claude Code or Pi transcript directory that exists. It imports the transcript walker from `skills/reflect/scripts/find-transcript.mjs`, so keep the `reflect` skill installed beside `poteto-mode`.
+`skills/poteto-mode/scripts/` ships the node-only helpers: `check-playbooks.mjs`, `resume.mjs`, and `worktree-audit.mjs`; `resume.mjs` owns the shared checkpoint locator described in [Resume storage](resume-storage.md). The bun-gated `watch-pr` PR watcher (its `watch-pr/ship-pr` command owns pending-merge inspection and cancellation) and the `orch` store CLI live under `extras/poteto-mode-scripts/` (enable conditions in `extras/README.md`). Invoke the node helpers through `shell` with `node`; the bun CLIs need `bun` and `gh`, or `origin` when the forge is Origin. Run `worktree-audit.mjs` with `node`, as its shebang does. The audit follows each link in a worktree's ancestor directories with `stat` and matches it by the directory it lands on, under bun and node alike. A worktree whose own path bun cannot resolve loses its last chat and lands in `review`. A dangling or looping link is ignored. Any other link that `stat` cannot follow puts every worktree under the link's directory in `review`, with a warning that names the link. `worktree-audit.mjs` scans Codex sessions under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` (default `~/.codex`), along with any Claude Code or Pi transcript directory that exists. It imports the transcript walker from `skills/reflect/scripts/find-transcript.mjs`, so keep the `reflect` skill installed beside `poteto-mode`.
 
 ## Instructions file
 

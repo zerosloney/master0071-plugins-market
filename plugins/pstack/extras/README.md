@@ -15,15 +15,15 @@
 
 | 目录 | 内容 | 启用条件 |
 |------|------|----------|
-| `poteto-mode-scripts/` | 上游 vendored 的 bun 专属 TypeScript：`watch-pr` PR 监视器与 `ship-pr`（babysit/shipping playbook 用）、`orch` 状态 CLI（orchestrate playbook 用）、`bootstrap.ts` 及其 `package.json` / `bun.lock` / `tsconfig.json` | 需要 **bun**（`bootstrap.ts` 在纯 node 下会明确报错退出）与 `gh` CLI；首次运行 `bun extras/poteto-mode-scripts/bootstrap.ts` 安装依赖。playbook 与宿主映射文档按本路径调用。**注意**：`watch-pr/` 下的 `ship-pr` 与 `watch-pr` 两个入口是无扩展名的 shebang 脚本（上游原样），Windows 上不能直接双击/直接执行——按 playbook 的命令形式调用（走 bun），或 `bun run <脚本>` |
+| `poteto-mode-scripts/` | 上游 vendored 的 bun 专属 TypeScript：`watch-pr` PR 监视器与 `ship-pr`（babysit/shipping playbook 用）、`orch` 状态 CLI（当前无 playbook 消费，随包保留）、`bootstrap.ts` 及其 `package.json` / `bun.lock` / `tsconfig.json` | 需要 **bun**（`bootstrap.ts` 在纯 node 下会明确报错退出）与 `gh` CLI；首次运行 `bun extras/poteto-mode-scripts/bootstrap.ts` 安装依赖。playbook 与宿主映射文档按本路径调用。**注意**：`watch-pr/` 下的 `ship-pr` 与 `watch-pr` 两个入口是无扩展名的 shebang 脚本（上游原样），Windows 上不能直接双击/直接执行——按 playbook 的命令形式调用（走 bun），或 `bun run <脚本>` |
 | `upstream-reference/` | 移植前的上游 hook 原文（`session-start.sh` / `.ps1`、`pre-tool-use.sh` 与 4 个 awk 引擎） | **纯参考，无启用条件**：不被任何注册引用，仅用于对照 node 移植版（`hooks/*.mjs`）与上游行为的差异 |
 
-不装 bun 时，`watch-pr` / `orch` 相关的 playbook 步骤（babysit 的 GitHub 监视、orchestrate 的状态簿记）
+不装 bun 时，`watch-pr` 的 playbook 步骤（babysit 的 GitHub 监视）
 不可用；playbook 文中已同时给出无 bun 场景的替代路径（`gh` / `origin` 直查）。`skills/poteto-mode/scripts/`
-下的 4 个 node 脚本（`check-plan.mjs` / `check-playbooks.mjs` / `resume.mjs` / `worktree-audit.mjs`）
+下的 3 个 node 脚本（`check-playbooks.mjs` / `resume.mjs` / `worktree-audit.mjs`）
 零依赖、随装随用，与 bun 无关。
 
-bun 测试套件（`poteto-mode-scripts/` 下的 `bun test`，覆盖 `orch`、`watch-pr` 与 `check-plan.test.ts`）
+bun 测试套件（`poteto-mode-scripts/` 下的 `bun test`，覆盖 `orch` 与 `watch-pr`）
 仅在上游 POSIX 环境验证过。**Windows 实测 253 例**（2026-10-29 第五轮）：
 默认 5s 超时下 **250–251 pass / 2–3 fail**，起始是 217 / 36。剩余 2–3 条都是 `orch` 的
 多进程锁竞争用例——单独跑能过，整套并行时在 5s 内跑不完；放宽到 30s 则 orch 42/42 全绿。

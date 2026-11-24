@@ -24,9 +24,9 @@ The Qwen home directory is `$QWEN_HOME` when set and `~/.qwen` otherwise. This f
 2. Ask the user to run `/model` in the session and paste the model IDs they want pstack to use. `/model` lists the selectors the session can resolve. Never invent a model ID from a family name.
 3. Treat an existing grade as the current choice for its tier. Do not overwrite it without asking.
 4. Ask which model each pstack tier should use, one question at a time:
-   - `opus` — strongest judgment
-   - `fable` — second strong model, ideally from another provider family
-   - `sonnet` — default workhorse
+   - `opus` — default tier: code, prose and judgment (also one of the three review-panel seats)
+   - `fable` — strongest tier: the hardest changes (cross-cutting design, gnarly concurrency, subtle algorithms)
+   - `sonnet` — third review-panel seat; prefer a different provider family where the host has one
    - `haiku` — fast or cheap
    Several tiers may share a selector when the user has fewer distinct models. Say what that does to arena diversity instead of implying the seats differ.
 5. Offer to write the grades. Show the exact block first and ask for confirmation; this edits a shared settings file, so never do it silently. Preserve every other setting and key.

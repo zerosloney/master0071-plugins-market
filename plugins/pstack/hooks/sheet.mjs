@@ -9,21 +9,13 @@ export const ROLES = [
   'perf-issue',
   'hillclimb',
   'judgment and prose',
-  'strongest judgment',
-  'how explorer',
-  'how explainer',
-  'why investigators',
-  'why synthesizer',
-  'reflect tooling',
-  'reflect judgment, divergent, synthesizer',
   'arena runners',
   'arena cross-judge pool',
   'swarm workers',
-  'architect runners',
   'interrogate reviewers',
 ];
 
-export const PANEL = new Set(['arena runners', 'arena cross-judge pool', 'architect runners', 'interrogate reviewers']);
+export const PANEL = new Set(['arena runners', 'arena cross-judge pool', 'interrogate reviewers']);
 
 const EFFORT = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
